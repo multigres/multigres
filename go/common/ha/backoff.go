@@ -112,10 +112,11 @@ func (s BackoffSchedule) NextAttempt(rev *clustermetadatapb.TermRevocation, orch
 }
 
 // backoff returns the exponential delay for the (1-based) attempt: Base *
-// 2^(attempt-1), clamped to Max. It reuses retry.ExponentialBackoff (0-based) for
-// the overflow-safe magnitude; the jitter strategy differs (see the type doc).
+// 2^(attempt-1), clamped to Max. It reuses retry.ExponentialBackoffMagnitude
+// (0-based) for the overflow-safe magnitude; the jitter strategy differs (see
+// the type doc).
 func (s BackoffSchedule) backoff(attempt int64) time.Duration {
-	return retry.ExponentialBackoff(s.Base, s.Max, int(attempt-1))
+	return retry.ExponentialBackoffMagnitude(s.Base, s.Max, int(attempt-1))
 }
 
 // jitter returns a deterministic offset in [0, JitterFraction*base) derived from

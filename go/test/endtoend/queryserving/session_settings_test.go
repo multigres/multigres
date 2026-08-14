@@ -1132,6 +1132,175 @@ func TestParameterStatusReporting_Reset(t *testing.T) {
 	}
 }
 
+// TestParameterStatusReporting_InTransaction verifies that a SET or RESET of a
+// GUC_REPORT parameter issued inside an explicit transaction reports the change
+// to the client, exactly as PostgreSQL does. These route the real statement to
+// the backend, whose ParameterStatus is forwarded through the multipooler; a
+// fresh connection per case keeps the reserved-backend state deterministic.
+func TestParameterStatusReporting_InTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	// Each case starts a fresh session, sets a starting value outside the
+	// transaction, then runs the in-transaction statement whose report we check.
+	cases := []struct {
+		name     string
+		start    string // value set (outside txn) before the checked statement
+		stmt     string // the in-transaction statement under test
+		expected string // client_encoding value the checked statement must report
+	}{
+		{"in-txn SET", "LATIN1", "SET client_encoding = 'UTF8'", "UTF8"},
+		{"in-txn RESET", "LATIN1", "RESET client_encoding", "UTF8"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reported := map[string]string{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				cfg, err := pgconn.ParseConfig(connStr)
+				require.NoError(t, err)
+
+				var trace bytes.Buffer
+				cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+					fe := pgproto3.NewFrontend(r, w)
+					fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+					return fe
+				}
+				conn, err := pgconn.ConnectConfig(ctx, cfg)
+				require.NoError(t, err)
+
+				_, err = conn.Exec(ctx, "SET client_encoding = '"+tc.start+"'").ReadAll()
+				require.NoError(t, err)
+				_, err = conn.Exec(ctx, "BEGIN").ReadAll()
+				require.NoError(t, err)
+
+				trace.Reset()
+				_, err = conn.Exec(ctx, tc.stmt).ReadAll()
+				require.NoError(t, err, "%s should be accepted", tc.stmt)
+
+				var val string
+				for l := range strings.SplitSeq(trace.String(), "\n") {
+					if strings.Contains(l, "\tParameterStatus\t") && strings.Contains(l, `"client_encoding"`) {
+						if i := strings.LastIndex(l, `"`); i > 0 {
+							if j := strings.LastIndex(l[:i], `"`); j >= 0 {
+								val = l[j+1 : i]
+							}
+						}
+					}
+				}
+				_, _ = conn.Exec(ctx, "COMMIT").ReadAll()
+				conn.Close(context.Background())
+
+				t.Logf("%s: %s reported client_encoding=%q", target.Name, tc.name, val)
+				reported[target.Name] = val
+			}
+
+			require.Equal(t, tc.expected, reported["postgres"],
+				"sanity: PostgreSQL reports %q for %s", tc.expected, tc.name)
+			assert.Equal(t, reported["postgres"], reported["multigateway"],
+				"multigateway must report the same client_encoding as PostgreSQL for %s", tc.name)
+		})
+	}
+}
+
+// TestParameterStatusReporting_Rollback verifies that ROLLBACK reports the
+// reverted value of every GUC_REPORT parameter changed inside the transaction,
+// exactly as PostgreSQL does. Reporting the in-transaction change (which this PR
+// now does) makes reporting the revert mandatory: otherwise the client would be
+// left believing the rolled-back value. Two cases: reverting to a value set
+// before the transaction, and reverting to the default (no pre-transaction
+// value). The reverted value is read from a fresh connection's wire trace.
+func TestParameterStatusReporting_Rollback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	cases := []struct {
+		name     string
+		setup    []string // statements run (outside the checked step) to establish state
+		expected string   // client_encoding value ROLLBACK must report
+	}{
+		{
+			// Pre-transaction value LATIN1; in-txn SET UTF8; ROLLBACK reverts to LATIN1.
+			name:     "revert to prior value",
+			setup:    []string{"SET client_encoding = 'LATIN1'", "BEGIN", "SET client_encoding = 'UTF8'"},
+			expected: "LATIN1",
+		},
+		{
+			// No pre-transaction value (default UTF8); in-txn SET LATIN1; ROLLBACK
+			// reverts to the default UTF8.
+			name:     "revert to default",
+			setup:    []string{"RESET client_encoding", "BEGIN", "SET client_encoding = 'LATIN1'"},
+			expected: "UTF8",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reported := map[string]string{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				cfg, err := pgconn.ParseConfig(connStr)
+				require.NoError(t, err)
+
+				var trace bytes.Buffer
+				cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+					fe := pgproto3.NewFrontend(r, w)
+					fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+					return fe
+				}
+				conn, err := pgconn.ConnectConfig(ctx, cfg)
+				require.NoError(t, err)
+
+				for _, s := range tc.setup {
+					_, err := conn.Exec(ctx, s).ReadAll()
+					require.NoError(t, err, "%s should be accepted", s)
+				}
+
+				trace.Reset()
+				_, err = conn.Exec(ctx, "ROLLBACK").ReadAll()
+				require.NoError(t, err, "ROLLBACK should be accepted")
+
+				var val string
+				for l := range strings.SplitSeq(trace.String(), "\n") {
+					if strings.Contains(l, "\tParameterStatus\t") && strings.Contains(l, `"client_encoding"`) {
+						if i := strings.LastIndex(l, `"`); i > 0 {
+							if j := strings.LastIndex(l[:i], `"`); j >= 0 {
+								val = l[j+1 : i]
+							}
+						}
+					}
+				}
+				_ = conn.Close(context.Background())
+
+				t.Logf("%s: ROLLBACK (%s) reported client_encoding=%q", target.Name, tc.name, val)
+				reported[target.Name] = val
+			}
+
+			require.Equal(t, tc.expected, reported["postgres"],
+				"sanity: PostgreSQL reports %q on ROLLBACK for %q", tc.expected, tc.name)
+			assert.Equal(t, reported["postgres"], reported["multigateway"],
+				"multigateway must report the same reverted client_encoding as PostgreSQL for %q", tc.name)
+		})
+	}
+}
+
 // Helper Functions
 
 // execAndVerify executes SET and verifies SHOW returns expected value

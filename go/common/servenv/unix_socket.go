@@ -26,7 +26,7 @@ import (
 // serveSocketFile listen to the named socket and serves RPCs on it.
 func (g *GrpcServer) serveSocketFile() error {
 	if g.socketFile.Get() == "" {
-		slog.Info("Not listening on socket file")
+		slog.Info("not listening on socket file")
 		return nil
 	}
 	name := g.socketFile.Get()
@@ -42,10 +42,10 @@ func (g *GrpcServer) serveSocketFile() error {
 	if err != nil {
 		return fmt.Errorf("cannot listen on socket file %q: %w", name, err)
 	}
-	slog.Info("Listening on socket file for gRPC", "name", name)
+	slog.Info("listening on socket file for gRPC", "name", name)
 	go func() {
 		if err := g.Server.Serve(l); err != nil {
-			slog.Error("gRPC server failed on socket file", "err", err)
+			slog.Error("gRPC server failed on socket file", "error", err)
 		}
 	}()
 	return nil

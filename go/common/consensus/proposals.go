@@ -66,6 +66,20 @@ type RecruitmentResult struct {
 	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 }
 
+// ReplicationPrimaryFromProposal builds the ReplicationPrimary a cohort
+// member should be told from a CoordinatorProposal, shared by Promote
+// (leader) and SetPrimary (followers) so they can't drift apart.
+//
+// rewindReady is explicit rather than defaulted, since a silently-omitted
+// zero value here is exactly the kind of gap this exists to prevent.
+func ReplicationPrimaryFromProposal(proposal *consensusdatapb.CoordinatorProposal, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
+	return &clustermetadatapb.ReplicationPrimary{
+		Position:    proposal.GetProposedTransition(),
+		Primary:     proposal.GetProposalLeader(),
+		RewindReady: rewindReady,
+	}
+}
+
 // quorumMode controls which quorum requirements are enforced before calling
 // buildProposal. Both modes require an incoming-cohort quorum after the
 // proposal is built (so the new cohort can make durable writes); they differ
@@ -498,7 +512,11 @@ func validateProposal(
 		}
 	}
 	if !foundLeader {
-		return fmt.Errorf("proposed leader %s is not among eligible leaders", leaderKey)
+		eligibleKeys := make([]string, len(result.EligibleLeaders))
+		for i, cs := range result.EligibleLeaders {
+			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
+		}
+		return fmt.Errorf("proposed leader %s is not among eligible leaders %v", leaderKey, eligibleKeys)
 	}
 
 	proposedRule := proposal.GetProposedTransition().GetProposal()

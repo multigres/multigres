@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -139,11 +140,15 @@ func (e *resolveApplyExec) ConcludeTransaction(context.Context, *server.Conn, *h
 	return nil
 }
 
+func (e *resolveApplyExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (e *resolveApplyExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (e *resolveApplyExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (e *resolveApplyExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	return nil
 }
 
@@ -218,4 +223,51 @@ func TestResolveTrackSetConfig_DoesNotTrackWhenApplyFails(t *testing.T) {
 	require.ErrorIs(t, err, applyErr)
 	assert.Equal(t, 1, exec.applyCalls)
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "state changes must be delayed until backend apply succeeds")
+}
+
+// TestResolveTrackSetConfig_AppliesIsLocalPerSessionState pins the is_local the
+// synthesized apply uses, mirroring the direct/SET model:
+//   - unpinned: every call applies is_local := true, so nothing persists on the
+//     pooled backend (the value lives only in the gateway map, replayed at the
+//     next checkout).
+//   - pinned: an ordinary call applies its captured is_local (false persists on
+//     the reserved backend), while a gateway-managed GUC is ALWAYS forced to
+//     is_local := true — a persisting gateway-managed GUC would outlive the
+//     release label, which is built from SessionSettings and can never describe
+//     it. The value still returns identically under GUC_ACTION_LOCAL.
+func TestResolveTrackSetConfig_AppliesIsLocalPerSessionState(t *testing.T) {
+	run := func(t *testing.T, pinned bool) string {
+		prim := newResolveSetConfigForTest(
+			setConfigResolveRow("statement_timeout", "5s", false),
+			setConfigResolveRow("work_mem", "64MB", false),
+		)
+		exec := &resolveApplyExec{}
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+		if pinned {
+			conn.SetTxnStatus(protocol.TxnStatusInBlock)
+		}
+		state := handler.NewMultigatewayConnectionState()
+		state.InitStatementTimeout(30 * time.Second)
+
+		err := prim.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+			func(context.Context, *sqltypes.Result) error { return nil })
+		require.NoError(t, err)
+		return exec.applySQL
+	}
+
+	t.Run("unpinned reverts everything", func(t *testing.T) {
+		sql := run(t, false)
+		assert.Contains(t, sql, "set_config('statement_timeout', '5s', true)",
+			"gateway-managed GUC always applies statement-locally")
+		assert.Contains(t, sql, "set_config('work_mem', '64MB', true)",
+			"an unpinned ordinary GUC reverts (is_local := true)")
+	})
+
+	t.Run("pinned persists the ordinary GUC", func(t *testing.T) {
+		sql := run(t, true)
+		assert.Contains(t, sql, "set_config('statement_timeout', '5s', true)",
+			"gateway-managed GUC always applies statement-locally, even when pinned")
+		assert.Contains(t, sql, "set_config('work_mem', '64MB', false)",
+			"a pinned ordinary GUC persists its captured is_local on the reserved backend")
+	})
 }

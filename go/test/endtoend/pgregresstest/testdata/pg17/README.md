@@ -22,9 +22,18 @@ pg17/
 
 A patch describes a **deviation that we accept** — typically because multigres
 produces a differently-worded error message, or emits fewer error-context
-lines than Postgres. Patches must not absorb real regressions (wrong result
-rows, flipped success/error, changed column types). The reviewer's job is to
-inspect each patch like any other diff.
+lines than Postgres. Core pg_regress intentionally keeps every connection on
+the freshly initialized `postgres` database; stable output differences caused
+by upstream fixtures hard-coding their default `regression` database belong
+here too. Input SQL is never patched. Stable transaction-pooling differences
+may be accepted only after identical normalized output is observed across at
+least three consecutive runs.
+
+Patches must not absorb unrelated regressions (wrong result rows, flipped
+success/error, changed column types). Direct deterministic fallout from an
+accepted blocked operation or missing `regression` database must be called out
+in the patch preamble. The reviewer's job is to inspect each patch like any
+other diff.
 
 Every intentional security/safety divergence must have a comment preamble that
 names the blocked capability and explains any directly dependent output. When
@@ -75,7 +84,7 @@ Each test gets three columns in `results.json`:
 Together these fields classify every result:
 
 - `pass` without a patch: compatible.
-- `pass` with a patch: accepted Multigres divergence (also shown as passed).
+- `pass` with a patch: accepted divergence (also shown as passed).
 - `fail`: genuine residual failure (possibly after an accepted narrow patch).
 
 ## When to delete a patch

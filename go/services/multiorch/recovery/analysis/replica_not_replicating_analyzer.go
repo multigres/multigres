@@ -52,8 +52,19 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 		return nil, nil
 	}
 
-	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
-	if !pa.IsInitialized() {
+	// Skip if we don't have a recent enough observation to trust it, or if the
+	// replica is not initialized (ShardNeedsInitialization handles that).
+	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.FollowerStreamFreshness)
+	if !ok || !hs.GetStatus().GetIsInitialized() {
+		return nil, nil
+	}
+
+	// ReplicationStatus is populated only when the snapshot's live postgres query
+	// succeeds. A fresh snapshot may still be partial: nil ReplicationStatus while
+	// postgres is running is unknown, not evidence that replication is broken. A
+	// fresh PostgresRunning=false observation remains actionable.
+	status := hs.GetStatus()
+	if status.GetReplicationStatus() == nil && status.GetPostgresRunning() {
 		return nil, nil
 	}
 
@@ -68,6 +79,14 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 	// unreachable-but-known leader is still the official term leader worth telling
 	// replicas about, and only knowing where to point them matters.
 	if !leaderServing(sa) || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
+		return nil, nil
+	}
+
+	// A follower whose revocation revokes the committed rule is stranded by an
+	// abandoned recruit: a plain SetPrimary would be silently ignored (the rule is
+	// revoked), so this is not a replication fix. RecruitAbandonedAnalyzer owns it
+	// — it advances the rule first. Leave that pooler to it.
+	if revocationStrandsFollower(sa, pa) {
 		return nil, nil
 	}
 

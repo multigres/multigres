@@ -75,6 +75,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends postgresql-comm
 
 # Generate the glibc locales the PostgreSQL regression collate tests reference
 # (collate.sql -> en_US; collate.linux.utf8.sql -> de_DE, sv_SE, tr_TR, ja_JP.eucjp).
+# Generate both Turkish locale spellings: PostgreSQL's test sets lc_time to the
+# exact libc name "tr_TR", while tr_TR.UTF-8 alone only provides tr_TR.utf8.
 # Without them the tests self-skip and produce spurious diffs — the exact failure
 # mode seen when regenerating on macOS. en_US.UTF-8 is also the default LANG.
 RUN sed -i -E \
@@ -83,6 +85,7 @@ RUN sed -i -E \
       -e 's/^# *(fr_FR.UTF-8 UTF-8)/\1/' \
       -e 's/^# *(sv_SE.UTF-8 UTF-8)/\1/' \
       -e 's/^# *(tr_TR.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(tr_TR ISO-8859-9)/\1/' \
       -e 's/^# *(ja_JP.EUC-JP EUC-JP)/\1/' \
       /etc/locale.gen \
     && locale-gen

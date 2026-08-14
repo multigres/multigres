@@ -176,7 +176,7 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs
 
 	t.initialized = true
 
-	slog.DebugContext(ctx, "OpenTelemetry initialized", "service", serviceName)
+	slog.DebugContext(ctx, "OpenTelemetry initialized", "service", serviceName) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	return nil
 }
@@ -389,7 +389,7 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 		return nil
 	}
 
-	slog.DebugContext(ctx, "Shutting down OpenTelemetry")
+	slog.DebugContext(ctx, "shutting down OpenTelemetry")
 
 	var errs []error
 
@@ -421,7 +421,7 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 		return fmt.Errorf("errors during telemetry shutdown: %v", errs)
 	}
 
-	slog.DebugContext(ctx, "OpenTelemetry shutdown complete")
+	slog.DebugContext(ctx, "OpenTelemetry shutdown complete") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return nil
 }
 

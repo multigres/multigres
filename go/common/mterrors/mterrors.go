@@ -226,8 +226,10 @@ func (f *fundamental) Error() string { return f.msg }
 func (f *fundamental) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
-		panicIfError(io.WriteString(s, "Code: "+f.code.String()+"\n"))
-		panicIfError(io.WriteString(s, f.msg+"\n"))
+		// Single line: log pipelines routinely index only the first line of a
+		// message, so a newline here would hide the actual cause (e.g. the
+		// transport detail behind an UNAVAILABLE) from most tooling.
+		panicIfError(io.WriteString(s, "Code: "+f.code.String()+": "+f.msg))
 		if getLogErrStacks() {
 			f.stack.Format(s, verb)
 		}
@@ -239,27 +241,22 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	}
 }
 
-// Code returns the error code if it's a mtError.
-// If err is nil, it returns ok.
+// Code returns the error code associated with err or any error in its standard
+// unwrap chain. If err is nil, it returns OK.
 func Code(err error) mtrpcpb.Code {
 	if err == nil {
 		return mtrpcpb.Code_OK
 	}
-	if err, ok := err.(ErrorWithCode); ok {
-		return err.ErrorCode()
-	}
-
-	cause := Cause(err)
-	if cause != err && cause != nil {
-		// If we did not find an error code at the outer level, let's find the cause and check it's code
-		return Code(cause)
+	var coded ErrorWithCode
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
 	}
 
 	// Handle some special cases.
-	switch err {
-	case context.Canceled:
+	switch {
+	case errors.Is(err, context.Canceled):
 		return mtrpcpb.Code_CANCELED
-	case context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		return mtrpcpb.Code_DEADLINE_EXCEEDED
 	}
 	return mtrpcpb.Code_UNKNOWN
@@ -321,8 +318,9 @@ func (w *wrapping) Unwrap() error { return w.cause }
 
 func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
-		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
-		panicIfError(io.WriteString(s, w.msg))
+		// Single line, message-first — the same order as Error() — so the
+		// rendering never splits across log lines (see fundamental.Format).
+		panicIfError(fmt.Fprintf(s, "%s: %v", w.msg, w.Cause()))
 		if getLogErrStacks() {
 			w.stack.Format(s, verb)
 		}

@@ -21,12 +21,15 @@ import "time"
 // RPC calls, etcd data fetches, and synchronous replication health checks.
 const RemoteOperationTimeout = 15 * time.Second
 
-// RuleWriteTimeout is the timeout for rule writes and the election-flow RPCs
-// (Recruit, Promote, SetPrimary). For promotions the rule_history write
-// blocks until a sync-standby WAL ack arrives after the full SetPrimary
-// round-trip, which includes optional pg_rewind. 60 s gives ~45 s of headroom
-// beyond the typical 8–14 s observed in the 9-pooler AZ-freeze test.
+// RuleWriteTimeout is the deadline for rule-store write operations (SQL
+// execution plus sync-standby WAL ack). Used in rule_store.go and shard
+// init; the AppointLeader path (Recruit, Promote, SetPrimary) uses the
+// AppointLeaderAction outer timeout instead (see appoint_leader.go).
 const RuleWriteTimeout = 30 * time.Second
+
+// PostgresConfigTimeout bounds ALTER SYSTEM and configuration-reload queries.
+// These normally take milliseconds but can exceed 500ms on a loaded CI host.
+const PostgresConfigTimeout = 2 * time.Second
 
 // DefaultHealthStreamStalenessTimeout is the default staleness watchdog timeout for
 // ManagerHealthStream connections. If no message is received within this window

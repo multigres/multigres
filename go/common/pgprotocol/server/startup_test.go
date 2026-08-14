@@ -1351,7 +1351,7 @@ func TestReplicationStartup_RejectedOnCredentialLookupError(t *testing.T) {
 // cluster condition from a wrong password.
 func TestSCRAM_CredentialLookupPgDiagnosticForwarded(t *testing.T) {
 	provider := newMockCredentialProvider("postgres")
-	provider.err = mterrors.NewPgError("ERROR", "57P03", "planned failover in progress", "")
+	provider.err = mterrors.NewPgError("ERROR", mterrors.PgSSCannotConnectNow, "no writable primary is currently available", "")
 	_, clientConn, errCh := newReplicationTestConn(t, provider)
 
 	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
@@ -1365,8 +1365,8 @@ func TestSCRAM_CredentialLookupPgDiagnosticForwarded(t *testing.T) {
 	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
 	fields := parseErrorFields(body)
 	assert.Equal(t, "FATAL", fields['S'], "severity must be promoted to FATAL")
-	assert.Equal(t, "57P03", fields['C'], "SQLSTATE must be forwarded verbatim")
-	assert.Contains(t, fields['M'], "planned failover in progress")
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, fields['C'], "SQLSTATE must be forwarded verbatim")
+	assert.Equal(t, "no writable primary is currently available", fields['M'])
 
 	require.ErrorIs(t, <-errCh, errAuthRejected)
 	assert.Equal(t, 1, provider.calls)

@@ -235,7 +235,7 @@ func (prof *profile) init() (start func() error, stop func()) {
 				tt = "allocs"
 			}
 			if err := pprof.Lookup(tt).WriteTo(pf, 0); err != nil {
-				slog.Error("pprof: could not write memory profile", "err", err)
+				slog.Error("pprof: could not write memory profile", "error", err)
 			}
 			pf.Close()
 			runtime.MemProfileRate = old
@@ -255,7 +255,7 @@ func (prof *profile) init() (start func() error, stop func()) {
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("mutex"); mp != nil {
 				if err := mp.WriteTo(pf, 0); err != nil {
-					slog.Error("pprof: could not write mutex profile", "err", err)
+					slog.Error("pprof: could not write mutex profile", "error", err)
 				}
 			}
 			pf.Close()
@@ -275,7 +275,7 @@ func (prof *profile) init() (start func() error, stop func()) {
 		})
 		stop = stopCallback(func() {
 			if err := pprof.Lookup("block").WriteTo(pf, 0); err != nil {
-				slog.Error("pprof: could not write block profile", "err", err)
+				slog.Error("pprof: could not write block profile", "error", err)
 			}
 			pf.Close()
 			runtime.SetBlockProfileRate(0)
@@ -291,7 +291,7 @@ func (prof *profile) init() (start func() error, stop func()) {
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("threadcreate"); mp != nil {
 				if err := mp.WriteTo(pf, 0); err != nil {
-					slog.Error("pprof: could not write thread profile", "err", err)
+					slog.Error("pprof: could not write thread profile", "error", err)
 				}
 			}
 			pf.Close()
@@ -325,7 +325,7 @@ func (prof *profile) init() (start func() error, stop func()) {
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("goroutine"); mp != nil {
 				if err := mp.WriteTo(pf, 0); err != nil {
-					slog.Error("pprof: could not write goroutine profile", "err", err)
+					slog.Error("pprof: could not write goroutine profile", "error", err)
 				}
 			}
 			pf.Close()

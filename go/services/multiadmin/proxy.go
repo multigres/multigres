@@ -197,7 +197,7 @@ func (ma *Multiadmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 			rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
 			if err != nil {
 				// If rewriting fails, return original content
-				ma.senv.GetLogger().ErrorContext(r.Context(), "Failed to rewrite HTML", "error", err)
+				ma.senv.GetLogger().ErrorContext(r.Context(), "failed to rewrite HTML", "error", err)
 				resp.Body = io.NopCloser(bytes.NewReader(body))
 				return nil
 			}

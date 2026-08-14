@@ -18,6 +18,8 @@ package consensus
 import (
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -71,11 +73,38 @@ func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
 // "5.0" or "5.0 proposal=6.0"). Prefer this helper wherever a rule position
 // is logged.
 func FormatRulePosition(pos *clustermetadatapb.RulePosition) string {
-	s := FormatRuleNumber(pos.GetDecision().GetRuleNumber())
-	if proposalRN := pos.GetProposal().GetRuleNumber(); !ruleNumberIsUnset(proposalRN) {
-		s += " proposal=" + FormatRuleNumber(proposalRN)
+	return formatDecisionAndProposal(pos.GetDecision().GetRuleNumber(), pos.GetProposal().GetRuleNumber())
+}
+
+// FormatRuleNumberPosition is FormatRulePosition for a bare RuleNumberPosition
+// (decision/proposal already reduced to RuleNumber, without the full
+// ShardRule content) — e.g. ConsensusStatus.RecruitBlockedUntil's position.
+func FormatRuleNumberPosition(pos *clustermetadatapb.RuleNumberPosition) string {
+	return formatDecisionAndProposal(pos.GetDecision(), pos.GetProposal())
+}
+
+// formatDecisionAndProposal is the shared rendering behind FormatRulePosition
+// and FormatRuleNumberPosition: the decision, plus " proposal=<n>" when an
+// undecided proposal is present.
+func formatDecisionAndProposal(decision, proposal *clustermetadatapb.RuleNumber) string {
+	s := FormatRuleNumber(decision)
+	if !ruleNumberIsUnset(proposal) {
+		s += " proposal=" + FormatRuleNumber(proposal)
 	}
 	return s
+}
+
+// FormatLsnPosition renders an LsnPosition (a rule-number position paired with
+// an LSN, e.g. ConsensusStatus.RecruitBlockedUntil) as "<rule>@<lsn>" (e.g.
+// "1.0@0/6000000", or "1.0 proposal=2.0@0/6000000" mid-transition). Rule
+// position leads because comparisons check it first — the LSN only matters
+// once rule numbers match (see RuleNumberPosition.Compare). A nil LsnPosition
+// renders as "none".
+func FormatLsnPosition(pos *clustermetadatapb.LsnPosition) string {
+	if pos == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s@%s", FormatRuleNumberPosition(pos.GetPosition()), pos.GetLsn())
 }
 
 // ruleNumberIsUnset reports whether rn is nil or the phantom zero value
@@ -262,6 +291,58 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 		return false
 	}
 	return true
+}
+
+// MergeReplicationPrimary folds a newly observed candidate into the
+// previously recorded current value. It returns the ReplicationPrimary that
+// should be recorded now and whether that's actually different from current
+// (false if candidate carries no rule or isn't at least as advanced).
+//
+// This is a merge, not a replace: primary keeps current's contact info when
+// candidate doesn't supply one, and rewind_ready is carried forward
+// (false -> true, never the reverse) whenever candidate and current share a
+// coordinator_term — including when candidate's position is a decision
+// replacing current's still-outstanding proposal at that same term, which
+// CompareRulePosition ranks as strictly more advanced. Folding rewind_ready
+// only within cmp==0 would miss exactly that transition and silently
+// regress a rewind_ready flip already observed.
+func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPrimary) (result *clustermetadatapb.ReplicationPrimary, changed bool) {
+	if PossiblyUndecidedRule(candidate.GetPosition()) == nil {
+		return current, false
+	}
+	rewindReady := candidate.GetRewindReady()
+	if PossiblyUndecidedRule(candidate.GetPosition()).GetRuleNumber().GetCoordinatorTerm() ==
+		PossiblyUndecidedRule(current.GetPosition()).GetRuleNumber().GetCoordinatorTerm() {
+		rewindReady = rewindReady || current.GetRewindReady()
+	}
+	cmp := CompareRulePosition(candidate.GetPosition(), current.GetPosition())
+	if cmp < 0 {
+		return current, false
+	}
+	primary := current.GetPrimary()
+	if candidate.GetPrimary() != nil {
+		primary = proto.Clone(candidate.GetPrimary()).(*clustermetadatapb.PoolerAddress)
+	}
+	if cmp == 0 && primaryAddressEqual(primary, current.GetPrimary()) && rewindReady == current.GetRewindReady() {
+		return current, false
+	}
+	position := current.GetPosition()
+	if cmp > 0 {
+		position = proto.Clone(candidate.GetPosition()).(*clustermetadatapb.RulePosition)
+	}
+	return &clustermetadatapb.ReplicationPrimary{
+		Position:    position,
+		Primary:     primary,
+		RewindReady: rewindReady,
+	}, true
+}
+
+// primaryAddressEqual reports whether two PoolerAddresses name the same
+// pooler at the same contact info (id, host, postgres port).
+func primaryAddressEqual(a, b *clustermetadatapb.PoolerAddress) bool {
+	return idsEqual(a.GetId(), b.GetId()) &&
+		a.GetHost() == b.GetHost() &&
+		a.GetPostgresPort() == b.GetPostgresPort()
 }
 
 func idsEqual(a, b *clustermetadatapb.ID) bool {

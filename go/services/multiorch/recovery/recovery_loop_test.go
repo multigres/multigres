@@ -20,6 +20,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -120,18 +122,20 @@ type mockRecoveryAction struct {
 	name                  string
 	timeout               time.Duration
 	requiresHealthyLeader bool
-	executed              bool
-	executeErr            error
-	executeFn             func(ctx context.Context, problem types.Problem) error
-	metadata              types.RecoveryMetadata
-	gracePeriod           *types.GracePeriodConfig
+	// executed is written from Execute, which the engine runs concurrently
+	// (one goroutine per problem), so it must be accessed atomically.
+	executed    atomic.Bool
+	executeErr  error
+	executeFn   func(ctx context.Context, problem types.Problem) error
+	metadata    types.RecoveryMetadata
+	gracePeriod *types.GracePeriodConfig
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, problem)
 	}
-	m.executed = true
+	m.executed.Store(true)
 	return m.executeErr
 }
 
@@ -183,7 +187,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID1,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
@@ -193,7 +197,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID3,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"},
 		},
@@ -240,7 +244,7 @@ func TestPrioritySorting(t *testing.T) {
 			Priority: types.PriorityHigh,
 		},
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID1,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Priority: types.PriorityEmergency,
@@ -261,7 +265,7 @@ func TestPrioritySorting(t *testing.T) {
 	// Verify order: Emergency > High > Normal
 	require.Len(t, problems, 3)
 	assert.Equal(t, types.PriorityEmergency, problems[0].Priority)
-	assert.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+	assert.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
 
 	assert.Equal(t, types.PriorityHigh, problems[1].Priority)
 	assert.Equal(t, types.ProblemReplicaNotReplicating, problems[1].Code)
@@ -309,12 +313,12 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID1,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID2,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}, // Different shard
 		},
@@ -349,7 +353,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 
 	// Create problem
 	problem := types.Problem{
-		Code:      types.ProblemLeaderIsDead,
+		Code:      types.ProblemLeaderUnreachableByCohort,
 		CheckName: "PrimaryDeadCheck",
 		PoolerID:  poolerID,
 		ShardKey:  &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
@@ -397,7 +401,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 			},
 		},
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID1,
 			Priority: types.PriorityEmergency,
 			Scope:    types.ScopeShard,
@@ -422,7 +426,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 
 	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, types.ProblemLeaderIsDead, filtered[0].Code)
+	assert.Equal(t, types.ProblemLeaderUnreachableByCohort, filtered[0].Code)
 	assert.Equal(t, types.PriorityEmergency, filtered[0].Priority)
 }
 
@@ -460,7 +464,7 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 			},
 		},
 		{
-			Code:     types.ProblemLeaderMisconfigured,
+			Code:     types.ProblemReplicaLagging,
 			PoolerID: poolerID1,
 			Priority: types.PriorityNormal,
 			Scope:    types.ScopePooler,
@@ -524,7 +528,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 			},
 		},
 		{
-			Code:     types.ProblemLeaderIsDead,
+			Code:     types.ProblemLeaderUnreachableByCohort,
 			PoolerID: poolerID2,
 			Priority: types.PriorityEmergency,
 			Scope:    types.ScopeShard,
@@ -544,6 +548,57 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
+// TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped tests that
+// a shard-wide problem whose action is AlertOnlyAction (no remediation) rides
+// along with pooler-scoped problems instead of preempting them.
+func TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, newTestCoordinator(ts, &rpcclient.FakeClient{}, "cell1"))
+
+	poolerID1 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-pooler",
+	}
+
+	poolerID2 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-pooler",
+	}
+
+	problems := []types.Problem{
+		{
+			Code:           types.ProblemLeaderHealthUnknown,
+			PoolerID:       poolerID1,
+			Priority:       types.PriorityEmergency,
+			Scope:          types.ScopeShard,
+			RecoveryAction: actions.NewAlertOnlyAction(logger),
+		},
+		{
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			Priority: types.PriorityHigh,
+			Scope:    types.ScopePooler,
+			RecoveryAction: &mockRecoveryAction{
+				name:    "FixReplication",
+				timeout: 30 * time.Second,
+			},
+		},
+	}
+
+	filtered := engine.filterAndPrioritize(problems)
+
+	// The alert-only shard-wide problem and the pooler-scoped fix should both
+	// survive - the alert has no action to conflict with anything.
+	require.Len(t, filtered, 2)
+	assert.Equal(t, types.ProblemLeaderHealthUnknown, filtered[0].Code)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[1].Code)
+}
+
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
 type mockPrimaryDeadAnalyzer struct {
 	recoveryAction types.RecoveryAction
@@ -560,9 +615,9 @@ func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 func (m *mockPrimaryDeadAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if tSelfIsLeader(a) && !a.Health().IsLastCheckValid {
+		if tSelfIsLeader(a) && !a.Health().StreamConnected {
 			problems = append(problems, types.Problem{
-				Code:           types.ProblemLeaderIsDead,
+				Code:           types.ProblemLeaderUnreachableByCohort,
 				CheckName:      m.Name(),
 				PoolerID:       a.Health().GetMultipooler().GetId(),
 				ShardKey:       a.Health().GetMultipooler().GetShardKey(),
@@ -689,8 +744,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("skips replica recovery when primary is dead", func(t *testing.T) {
 		// Reset execution flags
-		primaryRecovery.executed = false
-		replicaRecovery.executed = false
+		primaryRecovery.executed.Store(false)
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -700,7 +755,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		t.Cleanup(analysis.ResetAnalyzers)
 
 		// Set up store state: dead primary, replica with replication stopped.
-		// Even though IsLastCheckValid is false, ConsensusStatus carries the
+		// Even though StreamConnected is false, ConsensusStatus carries the
 		// last-known state from before the primary went unreachable, and
 		// analysis.IsLeader is rule-based.
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
@@ -710,8 +765,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
-			IsLastCheckValid: false,
-			LastSeen:         timestamppb.Now(),
+			StreamConnected: false,
+			LastSeen:        timestamppb.Now(),
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: primaryID,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -733,8 +788,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
+			LastSeen: timestamppb.Now(),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -754,7 +808,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		engine.processShardProblems(t.Context(), shardKey, problems)
 
 		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
-		assert.False(t, replicaRecovery.executed,
+		assert.False(t, replicaRecovery.executed.Load(),
 			"replica recovery requiring healthy primary should be skipped when primary is dead")
 
 		// Primary recovery should have been attempted (though it will fail validation
@@ -764,7 +818,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("allows replica recovery when primary is healthy", func(t *testing.T) {
 		// Reset execution flags
-		replicaRecovery.executed = false
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers (only replica analyzer this time)
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -780,8 +834,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
-			IsLastCheckValid: true, // Primary is healthy
-			LastSeen:         timestamppb.Now(),
+			LastSeen: timestamppb.Now(),
 			// Consensus rule names this pooler the leader, so analysis derives
 			// leadership from consensus rather than the PoolerType label.
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -805,8 +858,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
+			LastSeen: timestamppb.Now(),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -829,7 +881,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// ASSERTION: Replica recovery should be executed (NOT skipped)
 		// It will still fail validation since the mock analyzer won't re-detect it,
 		// but the key is it wasn't skipped by the dependency check
-		assert.True(t, replicaRecovery.executed,
+		assert.True(t, replicaRecovery.executed.Load(),
 			"replica recovery should be executed when primary is healthy")
 	})
 }
@@ -896,8 +948,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -936,7 +987,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should NOT be executed because validation failed
-	assert.False(t, replicaRecovery.executed,
+	assert.False(t, replicaRecovery.executed.Load(),
 		"recovery should be skipped when problem no longer exists after validation")
 }
 
@@ -1047,7 +1098,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
-		IsLastCheckValid:   false, // Primary is dead
+		StreamConnected:    false, // Primary is dead
 		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -1071,7 +1122,6 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
-		IsLastCheckValid:   true,
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica1Check),
 	}
@@ -1084,7 +1134,6 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
-		IsLastCheckValid:   true,
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica2Check),
 	}
@@ -1113,7 +1162,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should be executed
-	assert.True(t, primaryRecovery.executed, "recovery should be executed")
+	assert.True(t, primaryRecovery.executed.Load(), "recovery should be executed")
 
 	// Poolers push their own updated state via ManagerHealthStream after a role
 	// change, so there is no need to force-poll them post-recovery.
@@ -1234,8 +1283,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
@@ -1246,8 +1294,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1264,8 +1311,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1279,7 +1325,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	engine.performRecoveryCycle(t.Context())
 
 	// ASSERTION: Both recovery actions should be executed (no shard-wide problems)
-	assert.True(t, replica1Recovery.executed || replica2Recovery.executed,
+	assert.True(t, replica1Recovery.executed.Load() || replica2Recovery.executed.Load(),
 		"at least one replica recovery should be executed in full cycle")
 }
 
@@ -1432,8 +1478,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1550,8 +1595,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1677,8 +1721,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
@@ -1689,8 +1732,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
@@ -1740,12 +1782,12 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 
 	// Problem detected, grace period starts
 	engine.performRecoveryCycle(t.Context())
-	require.False(t, mockAction.executed, "action should not execute immediately - grace period active")
+	require.False(t, mockAction.executed.Load(), "action should not execute immediately - grace period active")
 
 	// Wait for grace period to expire and action to execute
 	require.Eventually(t, func() bool {
 		engine.performRecoveryCycle(t.Context())
-		return mockAction.executed
+		return mockAction.executed.Load()
 	}, 500*time.Millisecond, 10*time.Millisecond, "action should execute after grace period expires")
 }
 
@@ -1805,8 +1847,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
@@ -1976,8 +2017,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
@@ -1988,8 +2028,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
@@ -2000,8 +2039,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica2Pooler, nil))
 

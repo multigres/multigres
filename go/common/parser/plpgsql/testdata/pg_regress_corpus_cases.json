@@ -1,0 +1,965 @@
+[
+  {
+    "comment": "plpgsql.sql #1",
+    "body": "\nbegin\n    if new.roomno != old.roomno then\n        update WSlot set roomno = new.roomno where roomno = old.roomno;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #2",
+    "body": "\nbegin\n    delete from WSlot where roomno = old.roomno;\n    return old;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #3",
+    "body": "\nbegin\n    if count(*) = 0 from Room where roomno = new.roomno then\n        raise exception 'Room % does not exist', new.roomno;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #4",
+    "body": "\nbegin\n    if new.name != old.name then\n        update PSlot set pfname = new.name where pfname = old.name;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #5",
+    "body": "\nbegin\n    delete from PSlot where pfname = old.name;\n    return old;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #6",
+    "body": "\ndeclare\n    pfrec\trecord;\n    ps          alias for new;\nbegin\n    select into pfrec * from PField where name = ps.pfname;\n    if not found then\n        raise exception $$Patchfield \"%\" does not exist$$, ps.pfname;\n    end if;\n    return ps;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #7",
+    "body": "\nbegin\n    if new.name != old.name then\n        update IFace set sysname = new.name where sysname = old.name;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #8",
+    "body": "\ndeclare\n    sname\ttext;\n    sysrec\trecord;\nbegin\n    select into sysrec * from system where name = new.sysname;\n    if not found then\n        raise exception $q$system \"%\" does not exist$q$, new.sysname;\n    end if;\n    sname := 'IF.' || new.sysname;\n    sname := sname || '.';\n    sname := sname || new.ifname;\n    if length(sname) > 20 then\n        raise exception 'IFace slotname \"%\" too long (20 char max)', sname;\n    end if;\n    new.slotname := sname;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #9",
+    "body": "\ndeclare\n    hname\ttext;\n    dummy\tinteger;\nbegin\n    if tg_op = 'INSERT' then\n\tdummy := tg_hub_adjustslots(new.name, 0, new.nslots);\n\treturn new;\n    end if;\n    if tg_op = 'UPDATE' then\n\tif new.name != old.name then\n\t    update HSlot set hubname = new.name where hubname = old.name;\n\tend if;\n\tdummy := tg_hub_adjustslots(new.name, old.nslots, new.nslots);\n\treturn new;\n    end if;\n    if tg_op = 'DELETE' then\n\tdummy := tg_hub_adjustslots(old.name, old.nslots, 0);\n\treturn old;\n    end if;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #10",
+    "body": "\nbegin\n    if newnslots = oldnslots then\n        return 0;\n    end if;\n    if newnslots < oldnslots then\n        delete from HSlot where hubname = hname and slotno > newnslots;\n\treturn 0;\n    end if;\n    for i in oldnslots + 1 .. newnslots loop\n        insert into HSlot (slotname, hubname, slotno, slotlink)\n\t\tvalues ('HS.dummy', hname, i, '');\n    end loop;\n    return 0;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #11",
+    "body": "\ndeclare\n    sname\ttext;\n    xname\tHSlot.slotname%TYPE;\n    hubrec\trecord;\nbegin\n    select into hubrec * from Hub where name = new.hubname;\n    if not found then\n        raise exception 'no manual manipulation of HSlot';\n    end if;\n    if new.slotno < 1 or new.slotno > hubrec.nslots then\n        raise exception 'no manual manipulation of HSlot';\n    end if;\n    if tg_op = 'UPDATE' and new.hubname != old.hubname then\n\tif count(*) > 0 from Hub where name = old.hubname then\n\t    raise exception 'no manual manipulation of HSlot';\n\tend if;\n    end if;\n    sname := 'HS.' || trim(new.hubname);\n    sname := sname || '.';\n    sname := sname || new.slotno::text;\n    if length(sname) > 20 then\n        raise exception 'HSlot slotname \"%\" too long (20 char max)', sname;\n    end if;\n    new.slotname := sname;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #12",
+    "body": "\ndeclare\n    hubrec\trecord;\nbegin\n    select into hubrec * from Hub where name = old.hubname;\n    if not found then\n        return old;\n    end if;\n    if old.slotno > hubrec.nslots then\n        return old;\n    end if;\n    raise exception 'no manual manipulation of HSlot';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #13",
+    "body": "\nbegin\n    if substr(new.slotname, 1, 2) != tg_argv[0] then\n        raise exception 'slotname must begin with %', tg_argv[0];\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #14",
+    "body": "\nbegin\n    if new.slotlink isnull then\n        new.slotlink := '';\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #15",
+    "body": "\nbegin\n    if new.backlink isnull then\n        new.backlink := '';\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #16",
+    "body": "\nbegin\n    if new.slotname != old.slotname then\n        delete from PSlot where slotname = old.slotname;\n\tinsert into PSlot (\n\t\t    slotname,\n\t\t    pfname,\n\t\t    slotlink,\n\t\t    backlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.pfname,\n\t\t    new.slotlink,\n\t\t    new.backlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #17",
+    "body": "\nbegin\n    if new.slotname != old.slotname then\n        delete from WSlot where slotname = old.slotname;\n\tinsert into WSlot (\n\t\t    slotname,\n\t\t    roomno,\n\t\t    slotlink,\n\t\t    backlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.roomno,\n\t\t    new.slotlink,\n\t\t    new.backlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #18",
+    "body": "\nbegin\n    if new.slotname != old.slotname then\n        delete from PLine where slotname = old.slotname;\n\tinsert into PLine (\n\t\t    slotname,\n\t\t    phonenumber,\n\t\t    comment,\n\t\t    backlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.phonenumber,\n\t\t    new.comment,\n\t\t    new.backlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #19",
+    "body": "\nbegin\n    if new.slotname != old.slotname then\n        delete from IFace where slotname = old.slotname;\n\tinsert into IFace (\n\t\t    slotname,\n\t\t    sysname,\n\t\t    ifname,\n\t\t    slotlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.sysname,\n\t\t    new.ifname,\n\t\t    new.slotlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #20",
+    "body": "\nbegin\n    if new.slotname != old.slotname or new.hubname != old.hubname then\n        delete from HSlot where slotname = old.slotname;\n\tinsert into HSlot (\n\t\t    slotname,\n\t\t    hubname,\n\t\t    slotno,\n\t\t    slotlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.hubname,\n\t\t    new.slotno,\n\t\t    new.slotlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #21",
+    "body": "\nbegin\n    if new.slotname != old.slotname then\n        delete from PHone where slotname = old.slotname;\n\tinsert into PHone (\n\t\t    slotname,\n\t\t    comment,\n\t\t    slotlink\n\t\t) values (\n\t\t    new.slotname,\n\t\t    new.comment,\n\t\t    new.slotlink\n\t\t);\n        return null;\n    end if;\n    return new;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #22",
+    "body": "\ndeclare\n    dummy\tinteger;\nbegin\n    if tg_op = 'INSERT' then\n        if new.backlink != '' then\n\t    dummy := tg_backlink_set(new.backlink, new.slotname);\n\tend if;\n\treturn new;\n    end if;\n    if tg_op = 'UPDATE' then\n        if new.backlink != old.backlink then\n\t    if old.backlink != '' then\n\t        dummy := tg_backlink_unset(old.backlink, old.slotname);\n\t    end if;\n\t    if new.backlink != '' then\n\t        dummy := tg_backlink_set(new.backlink, new.slotname);\n\t    end if;\n\telse\n\t    if new.slotname != old.slotname and new.backlink != '' then\n\t        dummy := tg_slotlink_set(new.backlink, new.slotname);\n\t    end if;\n\tend if;\n\treturn new;\n    end if;\n    if tg_op = 'DELETE' then\n        if old.backlink != '' then\n\t    dummy := tg_backlink_unset(old.backlink, old.slotname);\n\tend if;\n\treturn old;\n    end if;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #23",
+    "body": "\ndeclare\n    mytype\tchar(2);\n    link\tchar(4);\n    rec\t\trecord;\nbegin\n    mytype := substr(myname, 1, 2);\n    link := mytype || substr(blname, 1, 2);\n    if link = 'PLPL' then\n        raise exception\n\t\t'backlink between two phone lines does not make sense';\n    end if;\n    if link in ('PLWS', 'WSPL') then\n        raise exception\n\t\t'direct link of phone line to wall slot not permitted';\n    end if;\n    if mytype = 'PS' then\n        select into rec * from PSlot where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.backlink != blname then\n\t    update PSlot set backlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'WS' then\n        select into rec * from WSlot where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.backlink != blname then\n\t    update WSlot set backlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'PL' then\n        select into rec * from PLine where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.backlink != blname then\n\t    update PLine set backlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    raise exception 'illegal backlink beginning with %', mytype;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #24",
+    "body": "\ndeclare\n    myname\talias for $1;\n    blname\talias for $2;\n    mytype\tchar(2);\n    rec\t\trecord;\nbegin\n    mytype := substr(myname, 1, 2);\n    if mytype = 'PS' then\n        select into rec * from PSlot where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.backlink = blname then\n\t    update PSlot set backlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'WS' then\n        select into rec * from WSlot where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.backlink = blname then\n\t    update WSlot set backlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'PL' then\n        select into rec * from PLine where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.backlink = blname then\n\t    update PLine set backlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #25",
+    "body": "\ndeclare\n    dummy\tinteger;\nbegin\n    if tg_op = 'INSERT' then\n        if new.slotlink != '' then\n\t    dummy := tg_slotlink_set(new.slotlink, new.slotname);\n\tend if;\n\treturn new;\n    end if;\n    if tg_op = 'UPDATE' then\n        if new.slotlink != old.slotlink then\n\t    if old.slotlink != '' then\n\t        dummy := tg_slotlink_unset(old.slotlink, old.slotname);\n\t    end if;\n\t    if new.slotlink != '' then\n\t        dummy := tg_slotlink_set(new.slotlink, new.slotname);\n\t    end if;\n\telse\n\t    if new.slotname != old.slotname and new.slotlink != '' then\n\t        dummy := tg_slotlink_set(new.slotlink, new.slotname);\n\t    end if;\n\tend if;\n\treturn new;\n    end if;\n    if tg_op = 'DELETE' then\n        if old.slotlink != '' then\n\t    dummy := tg_slotlink_unset(old.slotlink, old.slotname);\n\tend if;\n\treturn old;\n    end if;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #26",
+    "body": "\ndeclare\n    myname\talias for $1;\n    blname\talias for $2;\n    mytype\tchar(2);\n    link\tchar(4);\n    rec\t\trecord;\nbegin\n    mytype := substr(myname, 1, 2);\n    link := mytype || substr(blname, 1, 2);\n    if link = 'PHPH' then\n        raise exception\n\t\t'slotlink between two phones does not make sense';\n    end if;\n    if link in ('PHHS', 'HSPH') then\n        raise exception\n\t\t'link of phone to hub does not make sense';\n    end if;\n    if link in ('PHIF', 'IFPH') then\n        raise exception\n\t\t'link of phone to hub does not make sense';\n    end if;\n    if link in ('PSWS', 'WSPS') then\n        raise exception\n\t\t'slotlink from patchslot to wallslot not permitted';\n    end if;\n    if mytype = 'PS' then\n        select into rec * from PSlot where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.slotlink != blname then\n\t    update PSlot set slotlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'WS' then\n        select into rec * from WSlot where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.slotlink != blname then\n\t    update WSlot set slotlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'IF' then\n        select into rec * from IFace where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.slotlink != blname then\n\t    update IFace set slotlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'HS' then\n        select into rec * from HSlot where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.slotlink != blname then\n\t    update HSlot set slotlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'PH' then\n        select into rec * from PHone where slotname = myname;\n\tif not found then\n\t    raise exception '% does not exist', myname;\n\tend if;\n\tif rec.slotlink != blname then\n\t    update PHone set slotlink = blname where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    raise exception 'illegal slotlink beginning with %', mytype;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #27",
+    "body": "\ndeclare\n    myname\talias for $1;\n    blname\talias for $2;\n    mytype\tchar(2);\n    rec\t\trecord;\nbegin\n    mytype := substr(myname, 1, 2);\n    if mytype = 'PS' then\n        select into rec * from PSlot where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.slotlink = blname then\n\t    update PSlot set slotlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'WS' then\n        select into rec * from WSlot where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.slotlink = blname then\n\t    update WSlot set slotlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'IF' then\n        select into rec * from IFace where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.slotlink = blname then\n\t    update IFace set slotlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'HS' then\n        select into rec * from HSlot where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.slotlink = blname then\n\t    update HSlot set slotlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\n    if mytype = 'PH' then\n        select into rec * from PHone where slotname = myname;\n\tif not found then\n\t    return 0;\n\tend if;\n\tif rec.slotlink = blname then\n\t    update PHone set slotlink = '' where slotname = myname;\n\tend if;\n\treturn 0;\n    end if;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #28",
+    "body": "\n<<outer>>\ndeclare\n    rec\t\trecord;\n    bltype\tchar(2);\n    retval\ttext;\nbegin\n    select into rec * from PSlot where slotname = $1;\n    if not found then\n        return '';\n    end if;\n    if rec.backlink = '' then\n        return '-';\n    end if;\n    bltype := substr(rec.backlink, 1, 2);\n    if bltype = 'PL' then\n        declare\n\t    rec\t\trecord;\n\tbegin\n\t    select into rec * from PLine where slotname = \"outer\".rec.backlink;\n\t    retval := 'Phone line ' || trim(rec.phonenumber);\n\t    if rec.comment != '' then\n\t        retval := retval || ' (';\n\t\tretval := retval || rec.comment;\n\t\tretval := retval || ')';\n\t    end if;\n\t    return retval;\n\tend;\n    end if;\n    if bltype = 'WS' then\n        select into rec * from WSlot where slotname = rec.backlink;\n\tretval := trim(rec.slotname) || ' in room ';\n\tretval := retval || trim(rec.roomno);\n\tretval := retval || ' -> ';\n\treturn retval || wslot_slotlink_view(rec.slotname);\n    end if;\n    return rec.backlink;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #29",
+    "body": "\ndeclare\n    psrec\trecord;\n    sltype\tchar(2);\n    retval\ttext;\nbegin\n    select into psrec * from PSlot where slotname = $1;\n    if not found then\n        return '';\n    end if;\n    if psrec.slotlink = '' then\n        return '-';\n    end if;\n    sltype := substr(psrec.slotlink, 1, 2);\n    if sltype = 'PS' then\n\tretval := trim(psrec.slotlink) || ' -> ';\n\treturn retval || pslot_backlink_view(psrec.slotlink);\n    end if;\n    if sltype = 'HS' then\n        retval := comment from Hub H, HSlot HS\n\t\t\twhere HS.slotname = psrec.slotlink\n\t\t\t  and H.name = HS.hubname;\n        retval := retval || ' slot ';\n\tretval := retval || slotno::text from HSlot\n\t\t\twhere slotname = psrec.slotlink;\n\treturn retval;\n    end if;\n    return psrec.slotlink;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #30",
+    "body": "\ndeclare\n    rec\t\trecord;\n    sltype\tchar(2);\n    retval\ttext;\nbegin\n    select into rec * from WSlot where slotname = $1;\n    if not found then\n        return '';\n    end if;\n    if rec.slotlink = '' then\n        return '-';\n    end if;\n    sltype := substr(rec.slotlink, 1, 2);\n    if sltype = 'PH' then\n        select into rec * from PHone where slotname = rec.slotlink;\n\tretval := 'Phone ' || trim(rec.slotname);\n\tif rec.comment != '' then\n\t    retval := retval || ' (';\n\t    retval := retval || rec.comment;\n\t    retval := retval || ')';\n\tend if;\n\treturn retval;\n    end if;\n    if sltype = 'IF' then\n\tdeclare\n\t    syrow\tSystem%RowType;\n\t    ifrow\tIFace%ROWTYPE;\n        begin\n\t    select into ifrow * from IFace where slotname = rec.slotlink;\n\t    select into syrow * from System where name = ifrow.sysname;\n\t    retval := syrow.name || ' IF ';\n\t    retval := retval || ifrow.ifname;\n\t    if syrow.comment != '' then\n\t        retval := retval || ' (';\n\t\tretval := retval || syrow.comment;\n\t\tretval := retval || ')';\n\t    end if;\n\t    return retval;\n\tend;\n    end if;\n    return rec.slotlink;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #31",
+    "body": "\nDECLARE rslt text;\nBEGIN\n    IF $1 <= 0 THEN\n        rslt = CAST($2 AS TEXT);\n    ELSE\n        rslt = CAST($1 AS TEXT) || ',' || recursion_test($1 - 1, $2);\n    END IF;\n    RETURN rslt;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #32",
+    "body": "\n  declare\n  begin\n  insert into found_test_tbl values (1);\n  if FOUND then\n     insert into found_test_tbl values (2);\n  end if;\n\n  update found_test_tbl set a = 100 where a = 1;\n  if FOUND then\n    insert into found_test_tbl values (3);\n  end if;\n\n  delete from found_test_tbl where a = 9999; -- matches no rows\n  if not FOUND then\n    insert into found_test_tbl values (4);\n  end if;\n\n  for i in 1 .. 10 loop\n    -- no need to do anything\n  end loop;\n  if FOUND then\n    insert into found_test_tbl values (5);\n  end if;\n\n  -- never executes the loop\n  for i in 2 .. 1 loop\n    -- no need to do anything\n  end loop;\n  if not FOUND then\n    insert into found_test_tbl values (6);\n  end if;\n  return true;\n  end;"
+  },
+  {
+    "comment": "plpgsql.sql #33",
+    "body": "\nDECLARE\n\trec RECORD;\nBEGIN\n\tFOR rec IN select * from found_test_tbl LOOP\n\t\tRETURN NEXT rec;\n\tEND LOOP;\n\tRETURN;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #34",
+    "body": "\nDECLARE\n\trow found_test_tbl%ROWTYPE;\nBEGIN\n\tFOR row IN select * from found_test_tbl LOOP\n\t\tRETURN NEXT row;\n\tEND LOOP;\n\tRETURN;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #35",
+    "body": "\nDECLARE\n\ti int;\nBEGIN\n\tFOR i IN $1 .. $2 LOOP\n\t\tRETURN NEXT i + 1;\n\tEND LOOP;\n\tRETURN;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #36",
+    "body": "\nDECLARE\n\tretval RECORD;\nBEGIN\n\tIF $1 > 10 THEN\n\t\tSELECT INTO retval 5, 10, 15;\n\t\tRETURN NEXT retval;\n\t\tRETURN NEXT retval;\n\tELSE\n\t\tSELECT INTO retval 50, 5::numeric, 'xxx'::text;\n\t\tRETURN NEXT retval;\n\t\tRETURN NEXT retval;\n\tEND IF;\n\tRETURN;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #37",
+    "body": "\nDECLARE\n\tretval RECORD;\nBEGIN\n\tIF $1 > 10 THEN\n\t\tSELECT INTO retval 5, 10, 15;\n\t\tRETURN retval;\n\tELSE\n\t\tSELECT INTO retval 50, 5::numeric, 'xxx'::text;\n\t\tRETURN retval;\n\tEND IF;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #38",
+    "body": "\nbegin\n  return x + 1;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #39",
+    "body": "\nbegin\n  return array[x + 1, x + 2];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #40",
+    "body": "\nbegin\n  return x[1];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #41",
+    "body": "\nbegin\n  return x;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #42",
+    "body": "\nbegin\n  return array[lower(x), upper(x)];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #43",
+    "body": "\nbegin\n  return array[x, y];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #44",
+    "body": "\nbegin\n  return array[lower(x), upper(x), y, z];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #45",
+    "body": "\nbegin\n  x := a || b;\n  y := array[c, d];\nend"
+  },
+  {
+    "comment": "plpgsql.sql #46",
+    "body": "\nbegin\n  return i+1;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #47",
+    "body": "\nbegin\n  j := i+1;\n  return;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #48",
+    "body": "\nbegin\n  i := i+1;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #49",
+    "body": "\nbegin\n  j := i+1;\n  return next;\n  j := i+2;\n  return next;\n  return;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #50",
+    "body": "\nbegin\n  j := i;\n  j := j+1;\n  k := 'foo';\nend"
+  },
+  {
+    "comment": "plpgsql.sql #51",
+    "body": "\nbegin\n  j := i+1;\n  k := 'foo';\n  return next;\n  j := j+1;\n  k := 'foot';\n  return next;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #52",
+    "body": "\nbegin\n  j := i;\n  k := array[j,j];\n  return;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #53",
+    "body": "\nbegin\n  j := lower(i);\n  k := array[lower(i),upper(i)];\n  return;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #54",
+    "body": "\nBEGIN\n\tIF $1 < 20 THEN\n\t\tINSERT INTO perform_test VALUES ($1, $1 + 10);\n\t\tRETURN TRUE;\n\tELSE\n\t\tRETURN FALSE;\n\tEND IF;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #55",
+    "body": "\nBEGIN\n\tIF FOUND then\n\t\tINSERT INTO perform_test VALUES (100, 100);\n\tEND IF;\n\n\tPERFORM perform_simple_func(5);\n\n\tIF FOUND then\n\t\tINSERT INTO perform_test VALUES (100, 100);\n\tEND IF;\n\n\tPERFORM perform_simple_func(50);\n\n\tIF FOUND then\n\t\tINSERT INTO perform_test VALUES (100, 100);\n\tEND IF;\n\n\tRETURN;\nEND;"
+  },
+  {
+    "comment": "plpgsql.sql #56",
+    "body": "\ndeclare x int;\nbegin\n  select into x id from users where login = a_login;\n  if found then return x; end if;\n  return 0;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #57",
+    "body": "\ndeclare my_id_user int;\nbegin\n  my_id_user = sp_id_user( a_login );\n  IF  my_id_user > 0 THEN\n    RETURN -1;  -- error code for existing user\n  END IF;\n  INSERT INTO users ( login ) VALUES ( a_login );\n  my_id_user = sp_id_user( a_login );\n  IF  my_id_user = 0 THEN\n    RETURN -2;  -- error code for insertion failure\n  END IF;\n  RETURN my_id_user;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #58",
+    "body": "\ndeclare\n    rc refcursor;\n    x record;\nbegin\n    rc := return_unnamed_refcursor();\n    fetch next from rc into x;\n    return x.a;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #59",
+    "body": "\nbegin\n    open rc for select a from rc_test;\n    return rc;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #60",
+    "body": "\nbegin\n    perform return_refcursor($1);\n    return $1;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #61",
+    "body": "\ndeclare\n    c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2;\n    nonsense record;\nbegin\n    open c1($1, $2);\n    fetch c1 into nonsense;\n    close c1;\n    if found then\n        return true;\n    else\n        return false;\n    end if;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #62",
+    "body": "\ndeclare\n    rc constant refcursor;\nbegin\n    open rc for select a from rc_test;\n    return rc;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #63",
+    "body": "\ndeclare\n    rc constant refcursor := 'my_cursor_name';\nbegin\n    open rc for select a from rc_test;\n    return rc;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #64",
+    "body": "\ndeclare\n    c1 cursor (param1 int, param12 int) for select * from rc_test where a > param1 and b > param12;\n    nonsense record;\nbegin\n    open c1(param12 := $2, param1 := $1);\n    fetch c1 into nonsense;\n    close c1;\n    if found then\n        return true;\n    else\n        return false;\n    end if;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #65",
+    "body": "\ndeclare\n    c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2;\n    nonsense record;\nbegin\n    open c1(param1 := $1, $2);\n    fetch c1 into nonsense;\n    close c1;\n    if found then\n        return true;\n    else\n        return false;\n    end if;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #66",
+    "body": "\ndeclare\n    c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2;\nbegin\n    open c1(param2 := 20, 21);\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #67",
+    "body": "\ndeclare\n    c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2;\nbegin\n    open c1(20, param1 := 21);\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #68",
+    "body": "\ndeclare\n  c1 cursor (p1 int, p2 int) for\n    select * from tenk1 where thousand = p1 and tenthous = p2;\nbegin\n  open c1 (p2 := 77, p2 := 42);\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #69",
+    "body": "\ndeclare\n  c1 cursor (p1 int, p2 int) for\n    select * from tenk1 where thousand = p1 and tenthous = p2;\nbegin\n  open c1 (p2 := 77);\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #70",
+    "body": "\ndeclare\n  c1 cursor (p1 int, p2 int) for\n    select * from tenk1 where thousand = p1 and tenthous = p2;\nbegin\n  open c1 (p2 := 77, p1 := 42/0);\nend "
+  },
+  {
+    "comment": "plpgsql.sql #71",
+    "body": "\ndeclare\n  c1 cursor (p1 int, p2 int) for\n    select count(*) from tenk1 where thousand = p1 and tenthous = p2;\n  n int4;\nbegin\n  open c1 (77 -- test\n  , 42);\n  fetch c1 into n;\n  return n;\nend "
+  },
+  {
+    "comment": "plpgsql.sql #72",
+    "body": "\ndeclare\n  c1 cursor (p1 int, p2 int, debug int) for\n    select count(*) from tenk1 where thousand = p1 and tenthous = p2\n      and four = debug;\n  p2 int4 := 1006;\n  n int4;\nbegin\n  open c1 (p1 := p1, p2 := p2, debug := 2);\n  fetch c1 into n;\n  return n;\nend "
+  },
+  {
+    "comment": "plpgsql.sql #73",
+    "body": "\nbegin\n    raise notice 'This message has too many parameters!', $1;\n    return $1;\nend;\n",
+    "error": "too many parameters specified for RAISE"
+  },
+  {
+    "comment": "plpgsql.sql #74",
+    "body": "\nbegin\n    raise notice 'This message has too few parameters: %, %, %', $1, $1;\n    return $1;\nend;\n",
+    "error": "too few parameters specified for RAISE"
+  },
+  {
+    "comment": "plpgsql.sql #75",
+    "body": "\nbegin\n    raise notice 'This message has no parameters (despite having %% signs in it)!';\n    return $1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #76",
+    "body": "\nBEGIN\n   BEGIN\n       RAISE syntax_error;\n   EXCEPTION\n       WHEN syntax_error THEN\n           BEGIN\n               raise notice 'exception % thrown in inner block, reraising', sqlerrm;\n               RAISE;\n           EXCEPTION\n               WHEN OTHERS THEN\n                   raise notice 'RIGHT - exception % caught in inner block', sqlerrm;\n           END;\n   END;\nEXCEPTION\n   WHEN OTHERS THEN\n       raise notice 'WRONG - exception % caught in outer block', sqlerrm;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #77",
+    "body": "\ndeclare a int;\nbegin\n    a := 5;\n    Johnny Yuma;\n    a := 10;\n    return a;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #78",
+    "body": "\ndeclare r record;\nbegin\n    for r in select I fought the law, the law won LOOP\n        raise notice 'in loop';\n    end loop;\n    return 5;\nend;"
+  },
+  {
+    "comment": "plpgsql.sql #79",
+    "body": "\nbegin\n    return ;\nend;"
+  },
+  {
+    "comment": "plpgsql.sql #80",
+    "body": "\nbegin\n    return 5;\nend;"
+  },
+  {
+    "comment": "plpgsql.sql #81",
+    "body": "\nbegin\n    perform 2+2;\nend;"
+  },
+  {
+    "comment": "plpgsql.sql #82",
+    "body": "\ndeclare\n    _r record;\n    _rt eifoo%rowtype;\n    _v eitype;\n    i int;\n    j int;\n    k int;\nbegin\n    execute 'insert into '||$1||' values(10,15)';\n    execute 'select (row).* from (select row(10,1)::eifoo) s' into _r;\n    raise notice '% %', _r.i, _r.y;\n    execute 'select * from '||$1||' limit 1' into _rt;\n    raise notice '% %', _rt.i, _rt.y;\n    execute 'select *, 20 from '||$1||' limit 1' into i, j, k;\n    raise notice '% % %', i, j, k;\n    execute 'select 1,2' into _v;\n    return _v;\nend; "
+  },
+  {
+    "comment": "plpgsql.sql #83",
+    "body": "\nbegin\n    raise notice '% %', sqlstate, sqlerrm;\nend; "
+  },
+  {
+    "comment": "plpgsql.sql #84",
+    "body": "\nbegin\n    begin\n        begin\n            raise notice '% %', sqlstate, sqlerrm;\n        end;\n    end;\nend; "
+  },
+  {
+    "comment": "plpgsql.sql #85",
+    "body": "\nbegin\n    begin\n        raise exception 'user exception';\n    exception when others then\n\t    raise notice 'caught exception % %', sqlstate, sqlerrm;\n\t    begin\n\t        raise notice '% %', sqlstate, sqlerrm;\n\t        perform 10/0;\n        exception\n            when substring_error then\n                -- this exception handler shouldn't be invoked\n                raise notice 'unexpected exception: % %', sqlstate, sqlerrm;\n\t        when division_by_zero then\n\t            raise notice 'caught exception % %', sqlstate, sqlerrm;\n\t    end;\n\t    raise notice '% %', sqlstate, sqlerrm;\n    end;\nend; "
+  },
+  {
+    "comment": "plpgsql.sql #86",
+    "body": "\nbegin\n\tbegin perform 1/0;\n\texception when others then return sqlerrm; end;\nend; "
+  },
+  {
+    "comment": "plpgsql.sql #87",
+    "body": "\ndeclare\n    a integer[] = '{10,20,30}';\n    c varchar = 'xyz';\n    i integer;\nbegin\n    i := 2;\n    raise notice '%; %; %; %; %; %', a, a[i], c, (select c || 'abc'), row(10,'aaa',NULL,30), NULL;\nend;"
+  },
+  {
+    "comment": "plpgsql.sql #88",
+    "body": "\ndeclare\n  x int;\n  y int;\nbegin\n  select into x,y unique1/p1, unique1/$1 from tenk1 group by unique1/p1;\n  return x = y;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #89",
+    "body": "\ndeclare x record;\nbegin\n  -- should work\n  insert into foo values(5,6) returning * into x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #90",
+    "body": "\ndeclare x record;\nbegin\n  -- should fail due to implicit strict\n  insert into foo values(7,8),(9,10) returning * into x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #91",
+    "body": "\ndeclare x record;\nbegin\n  -- should work\n  execute 'insert into foo values(5,6) returning *' into x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #92",
+    "body": "\ndeclare x record;\nbegin\n  -- this should work since EXECUTE isn't as picky\n  execute 'insert into foo values(7,8),(9,10) returning *' into x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #93",
+    "body": "\ndeclare x record;\nbegin\n  -- should work\n  select * from foo where f1 = 3 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #94",
+    "body": "\ndeclare x record;\nbegin\n  -- should fail, no rows\n  select * from foo where f1 = 0 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #95",
+    "body": "\ndeclare x record;\nbegin\n  -- should fail, too many rows\n  select * from foo where f1 > 3 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #96",
+    "body": "\ndeclare x record;\nbegin\n  -- should work\n  execute 'select * from foo where f1 = 3' into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #97",
+    "body": "\ndeclare x record;\nbegin\n  -- should fail, no rows\n  execute 'select * from foo where f1 = 0' into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #98",
+    "body": "\ndeclare x record;\nbegin\n  -- should fail, too many rows\n  execute 'select * from foo where f1 > 3' into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #99",
+    "body": "\ndeclare\nx record;\np1 int := 2;\np3 text := 'foo';\nbegin\n  -- no rows\n  select * from foo where f1 = p1 and f1::text = p3 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #100",
+    "body": "\ndeclare\nx record;\np1 int := 2;\np3 text := $a$'Valame Dios!' dijo Sancho; 'no le dije yo a vuestra merced que mirase bien lo que hacia?'$a$;\nbegin\n  -- no rows\n  select * from foo where f1 = p1 and f1::text = p3 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #101",
+    "body": "\ndeclare\nx record;\np1 int := 2;\np3 text := 'foo';\nbegin\n  -- too many rows\n  select * from foo where f1 > p1 or f1::text = p3  into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #102",
+    "body": "\ndeclare x record;\nbegin\n  -- too many rows, no params\n  select * from foo where f1 > 3 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #103",
+    "body": "\ndeclare x record;\nbegin\n  -- no rows\n  execute 'select * from foo where f1 = $1 or f1::text = $2' using 0, 'foo' into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #104",
+    "body": "\ndeclare x record;\nbegin\n  -- too many rows\n  execute 'select * from foo where f1 > $1' using 1 into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #105",
+    "body": "\ndeclare x record;\nbegin\n  -- too many rows, no parameters\n  execute 'select * from foo where f1 > 3' into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #106",
+    "body": "\n-- override the global\n#print_strict_params off\ndeclare\nx record;\np1 int := 2;\np3 text := 'foo';\nbegin\n  -- too many rows\n  select * from foo where f1 > p1 or f1::text = p3  into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #107",
+    "body": "\n-- override the global\n#print_strict_params on\ndeclare\nx record;\np1 int := 2;\np3 text := 'foo';\nbegin\n  -- too many rows\n  select * from foo where f1 > p1 or f1::text = p3  into strict x;\n  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #108",
+    "body": "\ndeclare\nin1 int;\nout1 int;\nbegin\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #109",
+    "body": "\ndeclare\nf1 int;\nbegin\n\tdeclare\n\tf1 int;\n\tbegin\n\tend;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #110",
+    "body": "\ndeclare\nin1 int;\nbegin\n\tdeclare\n\tin1 int;\n\tbegin\n\tend;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #111",
+    "body": "\ndeclare\nf1 int;\nc1 cursor (f1 int) for select 1;\nbegin\nend"
+  },
+  {
+    "comment": "plpgsql.sql #112",
+    "body": "\ndeclare f1 int; begin return 1; end "
+  },
+  {
+    "comment": "plpgsql.sql #113",
+    "body": "\ndeclare x int;\nbegin\n  select v from generate_series(1,2) g(v) into x;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #114",
+    "body": "\ndeclare\n  x int;\n  y int;\nbegin\n  select 1 into x, y;\n  select 1,2 into x, y;\n  select 1,2,3 into x, y;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #115",
+    "body": "\ndeclare\n  x int;\n  y int;\nbegin\n  select * from test_01 into x, y; -- should be ok\n  raise notice 'ok';\n  select * from test_01 into x;    -- should to fail\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #116",
+    "body": "\ndeclare\n  t test_01;\nbegin\n  select 1, 2 into t;  -- should be ok\n  raise notice 'ok';\n  select 1, 2, 3 into t; -- should fail;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #117",
+    "body": "\ndeclare\n  t test_01;\nbegin\n  select 1 into t; -- should fail;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #118",
+    "body": "\ndeclare\n  c scroll cursor for select f1 from int4_tbl;\n  x integer;\nbegin\n  open c;\n  fetch last from c into x;\n  while found loop\n    return next x;\n    fetch prior from c into x;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #119",
+    "body": "\ndeclare\n  c no scroll cursor for select f1 from int4_tbl;\n  x integer;\nbegin\n  open c;\n  fetch last from c into x;\n  while found loop\n    return next x;\n    fetch prior from c into x;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #120",
+    "body": "\ndeclare\n  c refcursor;\n  x integer;\nbegin\n  open c scroll for select f1 from int4_tbl;\n  fetch last from c into x;\n  while found loop\n    return next x;\n    fetch prior from c into x;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #121",
+    "body": "\ndeclare\n  c refcursor;\n  x integer;\nbegin\n  open c scroll for execute 'select f1 from int4_tbl';\n  fetch last from c into x;\n  while found loop\n    return next x;\n    fetch relative -2 from c into x;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #122",
+    "body": "\ndeclare\n  c refcursor;\n  x integer;\nbegin\n  open c scroll for execute 'select f1 from int4_tbl';\n  fetch last from c into x;\n  while found loop\n    return next x;\n    move backward 2 from c;\n    fetch relative -1 from c into x;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #123",
+    "body": "\ndeclare\n  c cursor for select * from generate_series(1, 10);\n  x integer;\nbegin\n  open c;\n  loop\n      move relative 2 in c;\n      if not found then\n          exit;\n      end if;\n      fetch next from c into x;\n      if found then\n          return next x;\n      end if;\n  end loop;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #124",
+    "body": "\ndeclare\n  c cursor for select * from generate_series(1, 10);\n  x integer;\nbegin\n  open c;\n  move forward all in c;\n  fetch backward from c into x;\n  if found then\n    return next x;\n  end if;\n  close c;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #125",
+    "body": "\n<<outerblock>>\ndeclare\n  param1 int := 1;\nbegin\n  <<innerblock>>\n  declare\n    param1 int := 2;\n  begin\n    raise notice 'param1 = %', param1;\n    raise notice 'pl_qual_names.param1 = %', pl_qual_names.param1;\n    raise notice 'outerblock.param1 = %', outerblock.param1;\n    raise notice 'innerblock.param1 = %', innerblock.param1;\n  end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #126",
+    "body": "\nbegin\n    $1 := -1;\n    $2 := -2;\n    return next;\n    return query select x + 1, x * 10 from generate_series(0, 10) s (x);\n    return next;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #127",
+    "body": "\nbegin\n    return query select fipshash(s.x::text), s.x, s.x > 0\n                 from generate_series(-8, lim) s (x) where s.x % 2 = 0;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #128",
+    "body": "\ndeclare i int;\nbegin\n  for i in execute 'select * from generate_series(1,$1)' using $1+1 loop\n    raise notice '%', i;\n  end loop;\n  execute 'select $2 + $2*3 + length($1)' into i using $2,$1;\n  return i;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #129",
+    "body": "\ndeclare\n  c refcursor;\n  i int;\nbegin\n  open c for execute 'select * from generate_series(1,$1)' using $1+1;\n  loop\n    fetch c into i;\n    exit when not found;\n    raise notice '%', i;\n  end loop;\n  close c;\n  return;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #130",
+    "body": "\ndeclare\n  c cursor(r1 integer, r2 integer)\n       for select * from generate_series(r1,r2) i;\n  c2 cursor\n       for select * from generate_series(41,43) i;\nbegin\n  -- assign portal names to cursors to get stable output\n  c := 'c';\n  c2 := 'c2';\n  for r in c(5,7) loop\n    raise notice '% from %', r.i, c;\n  end loop;\n  -- again, to test if cursor was closed properly\n  for r in c(9,10) loop\n    raise notice '% from %', r.i, c;\n  end loop;\n  -- and test a parameterless cursor\n  for r in c2 loop\n    raise notice '% from %', r.i, c2;\n  end loop;\n  -- and try it with a hand-assigned name\n  raise notice 'after loop, c2 = %', c2;\n  c2 := 'special_name';\n  for r in c2 loop\n    raise notice '% from %', r.i, c2;\n  end loop;\n  raise notice 'after loop, c2 = %', c2;\n  -- and try it with a generated name\n  -- (which we can't show in the output because it's variable)\n  c2 := null;\n  for r in c2 loop\n    raise notice '%', r.i;\n  end loop;\n  raise notice 'after loop, c2 = %', c2;\n  return;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #131",
+    "body": "\ndeclare\n  c cursor for select * from forc_test;\nbegin\n  for r in c loop\n    raise notice '%, %', r.i, r.j;\n    update forc_test set i = i * 100, j = r.j * 2 where current of c;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #132",
+    "body": "\ndeclare\n  c refcursor := 'fooled_ya';\n  r record;\nbegin\n  open c for select * from forc_test;\n  loop\n    fetch c into r;\n    exit when not found;\n    raise notice '%, %', r.i, r.j;\n    update forc_test set i = i * 100, j = r.j * 2 where current of c;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #133",
+    "body": "\ndeclare cnt int := 0;\n  c1 cursor for select * from forc_test;\nbegin\n  for r1 in c1 loop\n    declare c1 cursor for select * from forc_test;\n    begin\n      for r2 in c1 loop\n        cnt := cnt + 1;\n      end loop;\n    end;\n  end loop;\n  raise notice 'cnt = %', cnt;\nend "
+  },
+  {
+    "comment": "plpgsql.sql #134",
+    "body": "\ndeclare\n  c refcursor;\nbegin\n  for r in c loop\n    raise notice '%', r.i;\n  end loop;\nend;\n",
+    "error": "cursor FOR loop must use a bound cursor variable"
+  },
+  {
+    "comment": "plpgsql.sql #135",
+    "body": "\nbegin\n  return query execute 'select * from (values(10),(20)) f';\n  return query execute 'select * from (values($1),($2)) f' using 40,50;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #136",
+    "body": "\nbegin\n  return query select * from tabwithcols;\n  return query execute 'select * from tabwithcols';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #137",
+    "body": "\ndeclare\n  v compostype;\nbegin\n  v := (1, 'hello');\n  return v;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #138",
+    "body": "\ndeclare\n  v record;\nbegin\n  v := (1, 'hello'::varchar);\n  return v;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #139",
+    "body": "\nbegin\n  return (1, 'hello'::varchar);\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #140",
+    "body": "\nbegin\n  return (1, 'hello');\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #141",
+    "body": "\nbegin\n  return (1, 'hello')::compostype;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #142",
+    "body": "\ndeclare\n  v record;\nbegin\n  v := (1, 'hello');\n  return v;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #143",
+    "body": "\nbegin\n  for i in 1..3\n  loop\n    return next (1, 'hello'::varchar);\n  end loop;\n  return next null::compostype;\n  return next (2, 'goodbye')::compostype;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #144",
+    "body": "\nbegin\n  return 1 + 1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #145",
+    "body": "\ndeclare x int := 42;\nbegin\n  return x;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #146",
+    "body": "\nbegin\n  raise notice '% % %', 1, 2, 3\n     using errcode = '55001', detail = 'some detail info', hint = 'some hint';\n  raise '% % %', 1, 2, 3\n     using errcode = 'division_by_zero', detail = 'some detail info';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #147",
+    "body": "\nbegin\n  raise 'check me'\n     using errcode = 'division_by_zero', detail = 'some detail info';\n  exception\n    when others then\n      raise notice 'SQLSTATE: % SQLERRM: %', sqlstate, sqlerrm;\n      raise;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #148",
+    "body": "\nbegin\n  raise 'check me'\n     using errcode = '1234F', detail = 'some detail info';\n  exception\n    when others then\n      raise notice 'SQLSTATE: % SQLERRM: %', sqlstate, sqlerrm;\n      raise;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #149",
+    "body": "\nbegin\n  raise 'check me'\n     using errcode = '1234F', detail = 'some detail info';\n  exception\n    when sqlstate '1234F' then\n      raise notice 'SQLSTATE: % SQLERRM: %', sqlstate, sqlerrm;\n      raise;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #150",
+    "body": "\nbegin\n  raise division_by_zero using detail = 'some detail info';\n  exception\n    when others then\n      raise notice 'SQLSTATE: % SQLERRM: %', sqlstate, sqlerrm;\n      raise;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #151",
+    "body": "\nbegin\n  raise division_by_zero;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #152",
+    "body": "\nbegin\n  raise sqlstate '1234F';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #153",
+    "body": "\nbegin\n  raise division_by_zero using message = 'custom' || ' message';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #154",
+    "body": "\nbegin\n  raise using message = 'custom' || ' message', errcode = '22012';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #155",
+    "body": "\nbegin\n  raise notice 'some message' using message = 'custom' || ' message', errcode = '22012';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #156",
+    "body": "\nbegin\n  raise division_by_zero using message = 'custom' || ' message', errcode = '22012';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #157",
+    "body": "\nbegin\n  raise;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #158",
+    "body": "\ndeclare v int := 0;\nbegin\n  return 10 / v;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #159",
+    "body": "\nbegin\n  raise exception 'custom exception'\n     using detail = 'some detail of custom exception',\n           hint = 'some hint related to custom exception';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #160",
+    "body": "\ndeclare _sqlstate text;\n        _message text;\n        _context text;\nbegin\n  perform zero_divide();\nexception when others then\n  get stacked diagnostics\n        _sqlstate = returned_sqlstate,\n        _message = message_text,\n        _context = pg_exception_context;\n  raise notice 'sqlstate: %, message: %, context: [%]',\n    _sqlstate, _message, replace(_context, E'\\n', ' <- ');\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #161",
+    "body": "\ndeclare _detail text;\n        _hint text;\n        _message text;\nbegin\n  perform raise_test();\nexception when others then\n  get stacked diagnostics\n        _message = message_text,\n        _detail = pg_exception_detail,\n        _hint = pg_exception_hint;\n  raise notice 'message: %, detail: %, hint: %', _message, _detail, _hint;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #162",
+    "body": "\ndeclare _detail text;\n        _hint text;\n        _message text;\nbegin\n  get stacked diagnostics\n        _message = message_text,\n        _detail = pg_exception_detail,\n        _hint = pg_exception_hint;\n  raise notice 'message: %, detail: %, hint: %', _message, _detail, _hint;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #163",
+    "body": "\nbegin\n  perform zero_divide();\n  return 'no error detected!';\nexception when division_by_zero then\n  return 'division_by_zero detected';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #164",
+    "body": "\nbegin\n  perform 1/0;\nexception\n  when sqlstate '22012' then\n    raise notice using message = sqlstate;\n    raise sqlstate '22012' using message = 'substitute message';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #165",
+    "body": "\ndeclare _column_name text;\n        _constraint_name text;\n        _datatype_name text;\n        _table_name text;\n        _schema_name text;\nbegin\n  raise exception using\n    column = '>>some column name<<',\n    constraint = '>>some constraint name<<',\n    datatype = '>>some datatype name<<',\n    table = '>>some table name<<',\n    schema = '>>some schema name<<';\nexception when others then\n  get stacked diagnostics\n        _column_name = column_name,\n        _constraint_name = constraint_name,\n        _datatype_name = pg_datatype_name,\n        _table_name = table_name,\n        _schema_name = schema_name;\n  raise notice 'column %, constraint %, type %, table %, schema %',\n    _column_name, _constraint_name, _datatype_name, _table_name, _schema_name;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #166",
+    "body": "\nbegin\n  for i in array_lower($1,1)..array_upper($1,1) loop\n    raise notice '%', $1[i];\n  end loop; end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #167",
+    "body": "\ndeclare aux numeric = $1[array_lower($1,1)];\nbegin\n  for i in array_lower($1,1)+1..array_upper($1,1) loop\n    if $1[i] < aux then aux := $1[i]; end if;\n  end loop;\n  return aux;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #168",
+    "body": "\nbegin\n  raise notice 'non-variadic function called';\n  return $1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #169",
+    "body": "\nbegin\n  return query select $1, $1+i from generate_series(1,5) g(i);\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #170",
+    "body": "\nbegin\n  a := a1; b := a1 + 1;\n  return next;\n  a := a1 * 10; b := a1 * 10 + 1;\n  return next;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #171",
+    "body": "\ndeclare rc int;\nbegin\n  return query values(10),(20);\n  get diagnostics rc = row_count;\n  raise notice '% %', found, rc;\n  return query select * from (values(10),(20)) f(a) where false;\n  get diagnostics rc = row_count;\n  raise notice '% %', found, rc;\n  return query execute 'values(10),(20)';\n  get diagnostics rc = row_count;\n  raise notice '% %', found, rc;\n  return query execute 'select * from (values(10),(20)) f(a) where false';\n  get diagnostics rc = row_count;\n  raise notice '% %', found, rc;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #172",
+    "body": "\nbegin\n  return query select 10 into no_such_table;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #173",
+    "body": "\nbegin\n  return query execute 'select 10 into no_such_table';\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #174",
+    "body": "\nDECLARE\n  v_var INTEGER;\nBEGIN\n  BEGIN\n    v_var := (leaker_2(fail)).error_code;\n  EXCEPTION\n    WHEN others THEN RETURN 0;\n  END;\n  RETURN 1;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #175",
+    "body": "\nBEGIN\n  IF fail THEN\n    RAISE EXCEPTION 'fail ...';\n  END IF;\n  error_code := 1;\n  new_id := 1;\n  RETURN;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #176",
+    "body": "\nDECLARE\n  arr text[];\n  lr text;\n  i integer;\nBEGIN\n  arr := array[array['foo','bar'], array['baz', 'quux']];\n  lr := 'fool';\n  i := 1;\n  -- use sub-SELECTs to make expressions non-simple\n  arr[(SELECT i)][(SELECT i+1)] := (SELECT lr);\n  RETURN arr;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #177",
+    "body": "\ndeclare\n   i integer NOT NULL := 0;\nbegin\n  begin\n    i := (SELECT NULL::integer);  -- should throw error\n  exception\n    WHEN OTHERS THEN\n      i := (SELECT 1::integer);\n  end;\n  return i;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #178",
+    "body": "\nbegin\n  if ($1 > 0) then\n    return sql_recurse($1 - 1);\n  else\n    return $1;\n  end if;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #179",
+    "body": "\nbegin\n  return error1(p_name_table);\nend"
+  },
+  {
+    "comment": "plpgsql.sql #180",
+    "body": "\nbegin\n  return $1;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #181",
+    "body": " declare x text[]; begin x := '{1.23, 4.56}'::numeric[]; end "
+  },
+  {
+    "comment": "plpgsql.sql #182",
+    "body": "\nbegin\n  return 1/0;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #183",
+    "body": "\nbegin\n  raise notice 'foo\\\\bar\\041baz';\n  return 'foo\\\\bar\\041baz';\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #184",
+    "body": "\nbegin\n  raise notice E'foo\\\\bar\\041baz';\n  return E'foo\\\\bar\\041baz';\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #185",
+    "body": "\nbegin\n  raise notice 'foo\\\\bar\\041baz\\';\n  return 'foo\\\\bar\\041baz\\';\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #186",
+    "body": "\nDECLARE r record;\nBEGIN\n    FOR r IN SELECT rtrim(roomno) AS roomno, comment FROM Room ORDER BY roomno\n    LOOP\n        RAISE NOTICE '%, %', r.roomno, r.comment;\n    END LOOP;\nEND"
+  },
+  {
+    "comment": "plpgsql.sql #187",
+    "body": "begin return 1; end"
+  },
+  {
+    "comment": "plpgsql.sql #188",
+    "body": "\nDECLARE r record;\nBEGIN\n    FOR r IN SELECT rtrim(roomno) AS roomno, foo FROM Room ORDER BY roomno\n    LOOP\n        RAISE NOTICE '%, %', r.roomno, r.comment;\n    END LOOP;\nEND"
+  },
+  {
+    "comment": "plpgsql.sql #189",
+    "body": "\nbegin\n  for i in 1..10 loop\n   begin\n    execute $ex$\n      do $$\n      declare x int = 0;\n      begin\n        x := 1 / x;\n      end;\n      $$;\n    $ex$;\n  exception when division_by_zero then\n    raise notice 'caught division by zero';\n  end;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #190",
+    "body": "\ndeclare x int := x + 1;  -- error\nbegin\n  raise notice 'x = %', x;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #191",
+    "body": "\ndeclare y int := x + 1;  -- error\n        x int := 42;\nbegin\n  raise notice 'x = %, y = %', x, y;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #192",
+    "body": "\ndeclare x int := 42;\n        y int := x + 1;\nbegin\n  raise notice 'x = %, y = %', x, y;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #193",
+    "body": "\ndeclare x int := 42;\nbegin\n  declare y int := x + 1;\n          x int := x + 2;\n          z int := x * 10;\n  begin\n    raise notice 'x = %, y = %, z = %', x, y, z;\n  end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #194",
+    "body": "\ndeclare r record;\n  q1 bigint := 42;\nbegin\n  for r in select q1,q2 from int8_tbl loop\n    return next r;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #195",
+    "body": "\n#variable_conflict use_variable\ndeclare r record;\n  q1 bigint := 42;\nbegin\n  for r in select q1,q2 from int8_tbl loop\n    return next r;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #196",
+    "body": "\n#variable_conflict use_column\ndeclare r record;\n  q1 bigint := 42;\nbegin\n  for r in select q1,q2 from int8_tbl loop\n    return next r;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #197",
+    "body": "\ndeclare\n  forward int := 21;\nbegin\n  forward := forward * 2;\n  return forward;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #198",
+    "body": "\ndeclare\n  return int := 42;\nbegin\n  return := return + 1;\n  return return;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #199",
+    "body": "\ndeclare\n  comment int := 21;\nbegin\n  comment := comment * 2;\n  comment on function unreserved_test() is 'this is a test';\n  return comment;\nend\n"
+  },
+  {
+    "comment": "plpgsql.sql #200",
+    "body": "\ndeclare x int;\nbegin\n  foreach x in array $1\n  loop\n    raise notice '%', x;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #201",
+    "body": "\ndeclare x int;\nbegin\n  foreach x slice 1 in array $1\n  loop\n    raise notice '%', x;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #202",
+    "body": "\ndeclare x int[];\nbegin\n  foreach x slice 1 in array $1\n  loop\n    raise notice '%', x;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #203",
+    "body": "\ndeclare x int[];\nbegin\n  foreach x slice 2 in array $1\n  loop\n    raise notice '%', x;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #204",
+    "body": "\ndeclare r record;\nbegin\n  foreach r in array $1\n  loop\n    raise notice '%', r;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #205",
+    "body": "\ndeclare x int; y int;\nbegin\n  foreach x, y in array $1\n  loop\n    raise notice 'x = %, y = %', x, y;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #206",
+    "body": "\ndeclare x xy_tuple[];\nbegin\n  foreach x slice 1 in array $1\n  loop\n    raise notice '%', x;\n  end loop;\n  end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #207",
+    "body": "\ndeclare\n r record;\nbegin\n  r := row(12, '{foo,bar,baz}')::rtype;\n  r.ar[2] := 'replace';\n  return r.ar;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #208",
+    "body": "\ndeclare res orderedarray;\nbegin\n  res := array[x1, x2];\n  res[2] := x3;\n  return res;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #209",
+    "body": "\n  declare r int[];\n  begin r := array[$1, $1]; return r; end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #210",
+    "body": "\n  begin return $1[1]; end;\n"
+  },
+  {
+    "comment": "plpgsql.sql #211",
+    "body": "\ndeclare a int[] := array[1,2];\nbegin\n  a := a || 3;\n  raise notice 'a = %', a;\nend"
+  },
+  {
+    "comment": "plpgsql.sql #212",
+    "body": "\ndeclare _context text;\nbegin\n  get diagnostics _context = pg_context;\n  raise notice '***%***', _context;\n  -- lets do it again, just for fun..\n  get diagnostics _context = pg_context;\n  raise notice '***%***', _context;\n  raise notice 'lets make sure we didnt break anything';\n  return 2 * $1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #213",
+    "body": "\ndeclare\n  myresult int;\nbegin\n  raise notice 'calling down into inner_func()';\n  myresult := inner_func($1);\n  raise notice 'inner_func() done';\n  return myresult;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #214",
+    "body": "\ndeclare\n  myresult int;\nbegin\n  raise notice 'calling down into outer_func()';\n  myresult := outer_func($1);\n  raise notice 'outer_func() done';\n  return myresult;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #215",
+    "body": "\ndeclare\n  _context text;\n  sx int := 5;\nbegin\n  begin\n    perform sx / 0;\n  exception\n    when division_by_zero then\n      get diagnostics _context = pg_context;\n      raise notice '***%***', _context;\n  end;\n\n  -- lets do it again, just for fun..\n  get diagnostics _context = pg_context;\n  raise notice '***%***', _context;\n  raise notice 'lets make sure we didnt break anything';\n  return 2 * $1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #216",
+    "body": "\ndeclare\n  fn_oid regprocedure;\nbegin\n  get diagnostics fn_oid = pg_routine_oid;\n  return fn_oid;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #217",
+    "body": "\ndeclare\n  fn_oid oid;\nbegin\n  get diagnostics fn_oid = pg_routine_oid;\n  raise notice 'pg_routine_oid = %', fn_oid;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #218",
+    "body": "\nbegin\n  assert 1=1;  -- should succeed\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #219",
+    "body": "\nbegin\n  assert 1=0;  -- should fail\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #220",
+    "body": "\nbegin\n  assert NULL;  -- should fail\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #221",
+    "body": "\nbegin\n  assert 1=0;  -- won't be tested\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #222",
+    "body": "\ndeclare var text := 'some value';\nbegin\n  assert 1=0, format('assertion failed, var = \"%s\"', var);\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #223",
+    "body": "\nbegin\n  assert 1=0, 'unhandled assertion';\nexception when others then\n  null; -- do nothing\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #224",
+    "body": "\nbegin return val > 0; end\n"
+  },
+  {
+    "comment": "plpgsql.sql #225",
+    "body": "\ndeclare v_test plpgsql_domain;\nbegin\n  v_test := 1;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #226",
+    "body": "\ndeclare v_test plpgsql_domain := 1;\nbegin\n  v_test := 0;  -- fail\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #227",
+    "body": "\nbegin return val[1] > 0; end\n"
+  },
+  {
+    "comment": "plpgsql.sql #228",
+    "body": "\ndeclare v_test plpgsql_arr_domain;\nbegin\n  v_test := array[1];\n  v_test := v_test || 2;\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #229",
+    "body": "\ndeclare v_test plpgsql_arr_domain := array[1];\nbegin\n  v_test := 0 || v_test;  -- fail\nend;\n"
+  },
+  {
+    "comment": "plpgsql.sql #230",
+    "body": "\nDECLARE\n  t text;\n  l text;\nBEGIN\n  t = '';\n  FOR l IN EXECUTE\n           $q$\n             EXPLAIN (TIMING off, COSTS off, VERBOSE on)\n             SELECT * FROM newtable\n           $q$ LOOP\n    t = t || l || E'\\n';\n  END LOOP;\n\n  RAISE INFO '%', t;\n  RETURN new;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #231",
+    "body": "\nDECLARE\n  t text;\n  l text;\nBEGIN\n  t = '';\n  FOR l IN EXECUTE\n           $q$\n             EXPLAIN (TIMING off, COSTS off, VERBOSE on)\n             SELECT * FROM oldtable ot FULL JOIN newtable nt USING (id)\n           $q$ LOOP\n    t = t || l || E'\\n';\n  END LOOP;\n\n  RAISE INFO '%', t;\n  RETURN new;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #232",
+    "body": "\n  DECLARE n bigint;\n  BEGIN\n    PERFORM FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no;\n    IF FOUND THEN\n      RAISE EXCEPTION 'RI error';\n    END IF;\n    RETURN NULL;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql.sql #233",
+    "body": "\n  DECLARE\n    x int;\n  BEGIN\n    WITH p AS (SELECT level1_no, sum(delta) cnt\n                 FROM (SELECT level1_no, 1 AS delta FROM i\n                       UNION ALL\n                       SELECT level1_no, -1 AS delta FROM d) w\n                 GROUP BY level1_no\n                 HAVING sum(delta) < 0)\n    SELECT level1_no\n      FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no\n      INTO x;\n    IF FOUND THEN\n      RAISE EXCEPTION 'RI error';\n    END IF;\n    RETURN NULL;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql.sql #234",
+    "body": "\n  BEGIN\n    PERFORM FROM i\n      LEFT JOIN transition_table_level1 p\n        ON p.level1_no IS NOT NULL AND p.level1_no = i.parent_no\n      WHERE p.level1_no IS NULL;\n    IF FOUND THEN\n      RAISE EXCEPTION 'RI error';\n    END IF;\n    RETURN NULL;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql.sql #235",
+    "body": "\n  BEGIN\n    INSERT INTO dx VALUES (1000000, 1000000, 'x');\n    RETURN NULL;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql.sql #236",
+    "body": "\nBEGIN\n  RAISE WARNING 'old table = %, new table = %',\n                  (SELECT string_agg(id || '=' || name, ',') FROM d),\n                  (SELECT string_agg(id || '=' || name, ',') FROM i);\n  RAISE NOTICE 'one = %', (SELECT 1 FROM alter_table_under_transition_tables LIMIT 1);\n  RETURN NULL;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql.sql #237",
+    "body": "\nBEGIN\n    RAISE NOTICE 'count = %', (SELECT COUNT(*) FROM new_test);\n    RAISE NOTICE 'count union = %',\n      (SELECT COUNT(*)\n       FROM (SELECT * FROM new_test UNION ALL SELECT * FROM new_test) ss);\n    RETURN NULL;\nEND"
+  },
+  {
+    "comment": "plpgsql.sql #238",
+    "body": "\nDECLARE\n    a_val partitioned_table.a%TYPE;\n    result partitioned_table%ROWTYPE;\nBEGIN\n    a_val := $1;\n    SELECT * INTO result FROM partitioned_table WHERE a = a_val;\n    RETURN result;\nEND; "
+  },
+  {
+    "comment": "plpgsql.sql #239",
+    "body": "\nDECLARE\n    row public.partitioned_table%ROWTYPE;\n    a_val public.partitioned_table.a%TYPE;\nBEGIN\n    FOR row IN SELECT * FROM public.partitioned_table ORDER BY a LOOP\n        a_val := row.a;\n        RETURN NEXT a_val;\n    END LOOP;\n    RETURN;\nEND; "
+  },
+  {
+    "comment": "plpgsql.sql #240",
+    "body": "\nBEGIN\n  GET DIAGNOSTICS x = ROW_COUNT;\n  RETURN;\nEND; "
+  }
+]

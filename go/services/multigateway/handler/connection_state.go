@@ -101,19 +101,6 @@ type MultigatewayConnectionState struct {
 	// reserved for the old transaction.
 	ActiveTransactionBeginQuery string
 
-	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
-	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
-	// on the backend without the pooler observing the exact reverted values, so
-	// ScatterConn forwards it as ReservationOptions.MarkSessionStateUntrusted,
-	// asking the multipooler to force reconciliation before the next reserved
-	// user SQL or at release. One-shot: cleared after it is consumed.
-	//
-	// Like PendingBeginQuery (and unlike the single-query reservation signals
-	// that ride on engine.PlanExecInfo), this spans statements: it is set on the
-	// ROLLBACK TO and consumed by a *later* statement's reservation, so it
-	// genuinely belongs to connection state.
-	PendingMarkSessionStateUntrusted bool
-
 	// OpenHoldCursors tracks the names of currently-open `DECLARE ... WITH HOLD`
 	// cursors on this gateway session. Used to compute `CLOSE ALL` membership
 	// and as a single-source-of-truth refcount so the gateway can answer
@@ -413,6 +400,33 @@ func (m *MultigatewayConnectionState) ClearReservedConnection(target *query.Targ
 			return
 		}
 	}
+}
+
+// HasReservedConnectionFor reports whether the session holds a reserved
+// connection for the given tablegroup/shard — the question a planner must ask
+// before deciding that a statement it routes there will execute on a
+// session-affine backend. Scoping to the routed target matters because
+// ScatterConn only reuses a reservation whose shard state matches the
+// statement's target: a session-wide "any shard is reserved" answer would let
+// a statement planned as pinned fall through to a pooled connection on its
+// own target and mutate it untracked.
+//
+// Checks the reserved-connection id (matching every scatter_conn call site)
+// rather than mere ReservedState presence, so a lingering zero-id entry can
+// never classify an unpinned session as pinned.
+func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() == 0 {
+			continue
+		}
+		key := ss.Target.GetShardKey()
+		if key.GetTableGroup() == tableGroup && key.GetShard() == shard {
+			return true
+		}
+	}
+	return false
 }
 
 // ClearAllReservedConnections removes all reserved connection entries.
@@ -899,7 +913,21 @@ func (m *MultigatewayConnectionState) InitIdleSessionTimeout(defaultValue time.D
 // TargetReplica returns true if this connection targets a replica.
 // Set once at connection initialization based on which port the connection arrived on.
 func (m *MultigatewayConnectionState) TargetReplica() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.targetReplica
+}
+
+// SetTargetReplica sets whether this connection targets a replica. Exposed
+// for tests in other multigateway packages (e.g. scatterconn) that need to
+// exercise TargetReplica()-dependent routing without a real connection
+// arriving on the replica-reads listener. Production code sets this once,
+// directly on the unexported field, when the state is created — see
+// MultigatewayHandler.getConnectionState (handler.go:437).
+func (m *MultigatewayConnectionState) SetTargetReplica(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetReplica = v
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.
@@ -922,6 +950,41 @@ func (m *MultigatewayConnectionState) GetSessionSettings() map[string]string {
 		merged[pgsettings.CanonicalGUCName(k)] = v
 	}
 	for k, v := range m.SessionSettings {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
+	return merged
+}
+
+// GetRollbackSessionSettings returns the merged settings view that will be
+// true if the current transaction ends in a rollback: startup parameters
+// overlaid with the pre-BEGIN session-settings snapshot (savepoint frame 0),
+// exactly what RollbackTransaction restores. Returns nil when no transaction
+// frame exists — callers then treat the current map as the only truth.
+//
+// Sent alongside the current map on ConcludeTransaction so the multipooler
+// can label the released backend by the outcome PostgreSQL actually produced:
+// a COMMIT request can conclude as a rollback (COMMIT on a failed
+// transaction, or a COMMIT that itself fails on e.g. a deferred constraint),
+// and in those outcomes the backend's session state reverted to this map, not
+// the in-transaction one.
+func (m *MultigatewayConnectionState) GetRollbackSessionSettings() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 {
+		return nil
+	}
+	preBegin := m.savepoints[0].sessionSettings
+	if len(m.StartupParams) == 0 && len(preBegin) == 0 {
+		// An all-empty rollback map is still meaningful (rollback reverts to
+		// "no settings"); return an empty non-nil map so callers can
+		// distinguish it from "no transaction frame".
+		return map[string]string{}
+	}
+	merged := make(map[string]string, len(m.StartupParams)+len(preBegin))
+	for k, v := range m.StartupParams {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
+	for k, v := range preBegin {
 		merged[pgsettings.CanonicalGUCName(k)] = v
 	}
 	return merged

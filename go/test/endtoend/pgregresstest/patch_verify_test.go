@@ -436,6 +436,51 @@ func TestNormalizeIsolationStats(t *testing.T) {
 	}
 }
 
+func TestNormalizeDetachPartitionCancel(t *testing.T) {
+	in := detachPartitionPIDPinned + "\n"
+	want := detachPartitionPIDOriginal + "\n"
+	if got := string(normalizeTestOutput(detachPartitionCancelTest, "/patches/isolation", []byte(in))); got != want {
+		t.Fatalf("normalize detach partition queries = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput(detachPartitionCancelTest, "/patches", []byte(in))); got != in {
+		t.Fatalf("non-isolation output changed: %q", got)
+	}
+}
+
+func TestNormalizePoolerPreparedNames(t *testing.T) {
+	in := "ppstmt1 ppstmt987 prepstmt2 stmt3"
+	want := "ppstmt<ID> ppstmt<ID> prepstmt2 stmt3"
+	if got := string(normalizeTestOutput("prepare", "/patches", []byte(in))); got != want {
+		t.Fatalf("normalize prepare names = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput("boolean", "/patches", []byte(in))); got != in {
+		t.Fatalf("unrelated test output changed: %q", got)
+	}
+}
+
+func TestNormalizePoolerPreparedStatementViews(t *testing.T) {
+	query := "SELECT name FROM pg_prepared_statements;\n"
+	want := query + poolerPreparedViewMarker + "\nSELECT 1;\n"
+	for _, in := range []string{
+		query + "name\n----\nppstmt1\nppstmt2\n(2 rows)\nSELECT 1;\n",
+		query + "name\n----\n(0 rows)\nSELECT 1;\n",
+	} {
+		if got := string(normalizeTestOutput("guc", "/patches", []byte(in))); got != want {
+			t.Fatalf("normalize guc prepared statements = %q, want %q", got, want)
+		}
+	}
+
+	in := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"name | statement\n-----+----------\n" +
+		"ppstmt42 | SELECT 1\n| UNION SELECT 2\n(1 row)\n"
+	want = "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" + poolerPreparedViewMarker + "\n"
+	if got := string(normalizeTestOutput("prepare", "/patches", []byte(in))); got != want {
+		t.Fatalf("normalize prepare statements = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"
@@ -513,10 +558,14 @@ func stringsContains(s, substr string) bool {
 // lines) must normalize to a stable token, or no committed patch containing
 // such a line could ever verify on a later run.
 func TestNormalizeRunPaths(t *testing.T) {
-	in := `could not open file "/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`
 	want := `could not open file "/tmp/multigres_pg_cache/builds/[RUN]/build/src/test/regress/results/lotest.txt": No such file or directory`
-	if got := string(normalizeRunPaths([]byte(in))); got != want {
-		t.Fatalf("normalizeRunPaths = %q, want %q", got, want)
+	for _, in := range []string{
+		`could not open file "/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`,
+		`could not open file "/private/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`,
+	} {
+		if got := string(normalizeRunPaths([]byte(in))); got != want {
+			t.Fatalf("normalizeRunPaths = %q, want %q", got, want)
+		}
 	}
 
 	// Lines without a run path pass through untouched.

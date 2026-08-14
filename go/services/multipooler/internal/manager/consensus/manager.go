@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // Broadcaster pushes an immediate health snapshot to subscribers. It is
@@ -128,6 +129,13 @@ type ConsensusManager struct {
 	// connecting. Atomic; production writes happen on action-lock paths, and the
 	// lock-free health-status reader loads it.
 	suspectedDivergence atomic.Bool
+
+	// rewindBackoff and rewindReadyAt rate-limit the monitor-driven divergence
+	// rewinds (RecordRewindAttempt/RewindBackoffElapsed) so a node that keeps
+	// failing to come up as a standby doesn't thrash disruptive restarts.
+	// rewindBackoff is lazily created. Guarded by mu.
+	rewindBackoff *retry.ExponentialBackoff
+	rewindReadyAt time.Time
 }
 
 // Deps are the lower-level dependencies a production ConsensusManager builds its
@@ -312,22 +320,10 @@ func (cm *ConsensusManager) LeadershipStatus() *clustermetadatapb.LeadershipStat
 	}
 }
 
-// RecordTermPrimary updates the highest-known (rule, primary, rewind_ready)
-// based on what this pooler has been told. A nil argument (or nil rule) is a
-// no-op. Bump semantics:
-//
-//   - rule: updated only when strictly greater than the current value
-//     (comparison by RuleNumber: coordinator_term then leader_subterm).
-//
-//   - primary: updated when the rule advances, OR when the supplied rule
-//     equals the current rule but the primary's contact info has changed.
-//     The same-rule-different-contact case covers a primary pooler being
-//     re-homed (host or port changes) without a new election.
-//
-//   - rewind_ready: recorded alongside, and a change to it is itself enough to
-//     record even at the same rule and contact — the leader completing its
-//     post-promotion checkpoint flips rewind_ready false->true without a new
-//     election, and a diverged follower gates its pg_rewind on that flip.
+// RecordTermPrimary folds a newly observed ReplicationPrimary into the
+// highest-known one via consensus.MergeReplicationPrimary — the same helper
+// orch's health-stream cache uses, so the two can't drift on what counts as
+// an advance. A nil argument (or nil rule) is a no-op.
 //
 // Safe to call on no-op SetPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
@@ -336,38 +332,12 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-	position := rp.GetPosition()
-	if consensus.PossiblyUndecidedRule(position) == nil {
-		return nil
-	}
-	primary := rp.GetPrimary()
-	rewindReady := rp.GetRewindReady()
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cmp := consensus.CompareRulePosition(position, cm.replicationPrimary.GetPosition())
-	if cmp < 0 {
+
+	next, changed := consensus.MergeReplicationPrimary(cm.replicationPrimary, rp)
+	if !changed {
 		return nil
-	}
-	if cmp == 0 &&
-		(primary == nil || proto.Equal(primary, cm.replicationPrimary.GetPrimary())) &&
-		rewindReady == cm.replicationPrimary.GetRewindReady() {
-		return nil
-	}
-	// Build the next value by starting from the existing fields (via getters,
-	// which are nil-safe) and overlaying the updates we want to apply.
-	next := &clustermetadatapb.ReplicationPrimary{
-		Position:    cm.replicationPrimary.GetPosition(),
-		Primary:     cm.replicationPrimary.GetPrimary(),
-		RewindReady: rewindReady,
-	}
-	if cmp > 0 {
-		next.Position = proto.Clone(position).(*clustermetadatapb.RulePosition)
-	}
-	// Update primary only when one is supplied; an RPC that advances the rule
-	// without re-stating the primary (or a future WAL-observation path) leaves
-	// the previously-recorded contact info in place.
-	if primary != nil {
-		next.Primary = proto.Clone(primary).(*clustermetadatapb.PoolerAddress)
 	}
 	// Stamp the time the leader identity changed, so a subsequent rewind toward
 	// this leader can report how long it waited for the leader to become
@@ -514,6 +484,70 @@ func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspecte
 		return false, err
 	}
 	return cm.suspectedDivergence.Swap(suspected) != suspected, nil
+}
+
+// rewindBackoffMin/Max bound the exponential backoff between monitor-driven
+// divergence rewinds.
+const (
+	rewindBackoffMin = 5 * time.Second
+	rewindBackoffMax = 5 * time.Minute
+)
+
+// RewindTarget returns the recorded leader (host, port) to rewind toward when a
+// diverged standby cannot come up, with ok=false when no leader is known, the
+// recorded leader is ourselves (nothing to diverge from), or the recorded rule
+// is revoked by our term revocation.
+func (cm *ConsensusManager) RewindTarget() (host string, port int32, ok bool) {
+	rp := cm.GetReplicationPrimary()
+	target := rp.GetPrimary()
+	if target == nil || target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return "", 0, false
+	}
+	leader := consensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId()
+	if leader == nil {
+		return "", 0, false
+	}
+	if cm.id != nil && leader.GetCell() == cm.id.GetCell() && leader.GetName() == cm.id.GetName() {
+		return "", 0, false
+	}
+	if consensus.IsRuleRevoked(rp.GetPosition(), cm.promises.GetInconsistentRevocation()) {
+		return "", 0, false
+	}
+	return target.GetHost(), target.GetPostgresPort(), true
+}
+
+// RewindBackoffElapsed reports whether enough time has passed since the last
+// divergence-rewind attempt to try another (true when none has been recorded).
+func (cm *ConsensusManager) RewindBackoffElapsed() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.rewindReadyAt.IsZero() || !time.Now().Before(cm.rewindReadyAt)
+}
+
+// RecordRewindAttempt stamps the next time a divergence rewind may be attempted,
+// advancing the exponential backoff.
+func (cm *ConsensusManager) RecordRewindAttempt() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.rewindBackoff == nil {
+		cm.rewindBackoff = retry.NewExponentialBackoff(rewindBackoffMin, rewindBackoffMax)
+	}
+	// Floor the delay at the minimum: the backoff uses full jitter, which can
+	// return a near-zero delay, but a rewind is a heavy stop+rewind+restart that
+	// needs a guaranteed gap between attempts. Exponential growth still applies
+	// above the floor.
+	delay := max(cm.rewindBackoff.NextDelay(), rewindBackoffMin)
+	cm.rewindReadyAt = time.Now().Add(delay)
+}
+
+// ResetRewindBackoff clears the backoff after a rewind succeeds.
+func (cm *ConsensusManager) ResetRewindBackoff() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.rewindBackoff != nil {
+		cm.rewindBackoff.Reset()
+	}
+	cm.rewindReadyAt = time.Time{}
 }
 
 // IsPotentialCohortMember reports whether selfID is named in the cohort of

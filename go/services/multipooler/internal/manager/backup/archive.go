@@ -119,6 +119,6 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 		return mterrors.Wrap(err, "failed to write archive config")
 	}
 
-	e.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "backup_type", cfg.Type())
+	e.logger.InfoContext(ctx, "configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "backup_type", cfg.Type())
 	return nil
 }

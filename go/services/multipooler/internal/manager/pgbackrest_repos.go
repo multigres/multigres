@@ -64,7 +64,7 @@ func (pm *MultipoolerManager) createPgBackRestReposTable(ctx context.Context) er
 	}
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := queryService.QueryMultiStatement(execCtx, `CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos (
+	if err := queryService.QueryAdminMultiStatement(execCtx, `CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos (
 	generation BIGINT PRIMARY KEY,
 	repo_number BIGINT NOT NULL UNIQUE CHECK (repo_number >= 1),
 	encrypted BOOLEAN NOT NULL,
@@ -90,11 +90,11 @@ func (pm *MultipoolerManager) createPgBackRestReposTable(ctx context.Context) er
 // freshly created, empty table with no conflict handling needed.
 func (pm *MultipoolerManager) insertInitialPgBackRestRepo(ctx context.Context) error {
 	repo := backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)
-	pm.logger.InfoContext(ctx, "Seeding pgbackrest_repos",
+	pm.logger.InfoContext(ctx, "seeding pgbackrest_repos",
 		"generation", repo.Generation, "repo_number", repo.RepoNumber, "key_fingerprint", repo.KeyFingerprint, "encrypted", repo.Encrypted)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	err := pm.execArgs(execCtx, `INSERT INTO multigres.pgbackrest_repos (generation, repo_number, encrypted, key_fingerprint, state, authoritative)
+	err := pm.adminExecArgs(execCtx, `INSERT INTO multigres.pgbackrest_repos (generation, repo_number, encrypted, key_fingerprint, state, authoritative)
 		VALUES ($1, $2, $3, $4, $5, TRUE)`,
 		repo.Generation, repo.RepoNumber, repo.Encrypted, repo.KeyFingerprint, repo.State)
 	if err != nil {

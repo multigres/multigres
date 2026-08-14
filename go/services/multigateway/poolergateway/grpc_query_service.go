@@ -29,10 +29,12 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
@@ -73,6 +75,24 @@ func newGRPCQueryService(
 	}
 }
 
+// markStreamStartFailure converts a failure from a generated streaming-client
+// constructor into the typed pre-execution signal consumed by failover
+// buffering. A non-EOF UNAVAILABLE there is provably a NewStream/pick failure
+// (e.g. dialing a dead pooler): the request message never left the gateway, so
+// no query can have executed and buffering a retry is safe. The two ways a
+// constructor error could follow request delivery cannot reach this marking:
+// gRPC-Go's ClientStream.CloseSend always returns nil, and SendMsg on a broken
+// stream returns io.EOF (which FromGRPC passes through untranslated, never as
+// UNAVAILABLE). Mid-stream transport loss surfaces at stream.Recv instead and
+// is deliberately left unmarked — retrying it could double-apply a write.
+func markStreamStartFailure(err error) error {
+	err = mterrors.FromGRPC(err)
+	if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+		return mterrors.MarkPreExecutionUnavailable(err)
+	}
+	return err
+}
+
 // StreamExecute executes a query and streams results back via callback.
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (g *grpcQueryService) StreamExecute(
@@ -102,7 +122,7 @@ func (g *grpcQueryService) StreamExecute(
 	// Call the gRPC StreamExecute
 	stream, err := g.client.StreamExecute(ctx, req)
 	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start stream execute")
+		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
 	}
 
 	var reservedState *querypb.ReservedState
@@ -161,7 +181,7 @@ func (g *grpcQueryService) StreamExecute(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
-	g.logger.DebugContext(ctx, "Executing query",
+	g.logger.DebugContext(ctx, "executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.GetShardKey().GetTableGroup(),
 		"shard", target.GetShardKey().GetShard(),
@@ -178,6 +198,12 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 
 	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
 	// by the multipooler so the client sees the underlying PostgreSQL error.
+	//
+	// Unlike the streaming methods, an UNAVAILABLE here is deliberately NOT
+	// marked pre-execution (see markStreamStartFailure): a unary RPC gives no
+	// way to tell a pick/dial failure from a connection lost after the request
+	// was delivered and possibly executed, so marking it could double-apply a
+	// write on retry.
 	res, err := g.client.ExecuteQuery(ctx, req)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
@@ -220,7 +246,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Call the gRPC PortalStreamExecute
 	stream, err := g.client.PortalStreamExecute(ctx, req)
 	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start portal stream execute")
+		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
 	}
 
 	var reservedState *querypb.ReservedState
@@ -633,6 +659,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	releasePortalNames []string,
 	releaseAllPortals bool,
 	chain bool,
+	rollbackSessionSettings map[string]string,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
@@ -654,6 +681,9 @@ func (g *grpcQueryService) ConcludeTransaction(
 		Chain:              chain,
 		CallerId:           callerid.FromContext(ctx),
 	}
+	if rollbackSessionSettings != nil {
+		req.RollbackSessionSettings = &multipoolerservice.SessionSettingsSnapshot{Vars: rollbackSessionSettings}
+	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic
 	// attached by the multipooler so the client sees the underlying PostgreSQL
@@ -661,7 +691,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// without breaking the errors.As chain to that diagnostic.
 	response, err := g.client.ConcludeTransaction(ctx, req)
 	if err != nil {
-		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
+		return nil, reservedStateFromGRPCErr(err), mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -679,6 +709,28 @@ func (g *grpcQueryService) ConcludeTransaction(
 	}
 
 	return result, reservedState, nil
+}
+
+// reservedStateFromGRPCErr extracts a *querypb.ReservedState attached as a
+// gRPC status detail, if the multipooler included one (see
+// grpcpoolerservice.withReservedStateDetail). ConcludeTransaction is a unary
+// RPC, so a handler that returns an error never sends its response message at
+// all — this is how the multipooler still tells the gateway the authoritative
+// surviving reservation state, e.g. a temp-table reason that outlives a
+// COMMIT which failed on a deferred constraint, instead of forcing the
+// gateway to assume the whole reservation is gone. Returns nil if err carries
+// no such detail.
+func reservedStateFromGRPCErr(err error) *querypb.ReservedState {
+	st, ok := status.FromError(err)
+	if !ok {
+		return nil
+	}
+	for _, detail := range st.Details() {
+		if rs, ok := detail.(*querypb.ReservedState); ok {
+			return rs
+		}
+	}
+	return nil
 }
 
 // DiscardTempTables sends DISCARD TEMP on a reserved connection.
@@ -727,14 +779,16 @@ func (g *grpcQueryService) DiscardTempTables(
 	return result, reservedState, nil
 }
 
-// ReleaseReservedConnection forcefully releases a reserved connection.
+// ReleaseReservedConnection releases a reserved connection. See
+// queryservice.QueryService.ReleaseReservedConnection for keepStickyReservations.
 func (g *grpcQueryService) ReleaseReservedConnection(
 	ctx context.Context,
 	target *querypb.Target,
 	options *querypb.ExecuteOptions,
-) error {
+	keepStickyReservations bool,
+) (*querypb.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
-		return nil
+		return nil, nil
 	}
 
 	g.logger.DebugContext(ctx, "releasing reserved connection",
@@ -752,24 +806,89 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	g.copyStreamsMu.Unlock()
 
 	req := &multipoolerservice.ReleaseReservedConnectionRequest{
-		Target:   target,
-		Options:  options,
-		CallerId: callerid.FromContext(ctx),
+		Target:                 target,
+		Options:                options,
+		CallerId:               callerid.FromContext(ctx),
+		KeepStickyReservations: keepStickyReservations,
 	}
 
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
 	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
 	// prefix without breaking the errors.As chain to that diagnostic.
-	_, err := g.client.ReleaseReservedConnection(ctx, req)
+	resp, err := g.client.ReleaseReservedConnection(ctx, req)
 	if err != nil {
-		return mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}
 
 	g.logger.DebugContext(ctx, "reserved connection released",
 		"pooler_id", g.poolerID,
 		"reserved_conn_id", options.ReservedConnectionId)
 
-	return nil
+	return resp.GetReservedState(), nil
+}
+
+// StreamReplication opens a bidi replication tunnel to the multipooler, sends
+// the Init message, and waits for the backend to be opened. On the first
+// server message it either returns the live stream (Ready) for the caller to
+// pump opaque replication bytes through, or surfaces the backend's structured
+// PG error (Error). The actual byte-pumping and routing are the caller's
+// responsibility — this method only performs the open handshake.
+func (g *grpcQueryService) StreamReplication(
+	ctx context.Context,
+	init *multipoolerservice.StreamReplicationInit,
+) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	g.logger.DebugContext(ctx, "opening replication stream",
+		"pooler_id", g.poolerID,
+		"mode", init.GetMode().String(),
+		"user", init.GetUser())
+
+	init.CallerId = callerid.FromContext(ctx)
+
+	stream, err := g.client.StreamReplication(ctx)
+	if err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to open replication stream")
+	}
+
+	// Tear the stream down on any error before we hand it back to the caller.
+	success := false
+	defer func() {
+		if !success {
+			_ = stream.CloseSend()
+			// Drain a pending response to let the server clean up.
+			_, _ = stream.Recv()
+		}
+	}()
+
+	// The Init message MUST be the first message on the stream.
+	if err := stream.Send(&multipoolerservice.StreamReplicationRequest{
+		Msg: &multipoolerservice.StreamReplicationRequest_Init{Init: init},
+	}); err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send replication Init")
+	}
+
+	// Await the backend-opened handshake.
+	resp, err := stream.Recv()
+	if err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive replication Ready")
+	}
+
+	// A structured backend error: surface the PgDiagnostic directly (recoverable
+	// via errors.As) so a caller can later re-emit it verbatim as an
+	// ErrorResponse. This method itself only performs the open handshake.
+	if replErr := resp.GetError(); replErr != nil {
+		if diag := replErr.GetDiagnostic(); diag != nil {
+			return nil, mterrors.PgDiagnosticFromProto(diag)
+		}
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication stream returned an error without a diagnostic")
+	}
+
+	if resp.GetReady() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "expected Ready as the first replication response")
+	}
+
+	success = true
+	g.logger.DebugContext(ctx, "replication stream ready", "pooler_id", g.poolerID)
+	return stream, nil
 }
 
 // copyErrorFromResp builds an error from a CopyBidiExecuteResponse_ERROR

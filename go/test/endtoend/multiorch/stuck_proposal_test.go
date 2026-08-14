@@ -142,7 +142,7 @@ func TestCohortChangeRejectedWithStuckProposal(t *testing.T) {
 	// undecided: it has no independent safety backing (no cert, no verified
 	// quorum) to know whether overwriting it would discard durable work.
 	_, err = primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
-		Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+		Operation: multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
@@ -329,7 +329,7 @@ func TestApplyCertifiedRuleChange_FromStuckProposal(t *testing.T) {
 			return false
 		}
 		return true
-	}, 10*time.Second, 500*time.Millisecond, "ApplyCertifiedRuleChange should succeed starting from a stuck proposal")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "ApplyCertifiedRuleChange should succeed starting from a stuck proposal")
 	require.NotNil(t, resp.InstalledRule)
 	assert.Equal(t, newTerm, resp.InstalledRule.GetRuleNumber().GetCoordinatorTerm())
 	assert.Equal(t, newLeaderName, resp.InstalledRule.GetLeaderId().GetName())

@@ -59,6 +59,24 @@ func TestWrap(t *testing.T) {
 	}
 }
 
+// Credential lookup errors are used in two ways: the gateway checks the RPC
+// code when routing requests, while Postgres clients read the diagnostic.
+// This test makes sure that wrapping the error does not lose either one.
+func TestWithCodePreservesStructuredCause(t *testing.T) {
+	diagnostic := NewPgError("ERROR", PgSSCannotConnectNow, "temporarily unavailable", "")
+	err := WithCode(Wrap(diagnostic, "routing failed"), mtrpcpb.Code_UNAVAILABLE)
+	err = fmt.Errorf("credential lookup failed: %w", err)
+
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, Code(err))
+	assert.ErrorIs(t, err, diagnostic)
+
+	var gotDiagnostic *PgDiagnostic
+	assert.ErrorAs(t, err, &gotDiagnostic)
+	assert.Same(t, diagnostic, gotDiagnostic)
+	assert.Contains(t, err.Error(), "routing failed")
+	assert.Nil(t, WithCode(nil, mtrpcpb.Code_UNAVAILABLE))
+}
+
 func TestUnwrap(t *testing.T) {
 	tests := []struct {
 		err       error
@@ -323,6 +341,12 @@ func TestCode(t *testing.T) {
 		want: mtrpcpb.Code_CANCELED,
 	}, {
 		in:   context.DeadlineExceeded,
+		want: mtrpcpb.Code_DEADLINE_EXCEEDED,
+	}, {
+		in:   fmt.Errorf("request canceled: %w", context.Canceled),
+		want: mtrpcpb.Code_CANCELED,
+	}, {
+		in:   fmt.Errorf("request timed out: %w", context.DeadlineExceeded),
 		want: mtrpcpb.Code_DEADLINE_EXCEEDED,
 	}}
 	for _, tcase := range testcases {

@@ -139,6 +139,8 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 var (
 	isolationNotifyPIDRe = regexp.MustCompile(`(: NOTIFY "[^"\n]+" with payload "[^"\n]*" from )PID [0-9]+`)
 	psqlNotifyPIDRe      = regexp.MustCompile(`from server process with PID [0-9]+`)
+	poolerPreparedNameRe = regexp.MustCompile(`\bppstmt[0-9]+\b`)
+	psqlRowCountRe       = regexp.MustCompile(`^\([0-9]+ rows?\)$`)
 	// runBuildDirRe matches the per-run timestamped build directory that
 	// pg_regress substitutes into test scripts via @abs_builddir@ / @abs_srcdir@
 	// and that then surfaces in client-side output — e.g. psql's `could not open
@@ -150,10 +152,81 @@ var (
 )
 
 func normalizeTestOutput(name, patchDir string, input []byte) []byte {
-	if name == "stats" && filepath.Base(patchDir) == "isolation" {
-		return normalizeIsolationStats(input)
+	if filepath.Base(patchDir) == "isolation" {
+		switch name {
+		case "stats":
+			return normalizeIsolationStats(input)
+		case detachPartitionCancelTest:
+			return bytes.ReplaceAll(input, []byte(detachPartitionPIDPinned), []byte(detachPartitionPIDOriginal))
+		}
+	}
+	if name == "prepare" || name == "guc" {
+		return normalizePoolerPreparedStatementViews(normalizePoolerPreparedNames(input))
+	}
+	if name == "psql" {
+		return normalizePoolerPreparedNames(input)
 	}
 	return input
+}
+
+const poolerPreparedViewMarker = "<pooler internal prepared statements>"
+
+// normalizePoolerPreparedStatementViews collapses pg_prepared_statements result
+// tables in tests that inspect them. The view exposes whichever physical
+// backend a pooled logical session receives, so its internal ppstmt rows and
+// counts legitimately vary with parallel test scheduling. SQL PREPARE behavior
+// outside these observability-only result tables remains patch-verified.
+func normalizePoolerPreparedStatementViews(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+	out := make([]string, 0, len(lines))
+	awaitingResult := false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.Contains(strings.ToLower(line), "from pg_prepared_statements") {
+			awaitingResult = true
+			out = append(out, line)
+			continue
+		}
+		if awaitingResult && i+1 < len(lines) && isPsqlTableSeparator(lines[i+1]) {
+			for end := i + 2; end < len(lines); end++ {
+				if psqlRowCountRe.MatchString(strings.TrimSpace(lines[end])) {
+					out = append(out, poolerPreparedViewMarker)
+					i = end
+					awaitingResult = false
+					break
+				}
+			}
+			if !awaitingResult {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+
+	return []byte(strings.Join(out, "\n"))
+}
+
+func isPsqlTableSeparator(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	for _, c := range line {
+		if c != '-' && c != '+' {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizePoolerPreparedNames masks only the numeric allocator suffix of
+// multipooler's internal prepared-statement names. Consolidation intentionally
+// exposes ppstmt* through backend diagnostics and pg_prepared_statements, while
+// concurrent test order determines the number assigned to otherwise identical
+// statements.
+func normalizePoolerPreparedNames(input []byte) []byte {
+	return poolerPreparedNameRe.ReplaceAll(input, []byte("ppstmt<ID>"))
 }
 
 // normalizeIsolationStats masks only counters whose exact value depends on
@@ -200,6 +273,7 @@ func normalizeNotificationPIDs(input []byte) []byte {
 // normalizeRunPaths masks per-run path segments so diff/patch operate on
 // run-independent bytes.
 func normalizeRunPaths(input []byte) []byte {
+	input = bytes.ReplaceAll(input, []byte("/private/tmp/"), []byte("/tmp/"))
 	return runBuildDirRe.ReplaceAll(input, []byte("builds/[RUN]"))
 }
 

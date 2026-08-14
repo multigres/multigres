@@ -19,6 +19,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -586,4 +587,32 @@ func TestMultigatewayConnectionState_NotificationBufferIsBounded(t *testing.T) {
 	state.CommitTransaction()
 	require.Empty(t, state.FlushReadyNotifications(asyncCh))
 	require.Len(t, asyncCh, maxPendingNotifications)
+}
+
+// TestGetRollbackSessionSettings pins the outcome-conditional conclude map:
+// inside a transaction it returns the pre-BEGIN merged view (what
+// RollbackTransaction restores), and outside a transaction it returns nil so
+// callers fall back to the current map.
+func TestGetRollbackSessionSettings(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	assert.Nil(t, state.GetRollbackSessionSettings(), "no transaction frame → nil")
+
+	state.StartupParams = map[string]string{"TimeZone": "UTC"}
+	state.SetSessionVariable("work_mem", "1MB")
+	state.BeginTransaction()
+	state.SetSessionVariable("work_mem", "64MB")
+	state.SetSessionVariable("search_path", "app")
+
+	rollback := state.GetRollbackSessionSettings()
+	require.NotNil(t, rollback)
+	assert.Equal(t, "UTC", rollback["timezone"], "startup params merge in, canonicalized")
+	assert.Equal(t, "1MB", rollback["work_mem"], "pre-BEGIN session value, not the in-transaction one")
+	_, hasInTxnOnly := rollback["search_path"]
+	assert.False(t, hasInTxnOnly, "a variable first set inside the transaction is absent from the rollback map")
+
+	current := state.GetSessionSettings()
+	assert.Equal(t, "64MB", current["work_mem"], "the current map still carries the in-transaction value")
+
+	state.CommitTransaction()
+	assert.Nil(t, state.GetRollbackSessionSettings(), "frames dropped at commit → nil")
 }

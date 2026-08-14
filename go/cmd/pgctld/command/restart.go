@@ -16,11 +16,7 @@ package command
 
 import (
 	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
 
-	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
@@ -97,54 +93,53 @@ Examples:
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
-func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string, asStandby bool) (*RestartResult, error) {
+func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool) (*RestartResult, error) {
 	result := &RestartResult{}
+	logger := s.logger
+	config := s.pgConfig
 
 	if asStandby {
-		logger.Info("Restarting PostgreSQL server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.Info("restarting Postgres server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
 	} else {
-		logger.Info("Restarting PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.Info("restarting Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
 	}
 
 	// Stop the server if it's running
 	if isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("Stopping PostgreSQL server")
-		stopResult, err := StopPostgreSQLWithResult(logger, config, mode)
+		logger.Info("stopping Postgres server")
+		stopResult, err := s.StopPostgreSQLWithResult(mode)
 		if err != nil {
 			return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
 		}
 		result.StoppedFirst = stopResult.WasRunning
 	} else {
-		logger.Info("PostgreSQL is not running, proceeding with start")
+		logger.Info("Postgres is not running, proceeding with start") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.StoppedFirst = false
 	}
 
 	// Create standby.signal if restarting as standby
 	if asStandby {
-		standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
-		logger.Info("Creating standby.signal file", "path", standbySignalPath)
-		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
-			return nil, fmt.Errorf("failed to create standby.signal: %w", err)
+		if _, err := s.createStandbySignal(); err != nil {
+			return nil, err
 		}
-		logger.Info("standby.signal created successfully", "path", standbySignalPath)
 	}
 
 	// Start the server with detailed context
 	if asStandby {
-		logger.Info("Starting PostgreSQL server as standby",
+		logger.Info("starting Postgres server as standby",
 			"data_dir", config.PostgresDataDir,
 			"port", config.Port,
 			"timeout", config.Timeout,
 		)
 	} else {
-		logger.Info("Starting PostgreSQL server")
+		logger.Info("starting Postgres server")
 	}
 
-	startResult, err := StartPostgreSQLWithResult(logger, config)
+	startResult, err := s.StartPostgreSQLWithResult()
 	if err != nil {
 		// Enhanced error logging for standby mode
 		if asStandby {
-			logger.Error("Failed to start PostgreSQL as standby",
+			logger.Error("failed to start Postgres as standby",
 				"error", err,
 				"data_dir", config.PostgresDataDir,
 				"port", config.Port,
@@ -156,10 +151,10 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 	result.PID = startResult.PID
 	if asStandby {
 		result.Message = "PostgreSQL server restarted as standby successfully"
-		logger.Info("PostgreSQL server restarted as standby successfully", "pid", result.PID)
+		logger.Info("Postgres server restarted as standby successfully", "pid", result.PID) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	} else {
 		result.Message = "PostgreSQL server restarted successfully"
-		logger.Info("PostgreSQL server restarted successfully")
+		logger.Info("Postgres server restarted successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	}
 
 	return result, nil
@@ -170,7 +165,8 @@ func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := RestartPostgreSQLWithResult(r.pgCtlCmd.lg.GetLogger(), config, r.mode.Get(), r.asStandby.Get())
+	svc := &PgCtldService{logger: r.pgCtlCmd.lg.GetLogger(), pgConfig: config}
+	result, err := svc.RestartPostgreSQLWithResult(r.mode.Get(), r.asStandby.Get())
 	if err != nil {
 		return err
 	}

@@ -40,6 +40,7 @@ const (
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSCannotConnectNow        = "57P03" // cannot_connect_now
 	PgSSIdleSessionTimeout      = "57P05" // idle_session_timeout
 	PgSSInternalError           = "XX000" // internal_error
 	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction

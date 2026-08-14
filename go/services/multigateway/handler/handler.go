@@ -27,12 +27,12 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
-	"github.com/multigres/multigres/go/common/parser/replparser"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
@@ -89,6 +89,13 @@ type Executor interface {
 	// Any remaining reserved connections are force-cleared.
 	// Used for connection cleanup when a client disconnects.
 	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error
+
+	// StreamReplication routes a logical-replication (replication=database)
+	// connection to the PRIMARY pooler, performs the Init/Ready handshake, and
+	// returns the live bidi stream the handler tunnels raw replication bytes
+	// through. The init's User/UserAuth/Mode are populated by the caller; the
+	// executor fills in the routing Target.
+	StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error)
 }
 
 // MultigatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -233,13 +240,6 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	st := h.getConnectionState(conn)
 	ctx = h.callerContext(ctx, conn, st)
 
-	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
-		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
-			return err
-		}
-		// SHOW falls through to the regular SQL path below.
-	}
-
 	parseStart := time.Now()
 	// Lex with the session's standard_conforming_strings so the client's string
 	// literals are tokenized the way its session would. With scs=off an ordinary
@@ -255,6 +255,7 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
 			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition, se.SQLState)
+			diag.Detail = se.Detail
 			diag.Hint = se.Hint
 			err = diag
 		} else {
@@ -310,42 +311,16 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execStart := time.Now()
 
-	// For multi-statement batches, use implicit transaction handling.
-	// Exception: sessions with temp table reservations iterate and plan each
-	// statement individually so that DISCARD TEMP and other special statements
-	// get proper primitives. The PG backend handles auto-commit natively on
-	// the reserved connection.
-	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
-	// For multi-statement batches, per-table metrics, span attributes, and query log
-	// enrichment are handled per-statement inside executeWithImplicitTransaction.
-	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
+	// Every multi-statement query uses the same per-statement transaction state
+	// machine. Backend affinity (for example, a temp-table reservation) changes
+	// where statements run, never their batch semantics.
 	var result *ExecuteResult
 	if len(asts) > 1 {
-		if st.HasTempTableReservation() {
-			h.logger.DebugContext(ctx, "executing multi-statement batch on temp-table-reserved session",
-				"statement_count", len(asts))
-			var allTablesUsed []string
-			for _, stmt := range asts {
-				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
-				var stmtResult *ExecuteResult
-				stmtResult, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
-				cancel()
-				if stmtResult != nil {
-					allTablesUsed = append(allTablesUsed, stmtResult.TablesUsed...)
-				}
-				if err != nil {
-					break
-				}
-			}
-			if len(allTablesUsed) > 0 {
-				result = &ExecuteResult{TablesUsed: allTablesUsed}
-			}
-		} else {
-			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
-				"statement_count", len(asts),
-				"already_in_transaction", conn.IsInTransaction())
-			err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
-		}
+		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+			"statement_count", len(asts),
+			"already_in_transaction", conn.IsInTransaction(),
+			"temp_table_reserved", st.HasTempTableReservation())
+		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
@@ -617,9 +592,19 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			// Empty statement: ParameterDescription(0) + NoData, no backend call.
 			return &query.StatementDescription{}, nil
 		}
+		describedStmt, err := h.resolveDescribeExecute(conn.ConnectionID(), stmt)
+		if err != nil {
+			return nil, err
+		}
 
-		// Call executor to get description from multipooler
-		return h.executor.Describe(ctx, conn, state, nil, stmt)
+		// Call executor to get description from multipooler.
+		description, err := h.executor.Describe(ctx, conn, state, nil, describedStmt)
+		if err != nil || describedStmt == stmt || description == nil {
+			return description, err
+		}
+		// EXECUTE's target supplies fields; its protocol wrapper supplies parameters.
+		description.Parameters = parameterDescriptions(stmt.ParamTypes)
+		return description, nil
 
 	case 'P': // Describe portal
 		portalInfo := state.GetPortalInfo(name)
@@ -630,6 +615,13 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			// Empty portal: NoData, no backend call.
 			return &query.StatementDescription{}, nil
 		}
+		stmt, err := h.resolveDescribeExecute(conn.ConnectionID(), portalInfo.PreparedStatementInfo)
+		if err != nil {
+			return nil, err
+		}
+		if stmt != portalInfo.PreparedStatementInfo {
+			return h.executor.Describe(ctx, conn, state, nil, stmt)
+		}
 
 		// Call executor to get description from multipooler
 		return h.executor.Describe(ctx, conn, state, portalInfo, nil)
@@ -637,6 +629,30 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	default:
 		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)
 	}
+}
+
+// resolveDescribeExecute makes Describe of a protocol-prepared `EXECUTE name`
+// report the SQL prepared statement's result columns. The backend never sees
+// the user-facing SQL PREPARE name, so describing the wrapper itself would
+// either fail or return NoData instead of the target statement's shape.
+func (h *MultigatewayHandler) resolveDescribeExecute(connID uint32, stmt *preparedstatement.PreparedStatementInfo) (*preparedstatement.PreparedStatementInfo, error) {
+	execStmt, ok := stmt.AstStmt().(*ast.ExecuteStmt)
+	if !ok {
+		return stmt, nil
+	}
+	target := h.psc.GetPreparedStatementInfo(connID, execStmt.Name)
+	if target == nil {
+		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
+	}
+	return target, nil
+}
+
+func parameterDescriptions(paramTypes []uint32) []*query.ParameterDescription {
+	parameters := make([]*query.ParameterDescription, len(paramTypes))
+	for i, oid := range paramTypes {
+		parameters[i] = &query.ParameterDescription{DataTypeOid: oid}
+	}
+	return parameters
 }
 
 // HandleClose processes a Close message ('C').

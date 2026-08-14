@@ -60,7 +60,7 @@ func NewWrapperConn(newFunc func() (Conn, error), alarm func(string)) *WrapperCo
 func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 	// If there is no connection, we want to retry irrespective of the error.
 	if conn == nil {
-		slog.Error("Connection error, will keep retrying", "err", err)
+		slog.Error("connection error, will keep retrying", "error", err)
 		go c.retryConnection(err)
 		return
 	}
@@ -68,18 +68,18 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 		return
 	}
 	if strings.Contains(err.Error(), "context deadline exceeded") {
-		slog.Error("Connection error, will keep retrying", "err", err)
+		slog.Error("connection error, will keep retrying", "error", err)
 		go c.retryConnection(err)
 		return
 	}
 	if strings.Contains(err.Error(), "context canceled") {
-		slog.Error("Connection error, will keep retrying", "err", err)
+		slog.Error("connection error, will keep retrying", "error", err)
 		go c.retryConnection(err)
 		return
 	}
 	switch mterrors.Code(err) {
 	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
-		slog.Error("Connection error, will keep retrying", "err", err)
+		slog.Error("connection error, will keep retrying", "error", err)
 		go c.retryConnection(err)
 	}
 }

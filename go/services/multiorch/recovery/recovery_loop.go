@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -158,7 +159,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 }
 
 // hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
-// Shard-wide problems (e.g., LeaderIsDead) imply an unhealthy leader.
+// Shard-wide problems (e.g., LeaderUnreachable) imply an unhealthy leader.
 func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 	for _, problem := range problems {
 		if problem.IsShardWide() {
@@ -182,16 +183,24 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		return problems[i].Priority > problems[j].Priority
 	})
 
-	// Check if there are any shard-wide problems
-	var shardWideProblems []types.Problem
+	// Check if there are any shard-wide problems, separating alert-only ones
+	// (no remediation, so nothing to preempt for) from ones with a real
+	// recovery action.
+	var shardWideProblems, alertOnlyShardWideProblems []types.Problem
 	for _, problem := range problems {
-		if problem.IsShardWide() {
+		if !problem.IsShardWide() {
+			continue
+		}
+		if _, ok := problem.RecoveryAction.(*actions.AlertOnlyAction); ok {
+			alertOnlyShardWideProblems = append(alertOnlyShardWideProblems, problem)
+		} else {
 			shardWideProblems = append(shardWideProblems, problem)
 		}
 	}
 
-	// If we have shard-wide problems, return only the highest priority one
-	// (since problems are now sorted by priority, the first one is highest)
+	// If we have an actionable shard-wide problem, return only the highest
+	// priority one (since problems are now sorted by priority, the first one
+	// is highest).
 	//
 	// TODO: this drops all pooler-scoped problems while any shard-wide problem
 	// is active. That can deadlock: a failover (shard-wide) may require a pooler
@@ -208,12 +217,20 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		return []types.Problem{shardWideProblems[0]}
 	}
 
-	// No shard-wide problems: keep only the highest-priority problem per pooler.
-	// Problems are already sorted highest-first, so the first occurrence for each
-	// pooler is the one to run. Different poolers execute in parallel.
+	// No actionable shard-wide problem: keep only the highest-priority problem
+	// per pooler. Problems are already sorted highest-first, so the first
+	// occurrence for each pooler is the one to run. Different poolers execute
+	// in parallel. An alert-only shard-wide problem (if any) rides along
+	// unchanged — it has no action to conflict with anything.
 	seen := make(map[topoclient.ComponentID]bool)
 	var filtered []types.Problem
+	if len(alertOnlyShardWideProblems) > 0 {
+		filtered = append(filtered, alertOnlyShardWideProblems[0])
+	}
 	for _, p := range problems {
+		if p.IsShardWide() {
+			continue
+		}
 		id := topoclient.ComponentIDString(p.PoolerID)
 		if !seen[id] {
 			seen[id] = true
@@ -423,7 +440,10 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 // recruitment, and so is gated on collective recruitment backoff rather than the
 // local grace period.
 func isFailoverProblem(code types.ProblemCode) bool {
-	return code == types.ProblemLeaderIsDead || code == types.ProblemLeaderResigned
+	return code == types.ProblemLeaderUnspecified ||
+		code == types.ProblemLeaderUnreachableByCohort ||
+		code == types.ProblemLeaderUnhealthy ||
+		code == types.ProblemLeaderResigned
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover

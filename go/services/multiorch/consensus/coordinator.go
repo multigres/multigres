@@ -17,6 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -62,7 +63,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
 func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	c.logger.InfoContext(ctx, "Starting leader appointment",
+	c.logger.InfoContext(ctx, "starting leader appointment",
 		"database", shardKey.GetDatabase(),
 		"tablegroup", shardKey.GetTableGroup(),
 		"shard", shardKey.GetShard(),
@@ -96,6 +97,20 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetada
 // that needs rewinding is not fatal — the SetPrimary path runs pg_rewind
 // before the node serves writes or replicates.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
+	// Drop INELIGIBLE members: today raised only on a deliberate exit (graceful
+	// shutdown / admin-stopped WAL receiver), so treat them as gone — not recruited,
+	// hence never re-elected leader nor counted for quorum. No fallback. A
+	// demote-but-still-ELIGIBLE node is a different signal and stays.
+	eligible, ineligible := filterFailoverEligible(cohort)
+	if len(ineligible) > 0 {
+		c.logger.InfoContext(ctx, "excluding ineligible poolers from failover", "excluded", ineligible)
+	}
+	cohort = eligible
+	if len(cohort) == 0 {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no eligible cohort members for failover; all ineligible: %v", ineligible)
+	}
+
 	var cohortStatuses []*clustermetadatapb.ConsensusStatus
 	for _, p := range cohort {
 		if cs := p.GetConsensusStatus(); cs != nil {
@@ -107,8 +122,20 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
 
-	poolerByID, _ := buildCohortMaps(cohort)
+	poolerByID, healthByID := buildCohortMaps(cohort)
+	less := poolerHealthStateLess(healthByID)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		// Prefer non-resigning nodes when multiple candidates share the highest
+		// LSN. A node signalling REQUESTING_DEMOTION has explicitly asked to be
+		// replaced. Electing it again immediately defeats the purpose of the
+		// switchover.
+		//
+		// A resigning node still wins if it holds a strictly higher LSN than
+		// every other node, but consensus status serves as a tiebreaker when
+		// multiple nodes are at the same WAL position.
+		sort.SliceStable(r.EligibleLeaders, func(i, j int) bool {
+			return less(r.EligibleLeaders[i], r.EligibleLeaders[j])
+		})
 		return buildFailoverProposal(r, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
@@ -117,7 +144,26 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort, revocation)
+	if err := c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort, revocation); err != nil {
+		if len(ineligible) > 0 {
+			return mterrors.Wrapf(err, "failover excluded ineligible members %v", ineligible)
+		}
+		return err
+	}
+	return nil
+}
+
+// filterFailoverEligible splits a failover cohort into the members that may
+// participate and the names of those advertising INELIGIBLE (see runFailover).
+func filterFailoverEligible(cohort []*multiorchdatapb.PoolerHealthState) (eligible []*multiorchdatapb.PoolerHealthState, ineligible []string) {
+	for _, p := range cohort {
+		if p.GetAvailabilityStatus().GetCohortEligibilityStatus().GetSignal() == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+			ineligible = append(ineligible, p.GetMultipooler().GetId().GetName())
+			continue
+		}
+		eligible = append(eligible, p)
+	}
+	return eligible, ineligible
 }
 
 // AppointInitialLeader orchestrates consensus leader election for a freshly

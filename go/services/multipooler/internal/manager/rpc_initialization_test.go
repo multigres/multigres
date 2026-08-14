@@ -333,12 +333,15 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 
 // Mock pgctld client for testing
 type mockPgctldClient struct {
-	statusResponse *pgctldpb.StatusResponse
-	statusError    error
-	startCalled    bool
-	startError     error
-	restartCalled  bool
-	restartError   error
+	statusResponse     *pgctldpb.StatusResponse
+	statusError        error
+	startResponse      *pgctldpb.StartResponse
+	startCalled        bool
+	startError         error
+	restartCalled      bool
+	restartError       error
+	reloadConfigCalled bool
+	reloadConfigError  error
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
@@ -357,6 +360,9 @@ func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest
 	m.startCalled = true
 	if m.startError != nil {
 		return nil, m.startError
+	}
+	if m.startResponse != nil {
+		return m.startResponse, nil
 	}
 	return &pgctldpb.StartResponse{}, nil
 }
@@ -378,6 +384,10 @@ func (m *mockPgctldClient) InitDataDir(ctx context.Context, req *pgctldpb.InitDa
 }
 
 func (m *mockPgctldClient) ReloadConfig(ctx context.Context, req *pgctldpb.ReloadConfigRequest, opts ...grpc.CallOption) (*pgctldpb.ReloadConfigResponse, error) {
+	m.reloadConfigCalled = true
+	if m.reloadConfigError != nil {
+		return nil, m.reloadConfigError
+	}
 	return &pgctldpb.ReloadConfigResponse{}, nil
 }
 

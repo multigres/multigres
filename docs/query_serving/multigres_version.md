@@ -94,24 +94,29 @@ a stable property of the commit.
 
 The **full** string (`servenv.AppVersion()`) prefixes that release version with
 the binary's VCS identity — revision, a `modified` marker for a dirty tree,
-commit date, and Go toolchain — read from `runtime/debug.BuildInfo`. This is the
-same build snapshot already used by the `/version` HTTP endpoint and the
-OpenTelemetry `service.version` attribute. Go does not embed VCS settings when
-building inside a linked git worktree, so worktree dev builds omit the VCS fields
-(`Multigres 0.1.0-SNAPSHOT (unknown revision) built with <go>`); normal checkouts
-and CI stamp them.
+commit date, and Go toolchain. This is the same build snapshot already used by
+the `/version` HTTP endpoint and the OpenTelemetry `service.version` attribute.
+The identity is read from `runtime/debug.BuildInfo` when Go could stamp it, with
+a linker-injected fallback for builds where it can't: Docker build contexts
+exclude `.git` (see `.dockerignore`), so the image workflows pass `GIT_COMMIT`
+and `COMMIT_DATE` build args that `make build-release` injects via `-ldflags`;
+native VCS settings take precedence when both are present. Builds with neither —
+a linked git worktree (where Go does not embed VCS settings), or a local
+`make images` / `docker compose` build without the args exported — omit the VCS
+fields (`Multigres 0.1.0-SNAPSHOT (unknown revision) built with <go>`); normal
+checkouts stamp them natively.
 
 ## Code organization
 
-| File                             | Role                                                             |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `common/servenv/version.go`      | `versionName` — the committed release version constant           |
-| `common/servenv/buildinfo.go`    | `Version()` (short) and `AppVersion()` (full) version strings    |
-| `common/constants/gateway.go`    | `MultigresServerVersionVariable`, `MultigresSchema`              |
-| `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                       |
-| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                       |
-| `engine/gateway_show_version.go` | `GatewayShowVersion` primitive; SHOW matcher and Describe helper |
-| `executor/executor.go`           | Serves the extended-protocol `Describe` for SHOW locally         |
+| File                             | Role                                                       |
+| -------------------------------- | ---------------------------------------------------------- |
+| `common/servenv/version.go`      | Committed release version constant                         |
+| `common/servenv/buildinfo.go`    | Short and full version strings                             |
+| `common/constants/gateway.go`    | Gateway-managed version variable and schema name constants |
+| `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                 |
+| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                 |
+| `engine/gateway_show_version.go` | SHOW matcher and Describe helper                           |
+| `executor/executor.go` (gateway) | Serves the extended-protocol `Describe` for SHOW locally   |
 
 ## Extended protocol notes
 

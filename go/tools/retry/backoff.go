@@ -37,6 +37,34 @@ type backoff interface {
 	reset()
 }
 
+// ExponentialBackoff exposes the package's exponential-backoff-with-full-jitter
+// calculation for callers that manage their own timing — e.g. rate-limiting an
+// action across independent scheduling cycles — rather than driving a Retry loop.
+// Call NextDelay each time you act to get the next delay (it advances the
+// sequence), and Reset after a success to start over. Safe for use by a single
+// owner; NextDelay/Reset are individually thread-safe.
+type ExponentialBackoff struct {
+	inner *exponentialFullJitterBackoff
+}
+
+// NewExponentialBackoff returns an ExponentialBackoff with the given base and max
+// delays. Delays are random in [0, min(maxDelay, baseDelay*2^attempt)].
+//
+// TODO: support configurable jitter strategies (e.g. equal/fractional jitter)
+// rather than only full jitter. Full jitter can return a near-zero delay, so
+// callers that need a guaranteed minimum gap between attempts currently have to
+// floor the result themselves (see recordDivergenceRewindAttempt). An "equal
+// jitter" option (delay/2 + random(0, delay/2)) would give that floor natively.
+func NewExponentialBackoff(baseDelay, maxDelay time.Duration) *ExponentialBackoff {
+	return &ExponentialBackoff{inner: newExponentialFullJitterBackoff(baseDelay, maxDelay)}
+}
+
+// NextDelay returns the next delay and advances the backoff state.
+func (b *ExponentialBackoff) NextDelay() time.Duration { return b.inner.nextDelay() }
+
+// Reset restarts the backoff sequence (e.g. after a successful action).
+func (b *ExponentialBackoff) Reset() { b.inner.reset() }
+
 // exponentialFullJitterBackoff implements exponential backoff with Full Jitter.
 //
 // This implements the "Full Jitter" algorithm recommended by AWS:
@@ -101,7 +129,7 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	delay := ExponentialBackoff(e.baseDelay, e.maxDelay, e.attempt)
+	delay := ExponentialBackoffMagnitude(e.baseDelay, e.maxDelay, e.attempt)
 
 	// Apply Full Jitter: randomize between 0 and computed delay
 	// This prevents synchronized retries by spreading retries across time
@@ -118,13 +146,13 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 	return delay
 }
 
-// ExponentialBackoff returns the exponential backoff magnitude baseDelay *
+// ExponentialBackoffMagnitude returns the exponential backoff magnitude baseDelay *
 // 2^attempt, clamped to maxDelay, with overflow protection. attempt is
 // zero-indexed (attempt 0 → baseDelay). It applies no jitter: callers layer their
 // own jitter strategy on top — Full Jitter here (nextDelay), or the deterministic
 // fractional jitter in go/common/ha, which needs a guaranteed minimum delay that
 // Full Jitter cannot provide.
-func ExponentialBackoff(baseDelay, maxDelay time.Duration, attempt int) time.Duration {
+func ExponentialBackoffMagnitude(baseDelay, maxDelay time.Duration, attempt int) time.Duration {
 	// Cap attempt to prevent overflow (shifting more than 62 bits overflows int64).
 	multiplier := int64(1 << min(attempt, 62))
 	baseDelayInt := int64(baseDelay)

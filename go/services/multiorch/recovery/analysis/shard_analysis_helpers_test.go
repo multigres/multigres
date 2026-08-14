@@ -29,12 +29,44 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
+
+// allFollowersStreaming reproduces the old shard-level aggregate that production
+// folded into vouchingForLeader: every fresh follower is actively streaming from
+// the leader (and at least one such follower exists). It preserves the
+// per-follower streaming coverage these tests exercise.
+func allFollowersStreaming(sa *ShardAnalysis) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition)
+	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
+	replicaCount, connectedCount := 0, 0
+	for _, pa := range sa.Analyses {
+		if pa == nil {
+			continue
+		}
+		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+			continue
+		}
+		if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+			continue
+		}
+		replicaCount++
+		if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
+			connectedCount++
+		}
+	}
+	return replicaCount > 0 && connectedCount == replicaCount
+}
 
 func TestLeaderServing(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {
@@ -58,7 +90,6 @@ func TestLeaderServing(t *testing.T) {
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			ConsensusStatus:       primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid:      true,
 			LastSeen:              timestamppb.Now(),
 			LastPostgresReadyTime: timestamppb.New(respondedAt),
 			Status: &multipoolermanagerdatapb.Status{
@@ -80,7 +111,6 @@ func TestLeaderServing(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			},
@@ -113,8 +143,7 @@ func TestLeaderServing(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: false, // Pooler unreachable
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: false,
@@ -134,7 +163,6 @@ func TestLeaderServing(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			},
@@ -168,8 +196,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: false, // Primary pooler is down
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: false,
@@ -192,7 +219,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -223,7 +249,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -244,7 +269,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, replicasStreamingFromLeader(sa), "should be true when all replicas are connected")
+		assert.True(t, allFollowersStreaming(sa), "should be true when all replicas are connected")
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
@@ -265,8 +290,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: false,
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: false,
@@ -287,7 +311,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -318,7 +341,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -333,7 +355,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(sa), "should be false when any replica is disconnected")
+		assert.False(t, allFollowersStreaming(sa), "should be false when any replica is disconnected")
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
@@ -354,8 +376,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: false,
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: false,
@@ -377,8 +398,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        false, // Replica unreachable
-			StreamSnapshotsReceived: 1,     // Was previously healthy
+			StreamSnapshotsReceived: 1, // Was previously healthy
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			},
@@ -388,7 +408,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(sa), "should be false when replica is unreachable")
+		assert.False(t, allFollowersStreaming(sa), "should be false when replica is unreachable")
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
@@ -410,9 +430,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(time.Now()),
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
+			LastSeen:        timestamppb.New(time.Now()),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: true,
@@ -424,7 +443,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		require.NoError(t, err)
 
 		// Primary-only shard: ReplicasConnectedToLeader should be false (no replicas)
-		assert.False(t, replicasStreamingFromLeader(sa))
+		assert.False(t, allFollowersStreaming(sa))
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
@@ -445,8 +464,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid: false,
+			ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 				PostgresReady: false,
@@ -467,7 +485,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -488,7 +505,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(sa), "should be false when replica points to wrong primary")
+		assert.False(t, allFollowersStreaming(sa), "should be false when replica points to wrong primary")
 	})
 
 	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
@@ -521,7 +538,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 						Shard:      "shard1",
 					},
 				},
-				IsLastCheckValid:        true,
 				LastSeen:                timestamppb.New(time.Now()),
 				StreamSnapshotsReceived: 1,
 				Status: &multipoolermanagerdatapb.Status{
@@ -541,7 +557,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			gen := NewAnalysisGenerator(ps, nil)
 			analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
 			require.NoError(t, err)
-			assert.False(t, replicasStreamingFromLeader(analysis), "should be false when wal_receiver_status=%q", status)
+			assert.False(t, allFollowersStreaming(analysis), "should be false when wal_receiver_status=%q", status)
 		}
 	})
 
@@ -578,7 +594,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -601,7 +616,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(analysis), "should be false when last_msg_receive_time is stale")
+		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time is stale")
 	})
 
 	t.Run("returns false when last_msg_receive_time is stale (dynamic threshold)", func(t *testing.T) {
@@ -639,7 +654,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -662,7 +676,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
+		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
 	})
 
 	t.Run("returns false when last_msg_receive_time exceeds wal_receiver_timeout", func(t *testing.T) {
@@ -703,7 +717,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -727,7 +740,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
 		require.NoError(t, err)
 
-		assert.False(t, replicasStreamingFromLeader(analysis), "should be false when delay exceeds wal_receiver_timeout")
+		assert.False(t, allFollowersStreaming(analysis), "should be false when delay exceeds wal_receiver_timeout")
 	})
 
 	t.Run("returns true when last_msg_receive_time is nil", func(t *testing.T) {
@@ -762,7 +775,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
@@ -783,7 +795,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
 		require.NoError(t, err)
 
-		assert.True(t, replicasStreamingFromLeader(analysis), "should be true when last_msg_receive_time is nil")
+		assert.True(t, allFollowersStreaming(analysis), "should be true when last_msg_receive_time is nil")
 	})
 
 	t.Run("new pooler with no health data does not count against connected replicas", func(t *testing.T) {
@@ -807,7 +819,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			ConsensusStatus:         primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
-			IsLastCheckValid:        false,
 			StreamSnapshotsReceived: 5,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
@@ -821,7 +832,6 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 			},
-			IsLastCheckValid:        true,
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 10,
 			Status: &multipoolermanagerdatapb.Status{
@@ -836,14 +846,14 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		// New pooler just added by PoolerWatcher: no health data yet
-		// (StreamSnapshotsReceived==0, IsLastCheckValid==false).
+		// (StreamSnapshotsReceived==0, LastSeen==nil).
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "replica2"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
-			// IsLastCheckValid and StreamSnapshotsReceived are both zero — brand new pooler.
+			// LastSeen and StreamSnapshotsReceived are both zero — brand new pooler.
 		}, nil))
 
 		gen := NewAnalysisGenerator(ps, nil)
@@ -852,7 +862,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		// replica1 is connected; replica2 has never reported health and must not
 		// count against the connected-replicas check.
-		assert.True(t, replicasStreamingFromLeader(sa),
+		assert.True(t, allFollowersStreaming(sa),
 			"new pooler with StreamSnapshotsReceived==0 must not count as a disconnected replica")
 	})
 }

@@ -60,9 +60,10 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	// so we can't let pg_regress manage the database. Instead we run against
 	// the existing "postgres" database for the whole suite.
 	//
-	// --dbname=postgres: point pg_regress at that existing database. pg_regress
-	// will create/drop the expected schema objects per test; cross-test state
-	// leakage is still possible but has not surfaced in practice.
+	// --dbname=postgres: point pg_regress at that existing database. The suite
+	// starts on a freshly initialized cluster. Upstream fixtures that hard-code
+	// its default "regression" database are recorded as reviewed output-only
+	// divergences; the input SQL remains unchanged.
 	makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
 
 	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {

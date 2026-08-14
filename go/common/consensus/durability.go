@@ -17,7 +17,6 @@ package consensus
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -71,7 +70,6 @@ type DurabilityPolicy interface {
 	// inherited from a prior role. Returns an error when the cohort cannot
 	// satisfy the policy's num_sync requirement.
 	BuildSyncReplicationConfig(
-		logger *slog.Logger,
 		cohort []*clustermetadatapb.ID,
 		primary *clustermetadatapb.ID,
 	) (*SyncReplicationConfig, error)

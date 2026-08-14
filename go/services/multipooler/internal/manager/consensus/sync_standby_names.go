@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -157,50 +158,85 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 		return errors.New("internal query service not available")
 	}
 
-	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer loadTimeCancel()
-	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")
+	loadTimeBefore, err := readConfLoadTime(loadTimeCtx, qs)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read pg_conf_load_time before reload")
 	}
-	var loadTimeBefore string
-	if err := executor.ScanSingleRow(result, &loadTimeBefore); err != nil {
-		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
-	}
 
-	logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	logger.InfoContext(ctx, "reloading Postgres configuration")
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer reloadCancel()
 	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
-		logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+		logger.ErrorContext(ctx, "failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
-	// Poll pg_conf_load_time() until it advances. retry.New uses "do work, then
-	// back off" semantics, so the backoff timer starts after the previous query
-	// finishes — a slow query under load doesn't cause back-to-back hammering.
+	// Confirm the reload landed by waiting for pg_conf_load_time() to change
+	// from the value read before the reload.
+	if _, err := WaitForConfigReload(ctx, qs, func(loadTime time.Time) bool {
+		return !loadTime.Equal(loadTimeBefore)
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// WaitForConfigReload polls PostgreSQL's config load time until isReloaded
+// reports that the observed value reflects a completed reload, and returns that
+// load time. It backs off between polls — retry.New uses "do work, then back
+// off" semantics, so the backoff timer starts after the previous query finishes
+// and a slow query under load does not cause back-to-back hammering — and
+// returns DEADLINE_EXCEEDED if no reload is observed within the budget.
+//
+// The isReloaded predicate lets each caller define "reloaded" against its own
+// baseline: a SQL pg_reload_conf() caller (ReloadPostgresConfig) waits for the
+// load time to differ from the value it read beforehand, while a SIGHUP caller
+// waits for it to reach a wall-clock moment captured before the signal.
+func WaitForConfigReload(ctx context.Context, qs executor.InternalQueryService, isReloaded func(loadTime time.Time) bool) (time.Time, error) {
+	if qs == nil {
+		return time.Time{}, errors.New("internal query service not available")
+	}
+
 	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer waitCancel()
 	r := retry.New(1*time.Millisecond, 20*time.Millisecond)
 	for _, attemptErr := range r.Attempts(waitCtx) {
 		if attemptErr != nil {
-			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
+			return time.Time{}, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				"timeout waiting for pg_conf_load_time to advance after reload")
 		}
-		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
-		result, err := qs.Query(queryCtx, "SELECT pg_conf_load_time()")
+		queryCtx, queryCancel := context.WithTimeout(waitCtx, timeouts.PostgresConfigTimeout)
+		loadTime, err := readConfLoadTime(queryCtx, qs)
 		queryCancel()
 		if err != nil {
-			return mterrors.Wrap(err, "failed to poll pg_conf_load_time after reload")
+			return time.Time{}, err
 		}
-		var loadTimeAfter string
-		if err := executor.ScanSingleRow(result, &loadTimeAfter); err != nil {
-			return mterrors.Wrap(err, "failed to scan pg_conf_load_time after reload")
-		}
-		if loadTimeAfter != loadTimeBefore {
-			return nil
+		if isReloaded(loadTime) {
+			return loadTime, nil
 		}
 	}
 	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
-	return mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
+	return time.Time{}, mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
+}
+
+// readConfLoadTime reads PostgreSQL's configuration load time. It selects the
+// value as a Unix epoch (extract(epoch from ...)) rather than the default text
+// rendering so the result is timezone-independent: pg_conf_load_time() text is
+// formatted in the session's TimeZone, whose offset can carry minutes (e.g.
+// +05:30) that the text-timestamp scanner does not parse. The epoch is an
+// absolute instant, safe to compare across callers and sessions.
+func readConfLoadTime(ctx context.Context, qs executor.InternalQueryService) (time.Time, error) {
+	result, err := qs.Query(ctx, "SELECT extract(epoch from pg_conf_load_time())")
+	if err != nil {
+		return time.Time{}, mterrors.Wrap(err, "failed to read pg_conf_load_time")
+	}
+	var epoch float64
+	if err := executor.ScanSingleRow(result, &epoch); err != nil {
+		return time.Time{}, mterrors.Wrap(err, "failed to scan pg_conf_load_time")
+	}
+	sec := int64(epoch)
+	nsec := int64((epoch - float64(sec)) * 1e9)
+	return time.Unix(sec, nsec).UTC(), nil
 }

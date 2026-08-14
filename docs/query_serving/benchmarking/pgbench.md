@@ -102,13 +102,13 @@ the test is skipped.
 
 | Variable                     | Default           | Description                                                                                      |
 | ---------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
-| `RUN_BENCHMARKS`             | (unset)           | Set to `1` to enable benchmark tests. Matches the "Run Benchmarks" PR label.                     |
+| `RUN_BENCHMARKS`             | (unset)           | Set to `1` to enable benchmark tests.                                                            |
 | `PGBENCH_DURATION`           | `30`              | Seconds per scenario                                                                             |
 | `PGBENCH_CLIENTS`            | `1,10,50`         | Comma-separated client counts                                                                    |
 | `PGBENCH_PROTOCOLS`          | `simple,extended` | Comma-separated subset of `simple,extended`                                                      |
 | `PGBENCH_NO_CHURN`           | (unset)           | Set to `1` to skip the connection-churn (`-C`) variants                                          |
 | `PGBENCH_TARGETS`            | `multigateway`    | Comma-separated subset of `postgres,multigateway,pgbouncer`                                      |
-| `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Bump postgres `max_connections` to this value and restart pgctld (needed for direct ≥ 60 client) |
+| `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Set postgres `max_connections` to this value and restart pgctld for direct client benchmark runs |
 | `CAPTURE_PPROF`              | (unset)           | Set to `1` to capture CPU profiles from multigateway and primary multipooler during each run     |
 | `CAPTURE_HEAP`               | (unset)           | Set to `1` to capture heap, allocs and goroutine snapshots before+after each scenario            |
 
@@ -136,7 +136,7 @@ Reports are written to `/tmp/multigres_pgbench_results/<timestamp>/`:
 
 | File                                                                       | Format            | Purpose                                                             |
 | -------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------- |
-| `results.json`                                                             | JSON              | Machine-readable results for CI baseline comparison                 |
+| `results.json`                                                             | JSON              | Machine-readable results                                            |
 | `benchmark-report.md`                                                      | Markdown          | Human-readable comparison tables                                    |
 | `logs/<scenario>/<target>/`                                                | pgbench log files | Raw per-transaction data                                            |
 | `cpu/<scenario>/<target>.json`                                             | JSON              | Per-process CPU usage samples (postgres, multigateway, multipooler) |
@@ -167,22 +167,6 @@ the table narrow when several targets are present.
 
 The **Overhead vs postgres** row is `(1 - multigateway_tps / postgres_tps) * 100`.
 
-## CI integration
-
-The benchmark runs weekly via `.github/workflows/test-pgbench.yml`:
-
-- **Schedule:** Monday 6:00 AM UTC
-- **Triggers:** Weekly cron, `workflow_dispatch`, PR label `Run Benchmarks`
-- **Baseline:** Results are cached via `actions/cache`; each run is compared against the
-  previous baseline
-- **Regression detection:** `.github/scripts/detect-pgbench-regressions.sh` flags
-  multigateway scenarios where TPS drops by more than 5% vs baseline
-- **Slack notifications:**
-  - **Weekly summary** — average overhead %, per-scenario TPS table
-  - **Regression alert** — scenarios with >5% TPS drop
-  - **Infrastructure failure** — test harness didn't produce results
-- **Webhook secret:** `SLACK_PGBENCH_WEBHOOK_URL` (must be configured in repo settings)
-
 ## File structure
 
 ```text
@@ -192,10 +176,6 @@ go/test/endtoend/queryserving/benchmarking/
 ├── pgbench_runner.go     # PgBenchRunner: init, run scenarios, compute metrics
 ├── pgbouncer.go          # Optional PgBouncer lifecycle (SCRAM auth, config gen)
 └── report.go             # JSON + Markdown report generation
-
-.github/
-├── workflows/test-pgbench.yml               # Weekly CI workflow
-└── scripts/detect-pgbench-regressions.sh    # TPS regression detection
 ```
 
 ## Adding new scenarios

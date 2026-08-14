@@ -32,7 +32,9 @@ import (
 )
 
 func TestIsFailoverProblem(t *testing.T) {
-	assert.True(t, isFailoverProblem(types.ProblemLeaderIsDead))
+	assert.True(t, isFailoverProblem(types.ProblemLeaderUnspecified))
+	assert.True(t, isFailoverProblem(types.ProblemLeaderUnreachableByCohort))
+	assert.True(t, isFailoverProblem(types.ProblemLeaderUnhealthy))
 	assert.True(t, isFailoverProblem(types.ProblemLeaderResigned))
 	assert.False(t, isFailoverProblem(types.ProblemReplicaNotReplicating))
 	assert.False(t, isFailoverProblem(types.ProblemStaleLeader))

@@ -64,6 +64,19 @@ type MockPgCtldService struct {
 	InitDirError            error
 	PgRewindError           error
 	StopRestoreCommandError error
+
+	// StatusFunc, if non-nil, is called for each Status request instead of the
+	// default behaviour. It lets tests return different values on successive
+	// calls, e.g. to simulate postgres transitioning from not-ready to ready
+	// during WAL replay. Called while the mutex is held.
+	StatusFunc func(*pb.StatusRequest) (*pb.StatusResponse, error)
+
+	// RestartFunc, if non-nil, is called on each Restart request before the
+	// configured response/error is returned. It lets tests observe external
+	// state at the moment postgres would restart, e.g. asserting that
+	// postgresql.auto.conf already carries primary_conninfo before the standby
+	// comes up. Called while the mutex is held.
+	RestartFunc func(*pb.RestartRequest)
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -96,6 +109,9 @@ func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.RestartCalls = append(m.RestartCalls, req)
+	if m.RestartFunc != nil {
+		m.RestartFunc(req)
+	}
 	if m.RestartError != nil {
 		return nil, m.RestartError
 	}
@@ -137,6 +153,9 @@ func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
+	}
+	if m.StatusFunc != nil {
+		return m.StatusFunc(req)
 	}
 	if m.StatusResponse != nil {
 		return m.StatusResponse, nil
@@ -288,7 +307,7 @@ func StartTestServer(t *testing.T, service pb.PgCtldServer) (pb.PgCtldClient, fu
 	// Start server in background
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			slog.Error("Test gRPC server failed", "error", err)
+			slog.Error("test gRPC server failed", "error", err)
 		}
 	}()
 

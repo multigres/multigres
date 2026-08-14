@@ -201,7 +201,7 @@ func (m *mockCopyQueryService) CopyOutStream(ctx context.Context, target *query.
 	return m.copyOutStreamFn(ctx, target, options, onMessage)
 }
 
-func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool) (*sqltypes.Result, *query.ReservedState, error) {
+func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool, map[string]string) (*sqltypes.Result, *query.ReservedState, error) {
 	return nil, nil, nil
 }
 
@@ -209,8 +209,12 @@ func (m *mockCopyQueryService) DiscardTempTables(context.Context, *query.Target,
 	return nil, nil, nil
 }
 
-func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
-	return nil
+func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions, bool) (*query.ReservedState, error) {
+	return nil, nil
+}
+
+func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 func TestCopyBidiExecuteToStdout_Success(t *testing.T) {
@@ -317,4 +321,46 @@ func TestCopyBidiExecuteToStdout_StreamErrorSendsErrorPhase(t *testing.T) {
 	require.Equal(t, multipoolerpb.CopyBidiExecuteResponse_READY, stream.sent[0].GetPhase())
 	require.Equal(t, multipoolerpb.CopyBidiExecuteResponse_ERROR, stream.sent[1].GetPhase())
 	require.Contains(t, stream.sent[1].GetError(), "copy stream failed")
+}
+
+func TestWithReservedStateDetail(t *testing.T) {
+	t.Run("nil error returns nil", func(t *testing.T) {
+		err := withReservedStateDetail(nil, &query.ReservedState{ReservedConnectionId: 7})
+		require.NoError(t, err)
+	})
+
+	t.Run("nil state returns original error unchanged", func(t *testing.T) {
+		orig := status.Error(codes.Aborted, "commit failed")
+		err := withReservedStateDetail(orig, nil)
+		require.Equal(t, orig, err)
+	})
+
+	t.Run("non-status error returns original error unchanged", func(t *testing.T) {
+		orig := errors.New("plain error, not a grpc status")
+		err := withReservedStateDetail(orig, &query.ReservedState{ReservedConnectionId: 7})
+		require.Equal(t, orig, err)
+	})
+
+	t.Run("attaches reserved state as a status detail", func(t *testing.T) {
+		orig := status.Error(codes.Aborted, "commit failed")
+		state := &query.ReservedState{ReservedConnectionId: 7, ReservationReasons: protoutil.ReasonTempTable}
+
+		err := withReservedStateDetail(orig, state)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, codes.Aborted, st.Code())
+		require.Equal(t, "commit failed", st.Message())
+
+		var found *query.ReservedState
+		for _, detail := range st.Details() {
+			if rs, ok := detail.(*query.ReservedState); ok {
+				found = rs
+			}
+		}
+		require.NotNil(t, found, "expected a ReservedState detail on the status")
+		require.Equal(t, state.GetReservedConnectionId(), found.GetReservedConnectionId())
+		require.Equal(t, state.GetReservationReasons(), found.GetReservationReasons())
+	})
 }

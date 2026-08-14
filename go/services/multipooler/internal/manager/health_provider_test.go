@@ -389,3 +389,26 @@ func TestHealthStreamer_AdvertisesLeaderWhenWritable(t *testing.T) {
 		"writable primary must advertise itself")
 	assert.Equal(t, int64(42), st.RoutingState.GetRule().GetCoordinatorTerm())
 }
+
+func TestHealthStreamer_SetRecommendedStalenessTimeout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	hs := newHealthStreamer(logger, nil, "tg1", "0")
+
+	// Starts at the built-in default.
+	assert.Equal(t, defaultRecommendedStalenessTimeout, hs.buildStateLocked().RecommendedStalenessTimeout)
+
+	// A positive value overrides it.
+	hs.SetRecommendedStalenessTimeout(50 * time.Millisecond)
+	assert.Equal(t, 50*time.Millisecond, hs.buildStateLocked().RecommendedStalenessTimeout)
+
+	// A non-positive value resets to the default (undoing a prior override),
+	// rather than leaving the earlier override stuck.
+	hs.SetRecommendedStalenessTimeout(0)
+	assert.Equal(t, defaultRecommendedStalenessTimeout, hs.buildStateLocked().RecommendedStalenessTimeout,
+		"Set(0) must reset to the default, not keep the previous override")
+
+	// Negative behaves the same as zero.
+	hs.SetRecommendedStalenessTimeout(50 * time.Millisecond)
+	hs.SetRecommendedStalenessTimeout(-1)
+	assert.Equal(t, defaultRecommendedStalenessTimeout, hs.buildStateLocked().RecommendedStalenessTimeout)
+}

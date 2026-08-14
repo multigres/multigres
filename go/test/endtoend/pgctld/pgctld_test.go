@@ -514,6 +514,126 @@ func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	assert.Equal(t, "on", show("track_io_timing"))
 }
 
+// TestPgInitdbExtraConfLiveReload verifies that the file passed via
+// --pg-initdb-extra-conf is live-included, not copied into
+// PGDATA/postgresql.conf at initdb: editing the file in place and refreshing
+// postgres picks up the new value. This mirrors the multigres-operator flow,
+// where the extra file is a mounted ConfigMap the operator edits then expects a
+// reload or restart to apply.
+//
+// Two refresh mechanisms are checked against a running server:
+//   - reload: change a SIGHUP-context GUC (work_mem) in the file, pg_reload_conf(),
+//     and observe the new value.
+//   - restart: change a postmaster-context GUC (max_connections) in the file,
+//     `pgctld restart`, and observe the new value.
+func TestPgInitdbExtraConfLiveReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_extra_conf_live_test")
+	t.Cleanup(cleanup)
+
+	dataDir := filepath.Join(tempDir, "data")
+	extraDir := filepath.Join(tempDir, "extras")
+	require.NoError(t, os.MkdirAll(extraDir, 0o755))
+
+	// This is the operator-managed file. We rewrite it in place below, exactly
+	// as the operator rewrites a mounted ConfigMap.
+	extra := filepath.Join(extraDir, "postgresql.conf")
+	writeExtra := func(contents string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(extra, []byte(contents), 0o644))
+	}
+	writeExtra("work_mem = 8MB\nmax_connections = 111\n")
+
+	port := utils.GetFreePort(t)
+
+	initCmd := executil.Command(t.Context(), "pgctld", "init",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+		"--pg-initdb-extra-conf", extra,
+	)
+	setupTestEnv(initCmd, dataDir)
+	initOut, err := initCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld init failed: %s", string(initOut))
+
+	startCmd := executil.Command(t.Context(), "pgctld", "start",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(startCmd, dataDir)
+	startOut, err := startCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld start failed: %s", string(startOut))
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stopCmd := executil.Command(cleanupCtx, "pgctld", "stop",
+			"--pooler-dir", dataDir,
+			"--pg-port", strconv.Itoa(port),
+		)
+		setupTestEnv(stopCmd, dataDir)
+		_ = stopCmd.Run()
+	})
+
+	socketDir := filepath.Join(dataDir, "pg_sockets")
+	query := func(sql string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", sql,
+		)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql query failed (%s): %s", sql, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	show := func(setting string) string {
+		t.Helper()
+		return query("SHOW " + setting)
+	}
+
+	// The live-included file is effective at first init.
+	require.Equal(t, "8MB", show("work_mem"))
+	require.Equal(t, "111", show("max_connections"))
+
+	// Reload path: edit the mounted file, SIGHUP via pg_reload_conf(). Under the
+	// old copy-the-bytes behaviour PGDATA/postgresql.conf still held work_mem=8MB,
+	// so this stayed stale.
+	writeExtra("work_mem = 16MB\nmax_connections = 111\n")
+	require.Equal(t, "t", query("SELECT pg_reload_conf()"))
+	require.Eventually(t, func() bool {
+		return show("work_mem") == "16MB"
+	}, 10*time.Second, 100*time.Millisecond,
+		"work_mem edit in the live-included file must take effect after SIGHUP")
+
+	// Restart path: max_connections is postmaster context, so it needs a full
+	// restart. Edit the mounted file, then `pgctld restart`.
+	writeExtra("work_mem = 16MB\nmax_connections = 122\n")
+	restartCmd := executil.Command(t.Context(), "pgctld", "restart",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(restartCmd, dataDir)
+	restartOut, err := restartCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld restart failed: %s", string(restartOut))
+
+	require.Eventually(t, func() bool {
+		return show("max_connections") == "122"
+	}, 10*time.Second, 100*time.Millisecond,
+		"max_connections edit in the live-included file must take effect after restart")
+
+	// The reloaded work_mem survives the restart too (still sourced from the file).
+	assert.Equal(t, "16MB", show("work_mem"))
+}
+
 // TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize checks that the
 // scaled-down WAL settings for a 1 GiB volume actually start a real PostgreSQL
 // initialized with non-default WAL segments. Unit tests already cover how the
@@ -1595,4 +1715,83 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	assert.True(t, isCleanlyStoppedState,
 		"Database should be in 'shut down' or 'shut down in recovery' state after crash recovery, got:\n%s", outputStr)
 	t.Log("Success: standby is now cleanly stopped, proving crash recovery succeeded")
+}
+
+// TestPgRewind_AfterCrash_PreservesStandbySignal is the standby.signal variant of
+// TestPgRewind_AfterCrash: a crashed node that carries a standby.signal. postgres
+// --single refuses to run with a standby.signal present ("standby mode is not
+// supported by single-user servers"), so crash recovery must remove it for the
+// duration and recreate it afterwards. Without that handling the node would stay
+// stuck "in production"; with it, the node is cleanly recovered AND remains a
+// standby (signal restored).
+func TestPgRewind_AfterCrash_PreservesStandbySignal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found, skipping test")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_crash_standbysignal")
+	defer cleanup()
+
+	dir := filepath.Join(tempDir, "standby")
+	configFile := filepath.Join(tempDir, "standby.pgctld.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("log-level: info\ntimeout: 30\n"), 0o644))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	testPassword := "test_crash_pw"
+	srv := startPgCtldServer(t, dir, configFile, "POSTGRES_PASSWORD="+testPassword)
+	grpcAddr := fmt.Sprintf("localhost:%d", srv.GrpcPort)
+	require.NoError(t, InitAndStartPostgreSQL(t, grpcAddr))
+	t.Log("PostgreSQL started")
+
+	// Make it look like a standby: standby.signal present in the data dir.
+	pgDataDir := filepath.Join(dir, "pg_data")
+	signalPath := filepath.Join(pgDataDir, "standby.signal")
+	require.NoError(t, os.WriteFile(signalPath, []byte(""), 0o644))
+
+	// Crash postgres with SIGKILL, leaving the cluster "in production" (dirty).
+	pid, err := readPostmasterPID(pgDataDir)
+	require.NoError(t, err)
+	proc, err := os.FindProcess(pid)
+	require.NoError(t, err)
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
+	_, _ = executil.KillPID(killCtx, pid)
+	require.Eventually(t, func() bool {
+		return proc.Signal(syscall.Signal(0)) != nil
+	}, 5*time.Second, 100*time.Millisecond, "postgres should terminate after SIGKILL")
+
+	out, err := exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "in production", "cluster should be dirty after SIGKILL")
+
+	// PgRewind runs crash recovery before it attempts the rewind. The source is
+	// irrelevant here (the rewind itself may fail once recovery has run); we only
+	// exercise the standby.signal-aware crash recovery.
+	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	client := pb.NewPgCtldClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	t.Log("Calling PgRewind (triggers standby.signal-aware crash recovery)")
+	_, _ = client.PgRewind(ctx, &pb.PgRewindRequest{
+		SourceHost: "localhost",
+		SourcePort: int32(srv.PgPort),
+		DryRun:     true,
+	})
+
+	// Crash recovery must have cleanly recovered the node despite the
+	// standby.signal (postgres --single would otherwise have refused to start).
+	out, err = exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	outStr := string(out)
+	assert.True(t, strings.Contains(outStr, "shut down"),
+		"crash recovery should have cleanly recovered the node despite standby.signal, got:\n%s", outStr)
+	// ...and the standby.signal must be restored so the node stays a standby
+	// rather than being silently promoted on its next start.
+	assert.FileExists(t, signalPath, "standby.signal must be restored after crash recovery")
+	t.Log("Success: node recovered and standby.signal preserved")
 }

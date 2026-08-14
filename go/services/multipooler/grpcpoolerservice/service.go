@@ -157,7 +157,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		// Send row data (if any). Notices are streamed above as separate
 		// diagnostics, so keep the result payload notice-free to avoid duplicate
 		// NoticeResponse frames on the gateway.
-		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
+		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 			protoResult := result.ToProto()
 			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
@@ -404,7 +404,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 			// Send row data (if any). Notices are streamed above as separate
 			// diagnostics, so keep the result payload notice-free to avoid duplicate
 			// NoticeResponse frames on the gateway.
-			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
+			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 				protoResult := result.ToProto()
 				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
@@ -816,18 +816,49 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
 	// (or fall back to ReleaseAllPortals when release_all_portals is true,
 	// e.g. for older gateways that don't compute the diff).
+	var rollbackSessionSettings map[string]string
+	if snap := req.GetRollbackSessionSettings(); snap != nil {
+		rollbackSessionSettings = snap.GetVars()
+		if rollbackSessionSettings == nil {
+			rollbackSessionSettings = map[string]string{}
+		}
+	}
 	result, reservedState, err := executor.ConcludeTransaction(
 		ctx, req.Target, req.Options, req.Conclusion,
 		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
+		rollbackSessionSettings,
 	)
 	if err != nil {
-		return nil, mterrors.ToGRPC(err)
+		return nil, withReservedStateDetail(mterrors.ToGRPC(err), reservedState)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
 		Result:        result.ToProto(),
 		ReservedState: reservedState,
 	}, nil
+}
+
+// withReservedStateDetail attaches state as an additional gRPC status detail
+// alongside whatever mterrors.ToGRPC already attached (e.g. a PgDiagnostic),
+// so a unary RPC that must return an error can still tell the caller the
+// authoritative post-failure reservation state — e.g. a temp-table reason
+// that survives a COMMIT which failed on a deferred constraint. A unary
+// handler that returns an error never sends its response message at all, so
+// this is the only way to carry state alongside grpcErr. Falls back to the
+// plain error if state is nil or attaching the detail fails.
+func withReservedStateDetail(grpcErr error, state *query.ReservedState) error {
+	if grpcErr == nil || state == nil {
+		return grpcErr
+	}
+	st, ok := status.FromError(grpcErr)
+	if !ok {
+		return grpcErr
+	}
+	stWithState, detailErr := st.WithDetails(state)
+	if detailErr != nil {
+		return grpcErr
+	}
+	return stWithState.Err()
 }
 
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
@@ -869,11 +900,12 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
+	reservedState, err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
+	return &multipoolerpb.ReleaseReservedConnectionResponse{ReservedState: reservedState}, nil
 }
 
 // StreamPoolerHealth streams health updates to the client.

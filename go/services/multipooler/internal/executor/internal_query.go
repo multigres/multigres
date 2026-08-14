@@ -28,23 +28,48 @@ import (
 // already been committed or rolled back.
 var errTxFinished = errors.New("transaction already finished")
 
-// InternalQueryService provides a simplified query interface for internal multipooler
-// components. It uses the admin connection pool, which authenticates as the configured
-// superuser (POSTGRES_USER / POSTGRES_PASSWORD).
+// InternalQueryService provides a simplified query interface for internal
+// multipooler components. It exposes two families of methods over two connection
+// pools:
+//
+//   - Query / QueryArgs / QueryMultiStatement / Begin run on the regular pool (as
+//     the configured PgUser). Use for pure system queries — pg_is_in_recovery(),
+//     ALTER SYSTEM, WAL LSN reads, SELECT 1 — so the small admin pool is not
+//     exhausted by high-volume polling.
+//   - QueryAdmin / QueryAdminArgs / QueryAdminMultiStatement run on the admin
+//     (true-superuser) pool. Use for every read/write of the locked-down multigres
+//     sidecar schema, which is owned by the true superuser and which customer
+//     roles on the regular pool cannot reach.
+//
+// Choosing the pool at the call site (by method name) keeps "this touches the
+// locked-down schema" visible where the query is written.
 type InternalQueryService interface {
-	// Query executes a query and returns the result.
+	// Query executes a query on the regular pool and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
 
-	// QueryArgs executes a query with arguments and returns the result.
-	// This is a convenience method that accepts Go values as arguments and converts
-	// them to the appropriate text format for PostgreSQL.
+	// QueryArgs executes a query with arguments on the regular pool and returns
+	// the result. This is a convenience method that accepts Go values as arguments
+	// and converts them to the appropriate text format for PostgreSQL.
 	// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 	// float32, float64, bool, and time.Time.
 	QueryArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
 
 	// QueryMultiStatement executes a multi-statement query (e.g. "BEGIN; ...; COMMIT;")
-	// using the simple query protocol. Unlike Query, it does not require exactly one result set.
+	// on the regular pool using the simple query protocol. Unlike Query, it does
+	// not require exactly one result set.
 	QueryMultiStatement(ctx context.Context, query string) error
+
+	// QueryAdmin executes a query on the admin (true-superuser) pool and returns
+	// the single result. Use for reads/writes of the multigres sidecar schema.
+	QueryAdmin(ctx context.Context, query string) (*sqltypes.Result, error)
+
+	// QueryAdminArgs is QueryAdmin with arguments; it accepts the same Go argument
+	// types as QueryArgs.
+	QueryAdminArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
+
+	// QueryAdminMultiStatement is QueryMultiStatement on the admin pool. Use for
+	// the multigres schema DDL that grants privileges alongside CREATE.
+	QueryAdminMultiStatement(ctx context.Context, query string) error
 
 	// Begin starts a transaction on a reserved connection and returns a handle
 	// for issuing queries within it. Reserved connections are the mechanism for
@@ -100,27 +125,49 @@ var _ InternalTx = (*internalTx)(nil)
 // Compile-time check that Executor implements InternalQueryService.
 var _ InternalQueryService = (*Executor)(nil)
 
-// Query implements InternalQueryService for simple internal queries.
-//
-// It executes a query using the regular connection pool and returns the first
-// result. We use the regular connection pool rather than the admin pool because
-// we do not want to exhaust the admin pool.
-//
-// Internal queries include SQL text in trace spans since they use system
-// functions.
-func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
-	// Enable SQL text in trace spans for internal queries (safe - no user data)
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
+// pooledQueryConn is the subset of a borrowed pool connection the internal query
+// helpers use. Both *regular.Conn and *admin.Conn satisfy it, which lets the
+// regular and admin query methods share the run* helpers below and differ only
+// in the borrower they pass.
+type pooledQueryConn interface {
+	QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+}
 
+// connBorrower acquires a pool connection and returns it with a release function
+// the caller must invoke when finished. The Query/QueryAdmin pairs differ only in
+// which borrower they pass: borrowRegular (per-user regular pool) vs borrowAdmin
+// (admin true-superuser pool).
+type connBorrower func(ctx context.Context) (conn pooledQueryConn, release func(), err error)
+
+// borrowRegular borrows a connection from the per-user regular pool as the
+// configured PgUser. We use the regular pool for system queries rather than the
+// admin pool so as not to exhaust the small admin pool.
+func (e *Executor) borrowRegular(ctx context.Context) (pooledQueryConn, func(), error) {
 	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn.Conn, conn.Recycle, nil
+}
+
+// withInternalQueryTracing enables SQL text in trace spans for internal queries
+// (safe - no user data, and they use system functions).
+func withInternalQueryTracing(ctx context.Context) context.Context {
+	return client.WithQueryTracing(ctx, client.QueryTracingConfig{IncludeQueryText: true})
+}
+
+// runSingleQuery runs a query on a borrowed connection and returns its single
+// result set, erroring if the query did not produce exactly one.
+func runSingleQuery(ctx context.Context, borrow connBorrower, queryStr string) (*sqltypes.Result, error) {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Recycle()
+	defer release()
 
-	results, err := conn.Conn.QueryWithRetry(ctx, queryStr)
+	results, err := conn.QueryWithRetry(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -130,49 +177,58 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 	return results[0], nil
 }
 
-// QueryMultiStatement implements InternalQueryService for multi-statement queries.
-// It executes a query using the simple query protocol and does not check the number of result sets.
-func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) error {
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
+// runSingleQueryArgs is runSingleQuery for a parameterized query.
+func runSingleQueryArgs(ctx context.Context, borrow connBorrower, sql string, args ...any) (*sqltypes.Result, error) {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
+	results, err := conn.QueryArgsWithRetry(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, errors.New("unexpected number of results")
+	}
+	return results[0], nil
+}
+
+// runMultiStatement runs a multi-statement query on a borrowed connection using
+// the simple query protocol, without checking the number of result sets.
+func runMultiStatement(ctx context.Context, borrow connBorrower, queryStr string) error {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
 	if err != nil {
 		return err
 	}
-	defer conn.Recycle()
+	defer release()
 
-	_, err = conn.Conn.QueryWithRetry(ctx, queryStr)
+	_, err = conn.QueryWithRetry(ctx, queryStr)
 	return err
 }
 
-// QueryArgs implements InternalQueryService for simple internal queries.
-// This is a convenience method that accepts Go values as arguments and converts
-// them to the appropriate text format for PostgreSQL.
-// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
-// float32, float64, bool, and time.Time.
-// Internal queries include SQL text in trace spans since they use system functions.
+// Query implements InternalQueryService for simple internal queries on the
+// regular pool.
+func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	return runSingleQuery(ctx, e.borrowRegular, queryStr)
+}
+
+// QueryMultiStatement implements InternalQueryService for multi-statement queries
+// on the regular pool.
+func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) error {
+	return runMultiStatement(ctx, e.borrowRegular, queryStr)
+}
+
+// QueryArgs implements InternalQueryService for simple parameterized queries on
+// the regular pool. It accepts Go values as arguments and converts them to the
+// appropriate text format for PostgreSQL. Supported argument types: nil, string,
+// []byte, int, int32, int64, *int64, uint32, uint64, float32, float64, bool, and
+// time.Time.
 func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
-	// Enable SQL text in trace spans for internal queries (safe - no user data)
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
-
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Recycle()
-
-	results, err := conn.Conn.QueryArgsWithRetry(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	if len(results) != 1 {
-		return nil, errors.New("unexpected number of results")
-	}
-	return results[0], nil
+	return runSingleQueryArgs(ctx, e.borrowRegular, sql, args...)
 }
 
 // Begin implements InternalQueryService. It reserves a connection (via the

@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -177,8 +178,48 @@ type MultipoolerManager struct {
 	// process restart implicitly clears it.
 	walReceiverManuallyStopped atomic.Bool
 
+	// standbyStuckSince debounces the monitor's self-detection of a diverged
+	// standby. It holds the UnixNano of the first tick on which this standby was
+	// observed unable to stream from its correctly-recorded leader (0 = not
+	// currently stuck). Only once the condition has persisted past
+	// standbyStuckDivergenceThreshold does the monitor conclude the WAL has
+	// diverged and set suspectedDivergence, so a transient reconnect does not
+	// trigger a needless stop+rewind. Reset the moment streaming resumes or the
+	// stuck preconditions no longer hold.
+	standbyStuckSince atomic.Int64
+
+	// leaderReachableFn, when non-nil, overrides the divergence gate's leader
+	// liveness dial (standbyStuckDiverged -> leaderReachable). Tests set it because
+	// they have no real leader postgres to TCP-dial; production leaves it nil to
+	// use the default net.Dialer.
+	leaderReachableFn func(host string, port int32) bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
+
+	// Unrecoverable-postgres (FATAL-loop) classifier state. All fields are touched
+	// only from the single-goroutine monitor iteration (monitorPostgresIteration
+	// and its callees under the action lock), so they need no synchronisation.
+	// The durable verdict itself is published on the pooler record as
+	// LIFECYCLE_QUARANTINED — the record is the source of truth.
+	//
+	// unrecoverableTimeout is how long postgres may continuously fail to recover
+	// before the pooler quarantines itself. It is the primary gate. 0 disables it.
+	unrecoverableTimeout time.Duration
+	// unrecoverableMinAttempts is the floor of genuine failed recovery attempts
+	// required alongside the timeout. <= 0 falls back to
+	// defaultUnrecoverableMinAttempts (see trackRecoveryOutcome).
+	unrecoverableMinAttempts int
+	// unrecoverableFailedAttempts counts consecutive failed recovery attempts in
+	// the current streak (reset to 0 whenever postgres is observed running); it
+	// backs the minimum-attempts floor so we never quarantine on too few attempts.
+	unrecoverableFailedAttempts int
+	// unrecoverableFirstFailureAt anchors the timeout: elapsed since the first
+	// failure in the current streak is compared against unrecoverableTimeout.
+	unrecoverableFirstFailureAt time.Time
+	// nowFn returns the current time; overridable in tests so the timeout gate is
+	// deterministic. nil means time.Now (see now()).
+	nowFn func() time.Time
 
 	// stateManager coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
@@ -217,6 +258,12 @@ type demotionState struct {
 // NewMultipoolerManager creates a new MultipoolerManager instance
 func NewMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.Multipooler, config *Config) (*MultipoolerManager, error) {
 	return NewMultipoolerManagerWithTimeout(logger, multipooler, config, 5*time.Minute)
+}
+
+// registerAndSyncStateAware is swappable in tests to exercise the failure
+// path of syncing a late-registered StateAware component.
+var registerAndSyncStateAware = func(ctx context.Context, stateManager *StateManager, component StateAware) error {
+	return stateManager.RegisterAndSync(ctx, component)
 }
 
 // NewMultipoolerManagerWithTimeout creates a new MultipoolerManager instance with a custom load timeout
@@ -287,12 +334,12 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	if config.PgctldAddr != "" {
 		conn, err := grpccommon.NewClient(config.PgctldAddr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
 		if err != nil {
-			logger.ErrorContext(ctx, "Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
+			logger.ErrorContext(ctx, "failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
 			// Continue without client - operations that need it will fail gracefully
 		} else {
 			rawClient := pgctldpb.NewPgCtldClient(conn)
 			pgctldClient = NewProtectedPgctldClient(rawClient)
-			logger.InfoContext(ctx, "Created pgctld gRPC client", "addr", config.PgctldAddr)
+			logger.InfoContext(ctx, "created pgctld gRPC client", "addr", config.PgctldAddr)
 		}
 	}
 
@@ -310,7 +357,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 
 	metrics, metricsErr := newManagerMetrics()
 	if metricsErr != nil {
-		logger.ErrorContext(ctx, "Failed to register manager metrics", "error", metricsErr)
+		logger.ErrorContext(ctx, "failed to register manager metrics", "error", metricsErr)
 	}
 
 	pm := &MultipoolerManager{
@@ -325,16 +372,24 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
 		pgMonitorRetryInterval: monitorRetryInterval,
-		pgctldClient:           pgctldClient,
-		connPoolMgr:            connPoolMgr,
-		readyChan:              make(chan struct{}),
-		pgMonitor:              monitorRunner,
-		healthStreamer:         newHealthStreamer(logger, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()),
+
+		unrecoverableTimeout:     config.PostgresUnrecoverableTimeout,
+		unrecoverableMinAttempts: config.PostgresUnrecoverableMinAttempts,
+		pgctldClient:             pgctldClient,
+		connPoolMgr:              connPoolMgr,
+		readyChan:                make(chan struct{}),
+		pgMonitor:                monitorRunner,
+		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// Apply the configured health-stream staleness override (zero is ignored,
+	// keeping the built-in default). Set before serving so the very first
+	// broadcast already advertises the override.
+	pm.healthStreamer.SetRecommendedStalenessTimeout(config.HealthStreamStalenessTimeout)
 
 	// shutdownCtx is independent of ctx: ctx is recreated on every Open(),
 	// while shutdownCtx exists for the lifetime of the manager and is
@@ -385,6 +440,12 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
 	pm.stateManager = NewStateManager(logger, pm.record, pm.consensusMgr.CachedConsensusStatus, pm.qsc, pm.healthStreamer)
+	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
+		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to sync connection pool metrics state: %w", err)
+		}
+	}
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
@@ -455,6 +516,41 @@ func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...
 	return err
 }
 
+// adminQuery executes a query on the admin (true-superuser) pool via the
+// InternalQueryService's QueryAdmin method and returns the result. Use for
+// reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdmin(ctx, sql)
+}
+
+// adminExec executes a command that doesn't return rows on the admin
+// (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExec(ctx context.Context, sql string) error {
+	_, err := pm.adminQuery(ctx, sql)
+	return err
+}
+
+// adminQueryArgs executes a parameterized query on the admin (true-superuser)
+// pool and returns the result. Use for reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdminArgs(ctx, sql, args...)
+}
+
+// adminExecArgs executes a parameterized command that doesn't return rows on the
+// admin (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, args ...any) error {
+	_, err := pm.adminQueryArgs(ctx, sql, args...)
+	return err
+}
+
 // Open opens the database connections and starts background operations, then
 // transitions the pooler to SERVING. This is the entry point for first-time
 // startup; resume-from-Pause goes through openLocked directly so it can
@@ -487,7 +583,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
 
 	pm.openConnectionsLocked()
-	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection")
+	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	pm.startPostgresMonitorPollerLocked()
 
@@ -511,7 +607,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = targetServingStatus
 	}); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to transition serving status on open", "target", targetServingStatus, "error", err)
+		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
 }
 
@@ -551,7 +647,7 @@ func (pm *MultipoolerManager) Pause(ctx context.Context) (resume func(context.Co
 
 	preServingStatus := pm.record.ServingStatus()
 	if !pm.closeLocked(ctx, "paused") {
-		pm.logger.ErrorContext(ctx, "MultipoolerManager: Pause() called on already-closed manager")
+		pm.logger.ErrorContext(ctx, "MultipoolerManager: Pause() called on already-closed manager") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	}
 
 	return func(resumeCtx context.Context) {
@@ -580,7 +676,7 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "ShutdownForTest")
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "ShutdownForTest: action lock acquire failed", "error", err)
+		pm.logger.ErrorContext(ctx, "ShutdownForTest: action lock acquire failed", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
@@ -589,10 +685,10 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 	pm.closeLocked(lockCtx, "shutdown")
 }
 
-// closeLocked performs the actual close operation.
-// Returns true if the manager was open and is now closed, false if it was already closed.
-// Caller should NOT hold pm.mu - this function acquires it.
-// Always cancels the context - Open() will create a fresh one if reopened.
+// closeLocked performs the actual close operation. Returns true if the manager
+// was open and is now closed, false if it was already closed. Caller should NOT
+// hold pm.mu - this function acquires it. Always cancels the context - Open() will
+// create a fresh one if reopened.
 //
 // closeLocked does NOT stop the postgres monitor: Pause keeps it running (the
 // action lock neuters it for the maintenance window), and a terminal teardown
@@ -617,7 +713,7 @@ func (pm *MultipoolerManager) closeLocked(ctx context.Context, logMessage string
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to transition to DISABLED during close", "error", err)
+		pm.logger.WarnContext(ctx, "failed to transition to DISABLED during close", "error", err)
 	}
 
 	pm.closeConnectionsLocked(false /* forReopen */)
@@ -721,13 +817,13 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			connConfig.SSLNegotiation = sslNegotiation
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
-		pm.logger.Info("Connection pool manager opened")
+		pm.logger.Info("connection pool manager opened")
 	}
 
 	// Create sidecar schema and start heartbeat before opening query service controller
 	// This ensures the schema exists before queries can be served
 	if pm.replTracker == nil {
-		pm.logger.Info("MultipoolerManager: Starting database heartbeat")
+		pm.logger.Info("MultipoolerManager: Starting database heartbeat") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		ctx := context.TODO()
 		// TODO: populate shard ID
 		shardID := []byte("0") // default shard ID
@@ -739,7 +835,7 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 		// Do not auto-create schema when connecting to postgres
 
 		if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to start heartbeat", "error", err)
+			pm.logger.ErrorContext(ctx, "failed to start heartbeat", "error", err)
 			// Don't fail the connection if heartbeat fails
 		}
 	}
@@ -747,7 +843,7 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 	// Start PubSub listener for LISTEN/NOTIFY support.
 	if pm.pubsubListener == nil {
 		if err := pm.startPubSubListener(context.TODO()); err != nil {
-			pm.logger.Error("Failed to start PubSub listener", "error", err)
+			pm.logger.Error("failed to start PubSub listener", "error", err)
 		}
 	}
 }
@@ -854,12 +950,12 @@ func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "Replication operation called on non-standby instance", "service_id", pm.serviceID.String())
+		pm.logger.ErrorContext(ctx, "replication operation called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
@@ -872,12 +968,12 @@ func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 func (pm *MultipoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "Primary operation called on standby instance", "service_id", pm.serviceID.String())
+		pm.logger.ErrorContext(ctx, "primary operation called on standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
@@ -892,7 +988,7 @@ func (pm *MultipoolerManager) setStateError(err error) {
 	defer pm.mu.Unlock()
 	pm.state = ManagerStateError
 	pm.stateError = err
-	pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", err.Error())
+	pm.logger.Error("manager state changed", "state", ManagerStateError, "error", err.Error())
 
 	// Signal that we've reached a terminal state
 	select {
@@ -911,7 +1007,7 @@ func (pm *MultipoolerManager) checkAndSetReady() {
 
 	if pm.topoLoaded {
 		pm.state = ManagerStateReady
-		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
+		pm.logger.Info("manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
 
 		// Signal that we've reached ready state
 		select {
@@ -1034,7 +1130,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
 			return
 		}
-		pm.logger.Info("Generated pgbackrest client config", "path", configPath)
+		pm.logger.Info("generated pgbackrest client config", "path", configPath)
 
 		// Write a pgpass file so pgbackrest can authenticate against PostgreSQL
 		// without exposing the password via PGPASSWORD in the process
@@ -1068,6 +1164,15 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 	}
 }
 
+// pgpassFilePath returns the path to the libpq password file written at
+// startup, or "" if it has not been set yet. Reads under pm.mu because the
+// value is populated asynchronously by loadShardConfigFromGlobalTopo.
+func (pm *MultipoolerManager) pgpassFilePath() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.pgpassPath
+}
+
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
@@ -1081,7 +1186,7 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 	state.isReadOnly = !pgMode.OutOfRecovery()
@@ -1089,15 +1194,15 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	// Capture current LSN
 	state.finalLSN, err = pm.getWALPosition(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get LSN", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to get LSN", "error", err)
 		return nil, mterrors.Wrap(err, "failed to get LSN")
 	}
 
-	pm.logger.InfoContext(ctx, "Checked demotion state",
+	pm.logger.InfoContext(ctx, "checked demotion state",
 		"routing_role", state.routingState.GetRole().String(),
 		"is_read_only", state.isReadOnly,
-		"postgres_mode", pgMode,
-		"serving_status", servingStatus)
+		"postgres_mode", pgMode.String(),
+		"serving_status", servingStatus.String())
 
 	return state, nil
 }
@@ -1116,7 +1221,7 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 // which leaves several transition paths under-defended.
 func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
-		pm.logger.InfoContext(ctx, "PostgreSQL already running as standby, skipping")
+		pm.logger.InfoContext(ctx, "Postgres already running as standby, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return nil
 	}
 
@@ -1124,7 +1229,7 @@ func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")
+	pm.logger.InfoContext(ctx, "restarting Postgres as standby")
 	req := &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   nil, // Use default timeout
@@ -1156,7 +1261,7 @@ func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 
-	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby",
+	pm.logger.InfoContext(ctx, "Postgres is now running as a standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"pid", resp.Pid,
 		"message", resp.Message)
 
@@ -1207,23 +1312,23 @@ func (pm *MultipoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 func (pm *MultipoolerManager) terminateWriteConnections(ctx context.Context) (int32, error) {
 	pids, err := pm.getActiveWriteConnections(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get active write connections", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to get active write connections", "error", err)
 		return 0, mterrors.Wrap(err, "failed to get active write connections")
 	}
 
 	if len(pids) == 0 {
-		pm.logger.InfoContext(ctx, "No active write connections to terminate")
+		pm.logger.InfoContext(ctx, "no active write connections to terminate")
 		return 0, nil
 	}
 
-	pm.logger.WarnContext(ctx, "Terminating connections still performing writes after drain",
+	pm.logger.WarnContext(ctx, "terminating connections still performing writes after drain",
 		"count", len(pids),
 		"pids", pids)
 
 	// Terminate each write connection
 	for _, pid := range pids {
 		if err := pm.execArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to terminate write connection", "pid", pid, "error", err)
+			pm.logger.WarnContext(ctx, "failed to terminate write connection", "pid", pid, "error", err)
 		}
 	}
 
@@ -1235,7 +1340,7 @@ func (pm *MultipoolerManager) terminateWriteConnections(ctx context.Context) (in
 // If 2 consecutive checks show no writes, exits early.
 func (pm *MultipoolerManager) drainWriteActivity(ctx context.Context, drainTimeout time.Duration) error {
 	// Monitor for write activity during drain
-	pm.logger.InfoContext(ctx, "Monitoring for write activity during drain", "duration", drainTimeout)
+	pm.logger.InfoContext(ctx, "monitoring for write activity during drain", "duration", drainTimeout)
 	drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
 	defer cancel()
 
@@ -1248,17 +1353,17 @@ func (pm *MultipoolerManager) drainWriteActivity(ctx context.Context, drainTimeo
 	for !drainComplete {
 		select {
 		case <-drainCtx.Done():
-			pm.logger.InfoContext(ctx, "Drain timeout completed")
+			pm.logger.InfoContext(ctx, "drain timeout completed")
 			drainComplete = true
 
 		case <-monitorTicker.C:
 			// Check for write activity
 			pids, err := pm.getActiveWriteConnections(ctx)
 			if err != nil {
-				pm.logger.WarnContext(ctx, "Failed to check for write activity during drain", "error", err)
+				pm.logger.WarnContext(ctx, "failed to check for write activity during drain", "error", err)
 				consecutiveNoWrites = 0 // Reset on error
 			} else if len(pids) > 0 {
-				pm.logger.WarnContext(ctx, "Detected write activity during drain",
+				pm.logger.WarnContext(ctx, "detected write activity during drain",
 					"count", len(pids),
 					"pids", pids)
 				consecutiveNoWrites = 0 // Reset counter
@@ -1266,7 +1371,7 @@ func (pm *MultipoolerManager) drainWriteActivity(ctx context.Context, drainTimeo
 				// No writes detected
 				consecutiveNoWrites++
 				if consecutiveNoWrites >= 2 {
-					pm.logger.InfoContext(ctx, "No write activity detected for 2 consecutive checks, exiting drain early")
+					pm.logger.InfoContext(ctx, "no write activity detected for 2 consecutive checks, exiting drain early")
 					drainComplete = true
 				}
 			}
@@ -1283,7 +1388,7 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 	// Check PostgreSQL promotion state
 	mode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 	state.pgMode = mode
@@ -1292,13 +1397,13 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 		// Get current primary LSN
 		state.currentLSN, err = pm.getPrimaryLSN(ctx)
 		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to get current LSN", "error", err)
+			pm.logger.ErrorContext(ctx, "failed to get current LSN", "error", err)
 			return nil, err
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "Checked promotion state",
-		"postgres_mode", state.pgMode)
+	pm.logger.InfoContext(ctx, "checked promotion state",
+		"postgres_mode", state.pgMode.String())
 
 	return state, nil
 }
@@ -1311,7 +1416,7 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
-		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping")
+		pm.logger.InfoContext(ctx, "Postgres already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return nil
 	}
 
@@ -1319,8 +1424,8 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	defer span.End()
 
 	// Call pg_promote() to promote standby to primary
-	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed")
-	pm.logger.InfoContext(ctx, "Calling pg_promote() to promote standby to primary")
+	pm.logger.InfoContext(ctx, "Postgres promotion needed") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	pm.logger.InfoContext(ctx, "calling pg_promote() to promote standby to primary")
 	pm.promotionInProgress.Store(true)
 
 	// Broadcast immediately so subscribers (multiorch) see PROMOTING server
@@ -1342,7 +1447,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	}()
 
 	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to call pg_promote()", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to call pg_promote()", "error", err)
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
 
@@ -1350,7 +1455,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// Keeping promotionInProgress set until postgres_ready ensures multiorch suppresses
 	// PrimaryIsDead for the full window — including the gap between pg_is_in_recovery()=false
 	// and postgres actually accepting connections.
-	pm.logger.InfoContext(ctx, "Waiting for promotion to complete")
+	pm.logger.InfoContext(ctx, "waiting for promotion to complete")
 	if err := pm.waitForPromotionComplete(ctx); err != nil {
 		return err
 	}
@@ -1372,11 +1477,11 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	checkpointCtx := pm.ctx
 	go func() {
 		if err := pm.exec(checkpointCtx, "CHECKPOINT"); err != nil {
-			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
+			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until Postgres's own checkpoint completes", "error", err)
 			return
 		}
 		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, promotedPosition) {
-			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready",
+			pm.logger.InfoContext(checkpointCtx, "post-promotion checkpoint complete; advertising rewind-ready",
 				"position", commonconsensus.FormatRulePosition(promotedPosition))
 			pm.broadcastHealth()
 		}
@@ -1389,12 +1494,12 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	if changed, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to clear suspected divergence before promotion", "error", err)
 	} else if changed {
-		pm.logger.InfoContext(ctx, "Cleared suspectedDivergence before promotion")
+		pm.logger.InfoContext(ctx, "cleared suspectedDivergence before promotion")
 	}
 
 	// Clear primary_conninfo after promotion to prevent accidental replication on restart
 	if err := pm.resetPrimaryConnInfo(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to clear primary_conninfo after promotion", "error", err)
+		pm.logger.WarnContext(ctx, "failed to clear primary_conninfo after promotion", "error", err)
 		// Log but don't fail - promotion already succeeded
 	}
 
@@ -1405,22 +1510,28 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// rejoining follower won't copy restore_command back over, and this node
 	// won't resume archive playback if it is later restarted as a standby.
 	if err := pm.resetRestoreCommand(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to clear restore_command after promotion", "error", err)
+		pm.logger.WarnContext(ctx, "failed to clear restore_command after promotion", "error", err)
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Use the manager-lifetime context, not the request ctx: this goroutine
+	// outlives the promotion RPC, and the request ctx is canceled the moment
+	// that RPC returns. With the request ctx the DROPs race RPC completion and
+	// fail with "context canceled", leaving the unlogged tables in place.
+	// Mirrors the async checkpoint above.
+	sweepCtx := pm.ctx
 	go func() {
 		// After a failover PostgreSQL resets user-created unlogged tables to empty.
 		// Best-effort drop them asynchronously so clients get a clear "relation does
 		// not exist" error and rebuild instead of silently reading an empty table.
-		pm.dropUnloggedTablesAfterPromotion(ctx)
+		pm.dropUnloggedTablesAfterPromotion(sweepCtx)
 	}()
 
 	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
 	// marked serving. The asynchronous sweep preserves it because VPID tracking
 	// and lock-wait probes require the relation to remain present.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to recreate backend_vpid table after promotion", "error", err)
+		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
 	}
 
 	return nil
@@ -1452,7 +1563,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 
 	result, err := pm.query(ctx, listSQL)
 	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to list unlogged tables after promotion; skipping drop", "error", err)
+		pm.logger.WarnContext(ctx, "failed to list unlogged tables after promotion; skipping drop", "error", err)
 		return
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
@@ -1462,7 +1573,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 	for _, row := range result.StructuredRows() {
 		name, err := executor.GetString(row, 0)
 		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to parse unlogged table name after promotion; skipping", "error", err)
+			pm.logger.WarnContext(ctx, "failed to parse unlogged table name after promotion; skipping", "error", err)
 			continue
 		}
 		// PostgreSQL already resets this unlogged table on promotion; keep it for
@@ -1471,50 +1582,72 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 			continue
 		}
 		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
-			pm.logger.WarnContext(ctx, "Best-effort drop of unlogged table after promotion failed; table left empty",
+			pm.logger.WarnContext(ctx, "best-effort drop of unlogged table after promotion failed; table left empty",
 				"table", name, "error", err)
 			continue
 		}
-		pm.logger.InfoContext(ctx, "Dropped unlogged table after promotion", "table", name)
+		pm.logger.InfoContext(ctx, "dropped unlogged table after promotion", "table", name)
 	}
 }
 
-// waitForPromotionComplete polls until the node has left recovery mode AND postgres
-// is accepting connections. Both conditions are required: pg_is_in_recovery()=false
-// confirms the WAL-level promotion, and postgres_ready=true confirms clients can
-// connect. Clearing promotionInProgress only when both are true ensures multiorch's
-// PrimaryIsDeadAnalyzer suppression window matches the full visibility gap.
+// waitForPromotionComplete polls until postgres has left recovery mode AND is
+// accepting connections. Keeping promotionInProgress set for the full window
+// ensures LeaderNeedsReplacementAnalyzer suppresses re-elections until the new
+// primary is actually serving. The caller's context controls the timeout.
 func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) error {
+	if err := pm.waitUntilOutOfRecovery(ctx); err != nil {
+		return err
+	}
+	return pm.waitUntilPostgresReady(ctx)
+}
+
+// waitUntilOutOfRecovery polls pg_is_in_recovery() until postgres leaves
+// recovery mode. This covers the end-of-recovery checkpoint that pg_promote()
+// triggers; the checkpoint flushes dirty pages from WAL replay and can take
+// tens of seconds on a recently-restored node.
+func (pm *MultipoolerManager) waitUntilOutOfRecovery(ctx context.Context) error {
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionWalReplay{})
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
-	promotionTimeout := 30 * time.Second
-	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
-	defer cancel()
-
-	promotedFromRecovery := false
 	for {
 		select {
-		case <-promotionCtx.Done():
-			pm.logger.ErrorContext(ctx, "Timeout waiting for promotion to complete")
+		case <-ctx.Done():
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to leave recovery mode", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
-
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:
-			if !promotedFromRecovery {
-				pgMode, err := pm.postgresMode(promotionCtx)
-				if err != nil {
-					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
-					return mterrors.Wrap(err, "failed to check recovery status")
-				}
-				if pgMode.OutOfRecovery() {
-					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
-					promotedFromRecovery = true
-				}
+			pgMode, err := pm.postgresMode(ctx)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "failed to check recovery status during promotion", "error", err)
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
+				return mterrors.Wrap(err, "failed to check recovery status")
 			}
+			if pgMode.OutOfRecovery() {
+				pm.logger.InfoContext(ctx, "postgres left recovery mode, waiting for connections to be accepted")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
+				return nil
+			}
+		}
+	}
+}
 
-			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
-				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
+// waitUntilPostgresReady polls pg_isready until postgres accepts connections.
+func (pm *MultipoolerManager) waitUntilPostgresReady(ctx context.Context) error {
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to accept connections", "error", ctx.Err())
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
+		case <-ticker.C:
+			if pm.isPostgresReady(ctx) {
+				pm.logger.InfoContext(ctx, "promotion completed successfully - node is now primary and accepting connections")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionPostgresReady{})
 				return nil
 			}
 		}
@@ -1543,7 +1676,7 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	lockCtx, err := pm.actionLock.Acquire(pm.ctx, "Start")
 	if err != nil {
-		pm.logger.ErrorContext(pm.ctx, "Failed to acquire action lock for Start — re-entrance bug?", "error", err)
+		pm.logger.ErrorContext(pm.ctx, "failed to acquire action lock for Start — re-entrance bug?", "error", err)
 		return
 	}
 	pm.Open(lockCtx)
@@ -1565,20 +1698,20 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 		defer cancel()
 
-		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
+		pm.logger.Info("waiting for manager to reach ready state before registering gRPC services")
 		if err := pm.WaitUntilReady(waitCtx); err != nil {
-			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
+			pm.logger.Error("manager failed to reach ready state during startup", "error", err)
 			return fmt.Errorf("manager failed to reach ready state: %w", err)
 		}
-		pm.logger.Info("Manager reached ready state, will register gRPC services")
+		pm.logger.Info("manager reached ready state, will register gRPC services")
 
-		pm.logger.Info("MultipoolerManager started")
+		pm.logger.Info("MultipoolerManager started") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		pm.qsc.RegisterGRPCServices()
-		pm.logger.Info("Query service controller registered")
+		pm.logger.Info("query service controller registered")
 
 		// Register manager gRPC services
 		pm.registerGRPCServices()
-		pm.logger.Info("MultipoolerManager gRPC services registered")
+		pm.logger.Info("MultipoolerManager gRPC services registered") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return nil
 	})
 }
@@ -1651,7 +1784,7 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 					"postgres_running", newState.postgresRunning)
 				pm.broadcastHealth()
 			}
@@ -1669,7 +1802,7 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			prevState = newState
 		}
 	}, timer.WithFastStart())
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 }
 
 // StartTopoRegistration starts the publisher goroutine and kicks off the
@@ -1739,10 +1872,10 @@ func (pm *MultipoolerManager) WaitUntilReady(ctx context.Context) error {
 
 		switch state {
 		case ManagerStateReady:
-			pm.logger.InfoContext(ctx, "Manager is ready")
+			pm.logger.InfoContext(ctx, "manager is ready")
 			return nil
 		case ManagerStateError:
-			pm.logger.ErrorContext(ctx, "Manager failed to initialize", "error", stateError)
+			pm.logger.ErrorContext(ctx, "manager failed to initialize", "error", stateError)
 			return fmt.Errorf("manager is in error state: %w", stateError)
 		default:
 			// This shouldn't happen - channel was closed but state isn't terminal

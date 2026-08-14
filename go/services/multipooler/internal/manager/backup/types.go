@@ -16,9 +16,44 @@ package backup
 
 // pgBackRestInfo represents the structure of pgbackrest info JSON output
 type pgBackRestInfo struct {
-	Name   string             `json:"name"`
-	Backup []pgBackRestBackup `json:"backup"`
+	Name   string                 `json:"name"`
+	Backup []pgBackRestBackup     `json:"backup"`
+	Repo   []pgBackRestRepoStatus `json:"repo"`
 }
+
+// pgBackRestRepoStatus represents the per-repository status pgbackrest
+// reports for a stanza. `info` always exits 0 and reports its best-effort
+// view even when a repository cannot be evaluated at all (e.g. a cipher-key
+// mismatch): that failure only shows up here, never as a nonzero exit code.
+type pgBackRestRepoStatus struct {
+	Key    int                 `json:"key"`
+	Status pgBackRestRepoState `json:"status"`
+}
+
+// pgBackRestRepoState is the status code/message pgbackrest assigns to a
+// repository. Per `pgbackrest help info`: known conditions get a specific
+// code (ok, missing stanza path, no valid backups); anything else pgbackrest
+// can't classify is reported as code 99 ("other") with the full error detail
+// in Message.
+type pgBackRestRepoState struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// Known-benign pgbackrest repo status codes: the repository was evaluated
+// successfully and either has usable backup data or is simply not bootstrapped
+// yet. Any other code (including the 99 "other" catch-all) means pgbackrest
+// could not properly evaluate the repository and must not be read as "no
+// backups".
+//
+// Source of truth for these codes (INFO_STANZA_STATUS_CODE_*):
+// https://github.com/pgbackrest/pgbackrest/blob/main/src/command/info/info.c
+const (
+	pgBackRestRepoStatusOK                = 0 // stanza/repo is healthy
+	pgBackRestRepoStatusMissingStanzaPath = 1 // stanza never created (fresh repo)
+	pgBackRestRepoStatusNoValidBackups    = 2 // stanza exists but has no backups yet
+	pgBackRestRepoStatusMissingStanzaData = 3 // stanza path exists but backup.info is simply absent (not a decrypt failure)
+)
 
 // pgBackRestBackup represents a single backup in the info output
 type pgBackRestBackup struct {

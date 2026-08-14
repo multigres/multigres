@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -55,6 +56,26 @@ func (c *Conn) readQueryMessage() (string, error) {
 	// conversion copies, so the body buffer can safely be returned
 	// to the pool by the deferred returnReadBuffer.
 	return string(queryBytes[:len(queryBytes)-1]), nil
+}
+
+// ReadMessageBody reads a message body of the given length (as returned by
+// ReadMessageLength) from the connection. Exported for callers (e.g. the
+// replication-protocol preamble) that need to read an arbitrary frontend
+// message generically, not just Query/CopyData. Mirrors ReadCopyDataMessage's
+// plain-read shape — no buffer-pool interaction, so it's safe to call
+// cross-package without a matching release call.
+func (c *Conn) ReadMessageBody(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, fmt.Errorf("invalid message length: %d", length)
+	}
+	if length == 0 {
+		return nil, nil
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return nil, fmt.Errorf("failed to read message body: %w", err)
+	}
+	return data, nil
 }
 
 // writeParameterDescription writes a 't' (ParameterDescription) message.
@@ -143,7 +164,7 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 // the multipooler), otherwise each structured row as its own DataRow frame.
 func (c *Conn) writeResultRows(result *sqltypes.Result) error {
 	if result.PassthroughBlock != nil {
-		if err := c.writeRawDataBlock(result.PassthroughBlock); err != nil {
+		if err := c.WriteRawMessage(result.PassthroughBlock); err != nil {
 			return fmt.Errorf("writing raw data block: %w", err)
 		}
 		return nil
@@ -231,9 +252,32 @@ func (c *Conn) writeError(err error) error {
 		return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
 	}
 
+	// Transport-level unavailability with no PostgreSQL diagnostic (e.g. a
+	// reserved-connection query dialing a dead pooler, which bypasses failover
+	// buffering by design): surface the connection_failure SQLSTATE a direct
+	// PostgreSQL client would see when its backend dies, instead of an internal
+	// error carrying raw gRPC transport text.
+	if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+		return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
+			mterrors.NewPgError("ERROR", mterrors.PgSSConnectionFailure,
+				"connection to server lost", err.Error()))
+	}
+
 	// Generic error: use outer message for context
 	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
 		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error(), ""))
+}
+
+// WriteError writes an ErrorResponse to the client and flushes it. It is the
+// exported entry point for handlers (in other packages) that take over a
+// connection outside the normal command loop — notably the replication
+// tunnel, which must surface a backend-open failure as a verbatim
+// ErrorResponse before tearing the connection down.
+func (c *Conn) WriteError(err error) error {
+	if werr := c.writeError(err); werr != nil {
+		return werr
+	}
+	return c.flush()
 }
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).

@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -91,7 +92,7 @@ func (e *Executor) StreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn)
+	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
@@ -133,9 +134,10 @@ func (e *Executor) resolvePlan(
 	queryStr string,
 	astStmt ast.Stmt,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
 	if !isCacheable(astStmt) {
-		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
+		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err
 		}
@@ -214,7 +216,7 @@ func (e *Executor) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn)
+	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn, state)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query planning failed",
@@ -263,6 +265,7 @@ func (e *Executor) resolvePortalPlan(
 	ctx context.Context,
 	portalInfo *preparedstatement.PortalInfo,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, bool, string, string, error) {
 	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
 
@@ -282,7 +285,7 @@ func (e *Executor) resolvePortalPlan(
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
 	if !isCacheable(astStmt) {
-		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true})
+		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err
 		}
@@ -387,17 +390,37 @@ func (e *Executor) EagerParseInTransaction(
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 
-// ReleaseAll releases all reserved connections, regardless of reservation reason.
-// Delegates to ReleaseAllReservedConnections which calls ReleaseReservedConnection
-// on the multipooler for each reserved connection. The multipooler handles
-// rollback, COPY abort, and portal release internally.
+// StreamReplication routes a logical-replication connection to the PRIMARY
+// pooler for the default tablegroup/shard and returns the live bidi stream.
+// Replication bypasses query planning entirely, so this just forwards to the
+// execution backend with the default routing target.
+func (e *Executor) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	e.logger.DebugContext(ctx, "stream replication",
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	return e.exec.StreamReplication(ctx, conn, e.planner.GetDefaultTableGroup(), constants.DefaultShard, state, init)
+}
+
+// ReleaseAll releases all reserved connections, regardless of reservation
+// reason, including sticky ones (see protoutil.ReasonSetSeed) — this is a
+// real client disconnect, so nothing about the connection's session is worth
+// preserving. Delegates to ReleaseAllReservedConnections which calls
+// ReleaseReservedConnection on the multipooler for each reserved connection.
+// The multipooler handles rollback, COPY abort, and portal release internally.
 // Used for connection cleanup when a client disconnects.
 func (e *Executor) ReleaseAll(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) error {
-	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
+	return e.exec.ReleaseAllReservedConnections(ctx, conn, state, false)
 }
 
 // Close shuts down the executor, releasing resources such as the plan cache.

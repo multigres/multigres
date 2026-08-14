@@ -379,6 +379,7 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 				Port:            5432,
 				User:            "postgres",
 				ApplicationName: "",
+				Passfile:        "/home/user/.pgpass",
 				Raw:             "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
 			},
 		},
@@ -617,4 +618,69 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildPrimaryConnInfo covers the single conninfo-string builder: field
+// rendering and the passfile-omitted-when-empty rule.
+func TestBuildPrimaryConnInfo(t *testing.T) {
+	tests := []struct {
+		name string
+		ci   *multipoolermanagerdata.PrimaryConnInfo
+		want string
+	}{
+		{
+			name: "AllFields",
+			ci: &multipoolermanagerdata.PrimaryConnInfo{
+				Host:            "primary.example.com",
+				Port:            5432,
+				User:            "postgres",
+				ApplicationName: "zone1_standby1",
+				Passfile:        "/var/lib/pgpass",
+			},
+			want: "host=primary.example.com port=5432 user=postgres application_name=zone1_standby1 passfile=/var/lib/pgpass",
+		},
+		{
+			name: "PassfileOmittedWhenEmpty",
+			ci: &multipoolermanagerdata.PrimaryConnInfo{
+				Host:            "primary.example.com",
+				Port:            5432,
+				User:            "postgres",
+				ApplicationName: "zone1_standby1",
+			},
+			want: "host=primary.example.com port=5432 user=postgres application_name=zone1_standby1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, buildPrimaryConnInfo(tt.ci))
+		})
+	}
+}
+
+// TestPrimaryConnInfoRoundTrip asserts the builder and parser are inverses over
+// the managed fields: what buildPrimaryConnInfo emits, parseAndRedactPrimaryConnInfo
+// parses back unchanged. This locks the two sides of the single source of truth
+// together — a field added to one must be handled by the other or this fails.
+func TestPrimaryConnInfoRoundTrip(t *testing.T) {
+	original := &multipoolermanagerdata.PrimaryConnInfo{
+		Host:            "primary.example.com",
+		Port:            5432,
+		User:            "postgres",
+		ApplicationName: "zone1_standby1",
+		Passfile:        "/var/lib/pgpass",
+	}
+
+	rendered := buildPrimaryConnInfo(original)
+	parsed, err := parseAndRedactPrimaryConnInfo(rendered)
+	require.NoError(t, err)
+	require.NotNil(t, parsed)
+
+	assert.Equal(t, original.Host, parsed.Host)
+	assert.Equal(t, original.Port, parsed.Port)
+	assert.Equal(t, original.User, parsed.User)
+	assert.Equal(t, original.ApplicationName, parsed.ApplicationName)
+	assert.Equal(t, original.Passfile, parsed.Passfile)
+
+	// A field-drift comparison must see the round-tripped value as non-drifting.
+	assert.False(t, connInfoDrifted(parsed, original))
 }

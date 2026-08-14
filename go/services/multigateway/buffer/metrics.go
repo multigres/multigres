@@ -40,6 +40,11 @@ type stats struct {
 	// before the gateway saw a new PRIMARY and began draining. Used to size
 	// buffer-window against real failover lengths.
 	failoverDuration metric.Float64Histogram
+	// failedUnbuffered counts requests that failed with a non-bufferable error
+	// while the shard buffer was active. A burst here means requests are
+	// slipping past an armed buffer — the signature of an error class the
+	// buffering classifier does not recognize.
+	failedUnbuffered metric.Int64Counter
 }
 
 func newStats() *stats {
@@ -123,6 +128,15 @@ func newStats() *stats {
 		s.failoverDuration = noop.Float64Histogram{}
 	}
 
+	s.failedUnbuffered, err = s.meter.Int64Counter(
+		"multigateway.buffer.requests.failed_unbuffered",
+		metric.WithDescription("Number of requests that failed with a non-bufferable error while the shard buffer was active"),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		s.failedUnbuffered = noop.Int64Counter{}
+	}
+
 	return s
 }
 
@@ -143,6 +157,10 @@ func (s *stats) recordEvicted(ctx context.Context, shardKey string, reason strin
 
 func (s *stats) recordSkipped(ctx context.Context, reason string) {
 	s.requestsSkipped.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+func (s *stats) recordFailedUnbuffered(ctx context.Context, code string) {
+	s.failedUnbuffered.Add(ctx, 1, metric.WithAttributes(attribute.String("code", code)))
 }
 
 func (s *stats) recordFailover(ctx context.Context, shardKey string) {

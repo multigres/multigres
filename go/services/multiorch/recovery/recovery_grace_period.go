@@ -200,7 +200,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	if !exists {
 		// Problem has grace period but no deadline - this is unexpected
 		// Reconcile() should have run for this cycle's detected set before ShouldExecute()
-		dt.logger.WarnContext(dt.ctx, "Grace period deadline not found, skipping recovery",
+		dt.logger.WarnContext(dt.ctx, "grace period deadline not found, skipping recovery",
 			"problem_code", problem.Code,
 			"entity_id", entityID)
 		return false
@@ -214,7 +214,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 
 	// Deadline not reached yet - log that we're deferring
 	timeRemaining := deadline.Sub(now)
-	dt.logger.InfoContext(dt.ctx, "Deferring recovery action, waiting for grace period to expire",
+	dt.logger.InfoContext(dt.ctx, "deferring recovery action, waiting for grace period to expire",
 		"problem_code", problem.Code,
 		"time_remaining_seconds", timeRemaining.Seconds(),
 		"deadline", deadline,

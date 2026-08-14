@@ -203,6 +203,45 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 		"mutating the returned pointer must not affect internal state")
 }
 
+// TestRecordTermPrimary_RewindReadySurvivesProposalBecomingDecision covers the
+// write-side counterpart of
+// TestStatusReplicationPrimary_RewindReadySurvivesSameTermRuleAdvance:
+// promoteLocked records its own upcoming leadership as a Proposal before its
+// rule write commits, MarkSelfRewindReady may flip rewind_ready true while
+// that write is still in flight, and a second RecordTermPrimary call then
+// upgrades the same rule from Proposal to Decision once the write succeeds.
+// That upgrade must not silently clear rewind_ready, even though
+// CompareRulePosition ranks a decision above its own term's undecided
+// proposal.
+func TestRecordTermPrimary_RewindReadySurvivesProposalBecomingDecision(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
+	cm := NewManagerForTesting(t, selfID, nil, nil, nil)
+	ctx := actionLockCtx(t)
+
+	rule := ruleAt(4, 0)
+	proposedTransition := &clustermetadatapb.RulePosition{
+		Decision: ruleAt(1, 0),
+		Proposal: rule,
+	}
+	primary := primaryAt("p1", "hostA", 5432)
+
+	require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
+		Position: proposedTransition,
+		Primary:  primary,
+	}))
+
+	require.True(t, cm.MarkSelfRewindReady(selfID, proposedTransition))
+
+	require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: rule},
+		Primary:  primary,
+	}))
+
+	got := cm.GetReplicationPrimary()
+	require.NotNil(t, got)
+	assert.True(t, got.GetRewindReady(), "rewind_ready must survive the proposal being decided")
+}
+
 // poolerPosAt builds a PoolerPosition with the given decision/proposal rule
 // numbers and LSN, for exercising recruitPositionFloorIfOutstanding directly.
 func poolerPosAt(decisionTerm, proposalTerm int64, lsn string) *clustermetadatapb.PoolerPosition {

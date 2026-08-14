@@ -51,8 +51,9 @@ done
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-# Filter out generated parser code (postgres.y, yaccpar, yacctab) from each input file
-# This avoids issues with go tool cover and potential merge conflicts from yacc-generated code
+# Filter out generated parser code (postgres.y, yaccpar, yacctab, and the same
+# trio for the plpgsql sub-parser) from each input file. This avoids issues
+# with go tool cover and potential merge conflicts from yacc-generated code.
 FILTERED_INPUTS=()
 for i in "${!INPUTS[@]}"; do
   FILTERED="$TEMP_DIR/filtered-$i.txt"
@@ -60,9 +61,9 @@ for i in "${!INPUTS[@]}"; do
     -e "/go/common/parser/postgres\.y:" \
     -e "/go/common/parser/yaccpar:" \
     -e "/go/common/parser/yacctab:" \
-    -e "/go/common/parser/replparser/grammar\.y:" \
-    -e "/go/common/parser/replparser/yaccpar:" \
-    -e "/go/common/parser/replparser/yacctab:" \
+    -e "/go/common/parser/plpgsql/plpgsql\.y:" \
+    -e "/go/common/parser/plpgsql/yaccpar:" \
+    -e "/go/common/parser/plpgsql/yacctab:" \
     "${INPUTS[$i]}" >"$FILTERED" || true
   FILTERED_INPUTS+=("$FILTERED")
 done

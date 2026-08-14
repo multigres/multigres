@@ -15,6 +15,7 @@
 package poolergateway
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -163,6 +164,59 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	_, err := lb.getConnection(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target cannot be nil")
+}
+
+func TestLoadBalancer_WritableUnavailableCarriesCannotConnectNow(t *testing.T) {
+	const expectedMessage = "no writable primary is currently available"
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) *loadBalancer
+	}{
+		{
+			name: "no writable leader observed",
+			setup: func(t *testing.T) *loadBalancer {
+				return newTestLB(t, "zone1")
+			},
+		},
+		{
+			name: "writable leader known but not connected",
+			setup: func(t *testing.T) *loadBalancer {
+				lb := newTestLB(t, "zone1")
+				leader := createTestMultipooler("disconnected-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+				setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+					leader.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+				return lb
+			},
+		},
+		{
+			name: "writable leader known with unavailable cache",
+			setup: func(t *testing.T) *loadBalancer {
+				lb := newTestLB(t, "zone1")
+				leader := createTestMultipooler("disconnected-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+				setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+					leader.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+				lb.cache = nil
+				return lb
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lb := tt.setup(t)
+			target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+
+			_, err := lb.getConnection(target)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diagnostic), "routing error must carry a PostgreSQL diagnostic")
+			assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+			assert.Equal(t, expectedMessage, diagnostic.Message)
+		})
+	}
 }
 
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
@@ -888,4 +942,93 @@ func TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader(t *testing.T) {
 	require.Len(t, calls, 1, "OnLeaderServing must fire once the pooler self-identifies as leader")
 	assert.Equal(t, constants.DefaultTableGroup, calls[0].GetTableGroup())
 	assert.Equal(t, "0", calls[0].GetShard())
+}
+
+// TestLoadBalancer_StalePrimaryStreamErrorEvicted is the regression for the
+// stranded-gateway stale-read/hung-write bug. A pooler that self-reports
+// ROUTING_ROLE_PRIMARY becomes the shard's routing primary. If its health
+// stream then goes stale or errors — WITHOUT an explicit demote report (a live
+// health update naming a different leader) and WITHOUT a topology OnGone — the
+// gateway must stop treating it as a routable primary. Otherwise a gateway
+// partitioned so it can still reach the old primary but not the newly promoted
+// one keeps routing writes (and CONSISTENT reads) to a superseded primary,
+// producing stale reads and hung writes.
+//
+// setHealthError models exactly that stall/error: it preserves the last
+// RoutingState (role still PRIMARY) via simpleCopy while flipping ServingStatus
+// to DISABLED and recording LastError. Before the fix the gateway kept the
+// primary claim (RoutingState.Role preserved) and WRITABLE routing still
+// resolved to the stranded pooler; after the fix the claim is retracted and
+// WRITABLE routing buffers (no leader observed) instead.
+func TestLoadBalancer_StalePrimaryStreamErrorEvicted(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+
+	conn := connForTest(t, lb, primary)
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+	got, err := lb.getConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(primary), got.ID(), "primary is routable while its stream is healthy")
+
+	// The health stream stalls/errors (staleness timeout or transport error).
+	// No demote report arrives (the pooler is stranded and never learns it was
+	// superseded), and the pooler stays in the topology so no OnGone fires.
+	conn.setHealthError(errors.New("health stream timed out"))
+
+	// The stranded primary must no longer be a routable writable leader.
+	_, err = lb.getConnection(target)
+	require.Error(t, err, "a stale-stream primary must not remain a routable writable leader")
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "no leader observed yet",
+		"retracting the stale primary must leave the shard with no writable leader")
+
+	// It must also be gone from the LB's routing-primary set entirely (not just
+	// from leader election) — leadershipFor no longer reports it as leader.
+	assert.NotEqual(t, leadershipLeader, lb.leadershipFor(conn),
+		"a stale-stream primary must not be reported as the shard leader")
+}
+
+// TestLoadBalancer_DrainingPrimaryStaysRoutable is the guard against
+// over-eviction: a primary that cleanly reports a non-SERVING status (DRAINING
+// during a planned failover) is NOT a stale/errored stream — it is a live
+// observation with LastError == nil. Its routing-primary claim MUST be kept so
+// WRITABLE routing still resolves to it; the query then reaches the draining
+// pooler, bounces with MTF01, and the failover buffer engages (the intended
+// zero-error handoff). Evicting it here would return UNAVAILABLE, which is
+// actionFail (not buffered), turning a smooth failover into client-visible
+// errors. This pins the fix to the LastError signal, not ServingStatus alone.
+func TestLoadBalancer_DrainingPrimaryStaysRoutable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+
+	conn := connForTest(t, lb, primary)
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+	_, err := lb.getConnection(target)
+	require.NoError(t, err)
+
+	// Planned-failover drain: a clean health update (LastError == nil) reporting
+	// DRAINING while the pooler is still the writable primary (role PRIMARY).
+	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
+		PoolerId:      primary.Id,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_DRAINING,
+		RoutingState: &clustermetadatapb.RoutingState{
+			Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+			Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		},
+	})
+
+	got, err := lb.getConnection(target)
+	require.NoError(t, err,
+		"a cleanly-draining primary must stay routable so MTF01 buffering can engage")
+	assert.Equal(t, poolerID(primary), got.ID())
 }

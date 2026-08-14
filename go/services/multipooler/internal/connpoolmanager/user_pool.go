@@ -49,8 +49,17 @@ type UserPool struct {
 	// Last activity timestamp (Unix nanos) for garbage collection
 	lastActivity atomic.Int64
 
-	mu     sync.Mutex
-	closed bool
+	mu sync.Mutex
+	// lastLoggedRegularCap and lastLoggedReservedCap are the capacities from
+	// the most recent SetCapacity log line, seeded from the pool's
+	// construction-time capacities so the first rebalance tick that just
+	// re-asserts them doesn't log too. SetCapacity is called every rebalance
+	// cycle (config.RebalanceInterval) regardless of whether the allocation
+	// actually changed; without this, "user pool capacity updated" would log
+	// at INFO on every cycle even when nothing moved.
+	lastLoggedRegularCap  int64
+	lastLoggedReservedCap int64
+	closed                bool
 }
 
 // UserPoolConfig holds configuration for creating a UserPool.
@@ -96,8 +105,8 @@ type UserPoolConfig struct {
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
 
-	// SettingsCache interns gateway session settings for release-boundary
-	// connstate sync on untrusted reserved connections.
+	// SettingsCache interns the gateway's authoritative session settings when
+	// a reserved connection is relabeled at clean release.
 	SettingsCache *connstate.SettingsCache
 }
 
@@ -185,6 +194,8 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		logger:                logger,
 		regularDemandTracker:  regularDemandTracker,
 		reservedDemandTracker: reservedDemandTracker,
+		lastLoggedRegularCap:  config.RegularPoolConfig.Capacity,
+		lastLoggedReservedCap: config.ReservedPoolConfig.Capacity,
 	}
 	up.lastActivity.Store(time.Now().UnixNano())
 	return up, nil
@@ -341,9 +352,13 @@ func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int6
 		return fmt.Errorf("reserved pool: %w", err)
 	}
 
-	p.logger.InfoContext(ctx, "user pool capacity updated",
-		"regular_capacity", regularCap,
-		"reserved_capacity", reservedCap)
+	if regularCap != p.lastLoggedRegularCap || reservedCap != p.lastLoggedReservedCap {
+		p.logger.InfoContext(ctx, "user pool capacity updated",
+			"regular_capacity", regularCap,
+			"reserved_capacity", reservedCap)
+		p.lastLoggedRegularCap = regularCap
+		p.lastLoggedReservedCap = reservedCap
+	}
 
 	return nil
 }

@@ -26,7 +26,6 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -88,22 +87,22 @@ func (r *coordinatorLedRuleChange) Run(
 		}
 	}
 
-	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
+	r.coordinator.logger.InfoContext(ctx, "starting rule change",
 		"proposed_term", proposedTerm,
 		"outgoing_rule", commonconsensus.FormatRuleNumber(revocation.GetOutgoingRule()),
 		"cohort_size", len(cohort))
 
-	// Back off if any node recently accepted a revocation — another coordinator
-	// may be running an election. A backoff is a decision not to start this
-	// appointment, so it precedes the Started event below rather than failing one.
-	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
-	}
-
 	// Pre-validate that a proposal would be feasible with current statuses before
-	// committing to a recruitment round.
+	// interpreting previous acceptance timestamps or committing to a recruitment round.
 	if err := r.checkProposalPossible(revocation, initialStatuses); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
+	}
+
+	// Back off if any node recently accepted an unresolved revocation — another
+	// coordinator may be running an election. A backoff is a decision not to start
+	// this appointment, so it precedes the Started event below rather than failing one.
+	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
 	}
 
 	// Mark the start of the appointment before any RPCs go out. The leader is not
@@ -305,10 +304,10 @@ func (r *coordinatorLedRuleChange) waitForPromotes(ctx context.Context, cohort [
 			if pr.isLeader {
 				return pr.err
 			}
-			r.coordinator.logger.WarnContext(ctx, "Promote failed for non-leader",
+			r.coordinator.logger.WarnContext(ctx, "promote failed for non-leader",
 				"pooler", pr.poolerName, "error", pr.err)
 		} else {
-			r.coordinator.logger.InfoContext(ctx, "Promote succeeded",
+			r.coordinator.logger.InfoContext(ctx, "promote succeeded",
 				"pooler", pr.poolerName, "is_leader", pr.isLeader)
 		}
 	}
@@ -322,23 +321,21 @@ func (r *coordinatorLedRuleChange) recruit(
 	p *multiorchdatapb.PoolerHealthState,
 	revocation *clustermetadatapb.TermRevocation,
 ) *clustermetadatapb.ConsensusStatus {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
-	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.Multipooler, &consensusdatapb.RecruitRequest{
+	resp, err := r.coordinator.rpcClient.Recruit(ctx, p.Multipooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
 	})
 	switch {
 	case err != nil:
-		r.coordinator.logger.WarnContext(ctx, "Recruit failed",
+		r.coordinator.logger.WarnContext(ctx, "recruit failed",
 			"pooler", p.Multipooler.Id.Name, "error", err)
 		return nil
 	case resp.GetConsensusStatus() == nil:
-		r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
+		r.coordinator.logger.WarnContext(ctx, "recruit returned nil ConsensusStatus",
 			"pooler", p.Multipooler.Id.Name)
 		return nil
 	default:
 		cs := resp.GetConsensusStatus()
-		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
+		r.coordinator.logger.InfoContext(ctx, "recruited pooler",
 			"pooler", p.Multipooler.Id.Name,
 			"lsn", cs.GetCurrentPosition().GetLsn())
 		return cs
@@ -357,18 +354,21 @@ func (r *coordinatorLedRuleChange) promote(
 	req *consensusdatapb.PromoteRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
+		// The leader's Promote RPC is a long-running blocking call. WAL replay
+		// is already complete after Recruit, but pg_promote() still runs an
+		// end-of-recovery checkpoint to flush pages dirtied by replay — that
+		// checkpoint can be slow in proportion to replay volume. After postgres
+		// leaves recovery, the rule commit may block in SyncRepWaitForLSN until
+		// standbys reconnect to the new primary and acknowledge the write.
+		// The caller's context (from AppointLeaderAction) is the outer bound.
+		_, err := r.coordinator.rpcClient.Promote(ctx, p.Multipooler, req)
 		return err
 	}
-	proposal := req.GetProposal()
-	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
-		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position: proposal.GetProposedTransition(),
-			Primary:  proposal.GetProposalLeader(),
-		},
+	// rewindReady is false: the leader hasn't promoted yet, so it can't have
+	// checkpointed onto its new timeline either.
+	_, err := r.coordinator.rpcClient.SetPrimary(ctx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: commonconsensus.ReplicationPrimaryFromProposal(req.GetProposal(), false),
 	})
 	return err
 }
@@ -415,6 +415,40 @@ func buildFailoverProposal(
 	}, nil
 }
 
+// leadershipSignalPriority maps each leadership signal to its sort priority.
+// Lower values sort first — nodes with higher priority values are deprioritised
+// as leader candidates when LSNs are tied. Add new signals here to extend the
+// ordering without touching poolerHealthStateLess.
+var leadershipSignalPriority = map[clustermetadatapb.LeadershipSignal]int{
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_UNKNOWN:             0,
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE:              0,
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION: 1,
+}
+
+// poolerHealthStateLess returns a less function for sort.SliceStable that
+// orders ConsensusStatus entries by leadershipSignalPriority. It is used in
+// Coordinator.runFailover to prefer nodes with lower priority values among
+// candidates that share the highest LSN.
+//
+// WAL position is always the primary criterion: a node with a higher-priority
+// signal still wins if it holds a strictly higher LSN than every other node.
+// This tiebreaker only affects the ordering of tied eligible leaders.
+//
+// Recruited nodes participate in the outgoing-cohort quorum check regardless of
+// their leadership signal — this tiebreaker only affects which tied node is
+// proposed as leader, not the quorum denominator.
+func poolerHealthStateLess(healthByID map[string]*multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+	leadershipSignal := func(cs *clustermetadatapb.ConsensusStatus) clustermetadatapb.LeadershipSignal {
+		h := healthByID[topoclient.ClusterIDString(cs.GetId())]
+		return h.GetAvailabilityStatus().GetLeadershipStatus().GetSignal()
+	}
+	return func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		sigA := leadershipSignal(a)
+		sigB := leadershipSignal(b)
+		return leadershipSignalPriority[sigA] < leadershipSignalPriority[sigB]
+	}
+}
+
 // buildBootstrapProposal constructs a CoordinatorProposal for initial leader
 // appointment on a fresh shard. Unlike buildFailoverProposal, the cohort and
 // durability policy come from the caller — there is no recorded rule to
@@ -453,21 +487,29 @@ func buildBootstrapProposal(
 }
 
 // checkRecentAcceptance returns an error if any node in the cohort recently
-// accepted a term revocation, which may indicate another coordinator is making
-// a rule change.
+// accepted a term revocation that is not yet reflected in its decided position,
+// which may indicate another coordinator is making a rule change.
 func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*multiorchdatapb.PoolerHealthState) error {
 	const backoffWindow = 4 * time.Second
 	now := time.Now()
 	for _, pooler := range cohort {
-		rev := pooler.GetConsensusStatus().GetTermRevocation()
-		if rev == nil || rev.CoordinatorInitiatedAt == nil {
+		status := pooler.GetConsensusStatus()
+		acceptedRevocation := status.GetTermRevocation()
+		if acceptedRevocation == nil || acceptedRevocation.CoordinatorInitiatedAt == nil {
 			continue
 		}
-		timeSince := now.Sub(rev.CoordinatorInitiatedAt.AsTime())
+		// The accepted revocation is persisted from a previous recruitment round.
+		// Once its term is installed as a decision, that round is complete and must
+		// not delay a later failover with its separately validated revocation.
+		decisionTerm := status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm()
+		if decisionTerm >= acceptedRevocation.GetRevokedBelowTerm() {
+			continue
+		}
+		timeSince := now.Sub(acceptedRevocation.CoordinatorInitiatedAt.AsTime())
 		if timeSince >= 0 && timeSince < backoffWindow {
-			logger.InfoContext(ctx, "Recent term acceptance detected, backing off",
+			logger.InfoContext(ctx, "recent term acceptance detected, backing off",
 				"pooler", pooler.Multipooler.Id.Name,
-				"accepted_term", rev.RevokedBelowTerm,
+				"accepted_term", acceptedRevocation.RevokedBelowTerm,
 				"time_since_acceptance", timeSince)
 			return fmt.Errorf("another coordinator started recruiting recently (%v ago), backing off",
 				timeSince.Round(time.Millisecond))

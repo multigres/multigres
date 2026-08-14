@@ -22,18 +22,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestRewindDivergedReplica tests multiorch's ability to detect a replica with a
+// TestRewindDivergedReplica tests the cluster's ability to detect a replica with a
 // diverged timeline (higher LSN than the primary on a different timeline) and repair
 // it using pg_rewind so it can rejoin replication.
 //
-// This test exercises FixReplicationAction.tryPgRewind(), which is the code path
-// taken when fixNotReplicating sets primary_conninfo but the WAL receiver fails
-// to start because of a timeline divergence.
+// The rewind is driven locally by the diverged pooler's monitor, not by orch: when
+// a standby's primary_conninfo points at the recorded leader but the WAL receiver
+// stays unable to stream past the divergence threshold, the monitor sets
+// suspectedDivergence and rewinds against the recorded leader (self-heal). Orch's
+// FixReplication only delivers the leader identity via SetPrimary.
 //
 // Scenario:
 //  1. 3-node cluster: primary (P) + 2 standbys (R1, R2)
@@ -42,8 +45,8 @@ import (
 //  4. Write a diverging row to R1 (exists on the new timeline only)
 //  5. Restart R1 as a standby — WAL receiver starts, immediately FAILs due to
 //     timeline conflict (R1's timeline > P's), enters retry-wait state
-//  6. Re-enable orch — detects WAL receiver not streaming, verifyReplicationStarted
-//     times out → tryPgRewind → RewindToSource RPC → pg_rewind runs
+//  6. Re-enable orch — the pooler's monitor observes the stuck standby, marks
+//     suspected divergence, and rewinds R1 to P locally
 //  7. Verify R1 rejoins P with the diverged row absent and baseline data present
 func TestRewindDivergedReplica(t *testing.T) {
 	if testing.Short() {
@@ -104,7 +107,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 			return false
 		}
 		return count == 1
-	}, 10*time.Second, 200*time.Millisecond, "baseline data should replicate to R1")
+	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "baseline data should replicate to R1")
 	t.Log("Baseline data verified on R1")
 
 	// Make sure orch is in a clean state (no transient problems from bootstrap).
@@ -124,7 +127,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, execErr := r1DB.Exec("SELECT 1")
 		return execErr == nil
-	}, 10*time.Second, 200*time.Millisecond, "R1 should be writable after promotion")
+	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "R1 should be writable after promotion")
 
 	// Write a diverging row to R1 — this row must not exist on P
 	_, err = r1DB.Exec("INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
@@ -162,7 +165,31 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Re-enable postgres restarts so multipooler manages R1 going forward
 	resumeRestarts()
 
-	// Block until orch fully repairs R1 via pg_rewind (fix-replication path).
+	// Confirm P is the writable primary.
+	var inRecovery bool
+	err = primaryDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	require.NoError(t, err, "should query primary recovery status")
+	require.False(t, inRecovery, "primary should be writable, not in recovery")
+
+	// R1's pre-rewind rule position becomes the floor it must advance past to
+	// count toward a recruitment quorum again. Bumping the rule number is the
+	// most reliable way to make sure that happens, mirroring a real failover.
+	primaryClient, err := shardsetup.NewMultipoolerClient(primaryInst.Multipooler.GrpcPort)
+	require.NoError(t, err, "should create primary multipooler client")
+	defer primaryClient.Close()
+
+	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "should get primary status")
+	ruleNumber := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
+	_, err = primaryClient.Consensus.UpdateConsensusRule(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+		Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,
+		ExpectedOutgoingRule: ruleNumber,
+	})
+	require.NoError(t, err, "should advance leader rule past R1's recruit-position floor")
+
+	// Block until the shard is problem-free again: orch delivers the leader
+	// identity via SetPrimary and the pooler's monitor rewinds R1 locally, after
+	// which the not-replicating problem clears.
 	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify data consistency: baseline present, diverged row absent
@@ -176,7 +203,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 			return false
 		}
 		return count == 1
-	}, 10*time.Second, 500*time.Millisecond, "baseline data should be on R1 after pg_rewind")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "baseline data should be on R1 after pg_rewind")
 
 	row := r1DBAfter.QueryRow("SELECT COUNT(*) FROM rewind_diverged_test WHERE data = 'diverged_on_r1'")
 	var divergedCount int
@@ -198,12 +225,8 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Verify R1 is streaming from P and added to P's synchronous standby list
 	verifyReplicaReplicating(t, setup, r1Name, pName)
 
-	primaryClient, err := shardsetup.NewMultipoolerClient(primaryInst.Multipooler.GrpcPort)
-	require.NoError(t, err, "should create primary multipooler client")
-	defer primaryClient.Close()
-
 	require.Eventually(t, func() bool {
 		return isReplicaInStandbyList(t, primaryClient, r1Name)
-	}, 15*time.Second, 1*time.Second, "R1 should be added to P's synchronous standby list")
+	}, utils.ScaleTimeout(15*time.Second), 1*time.Second, "R1 should be added to P's synchronous standby list")
 	t.Log("R1 is in P's synchronous standby list")
 }

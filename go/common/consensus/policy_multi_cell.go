@@ -16,7 +16,6 @@ package consensus
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -52,7 +51,6 @@ func (p MultiCellPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
 // Errors when no eligible different-cell standbys exist or when the eligible
 // set is too small to satisfy num_sync.
 func (p MultiCellPolicy) BuildSyncReplicationConfig(
-	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
 	primary *clustermetadatapb.ID,
 ) (*SyncReplicationConfig, error) {
@@ -60,9 +58,6 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Configuring primary for local-only durability",
-			"policy", "MULTI_CELL_AT_LEAST_N",
-			"required_count", p.N)
 		return &SyncReplicationConfig{
 			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
 			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
@@ -82,12 +77,6 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 		}
 	}
 
-	logger.Info("Filtered standbys for MULTI_CELL_AT_LEAST_N",
-		"primary_cell", primaryCell,
-		"cohort_size", len(cohort),
-		"eligible_standbys", len(eligible),
-		"excluded_same_cell", len(cohort)-len(eligible))
-
 	if len(eligible) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (primary_cell=%s)",
@@ -101,12 +90,6 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 			fmt.Sprintf("cannot establish synchronous replication: insufficient different-cell standbys (required %d standbys, available %d)",
 				requiredNumSync, len(eligible)))
 	}
-
-	logger.Info("Configuring synchronous replication",
-		"policy", "MULTI_CELL_AT_LEAST_N",
-		"required_count", p.N,
-		"num_sync", requiredNumSync,
-		"eligible_standbys", len(eligible))
 
 	return &SyncReplicationConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,

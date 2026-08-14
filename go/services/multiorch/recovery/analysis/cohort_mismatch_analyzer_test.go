@@ -62,12 +62,14 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		}
 		return newRider(&multiorchdatapb.PoolerHealthState{
 			Multipooler:        &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-			IsLastCheckValid:   true,
+			LastSeen:           timestamppb.Now(),
 			AvailabilityStatus: av,
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+					PrimaryConnInfo:   &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+					WalReceiverStatus: "streaming",
+					LastReceiveLsn:    "0/3000000",
 				},
 			},
 		})
@@ -78,11 +80,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	// subtests that want an unusable leader mutate sa.Leader (see below).
 	leaderRider := func() *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
-			ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
-			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
+			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
+			LastSeen:        timestamppb.Now(),
+			ConsensusStatus: primaryConsensusStatus(primaryID, 1),
+			Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
 		})
 	}
 
@@ -196,6 +197,37 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Empty(t, problems)
 	})
 
+	t.Run("ignores replica whose WAL receiver is not yet streaming (archive catch-up)", func(t *testing.T) {
+		// primary_conninfo is set and replay is running, but the WAL receiver is
+		// not streaming — the node is still catching up from the archive. It must
+		// NOT be admitted to the cohort yet, because admission clears its
+		// restore_command and would strand it mid-catch-up.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.ReplicationStatus.WalReceiverStatus = ""
+			h.Status.ReplicationStatus.LastReceiveLsn = ""
+		})
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("ignores replica reporting streaming with no WAL received yet (reconnect flicker)", func(t *testing.T) {
+		// postgres briefly reports "streaming" after a receiver reconnect before
+		// any WAL arrives (LastReceiveLsn empty). That is not genuine streaming, so
+		// the node must not be admitted on the strength of the flicker.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.ReplicationStatus.WalReceiverStatus = "streaming"
+			h.Status.ReplicationStatus.LastReceiveLsn = ""
+		})
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
 		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.IsInitialized = false })
@@ -274,13 +306,27 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Empty(t, problems)
 	})
 
-	t.Run("ignores replica with stale health snapshot (LastCheckValid false)", func(t *testing.T) {
+	t.Run("ignores replica with a genuinely stale health snapshot", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.IsLastCheckValid = false })
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.LastSeen = timestamppb.New(time.Now().Add(-time.Minute))
+		})
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		assert.Empty(t, problems)
+	})
+
+	t.Run("still admits a replica with a momentary connectivity blip but a fresh observation", func(t *testing.T) {
+		// StreamConnected false (e.g. a stream reconnect) must not hide an
+		// otherwise fresh, eligible observation from cohort admission.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.StreamConnected = false })
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		assert.Equal(t, types.ProblemPoolerNotInCohort, problems[0].Code)
 	})
 
 	t.Run("metadata accessors return expected values", func(t *testing.T) {
