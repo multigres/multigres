@@ -1297,24 +1297,24 @@ type ExecuteOptions struct {
 	User string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
 	// max_rows is the maximum number of rows to return from Execute.
 	// 0 means return all rows. Used by the Execute message in the extended query protocol.
-	MaxRows uint64 `protobuf:"varint,4,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	MaxRows uint64 `protobuf:"varint,3,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
 	// reserved_connection_id is the ID of a reserved connection on the multipooler.
 	// Used for connection pinning - this tells the multipooler which specific
 	// connection to use for executing this query.
-	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
+	ReservedConnectionId uint64 `protobuf:"varint,4,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
 	// user_auth carries SCRAM-SHA-256 passthrough keys captured during the
 	// client's authentication handshake at the multigateway. When the
 	// multipooler has SCRAM passthrough enabled, it uses these keys to
 	// authenticate to the backing PostgreSQL as the session's real user
 	// instead of relying on trust on the local connection. Unset for
 	// sessions that did not authenticate via SCRAM.
-	UserAuth *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
+	UserAuth *UserAuth `protobuf:"bytes,5,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
 	// client_connection_id is the multigateway's virtual PID for this client
 	// connection. The multipooler can register it against the underlying
 	// PostgreSQL backend PID so lock-detection functions can map virtual PIDs
 	// (visible to clients) back to real backend PIDs without altering the
 	// client-visible application_name.
-	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
+	ClientConnectionId uint32 `protobuf:"varint,6,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
 	// execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE
 	// wrapper that references a gateway-managed prepared statement. The
 	// multipooler first prepares the underlying query using pooler-level
@@ -1324,7 +1324,7 @@ type ExecuteOptions struct {
 	//
 	// This field is only consumed by StreamExecute. PortalStreamExecute has its
 	// own top-level prepared_statement field.
-	ExecuteSqlPreparedStatement *ExecuteSqlPreparedStatement `protobuf:"bytes,9,opt,name=execute_sql_prepared_statement,json=executeSqlPreparedStatement,proto3" json:"execute_sql_prepared_statement,omitempty"`
+	ExecuteSqlPreparedStatement *ExecuteSqlPreparedStatement `protobuf:"bytes,7,opt,name=execute_sql_prepared_statement,json=executeSqlPreparedStatement,proto3" json:"execute_sql_prepared_statement,omitempty"`
 	// passthrough_row requests opaque row passthrough for this query: the
 	// multipooler returns rows as concatenated raw DataRow frames in
 	// QueryResult.passthrough_block instead of structured Row messages, and the
@@ -1332,7 +1332,7 @@ type ExecuteOptions struct {
 	// for straight client pass-through queries and leaves it false for results it
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
-	PassthroughRow bool `protobuf:"varint,12,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
+	PassthroughRow bool `protobuf:"varint,8,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1699,32 +1699,31 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x8e\x04\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x82\x04\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
-	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
-	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12,\n" +
-	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
-	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12g\n" +
-	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12'\n" +
-	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x1aB\n" +
+	"\bmax_rows\x18\x03 \x01(\x04R\amaxRows\x124\n" +
+	"\x16reserved_connection_id\x18\x04 \x01(\x04R\x14reservedConnectionId\x12,\n" +
+	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
+	"\x14client_connection_id\x18\x06 \x01(\rR\x12clientConnectionId\x12g\n" +
+	"\x1eexecute_sql_prepared_statement\x18\a \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12'\n" +
+	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\n" +
-	"\x10\vJ\x04\b\v\x10\f\"R\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
 	"\bUserAuth\x12\"\n" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
 	"\n" +
-	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xe7\x01\n" +
+	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xe1\x01\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
 	"beginQuery\x12(\n" +
 	"\x10pin_portal_names\x18\x03 \x03(\tR\x0epinPortalNames\x120\n" +
 	"\x14release_portal_names\x18\x04 \x03(\tR\x12releasePortalNames\x124\n" +
-	"\x16recheck_advisory_locks\x18\x05 \x01(\bR\x14recheckAdvisoryLocksJ\x04\b\x06\x10\a*[\n" +
+	"\x16recheck_advisory_locks\x18\x05 \x01(\bR\x14recheckAdvisoryLocks*[\n" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMODE_WRITABLE\x10\x01\x12\x13\n" +
