@@ -75,7 +75,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
+		// Short grace period: this test hard-kills the primary, so there is no
+		// transient blip for the grace to guard against — it only delays a failover
+		// that must happen. A short window exercises the fast-failover path the HA
+		// design targets without changing anything the test asserts (correctness comes
+		// from consensus gating, not the wait). Jitter is kept to still de-sync the
+		// three orchestrators.
+		shardsetup.WithLeaderFailoverGracePeriod("2s", "2s"),
 	)
 	defer cleanup()
 
@@ -454,10 +460,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		// The final failover in this test is triggered via Recruit on the
 		// primary (emergency demote), which sets resignedLeaderAtTerm and is
-		// detected by LeaderResignedAnalyzer. Earlier iterations use SIGKILL
-		// and fire LeaderIsDeadAnalyzer. Either reason indicates leader failure.
-		assert.Regexp(t, "LeaderIsDead|LeaderResigned", reason,
-			"reason should indicate leader failure (LeaderIsDead) or resignation (LeaderResigned)")
+		// reported as LeaderResigned. Earlier iterations use SIGKILL, reported as
+		// LeaderUnreachableByCohort or LeaderUnhealthy depending on whether the
+		// leader's pooler is still observed. Any of these indicates leader failure.
+		assert.Regexp(t, "LeaderUnreachableByCohort|LeaderUnhealthy|LeaderResigned", reason,
+			"reason should indicate leader failure or resignation")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string

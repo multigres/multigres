@@ -224,8 +224,7 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *stor
 	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
-	if !ok || !hs.GetStatus().GetIsInitialized() {
+	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby
@@ -237,16 +236,5 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *stor
 	// + replaying also matches a node still catching up from the archive, and
 	// admitting such a node would clear its restore_command mid-catch-up. See
 	// the doc comment above.
-	if !walReceiverStreaming(pa) {
-		return false
-	}
-	if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
-		return false
-	}
-	// A pooler that hasn't caught back up to its pre-pg_rewind position would
-	// just have its Recruit() rejected — see ConsensusStatus.RecruitBlockedUntil.
-	if pa.Health().GetConsensusStatus().GetRecruitBlockedUntil() != nil {
-		return false
-	}
-	return true
+	return walReceiverStreaming(pa)
 }
