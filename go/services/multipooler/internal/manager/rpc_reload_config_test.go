@@ -74,58 +74,57 @@ func TestReloadConfig_Success(t *testing.T) {
 	assert.True(t, pgctld.reloadConfigCalled, "pgctld ReloadConfig should be triggered")
 	require.NotNil(t, resp.ConfigLoadTime, "config_load_time should be set on success")
 	assert.Equal(t, 2100, resp.GetConfigLoadTime().AsTime().Year())
-	assert.True(t, resp.GetAllApplied(), "an empty expectation is vacuously all-applied")
 	assert.Empty(t, resp.GetMismatches())
 	assert.False(t, resp.GetNeedsRestart())
 }
 
-// fileSettingsColumns are the columns verifyExpectedSettings selects from the
+// fileSettingsColumns are the columns checkExpectedSettings selects from the
 // pg_file_settings / pg_settings join, in order.
-var fileSettingsColumns = []string{"name", "setting", "applied", "error", "pending_restart"}
+var fileSettingsColumns = []string{"name", "setting", "applied", "error", "context"}
 
-// addFileSettings registers the pg_file_settings verification query on the mock
-// with the given rows. Each row is {name, setting, applied, error, pending_restart};
-// use nil for a NULL error or pending_restart.
+// addFileSettings registers the pre-reload pg_file_settings check query on the
+// mock with the given rows. Each row is {name, setting, applied, error, context};
+// use nil for a NULL error or context.
 func addFileSettings(qs *mock.QueryService, rows [][]any) {
 	qs.AddQueryPattern("pg_file_settings", mock.MakeQueryResult(fileSettingsColumns, rows))
 }
 
-// TestReloadConfig_ExpectedSettings_AllApplied verifies that when every expected
-// setting is present, matches, and is applied, the response reports all_applied
-// with no mismatches.
-func TestReloadConfig_ExpectedSettings_AllApplied(t *testing.T) {
+// TestReloadConfig_ExpectedSettings_ReloadsWhenFileMatches verifies that when the
+// file already carries every expected setting with the desired value and each is
+// reload-applicable, ReloadConfig performs the reload and returns a set
+// config_load_time (the success signal) with no mismatches.
+func TestReloadConfig_ExpectedSettings_ReloadsWhenFileMatches(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
+	addFileSettings(qs, [][]any{
+		{"work_mem", "32MB", true, nil, "user"},
+		{"max_connections", "100", true, nil, "postmaster"},
+	})
 	qs.AddQueryPattern("pg_conf_load_time",
 		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
-	addFileSettings(qs, [][]any{
-		{"work_mem", "32MB", true, nil, nil},
-		{"max_connections", "100", true, nil, false},
-	})
 
 	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
 		ExpectedSettings: map[string]string{"work_mem": "32MB", "max_connections": "100"},
 	})
 	require.NoError(t, err)
 
-	assert.True(t, resp.GetAllApplied())
+	assert.True(t, pgctld.reloadConfigCalled, "a matching file should trigger the reload")
+	require.NotNil(t, resp.GetConfigLoadTime(), "config_load_time is the success signal")
 	assert.Empty(t, resp.GetMismatches())
 	assert.False(t, resp.GetNeedsRestart())
 }
 
-// TestReloadConfig_ExpectedSettings_StaleFile verifies that when the file
-// PostgreSQL re-read still carries the old value (kubelet has not synced the
-// write yet), the mismatch is reported with the actual file value and no restart
-// is signalled.
+// TestReloadConfig_ExpectedSettings_StaleFile verifies that when the file still
+// carries the old value (the write has not synced yet), ReloadConfig does NOT
+// reload and reports the mismatch with the actual file value.
 func TestReloadConfig_ExpectedSettings_StaleFile(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("pg_conf_load_time",
-		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	// No pg_conf_load_time pattern is registered: the reload must not be reached.
 	addFileSettings(qs, [][]any{
-		{"work_mem", "16MB", true, nil, false},
+		{"work_mem", "16MB", true, nil, "user"},
 	})
 
 	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
@@ -133,7 +132,8 @@ func TestReloadConfig_ExpectedSettings_StaleFile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.False(t, resp.GetAllApplied())
+	assert.False(t, pgctld.reloadConfigCalled, "a stale file must not trigger the reload")
+	assert.Nil(t, resp.GetConfigLoadTime(), "no reload means no config_load_time")
 	assert.False(t, resp.GetNeedsRestart())
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
@@ -142,21 +142,19 @@ func TestReloadConfig_ExpectedSettings_StaleFile(t *testing.T) {
 	assert.Equal(t, "16MB", m.GetActual())
 	assert.True(t, m.GetPresent())
 	assert.True(t, m.GetApplied())
-	assert.False(t, m.GetPendingRestart())
+	assert.False(t, m.GetRequiresRestart())
 }
 
 // TestReloadConfig_ExpectedSettings_Missing verifies that an expected setting
-// absent from the file entirely is reported with present=false and an empty
-// actual value.
+// absent from the file entirely blocks the reload and is reported with
+// present=false.
 func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("pg_conf_load_time",
-		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 	// The file mentions some other setting but not the expected one.
 	addFileSettings(qs, [][]any{
-		{"work_mem", "32MB", true, nil, false},
+		{"work_mem", "32MB", true, nil, "user"},
 	})
 
 	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
@@ -164,7 +162,8 @@ func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.False(t, resp.GetAllApplied())
+	assert.False(t, pgctld.reloadConfigCalled, "an absent setting must not trigger the reload")
+	assert.Nil(t, resp.GetConfigLoadTime())
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
 	assert.Equal(t, "statement_timeout", m.GetName())
@@ -174,19 +173,15 @@ func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
 	assert.False(t, m.GetApplied())
 }
 
-// TestReloadConfig_ExpectedSettings_NeedsRestart verifies that a setting written
-// correctly in the file but not applied because it requires a restart
-// (pg_settings.pending_restart) sets needs_restart. PostgreSQL surfaces the
-// generic "setting could not be applied" error for this case, so the restart
-// signal comes from pending_restart rather than the error text.
+// TestReloadConfig_ExpectedSettings_NeedsRestart verifies that when the file
+// carries the desired value for a postmaster-context GUC that a reload cannot
+// apply (applied=false), ReloadConfig skips the reload and reports needs_restart.
 func TestReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("pg_conf_load_time",
-		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 	addFileSettings(qs, [][]any{
-		{"shared_buffers", "256MB", false, "setting could not be applied", true},
+		{"shared_buffers", "256MB", false, "setting could not be applied", "postmaster"},
 	})
 
 	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
@@ -194,7 +189,8 @@ func TestReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.False(t, resp.GetAllApplied())
+	assert.False(t, pgctld.reloadConfigCalled, "a restart-only change must not trigger the reload")
+	assert.Nil(t, resp.GetConfigLoadTime())
 	assert.True(t, resp.GetNeedsRestart())
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
@@ -202,7 +198,7 @@ func TestReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	assert.Equal(t, "256MB", m.GetActual())
 	assert.True(t, m.GetPresent())
 	assert.False(t, m.GetApplied())
-	assert.True(t, m.GetPendingRestart())
+	assert.True(t, m.GetRequiresRestart())
 	assert.Equal(t, "setting could not be applied", m.GetError())
 }
 
@@ -213,40 +209,41 @@ func TestReloadConfig_ExpectedSettings_EffectiveOccurrence(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("pg_conf_load_time",
-		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 	// Two occurrences ordered by seqno: the earlier one is applied, the later one
 	// is shadowed (applied=false). The applied occurrence carries the value that
-	// took effect.
+	// would take effect.
 	addFileSettings(qs, [][]any{
-		{"work_mem", "32MB", true, nil, false},
-		{"work_mem", "64MB", false, nil, false},
+		{"work_mem", "32MB", true, nil, "user"},
+		{"work_mem", "64MB", false, nil, "user"},
 	})
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 
 	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
 		ExpectedSettings: map[string]string{"work_mem": "32MB"},
 	})
 	require.NoError(t, err)
 
-	assert.True(t, resp.GetAllApplied(), "applied occurrence matches expected")
+	assert.True(t, pgctld.reloadConfigCalled)
+	require.NotNil(t, resp.GetConfigLoadTime(), "the applied occurrence matches expected, so the reload runs")
 	assert.Empty(t, resp.GetMismatches())
 }
 
 // TestReloadConfig_ExpectedSettings_QueryFails verifies that a failure to read
-// pg_file_settings after a successful reload is surfaced as an error.
+// pg_file_settings during the pre-reload check is surfaced as an error and the
+// reload is not attempted.
 func TestReloadConfig_ExpectedSettings_QueryFails(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("pg_conf_load_time",
-		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 	qs.AddQueryPatternWithError("pg_file_settings", errors.New("permission denied"))
 
 	_, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
 		ExpectedSettings: map[string]string{"work_mem": "32MB"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "verify reloaded settings")
+	assert.False(t, pgctld.reloadConfigCalled, "a failed check must not trigger the reload")
+	assert.Contains(t, err.Error(), "check expected settings before reload")
 }
 
 // TestReloadConfig_WaitsForAdvance verifies that the poll loop keeps reading

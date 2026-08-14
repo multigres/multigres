@@ -43,18 +43,28 @@ import (
 // pg_reload_conf() avoids needing a superuser connection; reading
 // pg_conf_load_time() needs no elevated privilege.
 //
-// When the request carries expected_settings, ReloadConfig additionally reads
-// pg_file_settings after the reload and reports, per setting, whether the file
-// PostgreSQL just re-read carries the desired value and put it into effect. This
-// lets a caller detect a stale config file (the SIGHUP fired but the file it read
-// does not yet reflect the write) and a setting that needs a restart, rather than
-// trusting that "a reload happened" means "my change is in effect".
+// When the request carries expected_settings, the order is reversed: ReloadConfig
+// reads pg_file_settings FIRST and reloads only if the file it would read already
+// carries every desired value and each is reload-applicable. Otherwise it does
+// NOT reload and returns the reason (mismatch or needs_restart) so the caller can
+// retry (or restart). Checking before reloading is what makes the result
+// trustworthy when the config file is written asynchronously (e.g. a Kubernetes
+// ConfigMap mount whose file the kubelet updates on its own schedule, with no
+// signal for when the write has landed): we never reload — and never report
+// success — against a file that has not caught up. Reading pg_file_settings after
+// a reload could not give this guarantee, because pg_file_settings.applied means
+// "this entry would apply cleanly on a reload," not "the running value equals it,"
+// so a file written just after the reload would read back as a false success.
 //
 // Contract:
 //   - Operates on the local PostgreSQL only.
 //   - If PostgreSQL is not running, pgctld's reload fails; this returns
 //     reloaded=false with no error so the caller can treat it as retryable.
 //   - Idempotent: calling it when nothing changed is a harmless reload + read.
+//   - With expected_settings, a reload happens only when the file already
+//     satisfies all of them; a not-yet-synced file leaves config_load_time unset
+//     (retryable) with mismatches, and a restart-only change yields
+//     needs_restart=true.
 func (pm *MultipoolerManager) ReloadConfig(ctx context.Context, req *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -62,12 +72,31 @@ func (pm *MultipoolerManager) ReloadConfig(ctx context.Context, req *multipooler
 
 	// pgctld's ReloadConfig is a state-changing operation and requires the
 	// action lock (enforced by protectedPgctldClient). Acquire it so we don't
-	// race the monitor or another manual operation.
+	// race the monitor or another manual operation. Holding it across the
+	// pre-reload check keeps the check and the reload consistent — no other
+	// reload can slip in between them.
 	ctx, err := pm.actionLock.Acquire(ctx, "ReloadConfig")
 	if err != nil {
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// When the caller supplied expected settings, gate the reload on the file
+	// already carrying them. If it does not, report why and skip the reload.
+	if len(req.GetExpectedSettings()) > 0 {
+		verdict, err := pm.checkExpectedSettings(ctx, req.GetExpectedSettings())
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to check expected settings before reload")
+		}
+		if !verdict.allReloadReady {
+			// Not reload-ready: leave config_load_time unset (no reload) and report
+			// why so the caller retries or restarts.
+			return &multipoolermanagerdatapb.ReloadConfigResponse{
+				Mismatches:   verdict.mismatches,
+				NeedsRestart: verdict.needsRestart,
+			}, nil
+		}
+	}
 
 	// Capture a baseline on the local clock before triggering. multipooler and
 	// PostgreSQL are colocated, so pg_conf_load_time() (server clock) is
@@ -96,138 +125,141 @@ func (pm *MultipoolerManager) ReloadConfig(ctx context.Context, req *multipooler
 		return nil, mterrors.Wrap(err, "failed to confirm configuration reload")
 	}
 
-	resp := &multipoolermanagerdatapb.ReloadConfigResponse{
+	// A set config_load_time is the success signal: the reload ran because the
+	// file already carried every expected value (or there was nothing to check),
+	// so the desired reload-safe settings are now in effect.
+	return &multipoolermanagerdatapb.ReloadConfigResponse{
 		ConfigLoadTime: timestamppb.New(loadTime),
-		// With no settings to verify, the reload alone is the whole result: an
-		// empty expectation is vacuously satisfied.
-		AllApplied: true,
-	}
-
-	// If the caller supplied expected settings, verify what the reload actually
-	// loaded against them. The reload above already succeeded, so a verification
-	// read failure is surfaced as an error and the caller retries (the reload is
-	// idempotent).
-	if len(req.GetExpectedSettings()) > 0 {
-		if err := pm.verifyExpectedSettings(ctx, req.GetExpectedSettings(), resp); err != nil {
-			return nil, mterrors.Wrap(err, "failed to verify reloaded settings")
-		}
-	}
-
-	return resp, nil
+	}, nil
 }
 
-// verifyExpectedSettings reads pg_file_settings (joined with pg_settings for the
-// pending_restart flag) and fills resp.AllApplied, resp.Mismatches, and
-// resp.NeedsRestart by comparing the file PostgreSQL just re-read against the
-// desired name->value map.
+// settingsVerdict is the outcome of comparing the desired settings against the
+// config file, before any reload.
+type settingsVerdict struct {
+	// allReloadReady is true when every expected setting is present in the file
+	// with the desired value and a reload would put it into effect. Only then is
+	// it worth reloading.
+	allReloadReady bool
+	// mismatches describes every expected setting that is not reload-ready.
+	mismatches []*multipoolermanagerdatapb.SettingMismatch
+	// needsRestart is true when at least one expected setting is written correctly
+	// but is a postmaster-context GUC that a reload cannot apply.
+	needsRestart bool
+}
+
+// checkExpectedSettings reads pg_file_settings (joined with pg_settings for the
+// context) and compares the file PostgreSQL would read now against the desired
+// name->value map, without triggering a reload.
 //
 // It reads pg_file_settings rather than pg_settings for the value comparison for
-// two reasons: pg_file_settings reflects the config file the SIGHUP actually read
-// (so a not-yet-synced file shows the old value and the mismatch is visible), and
-// its setting column is the raw file token ('32MB'), which matches what the caller
-// wrote without unit normalization. pg_settings is consulted only for
-// pending_restart, which pg_file_settings cannot express: a restart-requiring
-// change reports the generic "setting could not be applied" error there.
-func (pm *MultipoolerManager) verifyExpectedSettings(
+// two reasons: pg_file_settings reflects the config file (so a not-yet-synced
+// file shows the old value and the mismatch is visible), and its setting column
+// is the raw file token ('32MB'), which matches what the caller wrote without
+// unit normalization. pg_settings is consulted only for context, used to tell a
+// restart-only change apart from an ordinary reload-safe one.
+func (pm *MultipoolerManager) checkExpectedSettings(
 	ctx context.Context,
 	expected map[string]string,
-	resp *multipoolermanagerdatapb.ReloadConfigResponse,
-) error {
+) (*settingsVerdict, error) {
 	qs := pm.internalQueryService()
 	if qs == nil {
-		return errors.New("internal query service not available")
+		return nil, errors.New("internal query service not available")
 	}
 
 	// pg_file_settings has one row per occurrence of a setting across all config
 	// files. Ordering by seqno lets us pick the effective occurrence per name
-	// (see effectiveFileSetting). pg_settings.pending_restart is per-setting, so
-	// a LEFT JOIN by name is sufficient; unknown/custom GUCs have no pg_settings
-	// row and their pending_restart reads as NULL (treated as false).
+	// (see effectiveFileSettings). pg_settings.context is per-setting, so a LEFT
+	// JOIN by name is sufficient; unknown/custom GUCs have no pg_settings row and
+	// their context reads as NULL (empty, treated as non-postmaster).
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
-	result, err := qs.Query(queryCtx, `SELECT fs.name, fs.setting, fs.applied, fs.error, s.pending_restart
+	result, err := qs.Query(queryCtx, `SELECT fs.name, fs.setting, fs.applied, fs.error, s.context
 FROM pg_file_settings fs
 LEFT JOIN pg_settings s ON s.name = fs.name
 ORDER BY fs.seqno`)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to read pg_file_settings")
+		return nil, mterrors.Wrap(err, "failed to read pg_file_settings")
 	}
 
 	effective := effectiveFileSettings(result)
 
-	allApplied := true
+	verdict := &settingsVerdict{allReloadReady: true}
 	for name, want := range expected {
 		fs, present := effective[name]
-		if present && fs.applied && fs.setting == want {
-			// Present, matches, and in effect: nothing to report.
+		if present && fs.setting == want && fs.applied {
+			// The file carries the desired value and a reload would put it into
+			// effect (or it already is): reload-ready, nothing to report.
 			continue
 		}
 
-		allApplied = false
-		mismatch := &multipoolermanagerdatapb.SettingMismatch{
-			Name:           name,
-			Expected:       want,
-			Actual:         fs.setting,
-			Present:        present,
-			Applied:        fs.applied,
-			Error:          fs.errText,
-			PendingRestart: fs.pendingRestart,
+		verdict.allReloadReady = false
+
+		// A postmaster-context GUC whose file value matches the request but that a
+		// reload cannot apply (applied=false) needs a restart. This distinguishes a
+		// "reload won't help, restart" case from a stale/wrong file value.
+		requiresRestart := present && fs.setting == want && !fs.applied && fs.context == "postmaster"
+		if requiresRestart {
+			verdict.needsRestart = true
 		}
-		// The file carries the desired value but it did not take effect because
-		// PostgreSQL wants a restart. A reload will never satisfy this; signal the
-		// caller to escalate.
-		if present && !fs.applied && fs.setting == want && fs.pendingRestart {
-			resp.NeedsRestart = true
-		}
-		resp.Mismatches = append(resp.Mismatches, mismatch)
+
+		verdict.mismatches = append(verdict.mismatches, &multipoolermanagerdatapb.SettingMismatch{
+			Name:            name,
+			Expected:        want,
+			Actual:          fs.setting,
+			Present:         present,
+			Applied:         fs.applied,
+			Error:           fs.errText,
+			RequiresRestart: requiresRestart,
+		})
 	}
 
-	resp.AllApplied = allApplied
-	return nil
+	return verdict, nil
 }
 
 // fileSetting is the effective state of one GUC as seen in pg_file_settings.
 type fileSetting struct {
-	setting        string
-	applied        bool
-	errText        string
-	pendingRestart bool
+	setting string
+	applied bool
+	errText string
+	// context is pg_settings.context for the GUC ("postmaster", "sighup", ...),
+	// empty when the GUC has no pg_settings row.
+	context string
 }
 
 // effectiveFileSettings collapses the per-occurrence rows of pg_file_settings
-// into one entry per setting name: the occurrence PostgreSQL actually put into
-// effect. Rows are assumed to arrive in seqno order. A name can appear multiple
-// times (across files or duplicated within one); at most one occurrence is
-// applied, and it is the effective one. Until an applied occurrence is seen we
-// keep the latest (highest-seqno) row so a fully-unapplied setting still reports
-// its last value and error.
+// into one entry per setting name: the occurrence that wins. Rows are assumed to
+// arrive in seqno order. A name can appear multiple times (across files or
+// duplicated within one); at most one occurrence is applied, and it is the
+// effective one. Until an applied occurrence is seen we keep the latest
+// (highest-seqno) row so a fully-unapplied setting still reports its last value
+// and error.
 func effectiveFileSettings(result *sqltypes.Result) map[string]fileSetting {
 	effective := make(map[string]fileSetting, len(result.Rows))
 	for _, row := range result.Rows {
 		var (
-			name           string
-			setting        string
-			applied        bool
-			errText        *string
-			pendingRestart *bool
+			name    string
+			setting string
+			applied bool
+			errText *string
+			context *string
 		)
-		// error and pending_restart are nullable: pg_file_settings.error is NULL
-		// when the occurrence applied cleanly, and pending_restart is NULL for
-		// custom GUCs absent from pg_settings.
-		if err := executor.ScanRow(row, &name, &setting, &applied, &errText, &pendingRestart); err != nil {
+		// error and context are nullable: pg_file_settings.error is NULL when the
+		// occurrence would apply cleanly, and context is NULL for a custom GUC
+		// absent from pg_settings.
+		if err := executor.ScanRow(row, &name, &setting, &applied, &errText, &context); err != nil {
 			// A malformed row is skipped rather than failing the whole verdict;
 			// an expected setting that relied on it will surface as a mismatch.
 			continue
 		}
 
 		fs := fileSetting{
-			setting:        setting,
-			applied:        applied,
-			errText:        derefString(errText),
-			pendingRestart: derefBool(pendingRestart),
+			setting: setting,
+			applied: applied,
+			errText: derefString(errText),
+			context: derefString(context),
 		}
 		// Once we have recorded the applied occurrence for a name, keep it; a later
-		// occurrence cannot displace the one PostgreSQL put into effect.
+		// occurrence cannot displace the one PostgreSQL would put into effect.
 		if cur, ok := effective[name]; ok && cur.applied {
 			continue
 		}
@@ -241,8 +273,4 @@ func derefString(p *string) string {
 		return ""
 	}
 	return *p
-}
-
-func derefBool(p *bool) bool {
-	return p != nil && *p
 }

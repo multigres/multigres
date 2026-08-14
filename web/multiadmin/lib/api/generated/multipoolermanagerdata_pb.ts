@@ -2322,12 +2322,16 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
   /**
    * expected_settings is an optional map of reload-safe GUC name -> desired
    * value that the caller wrote to the config file before calling. When it is
-   * non-empty, the multipooler reads pg_file_settings after the reload and
-   * reports, per setting, whether the file PostgreSQL just re-read carries that
-   * value and put it into effect (see ReloadConfigResponse). Values are compared
-   * verbatim against the raw file token, so pass exactly what was written to the
-   * file (e.g. "32MB", not "32768kB"). When empty, the multipooler just reloads
-   * and leaves the verdict fields at their zero values.
+   * non-empty, the multipooler first reads pg_file_settings and reloads ONLY if
+   * the file it would read already carries every one of these values and each is
+   * reload-applicable; otherwise it skips the reload and reports why (see
+   * ReloadConfigResponse). This ordering makes the result trustworthy despite an
+   * asynchronously written config file (e.g. a Kubernetes ConfigMap mount): a
+   * reload is never performed — and success is never reported — against a file
+   * that has not yet caught up. Values are compared verbatim against the raw file
+   * token, so pass exactly what was written to the file (e.g. "32MB", not
+   * "32768kB"). When empty, the multipooler just reloads unconditionally and
+   * leaves the verdict fields at their zero values.
    *
    * @generated from field: map<string, string> expected_settings = 1;
    */
@@ -2368,43 +2372,40 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
  */
 export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   /**
-   * The pg_conf_load_time() observed after the reload, confirmed to have
-   * advanced past the moment the reload was triggered. A value newer than when
-   * the caller wrote its config change proves PostgreSQL re-read the file.
+   * config_load_time is the definitive success signal. When set, it is the
+   * pg_conf_load_time() observed after the reload, confirmed to have advanced
+   * past the moment the reload was triggered: the reload was performed because
+   * the file already carried every expected value (or there were none to check),
+   * so those reload-safe settings are now in effect.
    *
-   * Unset means PostgreSQL was not running, so no reload happened (pgctld could
-   * not deliver the signal); the caller should treat that as retryable.
+   * Unset means no reload was performed — either PostgreSQL was not running
+   * (pgctld could not deliver the signal), or expected_settings were supplied and
+   * the file did not yet satisfy them so the reload was intentionally skipped (see
+   * mismatches and needs_restart). The caller should treat an unset value as
+   * retryable.
    *
    * @generated from field: google.protobuf.Timestamp config_load_time = 1;
    */
   configLoadTime?: Timestamp;
 
   /**
-   * all_applied is true when every setting in the request's expected_settings is
-   * present in the file PostgreSQL just re-read, matches the desired value, and
-   * was put into effect. Trivially true when expected_settings was empty.
-   * Meaningless when config_load_time is unset (no reload happened).
-   *
-   * @generated from field: bool all_applied = 2;
-   */
-  allApplied = false;
-
-  /**
-   * mismatches has one entry for every expected setting that did not fully match:
+   * mismatches has one entry for every expected setting that blocked the reload:
    * absent from the file, a different value than desired, or present but not
-   * applied. Empty when all_applied is true.
+   * applicable by a reload (needs a restart or failed validation). Empty when
+   * config_load_time is set.
    *
-   * @generated from field: repeated multipoolermanagerdata.SettingMismatch mismatches = 3;
+   * @generated from field: repeated multipoolermanagerdata.SettingMismatch mismatches = 2;
    */
   mismatches: SettingMismatch[] = [];
 
   /**
    * needs_restart is true when at least one expected setting is written correctly
-   * in the file but could not take effect without a PostgreSQL restart
-   * (pg_settings.pending_restart). A reload alone will never satisfy such a
-   * setting, so the caller should escalate to a restart rather than retry.
+   * in the file but cannot take effect without a PostgreSQL restart (a
+   * postmaster-context GUC whose file value differs from the running value). A
+   * reload alone will never satisfy such a setting, so the caller should escalate
+   * to a restart rather than retry.
    *
-   * @generated from field: bool needs_restart = 4;
+   * @generated from field: bool needs_restart = 3;
    */
   needsRestart = false;
 
@@ -2417,9 +2418,8 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
-    { no: 2, name: "all_applied", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 3, name: "mismatches", kind: "message", T: SettingMismatch, repeated: true },
-    { no: 4, name: "needs_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "mismatches", kind: "message", T: SettingMismatch, repeated: true },
+    { no: 3, name: "needs_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
@@ -2440,8 +2440,9 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
 }
 
 /**
- * SettingMismatch reports one expected GUC whose state in the file PostgreSQL
- * just re-read does not match what the caller wrote.
+ * SettingMismatch reports one expected GUC whose state in the config file (read
+ * before the reload) does not match what the caller wrote, or cannot be applied
+ * by a reload.
  *
  * @generated from message multipoolermanagerdata.SettingMismatch
  */
@@ -2470,17 +2471,18 @@ export class SettingMismatch extends Message<SettingMismatch> {
 
   /**
    * Whether the setting appears in the config file at all. False means the file
-   * PostgreSQL re-read does not mention this setting — typically a stale file that
-   * has not yet synced the caller's write.
+   * PostgreSQL would read does not mention this setting — typically a stale file
+   * that has not yet synced the caller's write.
    *
    * @generated from field: bool present = 4;
    */
   present = false;
 
   /**
-   * Whether PostgreSQL put this file occurrence into effect
-   * (pg_file_settings.applied). False when the value is shadowed by a later
-   * occurrence, failed validation, or requires a restart (see needs_restart).
+   * Whether a reload would put this file occurrence into effect
+   * (pg_file_settings.applied, read before the reload). False when the value is
+   * shadowed by a later occurrence, failed validation, or requires a restart (see
+   * requires_restart).
    *
    * @generated from field: bool applied = 5;
    */
@@ -2489,20 +2491,20 @@ export class SettingMismatch extends Message<SettingMismatch> {
   /**
    * PostgreSQL's error for this occurrence (pg_file_settings.error), empty if
    * none. For a restart-requiring change this is the generic "setting could not
-   * be applied"; consult needs_restart to distinguish that case.
+   * be applied"; consult requires_restart to distinguish that case.
    *
    * @generated from field: string error = 6;
    */
   error = "";
 
   /**
-   * Whether PostgreSQL reports this setting as pending a restart
-   * (pg_settings.pending_restart): the file value is staged but the running value
-   * will not change until PostgreSQL restarts.
+   * Whether this setting's desired value cannot be applied by a reload and needs
+   * a PostgreSQL restart: it is a postmaster-context GUC (pg_settings.context =
+   * 'postmaster') whose file value differs from the running value.
    *
-   * @generated from field: bool pending_restart = 7;
+   * @generated from field: bool requires_restart = 7;
    */
-  pendingRestart = false;
+  requiresRestart = false;
 
   constructor(data?: PartialMessage<SettingMismatch>) {
     super();
@@ -2518,7 +2520,7 @@ export class SettingMismatch extends Message<SettingMismatch> {
     { no: 4, name: "present", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 5, name: "applied", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 6, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 7, name: "pending_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 7, name: "requires_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SettingMismatch {

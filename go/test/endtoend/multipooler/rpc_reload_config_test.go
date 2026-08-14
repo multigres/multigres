@@ -86,8 +86,9 @@ func rawFileSetting(ctx context.Context, t *testing.T, pooler *shardsetup.Multip
 // TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch drives the reload
 // verdict end-to-end against a real PostgreSQL by writing postgresql.conf on
 // disk, using work_mem (a reload-safe PGC_USER GUC). It asks ReloadConfig two
-// ways: with an expectation that matches the file (all_applied) and with one that
-// differs from the file (a reported mismatch carrying the actual file value). The
+// ways: with an expectation that matches the file (the reload runs) and with one
+// that differs from the file (a reported mismatch carrying the actual file value,
+// and the reload skipped). The
 // mismatch case is the operator-facing scenario where the value the RPC is told
 // to expect diverges from what actually landed in the file (a stale or not-yet
 // synced write).
@@ -123,14 +124,14 @@ func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.GetConfigLoadTime(), "config_load_time proves the reload happened")
 
-		assert.True(t, resp.GetAllApplied(), "the expected value matches the file and was applied")
 		assert.Empty(t, resp.GetMismatches())
 		assert.False(t, resp.GetNeedsRestart())
 	})
 
 	t.Run("expectation differs from the file", func(t *testing.T) {
 		// The operator believes it wrote 64MB, but the file on disk still holds
-		// wantValue (the stale-file / wrong-value scenario).
+		// wantValue (the stale-file / wrong-value scenario). The reload must be
+		// skipped so the operator retries rather than seeing a false success.
 		const expected = "64MB"
 		require.NotEqual(t, expected, wantValue, "test precondition: the file must hold a different value")
 
@@ -139,9 +140,7 @@ func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 				ExpectedSettings: map[string]string{"work_mem": expected},
 			})
 		require.NoError(t, err)
-		require.NotNil(t, resp.GetConfigLoadTime())
-
-		assert.False(t, resp.GetAllApplied())
+		assert.Nil(t, resp.GetConfigLoadTime(), "the reload is skipped when the file does not match")
 		assert.False(t, resp.GetNeedsRestart(), "a plain value mismatch is not a restart situation")
 		require.Len(t, resp.GetMismatches(), 1)
 
@@ -150,18 +149,18 @@ func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 		assert.Equal(t, expected, m.GetExpected(), "expected echoes what the caller asked for")
 		assert.Equal(t, wantValue, m.GetActual(), "actual reflects the file, not the request")
 		assert.True(t, m.GetPresent(), "the setting is present in the file")
-		assert.True(t, m.GetApplied(), "the file's own value is reload-safe and applied")
-		assert.False(t, m.GetPendingRestart())
+		assert.True(t, m.GetApplied(), "the file's own value is reload-safe (a reload would apply it)")
+		assert.False(t, m.GetRequiresRestart())
 	})
 }
 
 // TestManagerReloadConfig_ExpectedSettings_NeedsRestart drives the verdict for a
 // change that a reload cannot satisfy. max_prepared_transactions is a
-// PGC_POSTMASTER GUC, so writing a new value into postgresql.conf and reloading
-// stages it in the file (pg_file_settings.setting matches) but does not put it
-// into effect (applied=false, pg_settings.pending_restart=true). The response
-// must surface needs_restart so the operator escalates to a restart rather than
-// retrying the reload.
+// PGC_POSTMASTER GUC, so writing a new value into postgresql.conf leaves it in
+// the file (pg_file_settings.setting matches) but not reload-applicable
+// (applied=false, pg_settings.context='postmaster'). ReloadConfig must detect
+// this before reloading, skip the reload, and surface needs_restart so the
+// operator escalates to a restart rather than spinning on a reload.
 func TestManagerReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -195,9 +194,7 @@ func TestManagerReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 		ExpectedSettings: map[string]string{"max_prepared_transactions": want},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, resp.GetConfigLoadTime(), "config_load_time proves the reload happened")
-
-	assert.False(t, resp.GetAllApplied(), "a restart-only change is never applied by a reload")
+	assert.Nil(t, resp.GetConfigLoadTime(), "the reload is skipped for a restart-only change")
 	assert.True(t, resp.GetNeedsRestart(), "the operator must be told a restart is required")
 	require.Len(t, resp.GetMismatches(), 1)
 
@@ -206,6 +203,6 @@ func TestManagerReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	assert.Equal(t, want, m.GetExpected())
 	assert.Equal(t, want, m.GetActual(), "the file carries the desired value")
 	assert.True(t, m.GetPresent())
-	assert.False(t, m.GetApplied(), "not in effect until a restart")
-	assert.True(t, m.GetPendingRestart(), "PostgreSQL reports the change as pending a restart")
+	assert.False(t, m.GetApplied(), "a reload cannot put it into effect")
+	assert.True(t, m.GetRequiresRestart(), "PostgreSQL reports it as a postmaster-context change")
 }
