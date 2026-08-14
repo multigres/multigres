@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -82,6 +83,7 @@ func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool,
 		Name:      name,
 	}
 	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: initialized,
 		},
@@ -153,6 +155,26 @@ func TestShardInitAction_GetInitializedPoolers_FiltersByShard(t *testing.T) {
 	require.Len(t, initialized, 2)
 	names := []string{initialized[0].Health().Multipooler.Id.Name, initialized[1].Health().Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
+}
+
+func TestShardInitAction_GetInitializedPoolers_ExcludesStaleObservation(t *testing.T) {
+	// p1 looked initialized once but its observation is now well past
+	// store.DefaultObservationFreshness — it must not be trusted for the
+	// bootstrap cohort just because the durable IsInitialized flag is still true.
+	ps := newPoolerStore(t)
+	stale := makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil)
+	stale.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.LastSeen = timestamppb.New(time.Now().Add(-time.Hour))
+	})
+	store.SeedCache(t, ps, stale)
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+
+	action := newTestAction(t, nil, ps, nil)
+	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
+
+	assert.False(t, cohortEstablished)
+	require.Len(t, initialized, 1)
+	assert.Equal(t, "p2", initialized[0].Health().Multipooler.Id.Name)
 }
 
 func TestShardInitAction_GetInitializedPoolers_CohortAlreadyEstablished(t *testing.T) {

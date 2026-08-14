@@ -220,14 +220,12 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *store.Pooler) bool {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *store.Pooler) bool {
 	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if !pa.Health().IsLastCheckValid {
-		return false
-	}
-	if !pa.IsInitialized() {
+	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby

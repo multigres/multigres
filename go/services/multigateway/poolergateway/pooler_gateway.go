@@ -363,6 +363,7 @@ func (pg *PoolerGateway) withBuffering(
 			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
 				continue
 			}
+			pg.recordUnbufferedFailure(ctx, sk, err)
 			return translatePreExecutionUnavailable(err)
 		}
 
@@ -373,12 +374,42 @@ func (pg *PoolerGateway) withBuffering(
 			"pooler_id", conn.ID())
 
 		err = inner(conn)
-		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
-			continue
+		if err != nil {
+			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
+				continue
+			}
+			pg.recordUnbufferedFailure(ctx, sk, err)
 		}
 		return translatePreExecutionUnavailable(err)
 	}
 	return translatePreExecutionUnavailable(err)
+}
+
+// isClientDrivenFailure reports whether err is a cancellation or timeout the
+// client (or its deadline) caused. These are not classification gaps: during
+// a failover, requests waiting out the buffer window are EXPECTED to hit
+// their own deadlines, and buffering could never have saved them — recording
+// them would flood the alarm exactly when it matters. Covers both the raw
+// context sentinels (Code CANCELED / DEADLINE_EXCEEDED) and the 57014
+// query_canceled diagnostics FromGRPC synthesizes for gRPC-level
+// cancellation and deadline statuses.
+func isClientDrivenFailure(err error) bool {
+	switch mterrors.Code(err) {
+	case mtrpcpb.Code_CANCELED, mtrpcpb.Code_DEADLINE_EXCEEDED:
+		return true
+	}
+	return mterrors.IsErrorCode(err, mterrors.PgSSQueryCanceled)
+}
+
+// recordUnbufferedFailure feeds the buffer's classification-gap alarm: an
+// error classifyError passed through as actionFail while the shard's buffer
+// was active. The buffer itself checks the shard state so idle-shard failures
+// (ordinary query errors) cost one map lookup and record nothing.
+func (pg *PoolerGateway) recordUnbufferedFailure(ctx context.Context, sk *clustermetadatapb.ShardKey, err error) {
+	if pg.buffer == nil || isClientDrivenFailure(err) {
+		return
+	}
+	pg.buffer.RecordUnbufferedFailure(ctx, sk, mterrors.Code(err).String())
 }
 
 // QueryServiceByID implements Gateway.

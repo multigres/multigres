@@ -1346,25 +1346,16 @@ export class BackupInfo extends Message<BackupInfo> {
   status = BackupStatus.UNKNOWN;
 
   /**
-   * backup_time is when the backup was created
-   * Deprecated: use start_timestamp/stop_timestamp instead.
-   *
-   * @generated from field: google.protobuf.Timestamp backup_time = 7 [deprecated = true];
-   * @deprecated
-   */
-  backupTime?: Timestamp;
-
-  /**
    * backup_size_bytes is the size of the backup in bytes
    *
-   * @generated from field: uint64 backup_size_bytes = 8;
+   * @generated from field: uint64 backup_size_bytes = 7;
    */
   backupSizeBytes = protoInt64.zero;
 
   /**
    * multipooler_service_id is the ID of the multipooler that reported the backup
    *
-   * @generated from field: string multipooler_service_id = 9;
+   * @generated from field: string multipooler_service_id = 8;
    */
   multipoolerServiceId = "";
 
@@ -1372,28 +1363,28 @@ export class BackupInfo extends Message<BackupInfo> {
    * routing_role is the routing role of the multipooler that created the backup
    * (PRIMARY or REPLICA)
    *
-   * @generated from field: clustermetadata.RoutingRole routing_role = 10;
+   * @generated from field: clustermetadata.RoutingRole routing_role = 9;
    */
   routingRole = RoutingRole.UNKNOWN;
 
   /**
    * start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
    *
-   * @generated from field: string start_lsn = 11;
+   * @generated from field: string start_lsn = 10;
    */
   startLsn = "";
 
   /**
    * stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
    *
-   * @generated from field: string stop_lsn = 12;
+   * @generated from field: string stop_lsn = 11;
    */
   stopLsn = "";
 
   /**
    * pg_version is the full PostgreSQL server_version the backup was taken from (e.g. "16.2")
    *
-   * @generated from field: string pg_version = 13;
+   * @generated from field: string pg_version = 12;
    */
   pgVersion = "";
 
@@ -1401,7 +1392,7 @@ export class BackupInfo extends Message<BackupInfo> {
    * start_timestamp is when the backup started, from pgbackrest info backup[].timestamp.start.
    * Unset if unknown.
    *
-   * @generated from field: google.protobuf.Timestamp start_timestamp = 14;
+   * @generated from field: google.protobuf.Timestamp start_timestamp = 13;
    */
   startTimestamp?: Timestamp;
 
@@ -1409,7 +1400,7 @@ export class BackupInfo extends Message<BackupInfo> {
    * stop_timestamp is when the backup completed, from pgbackrest info backup[].timestamp.stop.
    * Unset if unknown.
    *
-   * @generated from field: google.protobuf.Timestamp stop_timestamp = 15;
+   * @generated from field: google.protobuf.Timestamp stop_timestamp = 14;
    */
   stopTimestamp?: Timestamp;
 
@@ -1417,7 +1408,7 @@ export class BackupInfo extends Message<BackupInfo> {
    * job_id is the multiadmin backup job ID that produced this backup, if known
    * (from the pgbackrest job_id annotation).
    *
-   * @generated from field: string job_id = 16;
+   * @generated from field: string job_id = 15;
    */
   jobId = "";
 
@@ -1435,16 +1426,15 @@ export class BackupInfo extends Message<BackupInfo> {
     { no: 4, name: "shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "status", kind: "enum", T: proto3.getEnumType(BackupStatus) },
-    { no: 7, name: "backup_time", kind: "message", T: Timestamp },
-    { no: 8, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
-    { no: 9, name: "multipooler_service_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
-    { no: 11, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 12, name: "stop_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 13, name: "pg_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 14, name: "start_timestamp", kind: "message", T: Timestamp },
-    { no: 15, name: "stop_timestamp", kind: "message", T: Timestamp },
-    { no: 16, name: "job_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 8, name: "multipooler_service_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
+    { no: 10, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "stop_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 12, name: "pg_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 13, name: "start_timestamp", kind: "message", T: Timestamp },
+    { no: 14, name: "stop_timestamp", kind: "message", T: Timestamp },
+    { no: 15, name: "job_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): BackupInfo {
@@ -2024,6 +2014,92 @@ export class ApplyCertifiedRuleChangeResponse extends Message<ApplyCertifiedRule
 
   static equals(a: ApplyCertifiedRuleChangeResponse | PlainMessage<ApplyCertifiedRuleChangeResponse> | undefined, b: ApplyCertifiedRuleChangeResponse | PlainMessage<ApplyCertifiedRuleChangeResponse> | undefined): boolean {
     return proto3.util.equals(ApplyCertifiedRuleChangeResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.SwitchPrimaryRequest
+ */
+export class SwitchPrimaryRequest extends Message<SwitchPrimaryRequest> {
+  /**
+   * Shard to perform the switchover on (required).
+   *
+   * @generated from field: clustermetadata.ShardKey shard_key = 1;
+   */
+  shardKey?: ShardKey;
+
+  /**
+   * Free-text reason recorded in rule_history for audit.
+   *
+   * @generated from field: string reason = 2;
+   */
+  reason = "";
+
+  constructor(data?: PartialMessage<SwitchPrimaryRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.SwitchPrimaryRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "shard_key", kind: "message", T: ShardKey },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SwitchPrimaryRequest {
+    return new SwitchPrimaryRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SwitchPrimaryRequest {
+    return new SwitchPrimaryRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SwitchPrimaryRequest {
+    return new SwitchPrimaryRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SwitchPrimaryRequest | PlainMessage<SwitchPrimaryRequest> | undefined, b: SwitchPrimaryRequest | PlainMessage<SwitchPrimaryRequest> | undefined): boolean {
+    return proto3.util.equals(SwitchPrimaryRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.SwitchPrimaryResponse
+ */
+export class SwitchPrimaryResponse extends Message<SwitchPrimaryResponse> {
+  /**
+   * The pooler that was demoted.
+   *
+   * @generated from field: clustermetadata.ID old_leader_id = 1;
+   */
+  oldLeaderId?: ID;
+
+  constructor(data?: PartialMessage<SwitchPrimaryResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.SwitchPrimaryResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "old_leader_id", kind: "message", T: ID },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SwitchPrimaryResponse {
+    return new SwitchPrimaryResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SwitchPrimaryResponse {
+    return new SwitchPrimaryResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SwitchPrimaryResponse {
+    return new SwitchPrimaryResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SwitchPrimaryResponse | PlainMessage<SwitchPrimaryResponse> | undefined, b: SwitchPrimaryResponse | PlainMessage<SwitchPrimaryResponse> | undefined): boolean {
+    return proto3.util.equals(SwitchPrimaryResponse, a, b);
   }
 }
 

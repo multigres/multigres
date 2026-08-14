@@ -197,6 +197,30 @@ type MultipoolerManager struct {
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
+	// Unrecoverable-postgres (FATAL-loop) classifier state. All fields are touched
+	// only from the single-goroutine monitor iteration (monitorPostgresIteration
+	// and its callees under the action lock), so they need no synchronisation.
+	// The durable verdict itself is published on the pooler record as
+	// LIFECYCLE_QUARANTINED — the record is the source of truth.
+	//
+	// unrecoverableTimeout is how long postgres may continuously fail to recover
+	// before the pooler quarantines itself. It is the primary gate. 0 disables it.
+	unrecoverableTimeout time.Duration
+	// unrecoverableMinAttempts is the floor of genuine failed recovery attempts
+	// required alongside the timeout. <= 0 falls back to
+	// defaultUnrecoverableMinAttempts (see trackRecoveryOutcome).
+	unrecoverableMinAttempts int
+	// unrecoverableFailedAttempts counts consecutive failed recovery attempts in
+	// the current streak (reset to 0 whenever postgres is observed running); it
+	// backs the minimum-attempts floor so we never quarantine on too few attempts.
+	unrecoverableFailedAttempts int
+	// unrecoverableFirstFailureAt anchors the timeout: elapsed since the first
+	// failure in the current streak is compared against unrecoverableTimeout.
+	unrecoverableFirstFailureAt time.Time
+	// nowFn returns the current time; overridable in tests so the timeout gate is
+	// deterministic. nil means time.Now (see now()).
+	nowFn func() time.Time
+
 	// stateManager coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
 	stateManager *StateManager
@@ -234,6 +258,12 @@ type demotionState struct {
 // NewMultipoolerManager creates a new MultipoolerManager instance
 func NewMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.Multipooler, config *Config) (*MultipoolerManager, error) {
 	return NewMultipoolerManagerWithTimeout(logger, multipooler, config, 5*time.Minute)
+}
+
+// registerAndSyncStateAware is swappable in tests to exercise the failure
+// path of syncing a late-registered StateAware component.
+var registerAndSyncStateAware = func(ctx context.Context, stateManager *StateManager, component StateAware) error {
+	return stateManager.RegisterAndSync(ctx, component)
 }
 
 // NewMultipoolerManagerWithTimeout creates a new MultipoolerManager instance with a custom load timeout
@@ -342,11 +372,14 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
 		pgMonitorRetryInterval: monitorRetryInterval,
-		pgctldClient:           pgctldClient,
-		connPoolMgr:            connPoolMgr,
-		readyChan:              make(chan struct{}),
-		pgMonitor:              monitorRunner,
-		healthStreamer:         newHealthStreamer(logger, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()),
+
+		unrecoverableTimeout:     config.PostgresUnrecoverableTimeout,
+		unrecoverableMinAttempts: config.PostgresUnrecoverableMinAttempts,
+		pgctldClient:             pgctldClient,
+		connPoolMgr:              connPoolMgr,
+		readyChan:                make(chan struct{}),
+		pgMonitor:                monitorRunner,
+		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -407,6 +440,12 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
 	pm.stateManager = NewStateManager(logger, pm.record, pm.consensusMgr.CachedConsensusStatus, pm.qsc, pm.healthStreamer)
+	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
+		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to sync connection pool metrics state: %w", err)
+		}
+	}
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are

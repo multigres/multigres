@@ -98,6 +98,9 @@ const (
 	// MultiadminServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
 	// MultiadminService's ApplyCertifiedRuleChange RPC.
 	MultiadminServiceApplyCertifiedRuleChangeProcedure = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
+	// MultiadminServiceSwitchPrimaryProcedure is the fully-qualified name of the MultiadminService's
+	// SwitchPrimary RPC.
+	MultiadminServiceSwitchPrimaryProcedure = "/multiadmin.MultiadminService/SwitchPrimary"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -149,6 +152,13 @@ type MultiadminServiceClient interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -264,6 +274,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 			connect.WithClientOptions(opts...),
 		),
+		switchPrimary: connect.NewClient[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse](
+			httpClient,
+			baseURL+MultiadminServiceSwitchPrimaryProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -286,6 +302,7 @@ type multiadminServiceClient struct {
 	getGatewayQueries          *connect.Client[multiadmin.GetGatewayQueriesRequest, multiadmin.GetGatewayQueriesResponse]
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
+	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -373,6 +390,11 @@ func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, 
 	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
+// SwitchPrimary calls multiadmin.MultiadminService.SwitchPrimary.
+func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
+	return c.switchPrimary.CallUnary(ctx, req)
+}
+
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
 	// GetCell retrieves information about a specific cell
@@ -422,6 +444,13 @@ type MultiadminServiceHandler interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -533,6 +562,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceSwitchPrimaryHandler := connect.NewUnaryHandler(
+		MultiadminServiceSwitchPrimaryProcedure,
+		svc.SwitchPrimary,
+		connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -569,6 +604,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceGetGatewayConsolidatorHandler.ServeHTTP(w, r)
 		case MultiadminServiceApplyCertifiedRuleChangeProcedure:
 			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
+		case MultiadminServiceSwitchPrimaryProcedure:
+			multiadminServiceSwitchPrimaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -644,4 +681,8 @@ func (UnimplementedMultiadminServiceHandler) GetGatewayConsolidator(context.Cont
 
 func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ApplyCertifiedRuleChange is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SwitchPrimary is not implemented"))
 }
