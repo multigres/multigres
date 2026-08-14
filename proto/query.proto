@@ -380,12 +380,12 @@ message ExecuteOptions {
 
   // max_rows is the maximum number of rows to return from Execute.
   // 0 means return all rows. Used by the Execute message in the extended query protocol.
-  uint64 max_rows = 4;
+  uint64 max_rows = 3;
 
   // reserved_connection_id is the ID of a reserved connection on the multipooler.
   // Used for connection pinning - this tells the multipooler which specific
   // connection to use for executing this query.
-  uint64 reserved_connection_id = 5;
+  uint64 reserved_connection_id = 4;
 
   // user_auth carries SCRAM-SHA-256 passthrough keys captured during the
   // client's authentication handshake at the multigateway. When the
@@ -393,14 +393,14 @@ message ExecuteOptions {
   // authenticate to the backing PostgreSQL as the session's real user
   // instead of relying on trust on the local connection. Unset for
   // sessions that did not authenticate via SCRAM.
-  UserAuth user_auth = 7;
+  UserAuth user_auth = 5;
 
   // client_connection_id is the multigateway's virtual PID for this client
   // connection. The multipooler can register it against the underlying
   // PostgreSQL backend PID so lock-detection functions can map virtual PIDs
   // (visible to clients) back to real backend PIDs without altering the
   // client-visible application_name.
-  uint32 client_connection_id = 8;
+  uint32 client_connection_id = 6;
 
   // execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE
   // wrapper that references a gateway-managed prepared statement. The
@@ -411,9 +411,7 @@ message ExecuteOptions {
   //
   // This field is only consumed by StreamExecute. PortalStreamExecute has its
   // own top-level prepared_statement field.
-  ExecuteSqlPreparedStatement execute_sql_prepared_statement = 9;
-
-  reserved 10, 11;
+  ExecuteSqlPreparedStatement execute_sql_prepared_statement = 7;
 
   // passthrough_row requests opaque row passthrough for this query: the
   // multipooler returns rows as concatenated raw DataRow frames in
@@ -422,7 +420,7 @@ message ExecuteOptions {
   // for straight client pass-through queries and leaves it false for results it
   // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
   // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
-  bool passthrough_row = 12;
+  bool passthrough_row = 8;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -490,6 +488,4 @@ message ReservationOptions {
   // pg_try_advisory_lock — or a release), so the probe runs only when it can
   // matter rather than after every query on a pinned connection.
   bool recheck_advisory_locks = 5;
-
-  reserved 6;
 }

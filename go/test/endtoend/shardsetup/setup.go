@@ -903,6 +903,10 @@ const (
 	// then hands control back to multiorch to elect a new primary and
 	// stabilize the shard.
 	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
+	// RecoveryScenarioPlannedFailover is the wait after a SwitchPrimary / planned
+	// failover. The old primary restarts as standby before the election begins, so
+	// the end-to-end election window is longer than a pure emergency demotion.
+	RecoveryScenarioPlannedFailover RecoveryScenario = "planned-failover"
 )
 
 // recoveryScenarioTimeouts configures how long RequireRecovery waits per RecoveryScenario.
@@ -911,6 +915,7 @@ var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
 	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
 	RecoveryScenarioFixReplication:     30 * time.Second,
 	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+	RecoveryScenarioPlannedFailover:    60 * time.Second,
 }
 
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or

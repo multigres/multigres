@@ -43,6 +43,7 @@ const (
 	MultipoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultipoolerManager/GetBackupByJobId"
 	MultipoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/ExpireBackups"
 	MultipoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/VerifyBackups"
+	MultipoolerManager_ResignLeadership_FullMethodName           = "/multipoolermanager.MultipoolerManager/ResignLeadership"
 	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
@@ -76,6 +77,16 @@ type MultipoolerManagerClient interface {
 	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
 	// a periodic backup-integrity check; not scoped to any single backup.
 	VerifyBackups(ctx context.Context, in *multipoolermanagerdata.VerifyBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.VerifyBackupsResponse, error)
+	// ResignLeadership gracefully resigns this pooler from leadership.
+	// Transitions the pooler to NOT_SERVING (rejecting new queries with MTF01),
+	// drains write connections, publishes REQUESTING_DEMOTION, and returns the
+	// WAL flush LSN at the moment writes were quiesced. The caller can then wait
+	// for standbys to reach that LSN before triggering a new election.
+	//
+	// Only valid on a pooler that is currently the consensus leader (PRIMARY).
+	// Does NOT restart postgres as standby — that happens later via the normal
+	// Recruit path when multiorch picks up REQUESTING_DEMOTION.
+	ResignLeadership(ctx context.Context, in *multipoolermanagerdata.ResignLeadershipRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResignLeadershipResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -201,6 +212,16 @@ func (c *multipoolerManagerClient) VerifyBackups(ctx context.Context, in *multip
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) ResignLeadership(ctx context.Context, in *multipoolermanagerdata.ResignLeadershipRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResignLeadershipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ResignLeadershipResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ResignLeadership_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.SetPostgresRestartsEnabledResponse)
@@ -262,6 +283,16 @@ type MultipoolerManagerServer interface {
 	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
 	// a periodic backup-integrity check; not scoped to any single backup.
 	VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error)
+	// ResignLeadership gracefully resigns this pooler from leadership.
+	// Transitions the pooler to NOT_SERVING (rejecting new queries with MTF01),
+	// drains write connections, publishes REQUESTING_DEMOTION, and returns the
+	// WAL flush LSN at the moment writes were quiesced. The caller can then wait
+	// for standbys to reach that LSN before triggering a new election.
+	//
+	// Only valid on a pooler that is currently the consensus leader (PRIMARY).
+	// Does NOT restart postgres as standby — that happens later via the normal
+	// Recruit path when multiorch picks up REQUESTING_DEMOTION.
+	ResignLeadership(context.Context, *multipoolermanagerdata.ResignLeadershipRequest) (*multipoolermanagerdata.ResignLeadershipResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -323,6 +354,9 @@ func (UnimplementedMultipoolerManagerServer) ExpireBackups(context.Context, *mul
 }
 func (UnimplementedMultipoolerManagerServer) VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyBackups not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) ResignLeadership(context.Context, *multipoolermanagerdata.ResignLeadershipRequest) (*multipoolermanagerdata.ResignLeadershipResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResignLeadership not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
@@ -516,6 +550,24 @@ func _MultipoolerManager_VerifyBackups_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_ResignLeadership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ResignLeadershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).ResignLeadership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_ResignLeadership_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).ResignLeadership(ctx, req.(*multipoolermanagerdata.ResignLeadershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
 	if err := dec(in); err != nil {
@@ -601,6 +653,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VerifyBackups",
 			Handler:    _MultipoolerManager_VerifyBackups_Handler,
+		},
+		{
+			MethodName: "ResignLeadership",
+			Handler:    _MultipoolerManager_ResignLeadership_Handler,
 		},
 		{
 			MethodName: "SetPostgresRestartsEnabled",
