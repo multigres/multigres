@@ -269,21 +269,16 @@ func (p *Planner) planVariableSetStmt(
 }
 
 // sessionPinned reports whether a statement routed to tableGroup/shard will
-// execute on a session-affine backend: inside an explicit transaction
-// (including its deferred-BEGIN first statement, whose reservation is created
-// on the routed target) or on a session already holding a reserved connection
-// FOR THAT TARGET (temp tables, cursors, advisory locks). Pinned statements
-// may mutate that backend's session state for real, because the backend stays
-// with the logical session and moves in lockstep with the gateway map;
-// unpinned statements must never leave session state on a pooled backend.
+// execute on a session-affine backend. It delegates to engine.SessionPinned so
+// the SET planner and the SessionStateBranch primitive (which makes the same
+// pinned/unpinned decision at execute time for cacheable set_config plans)
+// share one definition of "pinned".
 //
 // The target scoping is load-bearing: ScatterConn reuses a reservation only
 // when the shard state matches the statement's target, so a session-wide
 // check would let a statement planned as pinned fall through to a pooled
-// connection on its own target and mutate it untracked.
-//
-// Callers must pass exactly the tablegroup/shard they hand to the Route they
-// build, so predicate and routing cannot drift apart.
+// connection on its own target and mutate it untracked. Callers must pass
+// exactly the tablegroup/shard they hand to the Route they build.
 //
 // Known gap, not closed here: with a reservation on a DIFFERENT shard, a
 // tracked map change has no propagation path onto that pinned backend — the
@@ -291,10 +286,7 @@ func (p *Planner) planVariableSetStmt(
 // settings need their own design; today every plan routes to the default
 // tablegroup/shard, so the situation is unreachable.
 func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState, tableGroup, shard string) bool {
-	if conn != nil && conn.IsInTransaction() {
-		return true
-	}
-	return state != nil && state.HasReservedConnectionFor(tableGroup, shard)
+	return engine.SessionPinned(conn, state, tableGroup, shard)
 }
 
 // translateSessionCharacteristics maps SET SESSION CHARACTERISTICS AS

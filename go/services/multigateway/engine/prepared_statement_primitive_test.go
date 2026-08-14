@@ -47,7 +47,7 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	parsed, err := parser.ParseSQL("EXECUTE p('value')")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
-	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil), h
+	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil, nil), h
 }
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {

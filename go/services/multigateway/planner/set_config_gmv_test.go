@@ -179,7 +179,12 @@ func TestPlanSetConfig_MixedGatewayManagedRewrittenOutOfRoute(t *testing.T) {
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 
-	q := seq.Primitives[0].GetQuery()
+	// The ordinary work_mem call makes the leading primitive a SessionStateBranch;
+	// both branches have the gateway-managed call rewritten out. Inspect the
+	// pinned branch's routed query.
+	branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+	require.True(t, ok, "expected SessionStateBranch primitive, got %T", seq.Primitives[0])
+	q := branch.Pinned.GetQuery()
 	assert.NotContains(t, q, "statement_timeout", "the gateway-managed call is rewritten out")
 	assert.Contains(t, q, "1s", "canonical constant inlined for the gateway-managed call")
 	assert.Contains(t, q, "work_mem", "the ordinary set_config still runs on the backend")

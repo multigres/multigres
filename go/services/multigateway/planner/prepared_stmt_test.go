@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -71,10 +72,6 @@ func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handl
 }
 
 func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
-	return nil
-}
-
-func (m *mockIExecute) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
@@ -300,29 +297,39 @@ func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
 	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
 }
 
-// TestPlanExecuteStmtCarriesSetConfigCaptureIntent pins that EXECUTE of a
-// prepared body with a session-persisting set_config plans with the
-// ReasonSetConfig capture reservation: the body executes verbatim on the
-// backend, and the reservation holds the connection until the gateway records
-// the tracked value and releases with the updated settings map. The
-// transaction-scoped form needs no reservation.
-func TestPlanExecuteStmtCarriesSetConfigCaptureIntent(t *testing.T) {
+// TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig pins the unpinned
+// EXECUTE handling that replaces the old capture reservation: a prepared body
+// carrying a session-persisting set_config(..., false) runs on the pooled
+// backend with its is_local rewritten to true, so nothing persists there (the
+// gateway tracks the value and pool-rotation replay carries it). A
+// transaction-scoped (is_local true) body already persists nothing and runs
+// verbatim.
+func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 	s := newTestSetup(t)
 
+	routedBody := func(sql string) string {
+		_, err := planAndExecute(t, s, sql)
+		require.NoError(t, err)
+		require.NotEmpty(t, s.exec.streamExecuteCalls)
+		last := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+		require.NotNil(t, last.executeSQLPreparedStatement)
+		require.NotNil(t, last.executeSQLPreparedStatement.GetPreparedStatement())
+		return strings.ToLower(last.executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+	}
+
+	// Unpinned session (no transaction, no reserved conn): the persisting
+	// is_local=false body is rewritten so the pooled backend reverts it.
 	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
 	require.NoError(t, err)
-	stmt := parseOne(t, "EXECUTE myplan('prepared_app')").(*ast.ExecuteStmt)
-	plan, err := s.p.planExecuteStmt("EXECUTE myplan('prepared_app')", stmt, s.conn.Conn)
-	require.NoError(t, err)
-	assert.True(t, plan.ExecInfo.PersistingSetConfig)
+	body := routedBody("EXECUTE myplan('prepared_app')")
+	assert.Contains(t, body, "true", "the routed body must apply set_config with is_local := true")
+	assert.NotContains(t, body, "false", "the persisting is_local := false must be rewritten out")
 
+	// A transaction-scoped body persists nothing, so it runs verbatim.
 	_, err = planAndExecute(t, s, "PREPARE localplan(text) AS SELECT set_config('application_name', $1, true)")
 	require.NoError(t, err)
-	stmt = parseOne(t, "EXECUTE localplan('x')").(*ast.ExecuteStmt)
-	plan, err = s.p.planExecuteStmt("EXECUTE localplan('x')", stmt, s.conn.Conn)
-	require.NoError(t, err)
-	assert.False(t, plan.ExecInfo.PersistingSetConfig,
-		"a transaction-scoped set_config body leaves no session state and needs no reservation")
+	body = routedBody("EXECUTE localplan('x')")
+	assert.Contains(t, body, "true", "the transaction-scoped body runs verbatim (is_local := true)")
 }
 
 func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
@@ -338,7 +345,7 @@ func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
 	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
 
 	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
-	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn, nil)
 	require.ErrorContains(t, err, "pg_read_file is not supported")
 }
 

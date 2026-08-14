@@ -114,6 +114,12 @@ func (c *Conn) Conn() *regular.Conn {
 	return c.pooled.Conn
 }
 
+// ResetAllSettings discards all session state on the underlying backend
+// (RESET ROLE / SESSION AUTHORIZATION / ALL), returning it to a clean state.
+func (c *Conn) ResetAllSettings(ctx context.Context) error {
+	return c.pooled.Conn.ResetAllSettings(ctx)
+}
+
 // TxnStatus returns the underlying PG protocol transaction status from the
 // most recent ReadyForQuery message.
 func (c *Conn) TxnStatus() protocol.TransactionStatus {
