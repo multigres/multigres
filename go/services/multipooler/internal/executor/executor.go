@@ -1092,6 +1092,16 @@ func (e *Executor) portalExecuteWithReserved(
 		return nil, nil
 	}
 
+	// A connection that took the reserved path but holds no reservation reason
+	// (e.g. a maxRows portal that completed on its first Execute without ever
+	// suspending, so ReserveForPortal was never called) must not be handed back
+	// as a reservation — nothing keeps it pinned. Release it to the pool instead
+	// of leaving a reason-less reservation dangling.
+	if reservedConn.RemainingReasons() == 0 {
+		reservedConn.Release(reserved.ReleasePortalComplete, releaseSettings)
+		return nil, nil
+	}
+
 	return e.buildReservedState(reservedConn), nil
 }
 

@@ -540,90 +540,153 @@ func TestPinnedDateStyleTracksCanonicalAcrossRotation(t *testing.T) {
 		"after rotation the replayed map must reproduce the canonical composite value")
 }
 
-// TestExtendedPortalSetConfig_CrossClientLeak reproduces, deterministically, a
-// cross-client GUC leak on the extended (portal) query protocol.
+// TestSetConfigCrossClientLeak exercises the family of cross-client GUC leaks
+// where an unpinned `SELECT set_config(name, val, false)` runs on a backend that
+// then returns to the pool: the value must never survive on that backend for a
+// later client to inherit. Each subtest drives a different path that reaches a
+// pooled or reserved backend and probes, deterministically, that the value did
+// not leak.
 //
-// The gateway plans an unpinned `SELECT set_config(name, val, false)` as a
-// SessionStateBranch whose unpinned route rewrites is_local to true so the value
-// reverts on the pooled backend. But Route.PortalStreamExecute reissues the
-// client's ORIGINAL portal (portalInfo) rather than the rewritten route query,
-// so the rewrite is a no-op on the extended protocol: the set_config runs
-// is_local=false and PERSISTS on the pooled backend. That backend returns to the
-// regular pool labelled with the request map (which predates tracking the
-// value), so its label omits the GUC it now carries.
-//
-// The collision is made deterministic despite a large pool:
-//   - connection A uses a distinctive settings bucket (a non-default
-//     lock_timeout) so its released backend sits alone in that bucket, and its
-//     portal returns pg_backend_pid() so we know exactly which backend it was;
-//   - connection B requests the identical bucket and keeps running plain queries
-//     (regular pool) until it lands on that exact backend, then reads work_mem.
-//     Connection B never set work_mem, so a non-default value means the label
-//     lied and the bucket pointer-hit skipped the reset — the leak.
-//
-// This reproduced the bug before the fix; Route.PortalStreamExecute now reissues
-// the rewritten route query (r.Query) instead of the client's original portal, so
-// the unpinned is_local:=true revert reaches the backend and the test passes.
-func TestExtendedPortalSetConfig_CrossClientLeak(t *testing.T) {
+// Shared mechanism: connection A uses a distinctive settings bucket (a non-default
+// lock_timeout) so its released backend sits alone in that bucket, and its
+// statement returns pg_backend_pid() so the exact backend is known. A fresh probe
+// requests the identical bucket and keeps acquiring connections — plain queries
+// (regular pool) and transactions (reserved pool) — until it lands on that exact
+// backend, then reads work_mem. The probe never set work_mem, so a non-default
+// value means the released backend carried a GUC its label omitted — the leak.
+func TestSetConfigCrossClientLeak(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found")
 	}
 
 	setup := getSharedSetup(t)
-	setup.SetupTest(t)
 
-	ctx := utils.WithTimeout(t, 3*time.Minute)
-
-	const bucketSQL = "SET lock_timeout = '7331ms'" // distinctive, non-gateway-managed bucket
 	const leakVal = "256MB"
 
-	// Connection A: distinctive bucket, then a completing row-limited portal that
-	// persists work_mem; capture the reserved backend's pid from the portal row.
-	connA := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
-	_, err := connA.Query(ctx, bucketSQL)
-	require.NoError(t, err)
-	require.NoError(t, connA.Parse(ctx, "s1",
-		"SELECT set_config('work_mem', '256MB', false), pg_backend_pid()", nil))
-	var portalPID string
-	// maxRows = 0 (fetch-all): the portal completes on a REGULAR pooled backend.
-	// The gateway plans the unpinned (revert) branch, but Route.PortalStreamExecute
-	// reissues the client's original portal (is_local=false), so the value
-	// persists on that regular backend regardless.
-	completed, err := connA.BindAndExecute(ctx, "p1", "s1", nil, nil, nil, 0,
-		func(_ context.Context, r *sqltypes.Result) error {
-			if len(r.Rows) > 0 && len(r.Rows[0].Values) > 1 {
-				portalPID = string(r.Rows[0].Values[1])
-			}
-			return nil
-		})
-	require.NoError(t, err)
-	require.True(t, completed)
-	require.NotEmpty(t, portalPID, "must capture the portal backend pid")
-	require.NoError(t, connA.Close())
-	t.Logf("connA portal ran on backend pid %s", portalPID)
-
-	// Connection B: same bucket; keep running plain queries (regular pool) until
-	// it reuses connA's exact backend, then verify it does not carry connA's
-	// work_mem — a value connB never set.
-	connB := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
-	defer connB.Close()
-	_, err = connB.Query(ctx, bucketSQL)
-	require.NoError(t, err)
-
-	const maxTries = 400
-	hit := false
-	for i := 0; i < maxTries && !hit; i++ {
-		results, err := connB.Query(ctx, "SELECT pg_backend_pid()::text, current_setting('work_mem')")
+	// probeForLeak opens a fresh client on bucketSQL and keeps acquiring
+	// connections — regular (plain query) and reserved (transaction) — until one
+	// lands on targetPID, then asserts that backend does not carry work_mem the
+	// probe never set. A leaked backend keeps a stale label in the probe's bucket,
+	// so it is reliably reused; fails if the target is never reached.
+	probeForLeak := func(t *testing.T, ctx context.Context, bucketSQL, targetPID string) {
+		t.Helper()
+		probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		defer probe.Close()
+		_, err := probe.Query(ctx, bucketSQL)
 		require.NoError(t, err)
-		require.NotEmpty(t, results)
-		require.NotEmpty(t, results[0].Rows)
-		pid := string(results[0].Rows[0].Values[0])
-		workMem := string(results[0].Rows[0].Values[1])
-		if pid == portalPID {
-			hit = true
+
+		checkHit := func(pool string, results []*sqltypes.Result) bool {
+			require.NotEmpty(t, results)
+			require.NotEmpty(t, results[0].Rows)
+			pid := string(results[0].Rows[0].Values[0])
+			workMem := string(results[0].Rows[0].Values[1])
+			if pid != targetPID {
+				return false
+			}
+			t.Logf("probe reused target backend pid %s via %s pool: work_mem=%s", pid, pool, workMem)
 			assert.NotEqual(t, leakVal, workMem,
-				"reused connA's portal backend (pid %s) but it reports work_mem=%s, which connB never set", pid, workMem)
+				"reused target backend (pid %s) but it reports work_mem=%s, which the probe never set", pid, workMem)
+			return true
 		}
+
+		const maxTries = 400
+		for range maxTries {
+			reg, err := probe.Query(ctx, "SELECT pg_backend_pid()::text, current_setting('work_mem')")
+			require.NoError(t, err)
+			if checkHit("regular", reg) {
+				return
+			}
+			_, err = probe.Query(ctx, "BEGIN")
+			require.NoError(t, err)
+			res, err := probe.Query(ctx, "SELECT pg_backend_pid()::text, current_setting('work_mem')")
+			require.NoError(t, err)
+			_, cerr := probe.Query(ctx, "COMMIT")
+			require.NoError(t, cerr)
+			if checkHit("reserved", res) {
+				return
+			}
+		}
+		t.Fatalf("probe never reused target backend (pid %s) within %d attempts", targetPID, maxTries)
 	}
-	require.True(t, hit, "connB never reused connA's portal backend (pid %s) within %d queries", portalPID, maxTries)
+
+	// runSetConfigPortal runs `SELECT set_config('work_mem', leakVal, false),
+	// pg_backend_pid()` as a portal at the given maxRows and returns the backend
+	// pid it ran on. maxRows=0 fetches all (regular pool); maxRows above the row
+	// count completes within its limit (transiently reserved).
+	runSetConfigPortal := func(t *testing.T, ctx context.Context, bucketSQL string, maxRows int32) string {
+		connA := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		_, err := connA.Query(ctx, bucketSQL)
+		require.NoError(t, err)
+		require.NoError(t, connA.Parse(ctx, "s1",
+			"SELECT set_config('work_mem', '256MB', false), pg_backend_pid()", nil))
+		var portalPID string
+		completed, err := connA.BindAndExecute(ctx, "p1", "s1", nil, nil, nil, maxRows,
+			func(_ context.Context, r *sqltypes.Result) error {
+				if len(r.Rows) > 0 && len(r.Rows[0].Values) > 1 {
+					portalPID = string(r.Rows[0].Values[1])
+				}
+				return nil
+			})
+		require.NoError(t, err)
+		require.True(t, completed, "portal must complete, not suspend")
+		require.NotEmpty(t, portalPID, "must capture the portal backend pid")
+		require.NoError(t, connA.Close())
+		t.Logf("connA portal (maxRows=%d) ran on backend pid %s", maxRows, portalPID)
+		return portalPID
+	}
+
+	// Fetch-all portal (maxRows=0): the set_config runs on a REGULAR pooled
+	// backend. The gateway plans the unpinned (revert) branch; the fix in
+	// Route.PortalStreamExecute reissues the rewritten route query so is_local:=true
+	// actually reaches the backend and nothing persists.
+	t.Run("fetch_all_portal", func(t *testing.T) {
+		setup.SetupTest(t)
+		ctx := utils.WithTimeout(t, 3*time.Minute)
+		const bucketSQL = "SET lock_timeout = '7331ms'"
+		pid := runSetConfigPortal(t, ctx, bucketSQL, 0)
+		probeForLeak(t, ctx, bucketSQL, pid)
+	})
+
+	// Row-limited portal that completes within its limit (maxRows=5 over one row):
+	// PostgreSQL marks the portal complete (CommandComplete), and the transiently
+	// reserved backend must not return to the pool carrying the value.
+	t.Run("row_limited_portal_completes", func(t *testing.T) {
+		setup.SetupTest(t)
+		ctx := utils.WithTimeout(t, 3*time.Minute)
+		const bucketSQL = "SET lock_timeout = '7334ms'"
+		pid := runSetConfigPortal(t, ctx, bucketSQL, 5)
+		probeForLeak(t, ctx, bucketSQL, pid)
+	})
+
+	// Advisory try-lock that fails: `SELECT set_config(...), pg_try_advisory_lock(K)`
+	// is planned to the pinned branch (is_local=false), betting the backend gets
+	// reserved. A holder keeps the lock so the try returns false — no lock, no
+	// reservation — and the backend must not return to the pool carrying the value.
+	t.Run("advisory_try_lock_fails", func(t *testing.T) {
+		setup.SetupTest(t)
+		ctx := utils.WithTimeout(t, 3*time.Minute)
+		const bucketSQL = "SET lock_timeout = '7333ms'"
+
+		// Holder keeps the advisory lock open so the victim's try deterministically fails.
+		holder := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		defer holder.Close()
+		_, err := holder.Query(ctx, "SELECT pg_advisory_lock(918273)")
+		require.NoError(t, err)
+
+		victim := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		_, err = victim.Query(ctx, bucketSQL)
+		require.NoError(t, err)
+		res, err := victim.Query(ctx,
+			"SELECT set_config('work_mem', '256MB', false), pg_try_advisory_lock(918273)::text, pg_backend_pid()::text")
+		require.NoError(t, err)
+		require.NotEmpty(t, res)
+		require.NotEmpty(t, res[0].Rows)
+		gotLock := string(res[0].Rows[0].Values[1])
+		victimPID := string(res[0].Rows[0].Values[2])
+		require.Equal(t, "false", gotLock, "victim's pg_try_advisory_lock must fail while the holder holds it")
+		require.NoError(t, victim.Close())
+		t.Logf("victim ran on backend pid %s (try-lock=%s)", victimPID, gotLock)
+
+		probeForLeak(t, ctx, bucketSQL, victimPID)
+	})
 }
