@@ -178,10 +178,10 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.NoError(t, err, "should create primary multipooler client")
 	defer primaryClient.Close()
 
-	statusResp, err := primaryClient.Manager.Status(t.Context(), &multipoolermanagerdatapb.StatusRequest{})
+	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary status")
 	ruleNumber := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
-	_, err = primaryClient.Consensus.UpdateConsensusRule(t.Context(), &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+	_, err = primaryClient.Consensus.UpdateConsensusRule(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,
 		ExpectedOutgoingRule: ruleNumber,
 	})
