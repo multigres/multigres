@@ -1,13 +1,65 @@
 name: Sync Proto to Operator
 on:
   push:
-    branches: [main]
-    paths: ["proto/**"]
+    branches:
+      - main
 
-permissions: {}
+permissions:
+  contents: read
+  packages: write
 
 jobs:
+  changes:
+    name: Identify runtime image changes
+    runs-on: ubuntu-24.04
+    outputs:
+      proto: ${{ steps.changes.outputs.proto }}
+      pgctld: ${{ steps.changes.outputs.pgctld }}
+    steps:
+      - name: Identify changed paths
+        id: changes
+        run: |
+          proto=false
+          pgctld=false
+
+          while IFS= read -r path; do
+            case "$path" in
+              proto/*)
+                proto=true
+                # A proto sync must publish both runtime images for the same SHA.
+                pgctld=true
+                ;;
+              Dockerfile.pgctld|go/*|.github/workflows/docker-build-pgctld.yml)
+                pgctld=true
+                ;;
+            esac
+          done < <(
+            jq -r '
+              .commits[]? |
+              (.added[]?, .modified[]?, .removed[]?)
+            ' "$GITHUB_EVENT_PATH"
+          )
+
+          echo "proto=$proto" >> "$GITHUB_OUTPUT"
+          echo "pgctld=$pgctld" >> "$GITHUB_OUTPUT"
+
+  build-multigres:
+    name: Build and publish multigres
+    uses: ./.github/workflows/docker-build.yml
+
+  build-pgctld:
+    name: Build and publish pgctld
+    needs: changes
+    if: needs.changes.outputs.pgctld == 'true'
+    uses: ./.github/workflows/docker-build-pgctld.yml
+
   dispatch:
+    name: Dispatch ready proto sync to operator
+    needs: [changes, build-multigres, build-pgctld]
+    if: >-
+      ${{ always() && needs.changes.outputs.proto == 'true' &&
+          needs.build-multigres.result == 'success' &&
+          needs.build-pgctld.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: ci

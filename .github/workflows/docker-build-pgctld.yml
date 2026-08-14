@@ -15,14 +15,8 @@
 name: Docker Build and Publish (pgctld)
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "Dockerfile.pgctld"
-      - "go/**"
-      - ".github/workflows/docker-build-pgctld.yml"
 
 permissions:
   contents: read
