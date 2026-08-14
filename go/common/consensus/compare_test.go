@@ -408,6 +408,62 @@ func TestFormatRulePosition(t *testing.T) {
 	}
 }
 
+func TestFormatRuleNumberPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.RuleNumberPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{"decision only", &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0)}, "5.0"},
+		{
+			"decision and proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: rn(6, 0)},
+			"5.0 proposal=6.0",
+		},
+		{
+			// A zero-valued (unset-sentinel) Proposal must not render as a
+			// phantom "proposal=0.0" suffix.
+			"decision with zero-valued proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: &clustermetadatapb.RuleNumber{}},
+			"5.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatRuleNumberPosition(tt.pos))
+		})
+	}
+}
+
+func TestFormatLsnPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.LsnPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{
+			"decision only",
+			&clustermetadatapb.LsnPosition{Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(1, 0)}, Lsn: "0/6000000"},
+			"1.0@0/6000000",
+		},
+		{
+			"decision and proposal",
+			&clustermetadatapb.LsnPosition{
+				Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 1), Proposal: rn(6, 0)},
+				Lsn:      "0/6000000",
+			},
+			"5.1 proposal=6.0@0/6000000",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatLsnPosition(tt.pos))
+		})
+	}
+}
+
 func TestIsRuleDecided(t *testing.T) {
 	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
 	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
