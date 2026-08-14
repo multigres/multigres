@@ -50,6 +50,7 @@ const (
 	MultiadminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiadminService/GetGatewayQueries"
 	MultiadminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiadminService/GetGatewayConsolidator"
 	MultiadminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
+	MultiadminService_SwitchPrimary_FullMethodName              = "/multiadmin.MultiadminService/SwitchPrimary"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -105,6 +106,13 @@ type MultiadminServiceClient interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -285,6 +293,16 @@ func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, 
 	return out, nil
 }
 
+func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SwitchPrimaryResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SwitchPrimary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -338,6 +356,13 @@ type MultiadminServiceServer interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -398,6 +423,9 @@ func (UnimplementedMultiadminServiceServer) GetGatewayConsolidator(context.Conte
 }
 func (UnimplementedMultiadminServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwitchPrimary not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -726,6 +754,24 @@ func _MultiadminService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_SwitchPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchPrimaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SwitchPrimary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SwitchPrimary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SwitchPrimary(ctx, req.(*SwitchPrimaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -800,6 +846,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyCertifiedRuleChange",
 			Handler:    _MultiadminService_ApplyCertifiedRuleChange_Handler,
+		},
+		{
+			MethodName: "SwitchPrimary",
+			Handler:    _MultiadminService_SwitchPrimary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
