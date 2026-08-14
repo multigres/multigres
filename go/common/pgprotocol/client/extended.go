@@ -451,7 +451,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	}
 
 	for {
-		msgType, body, streamed, err := c.readBatchMessage(batcher, flushBatch)
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -469,7 +469,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			}
 
 		case protocol.MsgDataRow:
-			if streamed {
+			if dataRowStreamed {
 				break
 			}
 			if err := batcher.addDataRow(body); err != nil {
@@ -854,7 +854,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	}
 
 	for {
-		msgType, body, streamed, err := c.readBatchMessage(batcher, flushBatch)
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -875,7 +875,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			}
 
 		case protocol.MsgDataRow:
-			if streamed {
+			if dataRowStreamed {
 				break
 			}
 			if err := batcher.addDataRow(body); err != nil {
@@ -1064,7 +1064,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	}
 
 	for {
-		msgType, body, streamed, err := c.readBatchMessage(batcher, flushBatch)
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return responseReadError(firstErr, err)
 		}
@@ -1088,7 +1088,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgDataRow:
-			if streamed {
+			if dataRowStreamed {
 				break
 			}
 			if err := batcher.addDataRow(body); err != nil {
@@ -1185,7 +1185,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 	}
 
 	for {
-		msgType, body, streamed, err := c.readBatchMessage(batcher, flushBatch)
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -1208,7 +1208,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 			// No fields — batcher.fields stays nil.
 
 		case protocol.MsgDataRow:
-			if streamed {
+			if dataRowStreamed {
 				break
 			}
 			if err := batcher.addDataRow(body); err != nil {

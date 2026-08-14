@@ -361,10 +361,12 @@ func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) erro
 	return nil
 }
 
-// readBatchMessage reads the next response message. In opaque passthrough mode
-// DataRows are consumed incrementally and may invoke flush multiple times;
-// other message types retain the complete-body behavior required by parsers.
-func (c *Conn) readBatchMessage(b *resultBatcher, flush func()) (msgType byte, body []byte, streamed bool, err error) {
+// readQueryResponseMessage reads the next query response message. In opaque
+// passthrough mode DataRows are consumed incrementally and may invoke flush
+// multiple times; other message types retain the complete-body behavior
+// required by parsers. dataRowStreamed reports that the DataRow body was
+// already consumed and delivered, so callers must not pass body to addDataRow.
+func (c *Conn) readQueryResponseMessage(b *resultBatcher, flush func()) (msgType byte, body []byte, dataRowStreamed bool, err error) {
 	msgType, bodyLen, err := c.readMessageHeader()
 	if err != nil {
 		return 0, nil, false, err
@@ -388,6 +390,8 @@ func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreaming
 func (b *resultBatcher) flush() *sqltypes.Result {
 	var r *sqltypes.Result
 	if b.c.passthroughRow.Load() {
+		// A fragmented DataRow may have bytes with rawN == 0, so check the
+		// byte buffer rather than the completed-row count.
 		if len(b.raw) == 0 {
 			return nil
 		}
@@ -451,7 +455,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 	for {
 		// Read message.
-		msgType, body, streamed, err := c.readBatchMessage(batcher, flushBatch)
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return responseReadError(firstErr, err)
 		}
@@ -469,7 +473,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			batcher.fields = fields
 
 		case protocol.MsgDataRow:
-			if streamed {
+			if dataRowStreamed {
 				break
 			}
 			// Accumulate via the shared batcher. A parse failure (structured
