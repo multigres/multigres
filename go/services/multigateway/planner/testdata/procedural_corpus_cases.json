@@ -118,8 +118,7 @@
   },
   {
     "comment": "plpgsql_call.sql #4",
-    "stmt": "-- Check that plan revalidation doesn't prevent setting transaction properties\n-- (bug #18059).  This test must include the first temp-object creation in\n-- this script, or it won't exercise the bug scenario.  Hence we put it early.\nCREATE PROCEDURE test_proc3a()\nLANGUAGE plpgsql\nAS $$\nBEGIN\n   COMMIT;\n   SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n   RAISE NOTICE 'done';\nEND;\n$$",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "-- Check that plan revalidation doesn't prevent setting transaction properties\n-- (bug #18059).  This test must include the first temp-object creation in\n-- this script, or it won't exercise the bug scenario.  Hence we put it early.\nCREATE PROCEDURE test_proc3a()\nLANGUAGE plpgsql\nAS $$\nBEGIN\n   COMMIT;\n   SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n   RAISE NOTICE 'done';\nEND;\n$$"
   },
   {
     "comment": "plpgsql_call.sql #5",
@@ -827,8 +826,7 @@
   },
   {
     "comment": "plpgsql_simple.sql #4",
-    "stmt": "create or replace function simplecaller() returns int language plpgsql\nas $$\ndeclare\n  sum int := 0;\nbegin\n  for n in 1..10 loop\n    sum := sum + simpletarget(n);\n    if n = 5 then\n      set local search_path = 'simple1';\n    end if;\n  end loop;\n  return sum;\nend$$",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "create or replace function simplecaller() returns int language plpgsql\nas $$\ndeclare\n  sum int := 0;\nbegin\n  for n in 1..10 loop\n    sum := sum + simpletarget(n);\n    if n = 5 then\n      set local search_path = 'simple1';\n    end if;\n  end loop;\n  return sum;\nend$$"
   },
   {
     "comment": "plpgsql_simple.sql #5",
@@ -948,13 +946,11 @@
   },
   {
     "comment": "plpgsql_transaction.sql #27",
-    "stmt": "-- SET TRANSACTION\nDO LANGUAGE plpgsql $$\nBEGIN\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\nEND;\n$$",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "-- SET TRANSACTION\nDO LANGUAGE plpgsql $$\nBEGIN\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\nEND;\n$$"
   },
   {
     "comment": "plpgsql_transaction.sql #28",
-    "stmt": "-- error cases\nDO LANGUAGE plpgsql $$\nBEGIN\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nEND;\n$$",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "-- error cases\nDO LANGUAGE plpgsql $$\nBEGIN\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nEND;\n$$"
   },
   {
     "comment": "plpgsql_transaction.sql #29",
@@ -990,8 +986,7 @@
   },
   {
     "comment": "plpgsql_transaction.sql #37",
-    "stmt": "DO LANGUAGE plpgsql $$\nBEGIN\n    ROLLBACK;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    FOR i IN 0..3 LOOP\n        RAISE INFO 'transaction_isolation = %', current_setting('transaction_isolation');\n        INSERT INTO test1 (a) VALUES (i);\n        IF i % 2 = 0 THEN\n            COMMIT AND CHAIN;\n        ELSE\n            ROLLBACK AND CHAIN;\n        END IF;\n    END LOOP;\nEND\n$$",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "DO LANGUAGE plpgsql $$\nBEGIN\n    ROLLBACK;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    FOR i IN 0..3 LOOP\n        RAISE INFO 'transaction_isolation = %', current_setting('transaction_isolation');\n        INSERT INTO test1 (a) VALUES (i);\n        IF i % 2 = 0 THEN\n            COMMIT AND CHAIN;\n        ELSE\n            ROLLBACK AND CHAIN;\n        END IF;\n    END LOOP;\nEND\n$$"
   },
   {
     "comment": "plpgsql_trap.sql #1",
@@ -1587,8 +1582,7 @@
   },
   {
     "comment": "guc.sql #1",
-    "stmt": "-- SET LOCAL is restricted by a function SET option\ncreate or replace function myfunc(int) returns text as $$\nbegin\n  set local work_mem = '2MB';\n  return current_setting('work_mem');\nend $$\nlanguage plpgsql\nset work_mem = '1MB'",
-    "reject": "ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track"
+    "stmt": "-- SET LOCAL is restricted by a function SET option\ncreate or replace function myfunc(int) returns text as $$\nbegin\n  set local work_mem = '2MB';\n  return current_setting('work_mem');\nend $$\nlanguage plpgsql\nset work_mem = '1MB'"
   },
   {
     "comment": "guc.sql #2",

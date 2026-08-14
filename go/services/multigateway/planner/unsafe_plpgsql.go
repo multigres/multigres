@@ -636,9 +636,18 @@ func analyzeBodyFragment(stmt ast.Stmt) error {
 // At the top level a SET / RESET is handled by planVariableSetStmt and a
 // LISTEN / DISCARD by a dedicated primitive; inside a body there is no such
 // hook, so the change would leak to the next client on the backend.
+//
+// The exception is a transaction-scoped SET (isTransactionScopedSet): SET LOCAL
+// and SET TRANSACTION revert at transaction end, so they never outlive the
+// transaction on a pooled backend. A restricted-GUC change is still caught first
+// by checkRestrictedGUCChange, so even a SET LOCAL of a cluster-managed GUC is
+// rejected there before reaching this allowance.
 func rejectBodySessionStateStmt(stmt ast.Stmt) error {
-	switch stmt.(type) {
+	switch s := stmt.(type) {
 	case *ast.VariableSetStmt:
+		if isTransactionScopedSet(s) {
+			return nil
+		}
 		return mterrors.NewFeatureNotSupported(
 			"SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the " +
 				"connection pooler cannot track")
@@ -650,6 +659,20 @@ func rejectBodySessionStateStmt(stmt ast.Stmt) error {
 			"LISTEN/UNLISTEN inside a PL/pgSQL body is not supported through the connection pooler")
 	}
 	return nil
+}
+
+// isTransactionScopedSet reports whether a SET statement's effect is confined to
+// the current transaction, so it cannot leak to the next client on a pooled
+// backend. Two forms qualify and both revert at transaction end: SET LOCAL (any
+// parameter — IsLocal), and SET TRANSACTION (the current transaction's
+// characteristics). It excludes the session-scoped forms that share the node — a
+// plain SET, RESET, SET … FROM CURRENT, and SET SESSION CHARACTERISTICS AS
+// TRANSACTION, which sets the session default (its Name is not just "TRANSACTION").
+func isTransactionScopedSet(s *ast.VariableSetStmt) bool {
+	if s.IsLocal {
+		return true
+	}
+	return s.Kind == ast.VAR_SET_MULTI && strings.EqualFold(s.Name, "TRANSACTION")
 }
 
 // doStmtBody pulls the body text and language out of a DO statement's option

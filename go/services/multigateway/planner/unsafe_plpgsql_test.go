@@ -364,6 +364,42 @@ func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
 	})
 }
 
+// TestAnalyzeProceduralBody_TransactionScopedSet covers the transaction-scoped
+// SET allowance: SET LOCAL and SET TRANSACTION inside a body revert at
+// transaction end and are allowed, while the session-persisting forms — plain
+// SET, RESET, SET SESSION CHARACTERISTICS — and a SET LOCAL of a cluster-managed
+// GUC stay rejected.
+func TestAnalyzeProceduralBody_TransactionScopedSet(t *testing.T) {
+	t.Run("accept", func(t *testing.T) {
+		allow := map[string]string{
+			"SET LOCAL param":       "DO $$ BEGIN SET LOCAL work_mem = '2MB'; END $$",
+			"SET LOCAL search_path": "DO $$ BEGIN SET LOCAL search_path = 'x'; END $$",
+			"SET TRANSACTION iso":   "DO $$ BEGIN COMMIT; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; END $$",
+			"SET TRANSACTION ro":    "DO $$ BEGIN SET TRANSACTION READ ONLY; END $$",
+		}
+		for name, sql := range allow {
+			t.Run(name, func(t *testing.T) {
+				_, err := analyzeStatement(parseOne(t, sql), false)
+				require.NoError(t, err)
+			})
+		}
+	})
+	t.Run("reject", func(t *testing.T) {
+		reject := map[string]string{
+			"plain SET":                   "DO $$ BEGIN SET work_mem = '2MB'; END $$",
+			"RESET":                       "DO $$ BEGIN RESET work_mem; END $$",
+			"SET SESSION CHARACTERISTICS": "DO $$ BEGIN SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE; END $$",
+			"SET LOCAL cluster GUC":       "DO $$ BEGIN SET LOCAL synchronous_commit = off; END $$",
+		}
+		for name, sql := range reject {
+			t.Run(name, func(t *testing.T) {
+				_, err := analyzeStatement(parseOne(t, sql), false)
+				require.Error(t, err)
+			})
+		}
+	})
+}
+
 // TestAnalyzeProceduralBody_MalformedBodyFailsClosed confirms a body that does not
 // parse as PL/pgSQL is rejected rather than passed through.
 func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
