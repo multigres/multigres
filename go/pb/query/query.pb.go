@@ -235,17 +235,16 @@ type QueryResult struct {
 	// diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
 	// ConcludeTransaction) use this field to preserve backend notice ordering.
 	Notices []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
-	// passthrough_block is the opaque row-passthrough representation. When set, it
-	// contains the concatenated raw PostgreSQL DataRow ('D') frames for this
-	// batch, exactly as read from the backend, and rows is empty. The multipooler
-	// captures the frames without parsing them into columns and the multigateway
-	// writes the block straight to the client socket, avoiding per-row
-	// marshalling and re-framing on both ends. Requested via
-	// ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+	// passthrough_block is the opaque row-passthrough representation. When set,
+	// it contains the next ordered chunk of raw PostgreSQL DataRow ('D') wire
+	// bytes and rows is empty. A block may contain complete frames or a frame
+	// fragment; concatenating blocks in stream order reconstructs the exact
+	// DataRow byte stream from the backend. The multigateway writes the block
+	// straight to the client socket. fields (RowDescription) remain structured.
 	PassthroughBlock []byte `protobuf:"bytes,7,opt,name=passthrough_block,json=passthroughBlock,proto3" json:"passthrough_block,omitempty"`
-	// passthrough_row_count is the number of DataRow frames packed into
-	// passthrough_block. rows is empty in passthrough mode, so this preserves the
-	// row count for metrics and row-limit accounting.
+	// passthrough_row_count is the number of DataRow frames completed in this
+	// block. It may be zero when the block contains only a fragment of a large
+	// DataRow. This preserves row accounting while rows is empty.
 	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
 	// parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
 	// ParameterStatus display name, e.g. "DateStyle") that a routed statement

@@ -170,16 +170,15 @@ type Result struct {
 	// Rows contains the actual data rows.
 	Rows []*Row
 
-	// PassthroughBlock, when non-nil, holds the opaque row-passthrough payload: the
-	// concatenated raw PostgreSQL DataRow frames for this batch, exactly as read
-	// from the backend. When set, Rows is empty and the rows are never parsed
-	// into columns. The multigateway writes PassthroughBlock straight to the client. See
-	// QueryResult.passthrough_block.
+	// PassthroughBlock, when non-nil, holds the next ordered chunk of opaque
+	// PostgreSQL DataRow wire bytes. It may contain complete frames or a frame
+	// fragment. Rows is empty and the multigateway writes the bytes directly to
+	// the client. See QueryResult.passthrough_block.
 	PassthroughBlock []byte
 
-	// PassthroughRowCount is the number of DataRow frames packed into PassthroughBlock. Preserves
-	// the row count for metrics and row-limit accounting, since Rows is empty in
-	// passthrough mode.
+	// PassthroughRowCount is the number of DataRow frames completed in
+	// PassthroughBlock. It may be zero for an intermediate fragment of a large
+	// row and preserves row accounting while Rows is empty.
 	PassthroughRowCount int
 
 	// CommandTag is the PostgreSQL command tag for this result set.
