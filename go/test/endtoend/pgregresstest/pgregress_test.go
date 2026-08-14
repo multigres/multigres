@@ -245,7 +245,10 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Run("regression", func(t *testing.T) {
 			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 			defer cancel()
-			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			// directPgPort lets the harness pre-seed scaffolding helper functions
+			// on the primary (bypassing the gateway's body-analysis rejection).
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Test harness failed to execute: %v", err)
