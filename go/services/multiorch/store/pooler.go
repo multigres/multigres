@@ -127,21 +127,6 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 	p.state.Store(next)
 }
 
-// IsInitialized reports whether the pooler has been initialized. A pooler is
-// considered initialized based on the IsInitialized field from the Status
-// RPC (data-directory state, not LSN). The node must also be reachable for
-// us to trust the value.
-func (p *Pooler) IsInitialized() bool {
-	h := p.Health()
-	if h == nil || !h.IsLastCheckValid {
-		return false
-	}
-	if h.Multipooler == nil {
-		return false
-	}
-	return h.GetStatus().GetIsInitialized()
-}
-
 // ObservationAge reports how long ago — on the orchestrator's clock — this
 // pooler's most recent successful health snapshot was recorded, measured
 // against now. ok is false when no snapshot time has ever been recorded
@@ -157,6 +142,27 @@ func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	return now.Sub(ls.AsTime()), true
+}
+
+// DefaultObservationFreshness is the default staleness tolerance for callers
+// that need a trustworthy health snapshot but have no more specific policy of
+// their own (e.g. actions, which can't import the analysis package's
+// AvailabilityPolicy). analysis.DefaultAvailabilityPolicy's ObservationFreshness
+// uses this same value, so the two packages share one source of truth.
+const DefaultObservationFreshness = 15 * time.Second
+
+// HealthWithin returns the pooler's health snapshot if it was recorded within
+// maxAge of now, and ok=false otherwise (including "never observed"). Prefer
+// this over Health() wherever a decision depends on how current the data is —
+// it makes the staleness tolerance an explicit, mandatory choice at the call
+// site instead of a separately-remembered ObservationAge/observationFresh
+// check that's easy to omit.
+func (p *Pooler) HealthWithin(now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
+	age, ok := p.ObservationAge(now)
+	if !ok || age > maxAge {
+		return nil, false
+	}
+	return p.Health(), true
 }
 
 // DefaultLeaderWriteFreshness is the default freshness bound for

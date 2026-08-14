@@ -86,7 +86,8 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Po
 	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
-	if !pa.IsInitialized() {
+	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}
 

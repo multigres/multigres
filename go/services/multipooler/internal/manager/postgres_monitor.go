@@ -1250,7 +1250,10 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// been rewound to. Postgres is down, so this edits postgresql.auto.conf
 	// directly rather than via ALTER SYSTEM. Best-effort — a failure here must not
 	// block the start; the rewind (restartAsStandbyLocked, once the leader is
-	// rewind-ready) re-establishes primary_conninfo afterwards.
+	// rewind-ready) re-establishes primary_conninfo afterwards — written back
+	// into postgresql.auto.conf before the post-rewind start, so even a standby
+	// that cannot reach consistency (and thus never accepts the SQL write) comes
+	// back streaming rather than held blind.
 	if pm.consensusMgr.SuspectedDivergence() {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun

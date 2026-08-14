@@ -2233,6 +2233,82 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
 ]);
 
 /**
+ * ResignLeadershipRequest asks the primary pooler to gracefully resign from leadership.
+ *
+ * @generated from message multipoolermanagerdata.ResignLeadershipRequest
+ */
+export class ResignLeadershipRequest extends Message<ResignLeadershipRequest> {
+  constructor(data?: PartialMessage<ResignLeadershipRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined, b: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipRequest, a, b);
+  }
+}
+
+/**
+ * ResignLeadershipResponse returns the WAL flush LSN at the moment writes were quiesced.
+ *
+ * @generated from message multipoolermanagerdata.ResignLeadershipResponse
+ */
+export class ResignLeadershipResponse extends Message<ResignLeadershipResponse> {
+  /**
+   * flush_lsn is the WAL flush position at the moment postgres stopped accepting
+   * writes. Callers should wait for standbys to reach this LSN before triggering
+   * a new election, ensuring no data loss.
+   *
+   * @generated from field: string flush_lsn = 1;
+   */
+  flushLsn = "";
+
+  constructor(data?: PartialMessage<ResignLeadershipResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "flush_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined, b: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipResponse, a, b);
+  }
+}
+
+/**
  * SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
  * by the postgres monitor. When disabled, the monitor will still run and detect problems,
  * but will not automatically restart a stopped PostgreSQL instance.

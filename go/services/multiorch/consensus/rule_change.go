@@ -415,6 +415,40 @@ func buildFailoverProposal(
 	}, nil
 }
 
+// leadershipSignalPriority maps each leadership signal to its sort priority.
+// Lower values sort first — nodes with higher priority values are deprioritised
+// as leader candidates when LSNs are tied. Add new signals here to extend the
+// ordering without touching poolerHealthStateLess.
+var leadershipSignalPriority = map[clustermetadatapb.LeadershipSignal]int{
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_UNKNOWN:             0,
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE:              0,
+	clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION: 1,
+}
+
+// poolerHealthStateLess returns a less function for sort.SliceStable that
+// orders ConsensusStatus entries by leadershipSignalPriority. It is used in
+// Coordinator.runFailover to prefer nodes with lower priority values among
+// candidates that share the highest LSN.
+//
+// WAL position is always the primary criterion: a node with a higher-priority
+// signal still wins if it holds a strictly higher LSN than every other node.
+// This tiebreaker only affects the ordering of tied eligible leaders.
+//
+// Recruited nodes participate in the outgoing-cohort quorum check regardless of
+// their leadership signal — this tiebreaker only affects which tied node is
+// proposed as leader, not the quorum denominator.
+func poolerHealthStateLess(healthByID map[string]*multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+	leadershipSignal := func(cs *clustermetadatapb.ConsensusStatus) clustermetadatapb.LeadershipSignal {
+		h := healthByID[topoclient.ClusterIDString(cs.GetId())]
+		return h.GetAvailabilityStatus().GetLeadershipStatus().GetSignal()
+	}
+	return func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		sigA := leadershipSignal(a)
+		sigB := leadershipSignal(b)
+		return leadershipSignalPriority[sigA] < leadershipSignalPriority[sigB]
+	}
+}
+
 // buildBootstrapProposal constructs a CoordinatorProposal for initial leader
 // appointment on a fresh shard. Unlike buildFailoverProposal, the cohort and
 // durability policy come from the caller — there is no recorded rule to

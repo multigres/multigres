@@ -60,9 +60,8 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 
 	leaderHealth := func() *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(now),
+			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
+			LastSeen:    timestamppb.New(now),
 			Status: &multipoolermanagerdatapb.Status{
 				PostgresReady:  true,
 				PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
@@ -76,10 +75,9 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	// recruit. initiatedAt controls the revocation's age for the grace gate.
 	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(now),
-			Status:           &multipoolermanagerdatapb.Status{IsInitialized: initialized},
+			Multipooler: &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey},
+			LastSeen:    timestamppb.New(now),
+			Status:      &multipoolermanagerdatapb.Status{IsInitialized: initialized},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:              replicaID,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ownRule},
