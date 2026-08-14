@@ -33,6 +33,7 @@ func TestReleaseReason_String(t *testing.T) {
 		{ReleaseRollback, "rollback"},
 		{ReleasePortalComplete, "portal_complete"},
 		{ReleaseAdvisoryUnlock, "advisory_unlock"},
+		{ReleaseUnreserved, "unreserved"},
 		{ReleaseTimeout, "timeout"},
 		{ReleaseKill, "kill"},
 		{ReleaseError, "error"},
@@ -54,6 +55,7 @@ func TestReleaseReason_preventsReuse(t *testing.T) {
 		ReleaseRollback,
 		ReleasePortalComplete,
 		ReleaseAdvisoryUnlock,
+		ReleaseUnreserved,
 	} {
 		t.Run(reason.String()+"_reusable", func(t *testing.T) {
 			assert.False(t, reason.preventsReuse())

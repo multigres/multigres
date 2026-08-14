@@ -119,6 +119,9 @@ type mockReservedConn struct {
 	releasedPortals []string
 	releaseCalls    []reserved.ReleaseReason
 	openHoldCursors map[string]bool
+
+	resetCalls int
+	resetErr   error
 }
 
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
@@ -188,6 +191,11 @@ func (m *mockReservedConn) Query(_ context.Context, sql string) ([]*sqltypes.Res
 
 func (m *mockReservedConn) Release(reason reserved.ReleaseReason, _ map[string]string) {
 	m.releaseCalls = append(m.releaseCalls, reason)
+}
+
+func (m *mockReservedConn) ResetAllSettings(_ context.Context) error {
+	m.resetCalls++
+	return m.resetErr
 }
 
 // Compile-time check.
@@ -498,6 +506,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
 		"advisory-lock reason must be cleared when no locks remain")
 	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseAdvisoryUnlock}, rc.releaseCalls,
 		"connection must be released once the last advisory lock is gone")
+	require.Zero(t, rc.resetCalls,
+		"an existing reservation being unpinned is released with its truthful settings, not reset")
 	require.Nil(t, state, "released connection should report a nil (zero) reservation state")
 }
 
