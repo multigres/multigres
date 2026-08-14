@@ -317,6 +317,61 @@ func positionWithUndecidedProposal(decisionTerm, proposalTerm int64) *clustermet
 	}
 }
 
+func TestIsSelfRevoked(t *testing.T) {
+	// Recruited at term 2, transitioning away from the term-1 rule.
+	rev := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 2,
+		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+	}
+	rule := func(term, subterm int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm},
+		}}
+	}
+
+	tests := []struct {
+		name   string
+		status *clustermetadatapb.ConsensusStatus
+		want   bool
+	}{
+		{
+			name:   "no revocation is never self-revoked",
+			status: &clustermetadatapb.ConsensusStatus{CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(1, 0)}},
+			want:   false,
+		},
+		{
+			name: "recruited above own rule with no higher known rule is stranded",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(1, 0)},
+				TermRevocation:  rev,
+			},
+			want: true,
+		},
+		{
+			name: "recruited but following a higher accepted rule while WAL lags is not stranded",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition:    &clustermetadatapb.PoolerPosition{Position: rule(1, 0)},
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Position: rule(1, 5)},
+				TermRevocation:     rev,
+			},
+			want: false,
+		},
+		{
+			name: "consumed recruit: own rule reached the revoked term",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(2, 0)},
+				TermRevocation:  rev,
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsSelfRevoked(tt.status))
+		})
+	}
+}
+
 func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
