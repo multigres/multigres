@@ -27,7 +27,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -113,7 +112,7 @@ func TestPlannedFailoverAutoSelectStandby(t *testing.T) {
 	// Verify the old primary is now a replica.
 	oldPrimaryInst := setup.GetMultipoolerInstance(initialPrimary.Name)
 	require.NotNil(t, oldPrimaryInst)
-	verifyIsStandby(t, oldPrimaryInst)
+	verifyBecomesStandby(t, oldPrimaryInst)
 
 	// Verify writes can still flow through the gateway after failover.
 	require.Eventually(t, func() bool {
@@ -203,19 +202,30 @@ func TestPlannedFailoverNoPgRewind(t *testing.T) {
 		resp.GetOldLeaderId().GetName())
 }
 
-// verifyIsStandby asserts that a multipooler is a healthy streaming replica.
-func verifyIsStandby(t *testing.T, inst *shardsetup.MultipoolerInstance) {
+// verifyBecomesStandby asserts that a multipooler becomes a healthy streaming
+// replica. Polls rather than checking once: RequireRecovery's "no problems"
+// signal and the postgres monitor's own tick that populates ReplicationStatus
+// aren't strictly synchronized, so a demoted primary can be correctly
+// REPLICA-typed and problem-free an instant before its first WAL-receiver
+// poll lands — a window coverage instrumentation's slower monitor cadence
+// widens enough to hit in practice.
+func verifyBecomesStandby(t *testing.T, inst *shardsetup.MultipoolerInstance) {
 	t.Helper()
-	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-	require.NoError(t, err)
-	defer client.Close()
-
-	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.GetStatus().GetPoolerType(),
-		"demoted primary %s should be REPLICA", inst.Name)
-	assert.NotNil(t, resp.GetStatus().GetReplicationStatus(),
-		"demoted primary %s should have replication status", inst.Name)
+	shardsetup.EventuallyPoolerCondition(t,
+		[]*shardsetup.MultipoolerInstance{inst},
+		15*time.Second, 500*time.Millisecond,
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			s := r.Status
+			if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+				return false, fmt.Sprintf("demoted primary not REPLICA yet (is %v)", s.PoolerType)
+			}
+			if s.ReplicationStatus == nil {
+				return false, "replication status not yet reported"
+			}
+			return true, ""
+		},
+		"demoted primary %s should become a REPLICA with replication status", inst.Name,
+	)
 }
 
 // verifyWriteDurability checks that all writes recorded by the validator are
