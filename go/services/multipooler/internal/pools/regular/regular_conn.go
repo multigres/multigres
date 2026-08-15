@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -574,28 +575,111 @@ func tempBuffersRequireFreshSession(err error) bool {
 }
 
 // tempBuffersRetrySafe reports whether sql may be replayed by the temp_buffers
-// freeze recovery. A single failed SELECT/SET/RESET aborted atomically —
-// PostgreSQL rolled back everything the statement did — so re-running it on
-// the replacement backend re-executes nothing that survived. That covers both
-// shapes the recovery exists for: the gateway's SELECT set_config validation
-// probe and a routed SET/RESET temp_buffers. Everything else fails closed to
-// surfacing the error (the pre-recovery behavior): a CALL or DO can COMMIT
-// mid-statement before hitting the freeze, and a multi-statement batch can
-// carry explicit transaction control, so replaying either would re-execute
-// already-committed work. The single-statement check is a conservative
-// no-semicolon scan; a value that legitimately contained one would merely
-// skip the recovery, not misbehave.
+// freeze recovery. The replay is safe only when the statement's SOLE effect is
+// a GUC assignment — not, as an earlier version of this predicate assumed,
+// because a failed statement rolls everything back.
+//
+// That assumption is wrong: non-transactional side effects materialize before
+// the error and outlive it. Verified on PostgreSQL 17 — in
+// `SELECT nextval('s'), set_config('temp_buffers','100',false)` that fails with
+// the freeze, the sequence is still consumed (is_called flips to true), and the
+// pg_advisory_lock variant leaves the lock held. Target-list evaluation order
+// is not guaranteed either, so whether the effect lands is order-dependent.
+// The same principle is documented for the reserved path in
+// executor.reserveAndStreamExecute, which pins rather than releases for exactly
+// this reason. Replaying such a statement would run the effect a second time.
+//
+// So the gate is structural, decided by parsing rather than by inspecting the
+// leading token:
+//
+//   - a single SET/RESET (VariableSetStmt) assigns a GUC and nothing else;
+//   - a single bare SELECT whose target list is entirely set_config(...) calls,
+//     with no FROM/WHERE/CTE/set-operation or any other clause that could
+//     evaluate an unrelated expression.
+//
+// The second shape is the one the recovery exists for and cannot be dropped: a
+// client's plain `SET temp_buffers = ...` reaches the pooler as the gateway's
+// `set_config(..., is_local := true)` validation probe, not as a SET.
+//
+// Everything else fails closed to surfacing the error (the pre-recovery
+// behavior), including a CALL or DO that can COMMIT mid-statement and any
+// multi-statement batch. Parsing runs only on the freeze error path, which is
+// rare, and an unparseable statement is refused.
 func tempBuffersRetrySafe(sql string) bool {
-	trimmed := strings.TrimSpace(sql)
-	if strings.ContainsRune(trimmed, ';') {
+	stmts, err := parser.ParseSQL(sql)
+	if err != nil || len(stmts) != 1 {
 		return false
 	}
-	first, _, _ := strings.Cut(trimmed, " ")
-	switch strings.ToLower(first) {
-	case "select", "set", "reset":
+	switch stmt := stmts[0].(type) {
+	case *ast.VariableSetStmt:
 		return true
+	case *ast.SelectStmt:
+		return isBareSetConfigSelect(stmt)
 	}
 	return false
+}
+
+// isBareSetConfigSelect reports whether stmt is `SELECT set_config(...) [, ...]`
+// and nothing more: every target is a set_config call and no other clause is
+// present that could evaluate an unrelated expression (a FROM-list function, a
+// WHERE predicate calling nextval, a CTE, a set operation, ...).
+func isBareSetConfigSelect(stmt *ast.SelectStmt) bool {
+	if stmt.Op != ast.SETOP_NONE || stmt.Larg != nil || stmt.Rarg != nil {
+		return false
+	}
+	if stmt.IntoClause != nil || stmt.WithClause != nil || stmt.WhereClause != nil ||
+		stmt.HavingClause != nil || stmt.LimitOffset != nil || stmt.LimitCount != nil ||
+		stmt.DistinctClause != nil || stmt.ValuesLists != nil {
+		return false
+	}
+	if nodeListLen(stmt.FromClause) != 0 || nodeListLen(stmt.GroupClause) != 0 ||
+		nodeListLen(stmt.WindowClause) != 0 || nodeListLen(stmt.SortClause) != 0 ||
+		nodeListLen(stmt.LockingClause) != 0 {
+		return false
+	}
+	if nodeListLen(stmt.TargetList) == 0 {
+		return false
+	}
+	for _, item := range stmt.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			return false
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok || !isSetConfigFuncName(fc.Funcname) {
+			return false
+		}
+	}
+	return true
+}
+
+// isSetConfigFuncName matches set_config and pg_catalog.set_config.
+func isSetConfigFuncName(funcname *ast.NodeList) bool {
+	if funcname == nil {
+		return false
+	}
+	names := make([]string, 0, funcname.Len())
+	for _, part := range funcname.Items {
+		s, ok := part.(*ast.String)
+		if !ok {
+			return false
+		}
+		names = append(names, strings.ToLower(s.SVal))
+	}
+	switch len(names) {
+	case 1:
+		return names[0] == "set_config"
+	case 2:
+		return names[0] == "pg_catalog" && names[1] == "set_config"
+	}
+	return false
+}
+
+func nodeListLen(l *ast.NodeList) int {
+	if l == nil {
+		return 0
+	}
+	return l.Len()
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query
