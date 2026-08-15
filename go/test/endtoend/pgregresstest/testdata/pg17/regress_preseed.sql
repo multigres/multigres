@@ -19,6 +19,54 @@ BEGIN
 END;
 $$;
 
+-- join_hash.sql
+-- find_hash has no dynamic EXECUTE, so the gateway allows the test's own CREATE;
+-- it is seeded first only so hash_join_batches' body resolves at preseed time.
+-- hash_join_batches runs a dynamic EXPLAIN (rejected by the gateway), so it is
+-- seeded here — its CREATE sits inside the test's explicit transaction, and now
+-- that a gateway rejection no longer aborts that transaction, the seeded function
+-- lets the batch's EXPLAIN checks run instead of cascading.
+create or replace function find_hash(node json)
+returns json language plpgsql
+as
+$$
+declare
+  x json;
+  child json;
+begin
+  if node->>'Node Type' = 'Hash' then
+    return node;
+  else
+    for child in select json_array_elements(node->'Plans')
+    loop
+      x := find_hash(child);
+      if x is not null then
+        return x;
+      end if;
+    end loop;
+    return null;
+  end if;
+end;
+$$;
+create or replace function hash_join_batches(query text)
+returns table (original int, final int) language plpgsql
+as
+$$
+declare
+  whole_plan json;
+  hash_node json;
+begin
+  for whole_plan in
+    execute 'explain (analyze, format ''json'') ' || query
+  loop
+    hash_node := find_hash(json_extract_path(whole_plan, '0', 'Plan'));
+    original := hash_node->>'Original Hash Batches';
+    final := hash_node->>'Hash Batches';
+    return next;
+  end loop;
+end;
+$$;
+
 -- incremental_sort.sql
 create or replace function explain_analyze_without_memory(query text)
 returns table (out_line text) language plpgsql

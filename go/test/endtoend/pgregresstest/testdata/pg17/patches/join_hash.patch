@@ -1,0 +1,15 @@
+# Known divergence (by design): the hash_join_batches helper runs a dynamic
+# EXECUTE the pooler cannot vet, so its runtime CREATE is rejected. It is
+# pre-seeded on the primary (testdata/pg17/regress_preseed.sql); because a
+# gateway rejection no longer aborts the surrounding transaction, the seeded
+# function lets the batch's EXPLAIN checks run, leaving only the rejected CREATE.
+--- a
++++ b
+@@ -49,6 +49,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- Make a simple relation with well distributed keys and correctly
+ -- estimated size.
+ create table simple as

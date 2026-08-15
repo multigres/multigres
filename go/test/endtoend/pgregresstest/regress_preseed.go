@@ -35,15 +35,19 @@ var regressPreseedSQL string
 // CREATE DATABASE scratch DBs (RunExternalTests) and the isolation PID-mapping
 // shim (installPIDMappingFunction).
 //
-// Every function in regress_preseed.sql — EXPLAIN wrappers, check_ddl_rewrite,
-// eval, check_estimated_rows — contains a dynamic EXECUTE, so multigateway's
-// Tier-1 PL/pgSQL body analysis rejects their runtime CREATE. Without them, each
-// test that CALLS such a helper cascades into "function does not exist", burying
-// the real signal (does memoize / incremental sort / extended-stats estimation
+// Almost every function in regress_preseed.sql — EXPLAIN wrappers,
+// check_ddl_rewrite, eval, check_estimated_rows, hash_join_batches — contains a
+// dynamic EXECUTE, so multigateway's Tier-1 PL/pgSQL body analysis rejects their
+// runtime CREATE. Without them, each test that CALLS such a helper cascades into
+// "function does not exist" (or, when the CREATE sits in an explicit transaction,
+// a rejected statement the backend never saw), burying the real signal (does
+// memoize / incremental sort / extended-stats estimation / hash-join batching
 // work?) under thousands of derived errors. Seeding them lets those substantive
 // tests run; the test's own CREATE is still rejected by the gateway, so its
 // "not supported through the connection pooler" line remains the single, honest
-// divergence recorded in the patch.
+// divergence recorded in the patch. (find_hash is the lone exception: it has no
+// dynamic EXECUTE and the gateway allows the test's own CREATE — it is seeded
+// only so hash_join_batches' body resolves at preseed time.)
 //
 // The seed cannot collide with the test's own CREATE: the gateway rejects that
 // CREATE before it reaches the backend, so the seeded definition is the only one.
