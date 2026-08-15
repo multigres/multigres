@@ -830,6 +830,60 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 				assert.Equal(t, defaultWorkMem, afterNull,
 					"set_config(name, NULL, false) must restore the default, matching PostgreSQL")
 			})
+
+			// The same body via SQL PREPARE/EXECUTE must behave identically.
+			// It previously did not: the planner's literal-NULL marker was
+			// dropped when converting to the prepared representation, so the
+			// gateway tracked an empty string, and the next statement after
+			// EXECUTE died with `invalid value for parameter "work_mem": ""`
+			// — a client could brick its own session. search_path was worse:
+			// PostgreSQL accepts an empty search_path, so it broke unqualified
+			// name resolution with no error at all.
+			t.Run("prepared_null_matches_direct", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "RESET work_mem")
+				require.NoError(t, err)
+				var defaultWorkMem string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&defaultWorkMem))
+
+				_, err = db.ExecContext(ctx, "SET work_mem = '64MB'")
+				require.NoError(t, err)
+
+				_, err = db.ExecContext(ctx, "PREPARE null_reset AS SELECT set_config('work_mem', NULL, false)")
+				require.NoError(t, err, "PREPARE with a literal NULL value must be accepted")
+				_, err = db.ExecContext(ctx, "EXECUTE null_reset")
+				require.NoError(t, err)
+
+				// The very next statement is where a tracked "" surfaces.
+				var afterNull string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&afterNull),
+					"a statement after EXECUTE must not fail on a replayed empty value")
+				assert.Equal(t, defaultWorkMem, afterNull,
+					"the prepared form must reset like the direct form and like PostgreSQL")
+
+				_, err = db.ExecContext(ctx, "DEALLOCATE null_reset")
+				require.NoError(t, err)
+			})
+
+			// search_path is the silent variant: an empty value is accepted by
+			// PostgreSQL, so a mis-tracked "" would corrupt name resolution
+			// without ever raising an error.
+			t.Run("prepared_null_search_path_matches_direct", func(t *testing.T) {
+				var defaultSearchPath string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW search_path").Scan(&defaultSearchPath))
+
+				_, err := db.ExecContext(ctx, "PREPARE sp_null_reset AS SELECT set_config('search_path', NULL, false)")
+				require.NoError(t, err)
+				_, err = db.ExecContext(ctx, "EXECUTE sp_null_reset")
+				require.NoError(t, err)
+
+				var afterNull string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW search_path").Scan(&afterNull))
+				assert.Equal(t, defaultSearchPath, afterNull,
+					"a NULL search_path reset must restore the default, not leave it empty")
+
+				_, err = db.ExecContext(ctx, "DEALLOCATE sp_null_reset")
+				require.NoError(t, err)
+			})
 		})
 	}
 }

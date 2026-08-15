@@ -432,6 +432,48 @@ func TestSetConfigLiteralNullValue(t *testing.T) {
 	})
 }
 
+// TestSetConfigDirectAndPreparedParity pins the invariant that a set_config
+// body must behave identically whether it runs directly or inside a SQL
+// PREPARE — the property validateSQLPreparedSetConfigs' own comment says the
+// prepared form must not violate.
+//
+// It exists because the two paths carry the planner's setConfigCall in
+// different shapes: the direct path folds it into a synthetic VariableSetStmt
+// (VAR_RESET for a NULL value), while the prepared path copies selected fields
+// into engine.SQLPreparedSetConfig. A field added to setConfigCall and wired
+// into only one of those — as ValueIsNull originally was — makes the prepared
+// form silently diverge, tracking an empty string where the direct form
+// correctly tracks a removal. Comparing the reset disposition across both
+// conversions catches that class of omission at the boundary where it happens.
+func TestSetConfigDirectAndPreparedParity(t *testing.T) {
+	bodies := []string{
+		"SELECT set_config('work_mem', NULL, false)",
+		"SELECT set_config('search_path', NULL, false)",
+		"SELECT set_config('work_mem', '64MB', false)",
+		"SELECT set_config('search_path', 'public', false)",
+		"SELECT set_config('work_mem', $1, false)",
+	}
+	for _, body := range bodies {
+		t.Run(body, func(t *testing.T) {
+			result, err := analyzeFunctionCalls(parseOne(t, body))
+			require.NoError(t, err)
+			require.Len(t, result.SetConfigs, 1)
+			sc := result.SetConfigs[0]
+
+			directIsReset := syntheticSetStmt(sc).Kind == ast.VAR_RESET
+			prepared := sqlPreparedSetConfigs(result.SetConfigs)
+			require.Len(t, prepared, 1)
+
+			assert.Equal(t, directIsReset, prepared[0].ValueIsNull,
+				"direct and prepared paths must agree on whether this call is a reset")
+			assert.Equal(t, sc.Name, prepared[0].Name)
+			assert.Equal(t, sc.Value, prepared[0].Value)
+			assert.Equal(t, sc.ValueBind, prepared[0].ValueParam)
+			assert.Equal(t, sc.IsLocalLiteralTrue, prepared[0].IsLocalLiteralTrue)
+		})
+	}
+}
+
 // TestSetConfigIsLocalTrueBoundVetOnly pins the vet-only disposition for the
 // PostgREST hot path: set_config with bound slots and literal is_local=true is
 // accepted and produces a setConfigCall carrying the bind refs, so the plan

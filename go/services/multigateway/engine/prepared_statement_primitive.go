@@ -52,6 +52,17 @@ type SQLPreparedSetConfig struct {
 	ValueParam *ast.ParamRef
 
 	IsLocalLiteralTrue bool
+
+	// ValueIsNull marks a literal NULL value in the PREPARE body. set_config is
+	// not STRICT, so PostgreSQL resets the parameter and the gateway must track
+	// a REMOVAL — without this flag the zero-valued Value ("") is
+	// indistinguishable from set_config(name, '', false) and the tracker writes
+	// an empty string the backend never had, which the next pool replay pushes
+	// back as SET name = '' (rejected for most GUCs, silently empty for
+	// search_path). Mirrors planner.setConfigCall.ValueIsNull; the direct
+	// SELECT set_config(...) path carries the same information as a VAR_RESET
+	// synthetic instead.
+	ValueIsNull bool
 }
 
 // PreparedStatementPrimitive handles SQL PREPARE, EXECUTE, and DEALLOCATE
@@ -270,29 +281,32 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
 	isLocal := sc.IsLocalLiteralTrue
 
+	// Resolve the value once, from whichever source carries it: a literal NULL
+	// the planner recorded at PREPARE time, an EXECUTE argument (which may
+	// itself be NULL), or a plain literal. Both NULL sources must converge here
+	// — gating only on ValueParam would leave a literal NULL looking like an
+	// explicit empty string and track a value PostgreSQL never set.
+	value := sc.Value
+	valueIsNull := sc.ValueIsNull
+	if sc.ValueParam != nil {
+		v, isNull, err := p.resolveExecuteArgAsTextOrNull(sc.ValueParam, portalInfo, "set_config value argument")
+		if err != nil {
+			return resolvedSetConfig{}, err
+		}
+		value, valueIsNull = v, isNull
+	}
+
 	// search_path is value-restricted (see pgsettings.RejectTempSchemaSearchPath):
 	// the EXECUTE argument is the one place a prepared set_config value first
 	// becomes known, so it is vetted here — before the untracked early return
 	// below, mirroring resolveSetConfig on the wire-protocol path. The name is
 	// always a literal in a PREPARE body (bound names are rejected at PREPARE
-	// time by validateSQLPreparedSetConfigs).
-	if strings.EqualFold(sc.Name, "search_path") {
-		value := sc.Value
-		valueIsNull := false
-		if sc.ValueParam != nil {
-			v, isNull, err := p.resolveExecuteArgAsTextOrNull(sc.ValueParam, portalInfo, "set_config value argument")
-			if err != nil {
-				return resolvedSetConfig{}, err
-			}
-			value, valueIsNull = v, isNull
-		}
-		// A NULL value resets search_path to its server/admin-configured
-		// default, which can never carry a client-injected pg_temp — nothing
-		// to vet. See resolveSetConfig for the wire-protocol counterpart.
-		if !valueIsNull {
-			if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
-				return resolvedSetConfig{}, err
-			}
+	// time by validateSQLPreparedSetConfigs). A NULL value resets search_path to
+	// its server/admin-configured default, which can never carry a
+	// client-injected pg_temp — nothing to vet.
+	if strings.EqualFold(sc.Name, "search_path") && !valueIsNull {
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return resolvedSetConfig{}, err
 		}
 	}
 
@@ -300,24 +314,18 @@ func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetC
 		return resolvedSetConfig{shouldTrack: false}, nil
 	}
 
-	value := sc.Value
-	if sc.ValueParam != nil {
-		v, isNull, err := p.resolveExecuteArgAsTextOrNull(sc.ValueParam, portalInfo, "set_config value argument")
-		if err != nil {
-			return resolvedSetConfig{}, err
+	if valueIsNull {
+		// set_config(name, NULL, false) resets the parameter (it is not STRICT),
+		// so track a removal. Gateway-managed variables stay fail-closed — no
+		// per-variable reset primitive exists for them. (Unreachable in practice:
+		// validateSQLPreparedSetConfigs rejects a GMV in a PREPARE body outright.)
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", sc.Name, sc.Name))
 		}
-		if isNull {
-			// EXECUTE supplied NULL: set_config resets the parameter (it is not
-			// STRICT). Gateway-managed variables stay fail-closed — no
-			// per-variable reset primitive exists for them.
-			if handler.IsGatewayManagedVariable(sc.Name) {
-				return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(fmt.Sprintf(
-					"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", sc.Name, sc.Name))
-			}
-			return resolvedSetConfig{name: sc.Name, isLocal: isLocal, shouldTrack: true, isReset: true}, nil
-		}
-		value = v
+		return resolvedSetConfig{name: sc.Name, isLocal: isLocal, shouldTrack: true, isReset: true}, nil
 	}
+
 	return resolvedSetConfig{name: sc.Name, value: value, isLocal: isLocal, shouldTrack: true}, nil
 }
 

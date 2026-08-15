@@ -126,6 +126,19 @@ func TestSQLPreparedSetConfigResolution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, resolvedSetConfig{name: "search_path", value: "value", shouldTrack: true}, resolved)
 
+	// A literal NULL in the PREPARE body resolves to a reset, exactly like a
+	// NULL EXECUTE argument. Without ValueIsNull the zero-valued Value ("")
+	// would be tracked as an explicit empty string the backend never had.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "work_mem", ValueIsNull: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "work_mem", shouldTrack: true, isReset: true}, resolved)
+
+	// Same for search_path: the reset restores the admin default, so the
+	// pg_temp vet has nothing to inspect and must not reject it.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueIsNull: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "search_path", shouldTrack: true, isReset: true}, resolved)
+
 	assert.Zero(t, executeArgCount(nil))
 	assert.Zero(t, executeArgCount(&ast.ExecuteStmt{}))
 	assert.Equal(t, 1, executeArgCount(p.executeStmt))
@@ -146,6 +159,18 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 	got, ok := state.GetSessionVariable("application_name")
 	require.True(t, ok)
 	assert.Equal(t, "prepared", got)
+
+	// A literal NULL in the PREPARE body must REMOVE the tracked entry, not
+	// write "". Tracking "" would replay as SET application_name = '' onto the
+	// next pooled backend — rejected by PostgreSQL for most GUCs, and silently
+	// wrong for search_path.
+	p.setConfigs = []SQLPreparedSetConfig{{Name: "application_name", ValueIsNull: true}}
+	actions, _, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	actions[0]()
+	_, ok = state.GetSessionVariable("application_name")
+	assert.False(t, ok, "a NULL value must drop the tracked entry, matching PostgreSQL's reset")
 
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "1s", IsLocalLiteralTrue: true}}

@@ -120,6 +120,11 @@ func sqlPreparedSetConfigs(setConfigs []setConfigCall) []engine.SQLPreparedSetCo
 			Value:              sc.Value,
 			ValueParam:         sc.ValueBind,
 			IsLocalLiteralTrue: sc.IsLocalLiteralTrue,
+			// Must be carried across: a dropped ValueIsNull leaves Value ""
+			// looking like an explicit empty-string assignment, so the prepared
+			// form would silently diverge from the identical direct statement
+			// (the divergence validateSQLPreparedSetConfigs exists to prevent).
+			ValueIsNull: sc.ValueIsNull,
 		})
 	}
 	return out
