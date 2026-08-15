@@ -23,6 +23,7 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -276,6 +277,10 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 			if !pm.consensusMgr.SuspectedDivergence() {
 				pm.consensusMgr.ResetRewindBackoff()
 			}
+			// Postgres came up: the FATAL-loop streak (if any) is broken. This is
+			// the common healthy path, which returns before reaching
+			// trackRecoveryOutcome, so reset the classifier here too.
+			pm.resetUnrecoverableTracking()
 		}
 		return currentState, nil
 	}
@@ -304,7 +309,13 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	action = pm.determineRemedialAction(lockCtx, currentState)
 
 	// Take remedial action with lock held
-	pm.takeRemedialAction(lockCtx, action, currentState)
+	actionErr := pm.takeRemedialAction(lockCtx, action, currentState)
+
+	// Feed the unrecoverable-FATAL-loop classifier: a postgres that keeps
+	// failing to start (or rewind/restore) for long enough is quarantined so it
+	// gets replaced instead of spinning forever. Runs under the same action lock
+	// so the quarantine record write is serialised with the rest of the tick.
+	pm.trackRecoveryOutcome(lockCtx, action, currentState, actionErr)
 
 	return currentState, nil
 }
@@ -422,47 +433,231 @@ func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
-// matchesRecorded reports whether ci's contact info matches target: host,
-// port, AND the passfile clause. A conninfo that points at the right primary
-// but lacks a usable passfile= (e.g. it was written before pgpassPath was
-// known) leaves the walreceiver unable to authenticate, so passfile is part
-// of the match too — this lets the reconcile paths self-heal that case
-// instead of freezing a passwordless conninfo in place forever.
+// expectedPrimaryConnInfo assembles the primary_conninfo this pooler should
+// have when following the recorded primary at `target`, from the single set of
+// authoritative inputs. It is the value the drift check compares the live
+// conninfo against.
+func (pm *MultipoolerManager) expectedPrimaryConnInfo(target *clustermetadatapb.PoolerAddress) *multipoolermanagerdatapb.PrimaryConnInfo {
+	return pm.expectedPrimaryConnInfoAt(target.GetHost(), target.GetPostgresPort())
+}
+
+// expectedPrimaryConnInfoAt assembles the PrimaryConnInfo this pooler should use
+// to follow the primary at (host, port) from the authoritative inputs: the
+// replication user (connPoolMgr.PgUser(), falling back to the default superuser
+// before the pool manager exists), this pooler's application_name
+// (servicePoolerID), and the pgpass path (pgpassFilePath(), the ONLY read of
+// pgpassPath). Both the write path (setPrimaryConnInfoLocked) and the drift
+// check assemble their value here, so there is one source of truth for what the
+// conninfo should contain.
+func (pm *MultipoolerManager) expectedPrimaryConnInfoAt(host string, port int32) *multipoolermanagerdatapb.PrimaryConnInfo {
+	user := constants.DefaultPostgresUser
+	if pm.connPoolMgr != nil {
+		user = pm.connPoolMgr.PgUser()
+	}
+	return &multipoolermanagerdatapb.PrimaryConnInfo{
+		Host:            host,
+		Port:            port,
+		User:            user,
+		ApplicationName: pm.servicePoolerID.AppName(),
+		Passfile:        pm.pgpassFilePath(),
+	}
+}
+
+// connInfoPointsAt reports whether actual's host/port target (host, port).
+// actual may be nil (absent/unparsable conninfo), which never matches. Shared by
+// the drift comparison and standbyStuckDiverged so the host/port equality lives
+// in one place.
+func connInfoPointsAt(actual *multipoolermanagerdatapb.PrimaryConnInfo, host string, port int32) bool {
+	return actual != nil && actual.GetHost() == host && actual.GetPort() == port
+}
+
+// connInfoDrifted reports whether the live primary_conninfo (actual) differs
+// from what this pooler should have (expected) in ANY managed field: host, port,
+// user, application_name, and passfile. This is the single comparison site — a
+// field added to the builder (buildPrimaryConnInfo) and to expectedPrimaryConnInfo
+// must be compared here too or the round-trip test fails.
 //
-// The passfile comparison is asymmetric: pgpassFilePath() returns "" until
-// pgpassPath is known, and setPrimaryConnInfoLocked cannot append a passfile
-// in that state. Treating "" as "expect no passfile" would flag drift we
-// can't fix and reconcile in a loop that keeps producing the same
-// passwordless conninfo, so an unknown expected path is treated as a match
-// (nothing to reconcile toward yet) regardless of what ci carries.
+// actual may be nil (absent/unparsable conninfo), which is always drift when
+// there is an expected value to reconcile toward.
 //
-// ci may be nil (absent/unparsable conninfo), which never matches.
-func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAddress, ci *multipoolermanagerdatapb.PrimaryConnInfo) bool {
-	if ci == nil {
+// The passfile comparison is asymmetric: expected.Passfile is "" until
+// pgpassPath is known, and setPrimaryConnInfoLocked cannot write a passfile in
+// that state. Treating "" as "expect no passfile" would flag drift we can't fix
+// and reconcile in a loop that keeps producing the same passwordless conninfo,
+// so an unknown expected passfile is treated as a match (nothing to reconcile
+// toward yet) regardless of what actual carries. This is the "only flag drift we
+// can fix" guard.
+func connInfoDrifted(actual, expected *multipoolermanagerdatapb.PrimaryConnInfo) bool {
+	if actual == nil {
+		return true
+	}
+	if !connInfoPointsAt(actual, expected.GetHost(), expected.GetPort()) {
+		return true
+	}
+	if actual.GetUser() != expected.GetUser() {
+		return true
+	}
+	if actual.GetApplicationName() != expected.GetApplicationName() {
+		return true
+	}
+	if expected.GetPassfile() != "" && actual.GetPassfile() != expected.GetPassfile() {
+		return true
+	}
+	return false
+}
+
+// connInfoReconcileAllowed reports whether this pooler may reconcile
+// primary_conninfo at all this tick, and if so returns the recorded primary
+// address to reconcile toward. It is the "may we touch it?" predicate — every
+// early-return gate, no comparison (that is connInfoDrifted):
+//
+//   - manual-stop: StopReplication set the flag, so setPrimaryConnInfoLocked
+//     would refuse every rewrite until StartReplication clears it. Reconciling
+//     anyway would fire the action on every tick and log a noisy
+//     FAILED_PRECONDITION each time.
+//   - no recorded primary: nothing to compare against (SetPrimary/Promote have
+//     not run, or recorded no contact info).
+//   - self-is-leader: the recorded rule names this pooler — primary-side case,
+//     out of scope for replica-conninfo reconciliation.
+//   - revoked rule: a Recruit that already advanced revoked_below_term has
+//     deliberately cleared primary_conninfo; the cached primary is stale until
+//     the next SetPrimary/Promote. Restoring conninfo to it would race the
+//     in-flight Recruit/Promote and make Promote refuse with
+//     "primary_conninfo is set".
+//   - empty target: recorded primary has no host/port to point at.
+func (pm *MultipoolerManager) connInfoReconcileAllowed() (*clustermetadatapb.PoolerAddress, bool) {
+	if pm.walReceiverManuallyStopped.Load() {
+		return nil, false
+	}
+	rp := pm.consensusMgr.GetReplicationPrimary()
+	if rp == nil {
+		return nil, false
+	}
+	target := rp.GetPrimary()
+	if target == nil {
+		return nil, false
+	}
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
+		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return nil, false
+	}
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+		return nil, false
+	}
+	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return nil, false
+	}
+	return target, true
+}
+
+// isRecoveryAction reports whether a remedial action is an attempt to bring
+// postgres back up. Only failures of these count toward the unrecoverable
+// (FATAL-loop) verdict — a benign reconcile or a rewind-ready broadcast failing
+// does not mean the node can't start.
+func isRecoveryAction(action remedialAction) bool {
+	switch action {
+	case remedialActionStartPostgres, remedialActionRewindToLeader, remedialActionRestoreFromBackup:
+		return true
+	default:
 		return false
 	}
-	if ci.GetHost() != target.GetHost() || ci.GetPort() != target.GetPostgresPort() {
-		return false
+}
+
+// resetUnrecoverableTracking clears the consecutive-failure streak. Called
+// whenever postgres is observed running — the FATAL-loop, if there was one, is
+// over. Touches only monitor-goroutine-local fields.
+func (pm *MultipoolerManager) resetUnrecoverableTracking() {
+	pm.unrecoverableFailedAttempts = 0
+	pm.unrecoverableFirstFailureAt = time.Time{}
+}
+
+// trackRecoveryOutcome is the unrecoverable-FATAL-loop classifier. It runs once
+// per monitor tick, under the action lock, after takeRemedialAction. It observes
+// consecutive failed postgres recovery attempts (start/rewind/restore) and, once
+// postgres has been continuously failing for longer than unrecoverableTimeout
+// AND at least unrecoverableMinAttempts genuine attempts have failed, quarantines
+// the pooler so it is replaced rather than looping forever.
+//
+// The timeout is the primary gate (operator-facing, independent of the monitor
+// interval and of how long individual attempts take — a fast start-FATAL and a
+// slow restore-failure are judged on the same wall-clock budget). The attempts
+// floor guards the degenerate cases where few real attempts happened (a single
+// hung attempt, sparse ticks).
+//
+// It deliberately does NOT fire for a postgres that is merely down transiently:
+// a running postgres resets the streak, and only genuine failed recovery
+// attempts (an action that tried and errored) advance it — a skipped start
+// (restarts disabled), a benign reconcile, or a legitimately in-progress restore
+// do not. This is what distinguishes "postgres momentarily down" from
+// "unrecoverable".
+func (pm *MultipoolerManager) trackRecoveryOutcome(ctx context.Context, action remedialAction, state postgresState, actionErr error) {
+	// Classifier disabled (timeout 0): keep the pre-quarantine behaviour of
+	// retrying indefinitely.
+	if pm.unrecoverableTimeout <= 0 {
+		return
 	}
-	expectedPassfile := pm.pgpassFilePath()
-	return expectedPassfile == "" || ci.GetPassfile() == expectedPassfile
+
+	// The verdict is latched on the record and only cleared by pod replacement
+	// (a fresh manager). The classifier itself has nothing more to do once
+	// quarantined — but the quarantine side effects are applied across several
+	// steps (record write, cohort ineligibility, restart suppression) and any of
+	// them can fail on the tick we first quarantine. In particular, if the
+	// lifecycle status latched but SetCohortEligibility failed, the coordinator
+	// would keep trying to recruit this node and the orchestrator would never
+	// elect a new primary. Re-run the idempotent side effects each tick until
+	// they fully apply; once cohort eligibility is INELIGIBLE there is genuinely
+	// nothing left to do.
+	if lifecycle := pm.record.Snapshot().GetLifecycleStatus(); lifecycle.GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED {
+		if pm.consensusMgr.CohortEligibility() != clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+			pm.markPoolerQuarantinedLocked(ctx, lifecycle.GetReason())
+		}
+		return
+	}
+
+	// Postgres is up: the streak (if any) is broken.
+	if state.postgresRunning {
+		pm.resetUnrecoverableTracking()
+		return
+	}
+
+	// Only a failed recovery attempt counts. Anything else (benign action,
+	// skipped start, or a success that nonetheless left postgres reported down
+	// this tick) is not evidence the node can't recover.
+	if !isRecoveryAction(action) || actionErr == nil {
+		return
+	}
+
+	now := pm.now()
+	if pm.unrecoverableFailedAttempts == 0 {
+		pm.unrecoverableFirstFailureAt = now
+	}
+	pm.unrecoverableFailedAttempts++
+
+	minAttempts := pm.unrecoverableMinAttempts
+	if minAttempts <= 0 {
+		minAttempts = constants.DefaultUnrecoverableMinAttempts
+	}
+	elapsed := now.Sub(pm.unrecoverableFirstFailureAt)
+	// Both gates must hold: enough real attempts AND long enough elapsed.
+	if pm.unrecoverableFailedAttempts < minAttempts || elapsed < pm.unrecoverableTimeout {
+		return
+	}
+
+	reason := fmt.Sprintf(
+		"postgres failed to recover for %s across %d attempts (last error: %v)",
+		elapsed.Round(time.Second),
+		pm.unrecoverableFailedAttempts,
+		actionErr,
+	)
+	pm.markPoolerQuarantinedLocked(ctx, reason)
 }
 
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
-// informed about a primary (via SetPrimary or Promote) and the live primary_conninfo
-// in postgres doesn't match the recorded primary's contact info. Returns false
-// when there's nothing to compare against, when we couldn't read the GUC, or
-// when the recorded primary names this pooler itself.
-//
-// "Contact info" is host, port, and the passfile clause — see matchesRecorded.
-//
-// Returns false when the recorded primary's rule is revoked by our recorded
-// revocation: a Recruit that's already advanced revoked_below_term has
-// deliberately cleared primary_conninfo, and the cached "recorded primary" is
-// stale until the next SetPrimary/Promote updates it. Without this gate, the
-// monitor would race the Recruit/Promote flow by restoring conninfo to the
-// just-revoked primary, which then causes Promote to refuse with
-// "primary_conninfo is set".
+// informed about a primary (via SetPrimary or Promote) and the live
+// primary_conninfo in postgres has drifted from the value this pooler should
+// have. It composes the two separated concerns: connInfoReconcileAllowed (may we
+// reconcile at all?) and connInfoDrifted (did the value drift?). Returns false
+// when reconciliation isn't allowed or when we couldn't read the GUC.
 //
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
@@ -472,35 +667,8 @@ func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAd
 // a fresh state snapshot (e.g. the SetPrimary RPC path) pass nil, in which case
 // the GUC is read here as before.
 func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context, connInfo *multipoolermanagerdatapb.PrimaryConnInfo) bool {
-	// Don't detect drift we can't fix: when StopReplication has set the
-	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
-	// rewrite until StartReplication clears it. Detecting drift anyway would
-	// fire the reconciliation action on every tick and log a noisy
-	// FAILED_PRECONDITION error each time.
-	if pm.walReceiverManuallyStopped.Load() {
-		return false
-	}
-	rp := pm.consensusMgr.GetReplicationPrimary()
-	if rp == nil {
-		return false
-	}
-	target := rp.GetPrimary()
-	if target == nil {
-		return false
-	}
-	// Skip if the recorded rule names this pooler as the leader — that's the
-	// primary-side case, out of scope for replica-conninfo reconciliation.
-	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
-		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
-		return false
-	}
-	// Skip if the recorded rule is revoked. The cached primary is from before
-	// the current revocation took effect; restoring conninfo to it would race
-	// the Recruit/Promote flow that's mid-flight (see function doc).
-	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
-		return false
-	}
-	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
+	target, ok := pm.connInfoReconcileAllowed()
+	if !ok {
 		return false
 	}
 
@@ -514,17 +682,15 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 			// Conservative: don't trigger reconciliation we can't verify.
 			return false
 		}
-		if connInfoStr == "" {
-			return true
-		}
 		parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
 		if err != nil || parsed == nil {
-			// Unparsable conninfo is itself drift worth fixing.
+			// Unparsable conninfo is itself drift worth fixing. (An empty GUC
+			// parses to an all-empty PrimaryConnInfo, which drifts below.)
 			return true
 		}
 		connInfo = parsed
 	}
-	return !pm.matchesRecorded(target, connInfo)
+	return connInfoDrifted(connInfo, pm.expectedPrimaryConnInfo(target))
 }
 
 // reconcilePrimaryConnInfoToRecorded re-applies primary_conninfo so it points
@@ -777,7 +943,7 @@ func (pm *MultipoolerManager) standbyStuckDiverged(ctx context.Context, state po
 	if state.connInfo == nil {
 		return false
 	}
-	if state.connInfo.GetHost() != host || state.connInfo.GetPort() != port {
+	if !connInfoPointsAt(state.connInfo, host, port) {
 		pm.standbyStuckSince.Store(0)
 		return false
 	}
@@ -921,11 +1087,16 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 
 // takeRemedialAction executes the specified remedial action.
 // Caller must hold the action lock.
-func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
+// takeRemedialAction performs the chosen remediation. It returns the error from
+// a postgres recovery attempt (start / rewind / restore) so the caller's
+// unrecoverable-FATAL-loop classifier can count consecutive failures; it returns
+// nil for non-recovery actions, skipped actions, and successes. The returned
+// error is already logged here — the caller uses it only as a failure signal.
+func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) error {
 	// Assert that the action lock is held
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
-		return
+		return nil
 	}
 
 	const (
@@ -939,7 +1110,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	switch action {
 	case remedialActionNone:
 		// No action to take
-		return
+		return nil
 
 	case remedialActionDemoteStalePrimary:
 		// Re-check under the action lock: the decision was made on a lock-free
@@ -948,7 +1119,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// until the recorded leader has checkpointed onto its current timeline).
 		target := pm.staleStandbyDemoteTarget()
 		if target == nil {
-			return
+			return nil
 		}
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: stale primary; consensus names another leader, restarting as standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -964,7 +1135,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		// Sync the physical standby role and re-enable reads only after the rewind
 		// path has cleared suspected divergence.
@@ -1019,7 +1190,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// during controlled failovers.
 		if pm.postgresRestartsDisabled.Load() {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		// Retract writability and serving before the blocking restart. Otherwise a
@@ -1037,17 +1208,18 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start Postgres, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return err
 		}
 
 	case remedialActionRewindToLeader:
 		// Honor the in-memory flag set by tests and demos to suppress auto-restart.
 		if pm.postgresRestartsDisabled.Load() {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		host, port, ok := pm.consensusMgr.RewindTarget()
 		if !ok {
-			return
+			return nil
 		}
 		// Stamp the backoff before attempting, so a failed rewind is rate-limited
 		// regardless of how it fails.
@@ -1060,7 +1232,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			"target_host", host, "target_port", port)
 		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return err
 		}
 		// Success: postgres is back as a standby (suspectedDivergence cleared in
 		// restartAsStandbyLocked). The backoff is cleared on the next healthy
@@ -1076,7 +1248,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// orch's old RewindToSource RPC for a diverged-but-running standby.
 		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		// Clear the debounce timer; the rewind path now owns the incident.
 		pm.standbyStuckSince.Store(0)
@@ -1088,6 +1260,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return err
 		}
 
 	case remedialActionCreateFirstBackup:
@@ -1141,6 +1314,8 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.broadcastHealth()
 		}
 	}
+
+	return nil
 }
 
 // hasCompleteBackups checks if there are any complete backups available
@@ -1196,7 +1371,10 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// been rewound to. Postgres is down, so this edits postgresql.auto.conf
 	// directly rather than via ALTER SYSTEM. Best-effort — a failure here must not
 	// block the start; the rewind (restartAsStandbyLocked, once the leader is
-	// rewind-ready) re-establishes primary_conninfo afterwards.
+	// rewind-ready) re-establishes primary_conninfo afterwards — written back
+	// into postgresql.auto.conf before the post-rewind start, so even a standby
+	// that cannot reach consistency (and thus never accepts the SQL write) comes
+	// back streaming rather than held blind.
 	if pm.consensusMgr.SuspectedDivergence() {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun

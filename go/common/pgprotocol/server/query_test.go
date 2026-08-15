@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
 
 	"github.com/stretchr/testify/assert"
@@ -388,6 +389,11 @@ func TestWriteCommandComplete(t *testing.T) {
 
 // TestWriteError tests encoding of ErrorResponse messages via writeError.
 func TestWriteError(t *testing.T) {
+	// nil error writes nothing.
+	var nilBuf bytes.Buffer
+	require.NoError(t, createTestConn(t, &nilBuf).writeError(nil))
+	assert.Zero(t, nilBuf.Len())
+
 	tests := []struct {
 		name     string
 		err      error
@@ -427,6 +433,24 @@ func TestWriteError(t *testing.T) {
 			sqlState: "MTE01",
 			message:  "connection startup failed",
 			detail:   "bad message",
+		},
+		{
+			// A transport UNAVAILABLE with no PostgreSQL diagnostic (e.g. a
+			// reserved-connection query against a dead pooler) must surface
+			// as connection_failure, not internal_error wrapping gRPC text.
+			name:     "transport UNAVAILABLE without diagnostic",
+			err:      mterrors.New(mtrpcpb.Code_UNAVAILABLE, `connection error: desc = "transport: Error while dialing: connect: connection refused"`),
+			severity: "ERROR",
+			sqlState: "08006",
+			message:  "connection to server lost",
+			detail:   `connection error: desc = "transport: Error while dialing: connect: connection refused"`,
+		},
+		{
+			name:     "generic error becomes internal error",
+			err:      io.ErrUnexpectedEOF,
+			severity: "ERROR",
+			sqlState: "XX000",
+			message:  "unexpected EOF",
 		},
 	}
 

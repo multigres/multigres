@@ -23,7 +23,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonSetConfig
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -71,29 +71,13 @@ const (
 	// the correctness bug this reason exists to prevent (a session's own
 	// reproducible sequence silently changing mid-use).
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
-
-	// ReasonSetConfig indicates the statement carries a session-persisting
-	// set_config(..., false) whose new value the multigateway must record into
-	// its authoritative session-settings map before this backend may re-enter
-	// the pool. The settings map sent with the statement predates that
-	// recording, so an implicit release at statement end would stamp a stale
-	// label onto the connection; the multigateway instead releases explicitly
-	// after tracking, with options carrying the updated map.
-	//
-	// Its lifetime is exactly its protection window: the executor drops it as
-	// soon as the statement completes when another reason still holds the
-	// connection (the bit's job is moot then), keeps it when it is the only
-	// reason (awaiting the multigateway's explicit post-tracking release), and
-	// unwinds it with the statement-local reasons on failure.
-	ReasonSetConfig = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_CONFIG) // 256
 )
 
 // StatementLocalReasons are the reasons a single statement adds for its own
 // execution and that must be unwound if PostgreSQL rejects that statement:
 // the reservation-side effects never materialized (temp table not created,
-// portal not opened, set_config not applied — a failed statement aborts
-// atomically).
-const StatementLocalReasons = ReasonTempTable | ReasonPortal | ReasonSetConfig
+// portal not opened — a failed statement aborts atomically).
+const StatementLocalReasons = ReasonTempTable | ReasonPortal
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
 func ValidateReasons(reasons uint32) error {
@@ -234,9 +218,6 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasSetSeedReason(reasons) {
 		parts = append(parts, "set_seed")
-	}
-	if HasReason(reasons, ReasonSetConfig) {
-		parts = append(parts, "set_config")
 	}
 	if len(parts) == 0 {
 		return "unknown"

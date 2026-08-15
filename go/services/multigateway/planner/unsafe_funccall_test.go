@@ -887,9 +887,12 @@ func TestResolveFuncName(t *testing.T) {
 }
 
 // TestPlan_SetConfig_ProducesSequence verifies that every accepted
-// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets —
-// plans as the same Sequence[Route, silent ApplySessionState...]. No fast-path
-// for the bare case: uniform construction is worth the extra round-trip.
+// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets — plans as
+// Sequence[SessionStateBranch, silent ApplySessionState...]. The branch carries
+// both routes: the pinned one routes the original (is_local false, persists on a
+// reserved backend) and the unpinned one reverts (is_local true) so a pooled
+// backend is left clean. No fast-path for the bare case: uniform construction is
+// worth the extra round-trip.
 func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -928,13 +931,18 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
-			// The original call routes unmodified; the ReasonSetConfig
-			// reservation on ExecInfo is what keeps the persisting change safe
-			// on a pooled backend.
-			_, ok = seq.Primitives[0].(*engine.Route)
-			require.True(t, ok, "first primitive should be a plain Route, got %T", seq.Primitives[0])
-			assert.True(t, plan.ExecInfo.PersistingSetConfig,
-				"a persisting set_config plan must carry the capture-reservation intent")
+			// The leading primitive is a SessionStateBranch: the pinned branch
+			// routes the original (is_local false, persists on a reserved backend)
+			// while the unpinned branch reverts (is_local true) so a pooled backend
+			// keeps nothing. No capture reservation is involved.
+			branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+			require.True(t, ok, "first primitive should be a SessionStateBranch, got %T", seq.Primitives[0])
+			pinnedRoute, ok := branch.Pinned.(*engine.Route)
+			require.True(t, ok, "pinned branch should be a plain Route, got %T", branch.Pinned)
+			assert.Equal(t, stmt.SqlString(), pinnedRoute.Query, "pinned branch routes the base AST verbatim (is_local=false)")
+			unpinnedRoute, ok := branch.Unpinned.(*engine.Route)
+			require.True(t, ok, "unpinned branch should be a plain Route, got %T", branch.Unpinned)
+			assert.NotEqual(t, pinnedRoute.Query, unpinnedRoute.Query, "unpinned branch must rewrite is_local to revert")
 
 			for i, wantName := range tt.wantTrackers {
 				primIdx := i + 1
@@ -947,12 +955,14 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	}
 }
 
-// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-session shape: on a
-// session inside a transaction, a tracked set_config routes its ORIGINAL
-// query (is_local false intact, plain Route — no value-route wrapper). The
-// pinned backend genuinely carries the value in lockstep with the gateway
-// map, and no SELECT is injected later to re-propagate it (which would latch
-// a REPEATABLE READ/SERIALIZABLE snapshot early).
+// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-branch shape: the
+// plan is always a SessionStateBranch (the plan is cacheable, so the
+// pinned/unpinned choice is deferred to execute time), and its pinned branch
+// routes the ORIGINAL query (is_local false intact, plain Route — no value-route
+// wrapper). At execute time a pinned session selects that branch so its backend
+// genuinely carries the value in lockstep with the gateway map, and no SELECT is
+// injected later to re-propagate it (which would latch a
+// REPEATABLE READ/SERIALIZABLE snapshot early).
 func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -967,35 +977,44 @@ func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
 
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
-	route, ok := seq.Primitives[0].(*engine.Route)
-	require.True(t, ok, "pinned tracked set_config must route as a plain Route, got %T", seq.Primitives[0])
-	assert.Equal(t, sql, route.Query, "the original is_local=false call must reach the pinned backend unmodified")
+	branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+	require.True(t, ok, "expected SessionStateBranch, got %T", seq.Primitives[0])
+	route, ok := branch.Pinned.(*engine.Route)
+	require.True(t, ok, "the pinned branch must route as a plain Route, got %T", branch.Pinned)
+	assert.Equal(t, stmt.SqlString(), route.Query, "the is_local=false call must reach the pinned backend unmodified")
 }
 
-// TestAnyPersistingSetConfig pins the reservation-intent detection: exactly
-// the tracked calls that leave real session state on the routed backend set
-// PlanExecInfo.PersistingSetConfig, and the hot PostgREST shape (is_local
-// literal true) does not — those plans carry no reservation and stay cheap.
-func TestAnyPersistingSetConfig(t *testing.T) {
+// TestRewriteSetConfigToRevert pins the revert rewrite that replaces the old
+// capture reservation: exactly the tracked calls that would leave real session
+// state on the backend get their is_local flipped false→true (so the rewrite
+// returns a non-nil clone), while shapes that persist nothing — the hot
+// PostgREST is_local-literal-true form, and gateway-managed calls (rewritten out
+// of the routed query entirely) — are left unchanged.
+func TestRewriteSetConfigToRevert(t *testing.T) {
 	tests := []struct {
-		sql  string
-		want bool
+		sql      string
+		wantFlip bool
 	}{
 		{"SELECT set_config('work_mem', '256MB', false)", true},
 		{"SELECT set_config('work_mem', $1, false)", true},
-		{"SELECT set_config('work_mem', '256MB', false), * FROM t", true},
+		{"SELECT set_config('work_mem', '256MB', false), 1 AS x", true},
 		{"SELECT set_config('request.jwt.claims', '{}', true)", false},
-		// Gateway-managed with literal false: rewritten out of the routed
-		// query, so nothing persists on the backend.
+		// Gateway-managed with literal false: not flipped here — it is removed
+		// from the routed query entirely by rewriteGatewayManagedSetConfig.
 		{"SELECT set_config('statement_timeout', '5s', false)", false},
 		{"SELECT 1", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.sql, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, anyPersistingSetConfig(result.SetConfigs))
+			reverted := rewriteSetConfigToRevert(stmt)
+			if tt.wantFlip {
+				require.NotNil(t, reverted, "expected a reverting rewrite")
+				assert.NotEqual(t, stmt.SqlString(), reverted.SqlString(),
+					"the rewrite must flip is_local so the routed query differs")
+			} else {
+				assert.Nil(t, reverted, "expected no rewrite")
+			}
 		})
 	}
 }

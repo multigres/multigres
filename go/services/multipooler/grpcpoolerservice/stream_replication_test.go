@@ -111,7 +111,9 @@ func dataReq(b string) *multipoolerpb.StreamReplicationRequest {
 func TestStreamReplication_RejectsUnimplementedModes(t *testing.T) {
 	for _, mode := range []multipoolerpb.ReplicationMode{
 		multipoolerpb.ReplicationMode_REPLICATION_MODE_UNSPECIFIED,
-		multipoolerpb.ReplicationMode_REPLICATION_MODE_TRUE,
+		// An unknown/unimplemented mode value (e.g. a future physical-replication
+		// mode) must also be rejected before the handler touches the pooler.
+		multipoolerpb.ReplicationMode(99),
 	} {
 		t.Run(mode.String(), func(t *testing.T) {
 			s := &poolerService{} // nil pooler: mode check must reject before use

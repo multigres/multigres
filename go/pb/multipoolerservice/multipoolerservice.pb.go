@@ -49,7 +49,6 @@ type ReplicationMode int32
 const (
 	ReplicationMode_REPLICATION_MODE_UNSPECIFIED ReplicationMode = 0
 	ReplicationMode_REPLICATION_MODE_DATABASE    ReplicationMode = 1 // replication=database (logical)
-	ReplicationMode_REPLICATION_MODE_TRUE        ReplicationMode = 2 // replication=true (physical) — reserved, not used in v1
 )
 
 // Enum value maps for ReplicationMode.
@@ -57,12 +56,10 @@ var (
 	ReplicationMode_name = map[int32]string{
 		0: "REPLICATION_MODE_UNSPECIFIED",
 		1: "REPLICATION_MODE_DATABASE",
-		2: "REPLICATION_MODE_TRUE",
 	}
 	ReplicationMode_value = map[string]int32{
 		"REPLICATION_MODE_UNSPECIFIED": 0,
 		"REPLICATION_MODE_DATABASE":    1,
-		"REPLICATION_MODE_TRUE":        2,
 	}
 )
 
@@ -129,18 +126,6 @@ const (
 	// residual-state gap is accepted since it only affects the statistical
 	// freshness of an unrelated session's random() sequence.
 	ReservationReason_RESERVATION_REASON_SET_SEED ReservationReason = 128 // 0b10000000
-	// Connection is reserved because the statement carries a session-persisting
-	// set_config(..., false) whose new value the multigateway must record into
-	// its authoritative session-settings map before this backend may re-enter
-	// the pool: the settings map sent WITH the statement predates that
-	// recording, so an implicit release would stamp a stale label. The
-	// multigateway explicitly releases the reservation after tracking, and that
-	// release's options carry the updated map. Its lifetime is exactly that
-	// window: the multipooler drops it as soon as the statement completes when
-	// another reason still holds the connection, keeps it when it is the only
-	// reason (awaiting that explicit release), and unwinds it with the other
-	// statement-local reasons on statement failure.
-	ReservationReason_RESERVATION_REASON_SET_CONFIG ReservationReason = 256 // 0b100000000
 )
 
 // Enum value maps for ReservationReason.
@@ -155,7 +140,6 @@ var (
 		32:  "RESERVATION_REASON_LOGICAL_REPLICATION",
 		64:  "RESERVATION_REASON_SESSION_ADVISORY_LOCK",
 		128: "RESERVATION_REASON_SET_SEED",
-		256: "RESERVATION_REASON_SET_CONFIG",
 	}
 	ReservationReason_value = map[string]int32{
 		"RESERVATION_REASON_UNSPECIFIED":           0,
@@ -167,7 +151,6 @@ var (
 		"RESERVATION_REASON_LOGICAL_REPLICATION":   32,
 		"RESERVATION_REASON_SESSION_ADVISORY_LOCK": 64,
 		"RESERVATION_REASON_SET_SEED":              128,
-		"RESERVATION_REASON_SET_CONFIG":            256,
 	}
 )
 
@@ -1485,10 +1468,7 @@ type StreamReplicationRequest struct {
 	//
 	//	*StreamReplicationRequest_Init
 	//	*StreamReplicationRequest_Data
-	Msg isStreamReplicationRequest_Msg `protobuf_oneof:"msg"`
-	// Reserved for future end-to-end latency measurement; unused in v1.
-	// Carried in the envelope, never inside `data`, to stay protocol-blind.
-	SendUnixnano  int64 `protobuf:"varint,3,opt,name=send_unixnano,json=sendUnixnano,proto3" json:"send_unixnano,omitempty"`
+	Msg           isStreamReplicationRequest_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1546,13 +1526,6 @@ func (x *StreamReplicationRequest) GetData() []byte {
 		}
 	}
 	return nil
-}
-
-func (x *StreamReplicationRequest) GetSendUnixnano() int64 {
-	if x != nil {
-		return x.SendUnixnano
-	}
-	return 0
 }
 
 type isStreamReplicationRequest_Msg interface {
@@ -1659,7 +1632,6 @@ type StreamReplicationResponse struct {
 	//	*StreamReplicationResponse_Data
 	//	*StreamReplicationResponse_Error
 	Msg           isStreamReplicationResponse_Msg `protobuf_oneof:"msg"`
-	SendUnixnano  int64                           `protobuf:"varint,4,opt,name=send_unixnano,json=sendUnixnano,proto3" json:"send_unixnano,omitempty"` // reserved, unused in v1
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1726,13 +1698,6 @@ func (x *StreamReplicationResponse) GetError() *StreamReplicationError {
 		}
 	}
 	return nil
-}
-
-func (x *StreamReplicationResponse) GetSendUnixnano() int64 {
-	if x != nil {
-		return x.SendUnixnano
-	}
-	return 0
 }
 
 type isStreamReplicationResponse_Msg interface {
@@ -2598,22 +2563,20 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x127\n" +
 	"\x04mode\x18\x03 \x01(\x0e2#.multipoolerservice.ReplicationModeR\x04mode\x12\x12\n" +
 	"\x04user\x18\x04 \x01(\tR\x04user\x12,\n" +
-	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\"\x9d\x01\n" +
+	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\"x\n" +
 	"\x18StreamReplicationRequest\x12?\n" +
 	"\x04init\x18\x01 \x01(\v2).multipoolerservice.StreamReplicationInitH\x00R\x04init\x12\x14\n" +
-	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x12#\n" +
-	"\rsend_unixnano\x18\x03 \x01(\x03R\fsendUnixnanoB\x05\n" +
+	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x16StreamReplicationReady\"M\n" +
 	"\x16StreamReplicationError\x123\n" +
 	"\n" +
 	"diagnostic\x18\x01 \x01(\v2\x13.query.PgDiagnosticR\n" +
-	"diagnostic\"\xe5\x01\n" +
+	"diagnostic\"\xc0\x01\n" +
 	"\x19StreamReplicationResponse\x12B\n" +
 	"\x05ready\x18\x01 \x01(\v2*.multipoolerservice.StreamReplicationReadyH\x00R\x05ready\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x12B\n" +
-	"\x05error\x18\x03 \x01(\v2*.multipoolerservice.StreamReplicationErrorH\x00R\x05error\x12#\n" +
-	"\rsend_unixnano\x18\x04 \x01(\x03R\fsendUnixnanoB\x05\n" +
+	"\x05error\x18\x03 \x01(\v2*.multipoolerservice.StreamReplicationErrorH\x00R\x05errorB\x05\n" +
 	"\x03msg\"\xce\x03\n" +
 	"\x1aConcludeTransactionRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
@@ -2662,11 +2625,10 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x0funsubscribe_all\x18\x04 \x01(\bR\x0eunsubscribeAll\"m\n" +
 	"\x1aNotificationStreamResponse\x129\n" +
 	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification\x12\x14\n" +
-	"\x05ready\x18\x02 \x01(\bR\x05ready*m\n" +
+	"\x05ready\x18\x02 \x01(\bR\x05ready*R\n" +
 	"\x0fReplicationMode\x12 \n" +
 	"\x1cREPLICATION_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
-	"\x19REPLICATION_MODE_DATABASE\x10\x01\x12\x19\n" +
-	"\x15REPLICATION_MODE_TRUE\x10\x02*\xf9\x02\n" +
+	"\x19REPLICATION_MODE_DATABASE\x10\x01*\xd5\x02\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +
@@ -2676,8 +2638,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x19RESERVATION_REASON_LISTEN\x10\x10\x12*\n" +
 	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 \x12,\n" +
 	"(RESERVATION_REASON_SESSION_ADVISORY_LOCK\x10@\x12 \n" +
-	"\x1bRESERVATION_REASON_SET_SEED\x10\x80\x01\x12\"\n" +
-	"\x1dRESERVATION_REASON_SET_CONFIG\x10\x80\x02*\x87\x01\n" +
+	"\x1bRESERVATION_REASON_SET_SEED\x10\x80\x01*\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +

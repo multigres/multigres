@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -31,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/plancache"
 	"github.com/multigres/multigres/go/services/multigateway/planner"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 const (
@@ -129,42 +127,7 @@ func (e *Executor) StreamExecute(
 			"plan", plan.String(),
 			"error", err)
 	}
-	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return result, err
-}
-
-// setConfigReleaseTimeout bounds the post-statement set_config reservation
-// hand-back so a hung multipooler cannot stall the client's response path.
-const setConfigReleaseTimeout = 5 * time.Second
-
-// releaseSetConfigReservations hands back any backend held solely for
-// set_config capture (ReasonSetConfig) once the statement's plan has finished.
-// Runs on success AND failure: on success the silent trackers have recorded
-// the new value, so the release built now carries the updated map; on failure
-// the statement aborted atomically and the unchanged map is equally correct.
-func (e *Executor) releaseSetConfigReservations(ctx context.Context, plan *engine.Plan, conn *server.Conn, state *handler.MultigatewayConnectionState) {
-	if !plan.ExecInfo.PersistingSetConfig || state == nil {
-		return
-	}
-	// Detach from the statement's cancellation and deadline: a statement that
-	// finished just under its deadline, or a client cancellation landing
-	// between completion and this hook, would otherwise fail the release
-	// instantly and strand a healthy backend until the pooler's inactivity
-	// timeout. ctxutil.Detach drops cancellation while preserving the
-	// telemetry linkage, and the explicit bound keeps a hung pooler from
-	// blocking the client's response path.
-	releaseCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), setConfigReleaseTimeout)
-	defer cancel()
-	// ctxutil.Detach preserves telemetry linkage but drops context values; the
-	// caller id must ride along explicitly or this release RPC is the one
-	// anonymous call among the release paths (the gRPC client stamps
-	// CallerId from the context).
-	if cid := callerid.FromContext(ctx); cid != nil {
-		releaseCtx = callerid.NewContext(releaseCtx, cid)
-	}
-	if err := e.exec.ReleaseSetConfigReservations(releaseCtx, conn, state); err != nil {
-		e.logger.ErrorContext(releaseCtx, "set_config reservation release failed", "error", err)
-	}
 }
 
 // resolvePlan obtains a query plan, using the plan cache when possible.
@@ -285,7 +248,6 @@ func (e *Executor) PortalStreamExecute(
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"plan", plan.String(), "error", err)
 	}
-	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return &handler.ExecuteResult{
 		TablesUsed:    plan.TablesUsed,
 		PlanType:      plan.Type,

@@ -368,7 +368,6 @@ message CopyBidiExecuteResponse {
 enum ReplicationMode {
   REPLICATION_MODE_UNSPECIFIED = 0;
   REPLICATION_MODE_DATABASE = 1;  // replication=database (logical)
-  REPLICATION_MODE_TRUE = 2;      // replication=true (physical) — reserved, not used in v1
 }
 
 message StreamReplicationInit {
@@ -392,9 +391,6 @@ message StreamReplicationRequest {
     StreamReplicationInit init = 1;  // MUST be the first message
     bytes data = 2;                  // opaque client->server bytes
   }
-  // Reserved for future end-to-end latency measurement; unused in v1.
-  // Carried in the envelope, never inside `data`, to stay protocol-blind.
-  int64 send_unixnano = 3;
 }
 
 message StreamReplicationReady {
@@ -411,7 +407,6 @@ message StreamReplicationResponse {
     bytes data = 2;                    // opaque server->client bytes
     StreamReplicationError error = 3;  // infrastructure error (NOT a PG ErrorResponse)
   }
-  int64 send_unixnano = 4;             // reserved, unused in v1
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
@@ -448,18 +443,6 @@ enum ReservationReason {
   // residual-state gap is accepted since it only affects the statistical
   // freshness of an unrelated session's random() sequence.
   RESERVATION_REASON_SET_SEED = 128;  // 0b10000000
-  // Connection is reserved because the statement carries a session-persisting
-  // set_config(..., false) whose new value the multigateway must record into
-  // its authoritative session-settings map before this backend may re-enter
-  // the pool: the settings map sent WITH the statement predates that
-  // recording, so an implicit release would stamp a stale label. The
-  // multigateway explicitly releases the reservation after tracking, and that
-  // release's options carry the updated map. Its lifetime is exactly that
-  // window: the multipooler drops it as soon as the statement completes when
-  // another reason still holds the connection, keeps it when it is the only
-  // reason (awaiting that explicit release), and unwinds it with the other
-  // statement-local reasons on statement failure.
-  RESERVATION_REASON_SET_CONFIG = 256;  // 0b100000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

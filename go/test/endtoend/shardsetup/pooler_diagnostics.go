@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
@@ -266,6 +267,11 @@ func FormatPoolerDiagnostics(s *multipoolermanagerdatapb.Status, cs *clustermeta
 			walStatus = "none"
 		}
 		result += ", wal_receiver=" + walStatus
+	}
+	if floor := cs.GetRecruitBlockedUntil(); floor != nil {
+		// Set after a pg_rewind; cleared once this pooler's position catches back
+		// up past it (rule number first, then LSN — see FormatLsnPosition).
+		result += ", recruit_blocked_until=" + commonconsensus.FormatLsnPosition(floor)
 	}
 	if s.PrimaryStatus != nil {
 		var syncStandbys []string

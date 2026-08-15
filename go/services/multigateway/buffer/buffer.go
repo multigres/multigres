@@ -151,6 +151,28 @@ func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key *clustermetadat
 	return sb.waitIfAlreadyBuffering(ctx)
 }
 
+// RecordUnbufferedFailure counts a request that failed with a non-bufferable
+// error while this shard's buffer was active (BUFFERING or DRAINING). It is
+// the alarm for buffering classification gaps: during a healthy failover no
+// infrastructure error should reach a client, so a burst of UNAVAILABLE-coded
+// increments means an error class is slipping past an armed buffer. The code
+// attribute is the error's mtrpc code string.
+func (b *Buffer) RecordUnbufferedFailure(ctx context.Context, key *clustermetadatapb.ShardKey, code string) {
+	b.mu.Lock()
+	sb, ok := b.buffers[commontypes.FormatShardKey(key)]
+	b.mu.Unlock()
+	if !ok {
+		return
+	}
+
+	sb.mu.Lock()
+	active := sb.state != stateIdle
+	sb.mu.Unlock()
+	if active {
+		b.stats.recordFailedUnbuffered(ctx, code)
+	}
+}
+
 // StopBuffering is called when a new PRIMARY is discovered for the given shard.
 // It transitions the shard from BUFFERING to DRAINING.
 func (b *Buffer) StopBuffering(key *clustermetadatapb.ShardKey) {

@@ -77,34 +77,6 @@ type Executor struct {
 	backendVpidTrackingWritable atomic.Bool
 }
 
-// clearSetConfigReasonIfHeld drops ReasonSetConfig once the statement that
-// carried it has completed successfully AND another reason still holds the
-// connection reserved. In that mixed case the bit's only job — suppressing
-// every implicit release of its own statement — is already done by the other
-// reason, so keeping it would leave a stale bit in every later
-// ReservedState. The sole-reason case deliberately keeps the bit: there the
-// connection must stay reserved until the multigateway's explicit
-// post-tracking release arrives, which is the mechanism itself.
-//
-// MUST be the last reservation-mutating step before buildReservedState —
-// after portal releases and the advisory-lock recheck. Those post-steps can
-// drain the reservation and release with the REQUEST's settings map, which
-// predates the gateway tracking this statement's set_config; the held bit is
-// what makes their drain checks decline, so the release is left to the
-// gateway's post-tracking hook carrying the updated map. Clearing earlier
-// reopens that stale-stamp window (a failed pg_try_advisory_lock combined
-// with a persisting set_config, or a set_config statement that also closes
-// the last HOLD cursor).
-func clearSetConfigReasonIfHeld(rc reservedConnAPI, appliedReasons uint32) {
-	if appliedReasons&protoutil.ReasonSetConfig == 0 {
-		return
-	}
-	if remaining := rc.RemainingReasons(); remaining&^protoutil.ReasonSetConfig == 0 {
-		return
-	}
-	rc.RemoveReservationReason(protoutil.ReasonSetConfig)
-}
-
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
 	if options == nil {
 		return nil
@@ -574,16 +546,16 @@ func (e *Executor) reserveAndStreamExecute(
 		}
 		// No transaction to preserve. A clean PostgreSQL statement error
 		// aborted atomically, so the statement-local reasons this call added
-		// never materialized (no temp table, no portal, no applied
-		// set_config) and the backend is unchanged since acquisition: unwind
-		// them and release the connection for reuse rather than closing a
-		// healthy backend on every failing statement.
+		// never materialized (no temp table, no portal) and the backend is
+		// unchanged since acquisition: unwind them and release the connection
+		// for reuse rather than closing a healthy backend on every failing
+		// statement.
 		//
-		// Only those three unwind, and the split is load-bearing: they are
-		// exactly the TRANSACTIONAL reasons, whose side effects a clean abort
-		// provably rolled back. Non-transactional reasons (session advisory
-		// locks, setseed) deliberately SURVIVE a clean failure — their side
-		// effects can materialize before the error and outlive it
+		// Only those unwind, and the split is load-bearing: they are exactly
+		// the TRANSACTIONAL reasons, whose side effects a clean abort provably
+		// rolled back. Non-transactional reasons (session advisory locks,
+		// setseed) deliberately SURVIVE a clean failure — their side effects
+		// can materialize before the error and outlive it
 		// (SELECT pg_advisory_lock(1), 1/0 leaves the lock held on real
 		// PostgreSQL; PRNG state is backend-process state), so the pin is the
 		// only release disposition that preserves client-visible state.
@@ -595,7 +567,7 @@ func (e *Executor) reserveAndStreamExecute(
 			for _, name := range pinNames {
 				reservedConn.ReleasePortal(name)
 			}
-			for _, reason := range []uint32{protoutil.ReasonTempTable, protoutil.ReasonPortal, protoutil.ReasonSetConfig} {
+			for _, reason := range []uint32{protoutil.ReasonTempTable, protoutil.ReasonPortal} {
 				if reasons&reason != 0 {
 					reservedConn.RemoveReservationReason(reason)
 				}
@@ -613,20 +585,28 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
-	releaseSettings := e.sessionSettingsFromOptions(options)
-
 	// If the gateway flagged this statement as touching an advisory lock,
-	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
-	// acquire, in which case unpin immediately so the gateway doesn't keep an
-	// empty reservation. Gated on the recheck signal so the probe stays off the
-	// per-statement hot path. A ReasonSetConfig carried by this statement is
-	// still held here, so the recheck cannot drain and stamp the pre-tracking
-	// map; the gateway's post-tracking release owns that.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
-		return nil, nil
+	// re-probe pg_locks and drop the reason if none remain (e.g. a
+	// pg_try_advisory_lock that didn't acquire). Gated on the recheck signal so
+	// the probe stays off the per-statement hot path.
+	if reservationOptions.GetRecheckAdvisoryLocks() {
+		e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn)
 	}
 
-	clearSetConfigReasonIfHeld(reservedConn, reasons)
+	// The gateway routed this statement down the reserved path because it planned
+	// it to reserve the backend — e.g. a statement touching an advisory lock is
+	// planned with its set_config kept as is_local=false (persisting), on the bet
+	// that the backend stays pinned to this session. But that reservation can fail
+	// to materialize at runtime: a pg_try_advisory_lock that returns false acquires
+	// no lock, so nothing keeps the backend reserved and it leaves here with no
+	// reservation reason. The bet was wrong, and the persisting set_config already
+	// ran, so the backend must not go back to the pool carrying that state under a
+	// label that doesn't describe it. Reset it clean and release it (as
+	// ReleaseUnreserved) instead of handing back a reason-less reservation.
+	if reservedConn.RemainingReasons() == 0 {
+		e.resetAndRelease(ctx, reservedConn)
+		return nil, nil
+	}
 
 	reservedState := e.buildReservedState(reservedConn)
 
@@ -791,13 +771,6 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 				shouldRelease = true
 			}
 		}
-		if addedStatementLocalReasons&protoutil.ReasonSetConfig != 0 {
-			// The failed statement aborted atomically, so its set_config never
-			// applied; nothing needs capturing before this backend can return.
-			if rc.RemoveReservationReason(protoutil.ReasonSetConfig) {
-				shouldRelease = true
-			}
-		}
 		if shouldRelease {
 			// A clean PostgreSQL statement error aborted atomically: the
 			// backend's session state is unchanged since acquisition, so the
@@ -834,26 +807,32 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		return nil, nil
 	}
 
-	// If the gateway flagged this statement as touching an advisory lock (e.g.
-	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
-	// the recheck signal so the probe runs only on advisory-touching statements,
-	// not after every query on a pinned connection. A ReasonSetConfig carried
-	// by this statement is still held here, so neither the portal drain above
-	// nor this recheck can release with the pre-tracking map.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, releaseSettings) {
+	// This is the existing-reservation path (the caller holds a reservedId). If the
+	// gateway flagged this statement as touching an advisory lock (e.g.
+	// pg_advisory_unlock), re-probe pg_locks; when that releases the last
+	// session-level lock the backend was pinned for, the reservation is genuinely
+	// over. Unpin the backend and return it to the pool. This mirrors the
+	// ReleasePortalComplete unpin above — the reservation genuinely existed, so its
+	// session state is already tracked and releaseSettings describes it truthfully;
+	// no reset is needed (that is only for the fresh, never-actually-reserved
+	// paths). Gated on the recheck signal so the probe runs only on
+	// advisory-touching statements, not after every query on a pinned connection.
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc) {
+		rc.Release(reserved.ReleaseAdvisoryUnlock, releaseSettings)
 		return nil, nil
 	}
-
-	clearSetConfigReasonIfHeld(rc, reasons)
 
 	return e.buildReservedStateFromAPI(rc), nil
 }
 
 // maybeUnpinSessionAdvisoryLock checks, after a statement on a connection
 // reserved for session-level advisory locks, whether the session still holds
-// any advisory lock. If none remain it clears ReasonSessionAdvisoryLock and,
-// when no other reason keeps the connection reserved, releases the backend to
-// the pool. Returns true if the connection was released.
+// any advisory lock. If none remain it clears ReasonSessionAdvisoryLock and
+// returns true iff that cleared the connection's last reservation reason — i.e.
+// the advisory lock was the only thing pinning it, so the caller should release
+// the now-unreserved connection. Returns false whenever the connection stays
+// pinned (a lock is still held, another reason remains, or the probe was skipped
+// or failed).
 //
 // PostgreSQL is the source of truth for the (reference-counted) lock state, so
 // this is robust against pg_try_advisory_lock calls that failed, keys locked
@@ -861,7 +840,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 // calls buried in functions or dynamic SQL — cases gateway-side counting could
 // never get right. The cost is one extra round trip per statement while the
 // session holds an advisory lock, which is a rare and already-pinned state.
-func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI, gatewaySessionSettings map[string]string) bool {
+func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI) bool {
 	// Only meaningful for advisory-lock reservations, and only outside a
 	// transaction: inside one ReasonTransaction keeps the backend pinned anyway,
 	// and transaction-level advisory locks would pollute the probe.
@@ -899,15 +878,36 @@ func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reserve
 		return false
 	}
 
-	// No advisory locks remain. Drop the reason; release the backend if nothing
-	// else keeps it reserved.
-	if rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock) {
-		rc.Release(reserved.ReleaseAdvisoryUnlock, gatewaySessionSettings)
-		e.logger.DebugContext(ctx, "released advisory-lock reservation; no locks remain",
-			"reserved_conn_id", rc.ConnID())
-		return true
+	// No advisory locks remain: drop the reason. RemoveReservationReason returns
+	// true iff that drained the last reservation reason, i.e. the advisory lock was
+	// the only thing keeping the connection reserved.
+	drained := rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock)
+	e.logger.DebugContext(ctx, "dropped advisory-lock reservation reason; no locks remain",
+		"reserved_conn_id", rc.ConnID())
+	return drained
+}
+
+// resetAndRelease returns a connection that took the reserved path but never
+// ultimately reserved a backend — a failed pg_try_advisory_lock, or a maxRows
+// portal that completed without suspending — to the pool as a CLEAN backend. The
+// gateway planned the statement as if it would reserve (keeping a pinned
+// set_config as is_local=false), so the statement may have left session state the
+// release label does not describe; RESET ALL discards it and the backend re-enters
+// the pool with an empty label under ReleaseUnreserved. If the reset fails the
+// backend cannot be trusted clean, so it is tainted rather than recycled.
+//
+// This is distinct from unpinning a reservation that genuinely existed (e.g. an
+// advisory unlock, a portal close), which releases with the truthful settings map
+// and does not reset — see the ReleaseAdvisoryUnlock / ReleasePortalComplete
+// releases on the existing-reservation path.
+func (e *Executor) resetAndRelease(ctx context.Context, rc reservedConnAPI) {
+	if err := rc.ResetAllSettings(ctx); err != nil {
+		e.logger.WarnContext(ctx, "failed to reset backend before release; tainting",
+			"reserved_conn_id", rc.ConnID(), "error", err)
+		rc.Release(reserved.ReleaseError, nil)
+		return
 	}
-	return false
+	rc.Release(reserved.ReleaseUnreserved, nil)
 }
 
 // Close closes the executor and releases resources.
@@ -1117,18 +1117,6 @@ func (e *Executor) portalExecuteWithReserved(
 	// protocol state on this backend.
 	if !completed {
 		reservedConn.ReserveForPortal(portal.Name)
-		// The portal reason now takes custody, which makes a set_config
-		// capture bit redundant from here on: suspension means at least one
-		// row was produced, so the set_config has executed and the gateway
-		// tracks its value before the client can send any subsequent request
-		// (the silent tracker fires on this Execute's success, suspension
-		// included). Every later drain — resumption, Close, next-Bind
-		// overwrite, disconnect — therefore carries the tracked value in its
-		// settings map. Without this clear the bit outlives its window: an
-		// abandoned portal's Close drains only ReasonPortal, and a sole
-		// leftover ReasonSetConfig is removed by nothing on a live session,
-		// pinning a healthy backend until the session ends.
-		clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
 		return e.buildReservedState(reservedConn), nil
 	}
 
@@ -1143,14 +1131,22 @@ func (e *Executor) portalExecuteWithReserved(
 	// this portal as touching an advisory lock (acquire that may have failed, or
 	// a release over the extended protocol), re-probe pg_locks and unpin if none
 	// remain. Gated on the recheck signal to keep the probe off the hot path.
-	// A ReasonSetConfig carried by this execute is still held here, so neither
-	// the portal completion above nor this recheck can release with the
-	// pre-tracking map; the gateway's post-tracking hook stamps the update.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
-		return nil, nil
+	if reservationOptions.GetRecheckAdvisoryLocks() {
+		e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn)
 	}
 
-	clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
+	// A backend freshly reserved by this call that holds no reservation reason
+	// (e.g. a maxRows portal that completed on its first Execute without ever
+	// suspending, so ReserveForPortal was never called) must not be handed back
+	// as a reservation — nothing keeps it pinned. Reset it clean and release it to
+	// the pool instead of leaving a reason-less reservation dangling; the portal's
+	// set_config may have committed is_local=false state that must not ride back
+	// into the pool. Gate on newlyReserved so a caller-held reservation is left
+	// untouched (matching portalReservedError).
+	if newlyReserved && reservedConn.RemainingReasons() == 0 {
+		e.resetAndRelease(ctx, reservedConn)
+		return nil, nil
+	}
 
 	return e.buildReservedState(reservedConn), nil
 }

@@ -52,8 +52,6 @@ type PoolerHealthState struct {
 	// This contains: id, database, table_group, shard, key_range, type,
 	// serving_status, hostname, port_map.
 	Multipooler *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=multipooler,proto3" json:"multipooler,omitempty"`
-	// Computed fields (cached by multiorch)
-	IsLastCheckValid bool `protobuf:"varint,3,opt,name=is_last_check_valid,json=isLastCheckValid,proto3" json:"is_last_check_valid,omitempty"`
 	// Timestamps for staleness detection
 	LastCheckAttempted  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_check_attempted,json=lastCheckAttempted,proto3" json:"last_check_attempted,omitempty"`
 	LastCheckSuccessful *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_check_successful,json=lastCheckSuccessful,proto3" json:"last_check_successful,omitempty"`
@@ -122,13 +120,6 @@ func (x *PoolerHealthState) GetMultipooler() *clustermetadata.Multipooler {
 		return x.Multipooler
 	}
 	return nil
-}
-
-func (x *PoolerHealthState) GetIsLastCheckValid() bool {
-	if x != nil {
-		return x.IsLastCheckValid
-	}
-	return false
 }
 
 func (x *PoolerHealthState) GetLastCheckAttempted() *timestamppb.Timestamp {
@@ -212,10 +203,9 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x8c\a\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xdd\x06\n" +
 	"\x11PoolerHealthState\x12>\n" +
-	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x12-\n" +
-	"\x13is_last_check_valid\x18\x03 \x01(\bR\x10isLastCheckValid\x12L\n" +
+	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x12L\n" +
 	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
 	"\x15last_check_successful\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x13lastCheckSuccessful\x127\n" +
 	"\tlast_seen\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12K\n" +

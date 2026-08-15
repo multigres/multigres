@@ -903,6 +903,10 @@ const (
 	// then hands control back to multiorch to elect a new primary and
 	// stabilize the shard.
 	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
+	// RecoveryScenarioPlannedFailover is the wait after a SwitchPrimary / planned
+	// failover. The old primary restarts as standby before the election begins, so
+	// the end-to-end election window is longer than a pure emergency demotion.
+	RecoveryScenarioPlannedFailover RecoveryScenario = "planned-failover"
 )
 
 // recoveryScenarioTimeouts configures how long RequireRecovery waits per RecoveryScenario.
@@ -911,6 +915,7 @@ var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
 	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
 	RecoveryScenarioFixReplication:     30 * time.Second,
 	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+	RecoveryScenarioPlannedFailover:    60 * time.Second,
 }
 
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
@@ -990,9 +995,10 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 }
 
 // WaitForHealthStreamsEstablished blocks until the named multiorch instance
-// reports `Reachable=true` for every pooler in this shard, indicating it has
-// received at least one snapshot from each pooler over the ManagerHealthStream
-// — i.e. the stream is dialled, handshaked, and exchanging data.
+// reports a non-zero LastSeen for every pooler in this shard, indicating it
+// has received at least one snapshot from each pooler over the
+// ManagerHealthStream. StreamConnected alone isn't enough for this: it goes
+// true at the handshake, before any snapshot has arrived.
 //
 // Tests should call this after StartMultiorchs (and RequireRecovery, if used)
 // but before any test action that depends on the orchestrator observing a
@@ -1033,20 +1039,20 @@ func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName stri
 		cancel()
 
 		if err == nil {
-			reachable := 0
+			established := 0
 			missing := make([]string, 0, expected)
 			for _, ph := range resp.PoolerHealths {
-				if ph.Reachable {
-					reachable++
+				if ph.LastSeen != nil {
+					established++
 					continue
 				}
 				missing = append(missing, ph.PoolerId.GetName())
 			}
-			if reachable == expected {
+			if established == expected {
 				t.Logf("All %d health streams established on '%s'", expected, orchName)
 				return
 			}
-			lastSummary = fmt.Sprintf("%d/%d reachable, missing: %v", reachable, expected, missing)
+			lastSummary = fmt.Sprintf("%d/%d established, missing: %v", established, expected, missing)
 		} else {
 			lastSummary = fmt.Sprintf("GetShardStatus failed: %v", err)
 		}
@@ -2427,7 +2433,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 	// Count reachable poolers
 	reachableCount := 0
 	for _, h := range healthList {
-		if h.Reachable {
+		if h.StreamConnected {
 			reachableCount++
 		}
 	}
@@ -2442,7 +2448,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.Reachable && h.PostgresReady {
+		if h.StreamConnected && h.PostgresReady {
 			status = "up"
 		}
 

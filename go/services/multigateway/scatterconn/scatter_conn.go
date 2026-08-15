@@ -180,9 +180,6 @@ func reservationReasonsForExecInfo(info engine.PlanExecInfo) uint32 {
 	if info.SetSeed {
 		reasons |= protoutil.ReasonSetSeed
 	}
-	if info.PersistingSetConfig {
-		reasons |= protoutil.ReasonSetConfig
-	}
 	return reasons
 }
 
@@ -375,9 +372,9 @@ func (sc *ScatterConn) StreamExecute(
 	}
 
 	// Case 2: Need a new reserved connection — for transaction, temp table,
-	// portal pin (DECLARE WITH HOLD), set_config capture, or any combination.
+	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || info.PersistingSetConfig || len(pinPortalNames) > 0 {
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || len(pinPortalNames) > 0 {
 		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -557,13 +554,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 		if info.SetSeed {
 			reasons |= protoutil.ReasonSetSeed
 		}
-		if info.PersistingSetConfig {
-			reasons |= protoutil.ReasonSetConfig
-		}
 		if reasons != 0 {
 			reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || info.PersistingSetConfig {
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
@@ -1490,77 +1484,6 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		} else {
 			state.SetReservedConnection(u.target, u.reservedState)
 		}
-	}
-
-	return errors.Join(errs...)
-}
-
-// ReleaseSetConfigReservations releases every reserved connection whose ONLY
-// reservation reason is ReasonSetConfig: a backend held out of the pool solely
-// so a session-persisting set_config's new value could be recorded into the
-// gateway map before the connection is relabeled. Called by the executor right
-// after such a statement's plan finishes (success or failure — on failure the
-// statement aborted atomically, so the pre-statement map is the correct
-// label). The release options are built HERE, after tracking, so
-// SessionSettings carries the updated map that the multipooler stamps onto the
-// connection.
-//
-// Connections holding any other reason (transaction, temp table, advisory
-// lock, ...) are left alone: that reason keeps custody, and its eventual
-// release stamps the then-current map — by which time the tracked value is in
-// every request's settings anyway. The multipooler drops the set_config
-// reason at statement completion in that case, so no stale bit survives.
-func (sc *ScatterConn) ReleaseSetConfigReservations(
-	ctx context.Context,
-	conn *server.Conn,
-	state *handler.MultigatewayConnectionState,
-) error {
-	type shardUpdate struct {
-		target *querypb.Target
-	}
-	var updates []shardUpdate
-	var errs []error
-
-	for _, ss := range state.ShardStates {
-		if ss.ReservedState.GetReservedConnectionId() == 0 {
-			continue
-		}
-		if ss.ReservedState.GetReservationReasons() != protoutil.ReasonSetConfig {
-			continue
-		}
-
-		eo := &querypb.ExecuteOptions{
-			UserAuth:             userAuthFrom(conn),
-			User:                 conn.User(),
-			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-		}
-
-		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
-		if err != nil {
-			sc.logger.ErrorContext(ctx, "set_config release: pooler lookup failed",
-				"target", ss.Target, "error", err)
-			errs = append(errs, err)
-			updates = append(updates, shardUpdate{target: ss.Target})
-			continue
-		}
-
-		if _, err := qs.ReleaseReservedConnection(ctx, ss.Target, eo, false /* keepStickyReservations */); err != nil {
-			sc.logger.ErrorContext(ctx, "set_config release: RPC failed",
-				"target", ss.Target,
-				"reserved_conn_id", ss.ReservedState.GetReservedConnectionId(),
-				"error", err)
-			errs = append(errs, err)
-		}
-		// Clear the shard state either way: the reservation has no further use
-		// to this session, and an orphaned pooler-side reservation falls back
-		// to the inactivity timeout.
-		updates = append(updates, shardUpdate{target: ss.Target})
-	}
-
-	for _, u := range updates {
-		state.ClearReservedConnection(u.target)
 	}
 
 	return errors.Join(errs...)

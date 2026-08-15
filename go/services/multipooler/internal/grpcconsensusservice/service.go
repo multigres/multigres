@@ -64,7 +64,7 @@ func (s *consensusService) Recruit(ctx context.Context, req *consensusdata.Recru
 
 // UpdateConsensusRule applies a cohort-membership change on the primary.
 func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
-	err := s.manager.UpdateConsensusRule(ctx,
+	pos, err := s.manager.UpdateConsensusRule(ctx,
 		req.Operation,
 		req.StandbyIds,
 		req.ExpectedOutgoingRule,
@@ -72,7 +72,7 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
+	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{CurrentPosition: pos}, nil
 }
 
 // SetPrimary updates this pooler's replication settings to point at the supplied
