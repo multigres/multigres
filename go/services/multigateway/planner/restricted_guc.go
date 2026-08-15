@@ -15,8 +15,10 @@
 package planner
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgsettings"
 )
@@ -37,7 +39,9 @@ func restrictedGUCError(name string) error {
 // expression walker.)
 //
 // Reverts are allowed because they can only restore the cluster-managed value:
-// RESET, RESET ALL, and SET ... TO DEFAULT.
+// RESET, RESET ALL, and SET ... TO DEFAULT. SET ... FROM CURRENT is refused
+// for every GUC on every surface: its value lives on the backend rather than
+// in the statement, so it cannot be vetted (see checkRestrictedSetStmt).
 //
 // Runs pre-dispatch via analyzeStatement, so it covers both the simple
 // and extended query protocols and is short-circuited by the plan cache.
@@ -119,11 +123,36 @@ func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt, allowTrailingTemp bool
 
 	// VAR_SET_DEFAULT (SET ... TO DEFAULT), VAR_RESET (RESET), and
 	// VAR_RESET_ALL (RESET ALL) revert to the managed global value and are
-	// allowed. Everything else — VAR_SET_VALUE (SET ... = x / SET LOCAL ... = x)
-	// and VAR_SET_CURRENT (SET ... FROM CURRENT) — pins an explicit value.
+	// allowed. VAR_SET_VALUE (SET ... = x / SET LOCAL ... = x) pins an explicit
+	// value and is vetted below.
 	switch setstmt.Kind {
 	case ast.VAR_SET_DEFAULT, ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return nil
+	case ast.VAR_SET_CURRENT:
+		// SET ... FROM CURRENT persists whatever the session happens to hold,
+		// and that value is nowhere in the statement — Args is empty, so a
+		// value-restricted GUC (search_path) cannot be vetted and the guard
+		// would pass vacuously on an empty string.
+		//
+		// It is not enough to observe that the current value once passed a
+		// guard: it need not have passed THIS one. It can be inherited from a
+		// more lenient surface (ALTER DATABASE ... SET, where a trailing
+		// pg_temp is deliberately allowed) or applied natively by PostgreSQL
+		// from a role/database default at pooled-backend startup, entirely
+		// outside the gateway's session tracking. PostgreSQL resolves FROM
+		// CURRENT into a concrete stored value, so accepting it here would pin
+		// an unvetted list into pg_db_role_setting or proconfig that no later
+		// guard can see or undo.
+		//
+		// Refused for every GUC, matching planVariableSetStmt, which already
+		// rejects the session-level form outright for the same reason. Nothing
+		// is lost: pg_dump/pg_dumpall never emit FROM CURRENT (they emit the
+		// resolved literal), so dump/restore is unaffected and the workaround
+		// is to state the value explicitly.
+		return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+			"SET %s FROM CURRENT is not supported under connection pooling: "+
+				"the value is resolved on the backend and cannot be vetted; specify the value explicitly",
+			setstmt.Name))
 	}
 	if err := restrictedGUCError(setstmt.Name); err != nil {
 		return err
@@ -131,9 +160,7 @@ func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt, allowTrailingTemp bool
 
 	// search_path is value-restricted rather than name-restricted: pg_temp as
 	// the effective creation target would make unqualified CREATE land in the
-	// temp namespace of whatever pooled backend serves each statement. FROM
-	// CURRENT (VAR_SET_CURRENT) carries no args and can only restate a value
-	// that already passed this guard.
+	// temp namespace of whatever pooled backend serves each statement.
 	if strings.EqualFold(setstmt.Name, "search_path") {
 		value := extractVariableValue(setstmt.Args)
 		if allowTrailingTemp {

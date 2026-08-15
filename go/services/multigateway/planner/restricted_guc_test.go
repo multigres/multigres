@@ -48,6 +48,16 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		{"SET concrete backend namespace", "SET search_path = pg_temp_3", true},
 		{"SET LOCAL", "SET LOCAL search_path = pg_temp", true},
 		{"ALTER ROLE SET", "ALTER ROLE myrole SET search_path = pg_temp", true},
+		// SET ... FROM CURRENT carries no value in the statement, so the guard
+		// would pass vacuously on an empty arg list while PostgreSQL persists
+		// whatever the session holds — which may have been inherited from a
+		// more lenient surface or applied natively from a role/database
+		// default. Refused on every surface (see TestSetFromCurrentRejected).
+		{"SET FROM CURRENT", "SET search_path FROM CURRENT", true},
+		{"ALTER ROLE FROM CURRENT", "ALTER ROLE current_user SET search_path FROM CURRENT", true},
+		{"ALTER DATABASE FROM CURRENT", "ALTER DATABASE mydb SET search_path FROM CURRENT", true},
+		{"CREATE FUNCTION FROM CURRENT", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS 'SELECT 1'", true},
+		{"ALTER FUNCTION FROM CURRENT", "ALTER FUNCTION f() SET search_path FROM CURRENT", true},
 		{"ALTER DATABASE SET", "ALTER DATABASE mydb SET search_path = pg_temp, public", true},
 		// ALTER ROLE is strict (any position): a non-superuser can self-target
 		// `ALTER ROLE current_user SET search_path = ...`, and a leading-only
@@ -106,6 +116,51 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 			require.True(t, errors.As(err, &diag), "error should be a PgDiagnostic")
 			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
 			assert.Contains(t, diag.Message, "search_path")
+		})
+	}
+}
+
+// TestSetFromCurrentRejected pins the blanket refusal of SET ... FROM CURRENT.
+//
+// The value is resolved on the backend and never appears in the statement, so
+// a value-restricted GUC cannot be vetted: extractVariableValue returns "" for
+// the empty arg list and both pgsettings guards pass unconditionally. It is
+// not sufficient that the session's current value once passed a guard — it may
+// have been inherited from a more lenient surface (ALTER DATABASE, where a
+// trailing pg_temp is allowed) or applied natively by PostgreSQL from a
+// role/database default at pooled-backend startup, outside gateway tracking.
+// PostgreSQL resolves FROM CURRENT into a concrete stored value, so accepting
+// it would pin an unvetted search_path into pg_db_role_setting or proconfig
+// that no later guard can see or undo.
+//
+// Refused for every GUC on every surface, matching planVariableSetStmt which
+// already rejects the session-level form. pg_dump/pg_dumpall never emit FROM
+// CURRENT (they emit the resolved literal), so dump/restore is unaffected.
+func TestSetFromCurrentRejected(t *testing.T) {
+	for _, sql := range []string{
+		"SET search_path FROM CURRENT",
+		"SET LOCAL search_path FROM CURRENT",
+		"SET work_mem FROM CURRENT",
+		"ALTER ROLE current_user SET search_path FROM CURRENT",
+		"ALTER USER app SET search_path FROM CURRENT",
+		"ALTER ROLE app IN DATABASE mydb SET search_path FROM CURRENT",
+		"ALTER DATABASE mydb SET search_path FROM CURRENT",
+		"CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS 'SELECT 1'",
+		"ALTER FUNCTION f() SET search_path FROM CURRENT",
+		"ALTER ROLE app SET work_mem FROM CURRENT",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql))
+			// The session-level form is rejected later, by planVariableSetStmt;
+			// every persisted form is rejected here in the shared guard.
+			if _, isSessionSet := parseOne(t, sql).(*ast.VariableSetStmt); isSessionSet {
+				return
+			}
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, "FROM CURRENT is not supported")
 		})
 	}
 }
