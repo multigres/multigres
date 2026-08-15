@@ -1,0 +1,40 @@
+# Known divergences (by design):
+# - explain_filter / explain_filter_to_json run a dynamic EXECUTE the pooler
+#   cannot vet, so their runtime CREATE is rejected. Both are pre-seeded on the
+#   primary (testdata/pg17/regress_preseed.sql) so the EXPLAIN checks still run.
+# - explain_filter('explain (memory) execute int8_query') additionally fails:
+#   int8_query is prepared on one pooled backend, but the seeded function's
+#   dynamic EXECUTE runs on another that has not prepared it.
+--- a
++++ b
+@@ -30,6 +30,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- To produce valid JSON output, replace numbers with "0" or "0.0" not "N"
+ create function explain_filter_to_json(text) returns jsonb
+ language plpgsql as
+@@ -47,6 +48,7 @@
+ return data::jsonb;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- Disable JIT, or we'll get different output on machines where that's been
+ -- forced on
+ set jit = off;
+@@ -410,12 +412,8 @@
+ 
+ prepare int8_query as select * from int8_tbl i8;
+ select explain_filter('explain (memory) execute int8_query');
+-explain_filter
+----------------------------------------------------------
+-Seq Scan on int8_tbl i8 (cost=N.N..N.N rows=N width=N)
+-Memory: used=NkB allocated=NkB
+-(2 rows)
+-
++ERROR: prepared statement "int8_query" does not exist
++CONTEXT: PL/pgSQL function explain_filter(text) line 5 at FOR over EXECUTE statement
+ -- Test EXPLAIN (GENERIC_PLAN) with partition pruning
+ -- partitions should be pruned at plan time, based on constants,
+ -- but there should be no pruning based on parameter placeholders

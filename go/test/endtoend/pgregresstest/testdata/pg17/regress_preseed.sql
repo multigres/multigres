@@ -198,3 +198,95 @@ begin
     end loop;
 end;
 $$;
+
+-- triggers.sql
+-- depth_b_tf runs a dynamic EXECUTE (rejected by the gateway); its body only
+-- inserts into depth_c — no session-state change — so it is safe to seed.
+-- Seeding lets "create trigger depth_b_tr" succeed and the trigger-depth
+-- recursion test run. triggers.sql uses no SET SESSION AUTHORIZATION, so the
+-- test's final DROP FUNCTION runs as the superuser and drops the seeded
+-- function cleanly.
+create or replace function depth_b_tf() returns trigger
+  language plpgsql as $$
+begin
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  begin
+    execute 'insert into depth_c values (' || new.id::text || ')';
+  exception
+    when sqlstate 'U9999' then
+      raise notice 'SQLSTATE = U9999: depth = %', pg_trigger_depth();
+  end;
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  if new.id = 1 then
+    execute 'insert into depth_c values (' || new.id::text || ')';
+  end if;
+  return new;
+end;
+$$;
+
+-- explain.sql
+-- explain_filter / explain_filter_to_json run a dynamic EXECUTE of the EXPLAIN
+-- text passed in and filter it (regexp only) — no session-state change — so both
+-- are safe to seed. They are used throughout explain.sql, so seeding avoids a
+-- large "function does not exist" cascade.
+create or replace function explain_filter(text) returns setof text
+language plpgsql as
+$$
+declare
+    ln text;
+begin
+    for ln in execute $1
+    loop
+        -- Replace any numeric word with just 'N'
+        ln := regexp_replace(ln, '-?\m\d+\M', 'N', 'g');
+        -- In sort output, the above won't match units-suffixed numbers
+        ln := regexp_replace(ln, '\m\d+kB', 'NkB', 'g');
+        -- Ignore text-mode buffers output because it varies depending
+        -- on the system state
+        CONTINUE WHEN (ln ~ ' +Buffers: .*');
+        -- Ignore text-mode "Planning:" line because whether it's output
+        -- varies depending on the system state
+        CONTINUE WHEN (ln = 'Planning:');
+        return next ln;
+    end loop;
+end;
+$$;
+create or replace function explain_filter_to_json(text) returns jsonb
+language plpgsql as
+$$
+declare
+    data text := '';
+    ln text;
+begin
+    for ln in execute $1
+    loop
+        -- Replace any numeric word with just '0'
+        ln := regexp_replace(ln, '\m\d+\M', '0', 'g');
+        data := data || ln;
+    end loop;
+    return data::jsonb;
+end;
+$$;
+
+-- partition_prune.sql
+-- explain_parallel_append runs a dynamic EXECUTE of an EXPLAIN and filters it
+-- (regexp only) — no session-state change — so it is safe to seed. Used by many
+-- parallel-append plan checks, so seeding avoids a "function does not exist"
+-- cascade.
+create or replace function explain_parallel_append(text) returns setof text
+language plpgsql as
+$$
+declare
+    ln text;
+begin
+    for ln in
+        execute format('explain (analyze, costs off, summary off, timing off) %s',
+            $1)
+    loop
+        ln := regexp_replace(ln, 'Workers Launched: \d+', 'Workers Launched: N');
+        ln := regexp_replace(ln, 'actual rows=\d+ loops=\d+', 'actual rows=N loops=N');
+        ln := regexp_replace(ln, 'Rows Removed by Filter: \d+', 'Rows Removed by Filter: N');
+        return next ln;
+    end loop;
+end;
+$$;
