@@ -44,7 +44,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
@@ -107,7 +107,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
@@ -157,7 +157,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
@@ -201,7 +201,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		ts := newTestTopoStore()
 		defer ts.Close()
 
-		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 		cfg := config.NewTestConfig(
 			config.WithCell("zone1"),
@@ -243,7 +243,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		ts := newTestTopoStore()
 		defer ts.Close()
 
-		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 		// Use shorter intervals for testing
 		cfg := config.NewTestConfig(
@@ -293,7 +293,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
@@ -337,7 +337,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		ts := newTestTopoStore()
 		defer ts.Close()
 
-		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 		// Create a viperutil registry and dynamic value
 		reg := viperutil.NewRegistry()
