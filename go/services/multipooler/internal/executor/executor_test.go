@@ -1002,7 +1002,7 @@ func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons
 		badDeclare,
 		&query.ExecuteOptions{User: "postgres"},
 		&query.ReservationOptions{
-			Reasons:        protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonPortal | protoutil.ReasonSetConfig,
+			Reasons:        protoutil.ReasonTransaction | protoutil.StatementLocalReasons,
 			BeginQuery:     "BEGIN",
 			PinPortalNames: []string{"bad"},
 		},
@@ -1012,7 +1012,7 @@ func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons
 	require.Error(t, err)
 	require.NotNil(t, state, "failed first statement should preserve the transaction reservation")
 	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons(),
-		"statement-local temp/portal/set_config reasons must be unwound before returning surviving state")
+		"every statement-local reason must be unwound before returning surviving state")
 
 	rconn, ok := pool.Get(int64(state.GetReservedConnectionId()))
 	require.True(t, ok, "surviving transaction should still be in the reserved pool")
@@ -1022,10 +1022,11 @@ func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons
 
 // TestPortalReservedError_UnwindsAddedStatementLocalReasons verifies the
 // portal-path counterpart of the statement-local unwind: a clean SQL error on
-// Bind/Execute removes the temp/set_config reasons the portal newly added
+// Bind/Execute removes the statement-local reasons the portal newly added
 // (the statement aborted atomically, so they never materialized), leaving
-// only the surviving transaction reservation. Without the unwind a sole
-// leftover ReasonSetConfig would pin the backend after COMMIT/ROLLBACK.
+// only the surviving transaction reservation. Before this, the portal path
+// unwound nothing, so a reason added by the failed Bind/Execute outlived it
+// and pinned an otherwise healthy backend until the inactivity timeout.
 func TestPortalReservedError_UnwindsAddedStatementLocalReasons(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -1048,25 +1049,25 @@ func TestPortalReservedError_UnwindsAddedStatementLocalReasons(t *testing.T) {
 	t.Run("transaction survives, added reasons unwind", func(t *testing.T) {
 		rconn, err := pool.NewConn(context.Background(), nil)
 		require.NoError(t, err)
-		rconn.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonSetConfig)
+		rconn.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonTempTable)
 
 		state, rerr := e.portalReservedError(rconn, "p1", &query.ExecuteOptions{}, false,
-			protoutil.ReasonTempTable|protoutil.ReasonSetConfig,
+			protoutil.ReasonTempTable,
 			errors.New("ERROR: division by zero"))
 		require.Error(t, rerr)
 		require.NotNil(t, state, "transaction reservation must survive a clean SQL error")
 		assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons(),
-			"portal-added temp/set_config reasons must be unwound")
+			"portal-added statement-local reasons must be unwound")
 		rconn.Release(reserved.ReleaseRollback, nil)
 	})
 
-	t.Run("sole added set_config reason drains and releases", func(t *testing.T) {
+	t.Run("sole added statement-local reason drains and releases", func(t *testing.T) {
 		rconn, err := pool.NewConn(context.Background(), nil)
 		require.NoError(t, err)
-		rconn.AddReservationReason(protoutil.ReasonSetConfig)
+		rconn.AddReservationReason(protoutil.ReasonTempTable)
 
 		state, rerr := e.portalReservedError(rconn, "p1", &query.ExecuteOptions{}, true,
-			protoutil.ReasonSetConfig,
+			protoutil.ReasonTempTable,
 			errors.New("ERROR: invalid value for parameter"))
 		require.Error(t, rerr)
 		assert.Nil(t, state, "a drained reservation must release the backend and return a zero state")

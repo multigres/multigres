@@ -536,11 +536,10 @@ func (e *Executor) reserveAndStreamExecute(
 			for _, name := range pinNames {
 				reservedConn.ReleasePortal(name)
 			}
-			// All of protoutil.StatementLocalReasons unwind — including
-			// ReasonSetConfig, whose set_config never applied on the failed
-			// statement; leaving it latched would pin the backend after the
-			// eventual COMMIT/ROLLBACK drains ReasonTransaction, since
-			// nothing else removes a sole ReasonSetConfig on a live session.
+			// Unwind via the protoutil.StatementLocalReasons mask rather than a
+			// hardcoded list, so a reason added to that set is unwound here
+			// automatically instead of silently outliving the failed statement
+			// and pinning the backend past the eventual COMMIT/ROLLBACK.
 			// ReasonPortal is excluded when pins were registered: ReleasePortal
 			// above owns the portal bookkeeping then.
 			unwind := reasons & protoutil.StatementLocalReasons
@@ -1206,11 +1205,12 @@ func (e *Executor) portalExecuteWithReserved(
 // and return a zero ReservedState.
 //
 // addedStatementLocal carries the protoutil.StatementLocalReasons bits this
-// portal execute newly added: the failed statement aborted atomically, so its
-// temp table / set_config never materialized and those reasons unwind here
-// (ReasonPortal is owned by ReleasePortal below). Without the unwind, a sole
-// leftover ReasonSetConfig is removed by nothing on a live session, pinning a
-// healthy backend until the inactivity timeout.
+// portal execute newly added: the failed statement aborted atomically, so the
+// state those reasons stand for (a temp table, a portal) never materialized
+// and they unwind here (ReasonPortal is owned by ReleasePortal below).
+// Without the unwind the portal path unwound nothing at all, so a reason added
+// by a failed Bind/Execute outlived it and pinned an otherwise healthy backend
+// until the inactivity timeout.
 func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, addedStatementLocal uint32, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionDead(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
