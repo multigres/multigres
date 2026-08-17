@@ -231,6 +231,28 @@ func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 	assert.True(t, state.bootstrapSentinelPresent)
 }
 
+func TestDiscoverPostgresState_RewindSentinelQuarantines(t *testing.T) {
+	pm := NewTestMultipoolerManager(t)
+	pm.pgctldClient = &mockPgctldClient{}
+	require.NoError(t, pm.writePgRewindSentinel())
+
+	state, err := pm.discoverPostgresState(t.Context())
+	require.NoError(t, err)
+	assert.True(t, state.rewindSentinelPresent)
+	assert.False(t, state.postgresRunning, "sentinel must short-circuit postgres probing")
+	assert.Equal(t, remedialActionQuarantineFailedRewind, pm.determineRemedialAction(t.Context(), state))
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	require.NoError(t, pm.takeRemedialAction(lockCtx, remedialActionQuarantineFailedRewind, state))
+
+	assert.Equal(t, clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED,
+		pm.record.Snapshot().GetLifecycleStatus().GetStatus())
+	assert.True(t, pm.postgresRestartsDisabled.Load())
+	assert.False(t, pm.pgctldClient.(*mockPgctldClient).startCalled)
+}
+
 func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	ctx := t.Context()
 
@@ -1608,6 +1630,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		backupsAvailable:         true,
 		pgMode:                   pgmode.Primary,
 		bootstrapSentinelPresent: true,
+		rewindSentinelPresent:    true,
 	}
 
 	t.Run("equal states", func(t *testing.T) {
@@ -1624,6 +1647,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
 		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
+		{"rewindSentinelPresent", func() postgresState { s := base; s.rewindSentinelPresent = false; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {

@@ -100,7 +100,7 @@ func TestDemoteStaleLeaderAction_Metadata(t *testing.T) {
 	md := action.Metadata()
 	assert.Equal(t, "DemoteStaleLeader", md.Name)
 	assert.True(t, md.Retryable)
-	assert.Equal(t, 60*time.Second, md.Timeout)
+	assert.Equal(t, 15*time.Minute, md.Timeout)
 }
 
 func TestDemoteStaleLeaderAction_RequiresHealthyLeader(t *testing.T) {

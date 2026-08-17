@@ -77,6 +77,10 @@ type MockPgCtldService struct {
 	// postgresql.auto.conf already carries primary_conninfo before the standby
 	// comes up. Called while the mutex is held.
 	RestartFunc func(*pb.RestartRequest)
+
+	// PgRewindFunc, if non-nil, handles PgRewind requests instead of the
+	// configured response/error. Called while the mutex is held.
+	PgRewindFunc func(context.Context, *pb.PgRewindRequest) (*pb.PgRewindResponse, error)
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -202,6 +206,9 @@ func (m *MockPgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindReques
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PgRewindCalls = append(m.PgRewindCalls, req)
+	if m.PgRewindFunc != nil {
+		return m.PgRewindFunc(ctx, req)
+	}
 	if m.PgRewindError != nil {
 		return nil, m.PgRewindError
 	}

@@ -120,6 +120,7 @@ type postgresState struct {
 	connInfo                 *multipoolermanagerdatapb.PrimaryConnInfo
 	pgMode                   pgmode.Mode
 	bootstrapSentinelPresent bool
+	rewindSentinelPresent    bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
 	// from. False on standbys and on a freshly promoted primary that has not yet
@@ -135,6 +136,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.backupsAvailable == b.backupsAvailable &&
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
+		a.rewindSentinelPresent == b.rewindSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
 
@@ -143,6 +145,10 @@ type remedialAction int
 
 const (
 	remedialActionNone remedialAction = iota
+	// remedialActionQuarantineFailedRewind handles a durable sentinel left by a
+	// real pg_rewind that did not complete. PGDATA may be partially rewritten, so
+	// postgres must not start; quarantine delegates replacement to the operator.
+	remedialActionQuarantineFailedRewind
 	remedialActionStartPostgres
 	remedialActionRestoreFromBackup
 	remedialActionCreateFirstBackup
@@ -333,6 +339,18 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, nil // All fields remain false
 	}
 	state.pgctldAvailable = true
+
+	// A rewind sentinel lives outside PGDATA and survives process/pod restarts.
+	// Check it before touching pgctld: its presence means a destructive rewind may
+	// have been interrupted, so no postgres probe or start is safe.
+	var err error
+	state.rewindSentinelPresent, err = pm.hasPgRewindSentinel()
+	if err != nil {
+		return state, fmt.Errorf("check pg_rewind sentinel: %w", err)
+	}
+	if state.rewindSentinelPresent {
+		return state, nil
+	}
 
 	// Get status from pgctld. On failure return both the state (with
 	// pgctldAvailable=false) and the error so the caller can log the
@@ -867,6 +885,9 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
 	}
+	if currentState.rewindSentinelPresent {
+		return remedialActionQuarantineFailedRewind
+	}
 
 	// Postgres is running: reconcile against the consensus rule. First align the
 	// role (determineRoleAction), then when the role needs no action
@@ -1110,6 +1131,10 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	switch action {
 	case remedialActionNone:
 		// No action to take
+		return nil
+
+	case remedialActionQuarantineFailedRewind:
+		pm.markPoolerQuarantinedLocked(ctx, "pg_rewind sentinel found; PGDATA may be partially rewritten")
 		return nil
 
 	case remedialActionDemoteStalePrimary:

@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -798,6 +799,25 @@ func (pm *MultipoolerManager) SetPostgresRestartsEnabled(ctx context.Context, re
 // Helper methods for stale-primary demotion (used by SetPrimary)
 // ====================================================================================
 
+const (
+	pgRewindSentinelFile      = "PG_REWIND_IN_PROGRESS"
+	minRewindCompletionBudget = 30 * time.Second
+	maxRewindCompletionBudget = 10 * time.Minute
+	rewindRestartMargin       = 30 * time.Second
+)
+
+// rewindCompletionBudget gives the destructive pass twice the measured dry-run
+// duration plus time to repair config and restart postgres. The floor covers
+// tiny dry-runs where the real write is disproportionately slower; the ceiling
+// keeps maintenance bounded.
+func rewindCompletionBudget(dryRunDuration time.Duration) (time.Duration, error) {
+	budget := max(2*dryRunDuration+rewindRestartMargin, minRewindCompletionBudget)
+	if budget > maxRewindCompletionBudget {
+		return 0, fmt.Errorf("required pg_rewind completion budget %s exceeds maximum %s", budget, maxRewindCompletionBudget)
+	}
+	return budget, nil
+}
+
 // pgctldStopWithEscalation walks pgctldStopModes calling pgctld.Stop, returning
 // nil as soon as a mode succeeds or postgres is already stopped, or the last
 // error if every mode fails. Caller is responsible for any Pause()/resume()
@@ -885,6 +905,16 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
+	if wantRewind {
+		sentinelPresent, err := pm.hasPgRewindSentinel()
+		if err != nil {
+			return false, mterrors.Wrap(err, "check pg_rewind sentinel")
+		}
+		if sentinelPresent {
+			pm.markPoolerQuarantinedLocked(ctx, "pg_rewind sentinel found; PGDATA may be partially rewritten")
+			return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "refusing pg_rewind: prior rewind did not complete")
+		}
+	}
 
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
@@ -947,11 +977,27 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// self-stopping would deadlock) or holds the action lock (the monitor blocks on
 	// it before acting), so there is nothing to stop.
 	resume := pm.Pause(ctx)
-	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
+	defer func() {
+		// Resume even when the initiating RPC has expired. WithoutCancel preserves
+		// the action-lock ownership value required by resume.
+		resume(context.WithoutCancel(ctx))
+	}()
 
 	if err := pm.pgctldStopWithEscalation(ctx); err != nil {
 		return false, mterrors.Wrap(err, "stop postgres")
 	}
+
+	var rewindSentinelArmed bool
+	defer func() {
+		if !rewindSentinelArmed {
+			return
+		}
+		reason := "pg_rewind did not complete; PGDATA may be partially rewritten"
+		if err != nil {
+			reason += ": " + err.Error()
+		}
+		pm.markPoolerQuarantinedLocked(context.WithoutCancel(ctx), reason)
+	}()
 
 	if wantRewind {
 		// Record how long this rewind waited for the source leader to become
@@ -969,9 +1015,44 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 				"source_host", sourceHost, "source_port", sourcePort)
 			pm.metrics.recordRewindCheckpointWait(ctx, waited)
 		}
-		rewindPerformed, err = pm.runPgRewind(ctx, sourceHost, sourcePort)
+		var (
+			rewindNeeded   bool
+			dryRunDuration time.Duration
+		)
+		rewindNeeded, dryRunDuration, err = pm.pgRewindDryRun(ctx, sourceHost, sourcePort)
 		if err != nil {
 			return false, mterrors.Wrap(err, "pg_rewind")
+		}
+		if rewindNeeded {
+			budget, budgetErr := rewindCompletionBudget(dryRunDuration)
+			if budgetErr != nil {
+				pm.markPoolerQuarantinedLocked(context.WithoutCancel(ctx), budgetErr.Error())
+				return false, budgetErr
+			}
+			if deadline, ok := ctx.Deadline(); ok {
+				remaining := time.Until(deadline)
+				if remaining < dryRunDuration {
+					return false, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+						"not starting destructive pg_rewind: dry-run took %s but only %s remains",
+						dryRunDuration, max(remaining, 0))
+				}
+			}
+
+			// Keep the destructive pass and post-rewind restart synchronous under
+			// the action lock, but give them a fresh bounded context so expiry of
+			// the initiating RPC cannot kill pg_rewind midway.
+			maintenanceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
+			defer cancel()
+			ctx = maintenanceCtx
+
+			if err := pm.writePgRewindSentinel(); err != nil {
+				return false, mterrors.Wrap(err, "write pg_rewind sentinel")
+			}
+			rewindSentinelArmed = true
+			if err := pm.runPgRewind(ctx, sourceHost, sourcePort); err != nil {
+				return false, mterrors.Wrap(err, "pg_rewind")
+			}
+			rewindPerformed = true
 		}
 		// suspectedDivergence is intentionally NOT cleared here. It is cleared only
 		// after postgres restarts and is verified in recovery mode below, because a
@@ -1088,62 +1169,121 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	if rewindSentinelArmed {
+		if err := pm.removePgRewindSentinel(); err != nil {
+			return false, mterrors.Wrap(err, "remove pg_rewind sentinel")
+		}
+		rewindSentinelArmed = false
+	}
+
 	return rewindPerformed, nil
 }
 
-// runPgRewind runs pg_rewind to sync with source.
-// Returns true if rewind was performed, false if not needed.
-func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (bool, error) {
+// pgRewindDryRun checks whether source and target diverged and returns how long
+// the check took so the destructive pass can receive a realistic budget.
+func (pm *MultipoolerManager) pgRewindDryRun(ctx context.Context, sourceHost string, sourcePort int32) (needed bool, duration time.Duration, err error) {
 	if pm.pgctldClient == nil {
-		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+		return false, 0, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
-
-	// Get application name for replication connection
-	pid := pm.servicePoolerID
 
 	pm.logger.InfoContext(ctx, "running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
-
-	// Dry-run to check if rewind is needed
-	dryRunReq := &pgctldpb.PgRewindRequest{
+	started := time.Now()
+	resp, err := pm.pgctldClient.PgRewind(ctx, &pgctldpb.PgRewindRequest{
 		SourceHost:      sourceHost,
 		SourcePort:      sourcePort,
 		DryRun:          true,
-		ApplicationName: pid.AppName(),
-	}
-	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
+		ApplicationName: pm.servicePoolerID.AppName(),
+	})
+	duration = time.Since(started)
 	if err != nil {
-		if dryRunResp != nil {
-			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "output", dryRunResp.Output)
+		if resp != nil {
+			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "output", resp.Output)
 		}
-		return false, mterrors.Wrap(err, "pg_rewind dry-run failed")
+		return false, duration, mterrors.Wrap(err, "pg_rewind dry-run failed")
 	}
+	output := resp.GetOutput()
+	if !strings.Contains(output, "no rewind required") && strings.Contains(output, "servers diverged at") {
+		pm.logger.InfoContext(ctx, "servers diverged; destructive pg_rewind required", "dry_run_duration", duration)
+		return true, duration, nil
+	}
+	pm.logger.InfoContext(ctx, "no divergence, skipping rewind", "dry_run_duration", duration)
+	return false, duration, nil
+}
 
-	// Check if servers diverged
-	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
-		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
-
-		rewindReq := &pgctldpb.PgRewindRequest{
-			SourceHost:      sourceHost,
-			SourcePort:      sourcePort,
-			DryRun:          false,
-			ApplicationName: pid.AppName(),
-			ExtraArgs:       []string{"-R"},
+// runPgRewind runs the real, destructive pg_rewind. The caller must first write
+// the durable sentinel and provide a bounded context independent of the
+// initiating RPC.
+func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) error {
+	resp, err := pm.pgctldClient.PgRewind(ctx, &pgctldpb.PgRewindRequest{
+		SourceHost:      sourceHost,
+		SourcePort:      sourcePort,
+		ApplicationName: pm.servicePoolerID.AppName(),
+		ExtraArgs:       []string{"-R"},
+	})
+	if err != nil {
+		if resp != nil {
+			pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "output", resp.Output)
 		}
-		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
-		if err != nil {
-			if rewindResp != nil {
-				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "output", rewindResp.Output)
-			}
-			return false, mterrors.Wrap(err, "pg_rewind failed")
-		}
+		return mterrors.Wrap(err, "pg_rewind failed")
+	}
+	pm.logger.InfoContext(ctx, "pg_rewind completed")
+	return nil
+}
 
-		pm.logger.InfoContext(ctx, "pg_rewind completed")
+func (pm *MultipoolerManager) pgRewindSentinelPath() string {
+	if pm.record == nil || pm.record.PoolerDir() == "" {
+		return ""
+	}
+	return filepath.Join(pm.record.PoolerDir(), pgRewindSentinelFile)
+}
+
+func (pm *MultipoolerManager) hasPgRewindSentinel() (bool, error) {
+	path := pm.pgRewindSentinelPath()
+	if path == "" {
+		return false, nil
+	}
+	_, err := os.Stat(path)
+	if err == nil {
 		return true, nil
 	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
 
-	pm.logger.InfoContext(ctx, "no divergence, skipping rewind")
-	return false, nil
+// writePgRewindSentinel durably records that the real pg_rewind may mutate
+// PGDATA. It lives in pooler_dir, outside PGDATA, so pg_rewind cannot overwrite
+// it. Once successfully synced, it remains until verified restart.
+func (pm *MultipoolerManager) writePgRewindSentinel() error {
+	path := pm.pgRewindSentinelPath()
+	if path == "" {
+		return errors.New("pooler directory is not configured")
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString("pg_rewind in progress\n"); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	return f.Close()
+}
+
+func (pm *MultipoolerManager) removePgRewindSentinel() error {
+	path := pm.pgRewindSentinelPath()
+	if path == "" {
+		return errors.New("pooler directory is not configured")
+	}
+	return os.Remove(path)
 }
 
 // fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf

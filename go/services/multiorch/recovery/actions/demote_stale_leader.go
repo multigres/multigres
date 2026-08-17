@@ -40,10 +40,15 @@ import (
 // Compile-time assertion that DemoteStaleLeaderAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*DemoteStaleLeaderAction)(nil)
 
-// StaleLeaderDrainTimeout is a shorter drain timeout for stale leaders.
-// Stale leaders that just came back online typically have no active connections,
-// so we use a shorter timeout to speed up demotion.
-const StaleLeaderDrainTimeout = 5 * time.Second
+const (
+	// StaleLeaderDrainTimeout is a shorter drain timeout for stale leaders.
+	// Stale leaders that just came back online typically have no active connections.
+	StaleLeaderDrainTimeout = 5 * time.Second
+	// staleLeaderActionTimeout leaves room for a loaded node's pg_rewind dry-run,
+	// measured destructive pass, and restart. Pooler-side budgeting still refuses
+	// to begin the destructive pass when this remaining deadline is insufficient.
+	staleLeaderActionTimeout = 15 * time.Minute
+)
 
 // DemoteStaleLeaderAction demotes a stale leader that was detected after failover.
 // It uses the SetPrimary RPC with the correct leader's rule to force the stale leader
@@ -82,7 +87,7 @@ func (a *DemoteStaleLeaderAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "DemoteStaleLeader",
 		Description: "Demote a stale leader that came back online after failover",
-		Timeout:     60 * time.Second,
+		Timeout:     staleLeaderActionTimeout,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
