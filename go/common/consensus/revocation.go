@@ -84,21 +84,18 @@ func NewTermRevocation(
 	// undecided (quorum-verified) proposal under propagation, but the attempt
 	// count must stay keyed on a settled decision — otherwise a stuck proposal,
 	// which never advances the decision, would reset the backoff. Scoping to the
-	// decision keeps churn escalating.
-	var replaceDecision *clustermetadatapb.RuleNumber
+	// decision keeps churn escalating. Uses HighestDecidedRule (not
+	// HighestKnownRule) deliberately — see its doc comment.
+	replaceDecision := HighestDecidedRule(statuses)
 
 	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided. The same pass also tracks the highest decided
-	// rule (replaceDecision) and the most recent prior revocation, which the
-	// backoff carry/reset below is relative to.
+	// already accepted or decided. The same pass also tracks the most recent
+	// prior revocation, which the backoff carry/reset below is relative to.
 	// TODO: once propagation only recruits statuses sharing the outgoing decision,
 	// this term scan can be narrowed to those.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	var latestRevocation *clustermetadatapb.TermRevocation
 	for _, cs := range statuses {
-		if d := cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(); replaceDecision == nil || CompareRuleNumbers(d, replaceDecision) > 0 {
-			replaceDecision = d
-		}
 		rev := cs.GetTermRevocation()
 		if t := rev.GetRevokedBelowTerm(); t > maxTerm {
 			maxTerm = t

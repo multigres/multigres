@@ -523,5 +523,5 @@ func currentDecision(cache *store.PoolerCache, shardKey *clustermetadatapb.Shard
 	for i, p := range poolers {
 		statuses[i] = p.Health().GetConsensusStatus()
 	}
-	return commonconsensus.HighestKnownRule(statuses).GetDecision().GetRuleNumber()
+	return commonconsensus.HighestDecidedRule(statuses)
 }

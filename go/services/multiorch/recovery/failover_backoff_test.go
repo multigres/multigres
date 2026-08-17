@@ -125,6 +125,27 @@ func TestCurrentDecision(t *testing.T) {
 		}, nil))
 		assert.Nil(t, currentDecision(cache, shardKey))
 	})
+
+	t.Run("ignores a higher decision known only via ReplicationPrimary", func(t *testing.T) {
+		// A follower can learn of a newer decision via its ReplicationPrimary
+		// announcement (e.g. right after a promotion) before its own
+		// CurrentPosition has replayed it. currentDecision must match
+		// NewTermRevocation's ReplaceDecision computation exactly (CurrentPosition
+		// only), or a fresh revocation's ReplaceDecision would never equal
+		// currentDecision, making every revocation look like it targets a
+		// different, resolved problem and silently disabling backoff.
+		cache := store.NewTestCache(t)
+		h := poolerHealth("p1", 2)
+		h.ConsensusStatus.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 9}},
+			},
+		}
+		store.SeedCache(t, cache, store.NewPooler(h, nil))
+		got := currentDecision(cache, shardKey)
+		require.NotNil(t, got)
+		assert.Equal(t, int64(2), got.GetCoordinatorTerm(), "must ignore ReplicationPrimary, use CurrentPosition only")
+	})
 }
 
 func TestNextFailoverAttempt(t *testing.T) {
