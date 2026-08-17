@@ -234,6 +234,25 @@ type ExternalExtension struct {
 	// fixture files (see the pgtap spec below).
 	ExcludeGlobs []string
 
+	// UnsafePoolerGlobs (pgTAP) names test files, matched against the path
+	// relative to TestSubdir, that must run through a SECOND gateway started with
+	// --unsafe-pooler-mode instead of the enforcing gateway. Unlike ExcludeGlobs
+	// (a test dropped because it isn't a reliable signal), these tests DO pass on
+	// stock postgres and DO exercise the extension for real; they only fail
+	// through the enforcing gateway because a piece of their scaffolding is
+	// (correctly) rejected by the PL/pgSQL body analysis. pg_partman's daily /
+	// gap-fill / mixed-case time tests each run a `DO $$ ... EXECUTE 'DROP TABLE
+	// '||to_char(CURRENT_TIMESTAMP...) $$` block ("maintenance will catch up");
+	// the runtime-built EXECUTE is rejected, and because psql runs with
+	// ON_ERROR_STOP the whole file aborts mid-plan (ran < declared → plan
+	// mismatch). Real pg_partman usage is unaffected — create_parent /
+	// run_maintenance are installed at CREATE EXTENSION time and their internal
+	// dynamic SQL never passes through the gateway's body analysis. Routing just
+	// these files to the unsafe gateway lets them run in full while every other
+	// file keeps exercising the rejections. See runExternalPgTAP and
+	// ShardSetup.StartUnsafeMultigateway.
+	UnsafePoolerGlobs []string
+
 	// PreCreateExtensions lists extensions to CREATE EXTENSION through multigateway,
 	// in order, before the suite runs — each optionally into a specific schema. Used
 	// by every harness path for fixtures that assume an extension already exists:
@@ -527,6 +546,24 @@ var externalSpecs = map[string]ExternalExtension{
 		// without the gateway (74≠91 on 2026-06-08) — the test's own date assumption,
 		// not a multigres behavior — so it's excluded from the deterministic set.
 		ExcludeGlobs: []string{"test_pg17plus/test-time-monthly-source-generated.sql"},
+		// The daily / gap-fill / mixed-case time tests each run a
+		// `DO $$ ... EXECUTE 'DROP TABLE '||to_char(CURRENT_TIMESTAMP...) $$`
+		// scaffolding block ("Test that maintenance will catch up"). The
+		// runtime-built EXECUTE is rejected by the enforcing gateway's PL/pgSQL body
+		// analysis, and ON_ERROR_STOP then aborts the whole file mid-plan (they
+		// pass 221/221 on stock postgres but stop at 167/221 through the enforcing
+		// gateway). They exercise pg_partman for real, so route them to the
+		// unsafe-pooler-mode gateway rather than dropping them — see UnsafePoolerGlobs.
+		UnsafePoolerGlobs: []string{
+			"test-time-daily.sql",
+			"test-text-time-daily.sql",
+			"test-time-gap-fill.sql",
+			"test-text-gap-fill.sql",
+			"test-time-mixed-case.sql",
+			"test-uuid-daily.sql",
+			"test-uuid-gap-fill.sql",
+			"test_no_search_path/test-time-daily_nosearchpath.sql",
+		},
 		// pgtap (public) and pg_partman (partman schema) must both exist before any
 		// test file runs — the files assume them and never CREATE EXTENSION. pgtap
 		// goes in public; pg_partman MUST go in the `partman` schema (its tests

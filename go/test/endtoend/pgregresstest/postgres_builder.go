@@ -54,6 +54,15 @@ const (
 // by the sqllogictest differential harness.
 type PostgresBuilder struct {
 	*pgbuilder.Builder
+
+	// UnsafeGatewayProvider, when set, lazily starts (and returns the PG port of)
+	// a second multigateway running with --unsafe-pooler-mode, sharing the same
+	// cluster. runExternalPgTAP calls it only for files listed in an extension's
+	// UnsafePoolerGlobs — pgTAP tests whose scaffolding the enforcing gateway
+	// (correctly) rejects. It must be idempotent (repeat calls return the same
+	// port). Wired by the test layer to ShardSetup.StartUnsafeMultigateway; nil in
+	// contexts that never need it.
+	UnsafeGatewayProvider func(t *testing.T) int
 }
 
 // TestResults contains the results from running PostgreSQL regression tests.

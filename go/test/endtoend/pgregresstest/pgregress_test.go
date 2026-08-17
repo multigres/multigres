@@ -415,6 +415,13 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// directPgPort lets the harness reset the public schema on the
 			// primary between extensions (bypassing the gateway's DDL block).
 			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			// Lazily start a second, --unsafe-pooler-mode gateway for the handful of
+			// pgTAP files (ExternalExtension.UnsafePoolerGlobs) whose scaffolding the
+			// enforcing gateway rejects by design. Started only if such a file is
+			// actually reached; torn down with the cluster.
+			builder.UnsafeGatewayProvider = func(t *testing.T) int {
+				return setup.StartUnsafeMultigateway(t)
+			}
 			results, err := builder.RunExternalTests(t, suiteCtx, exts, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
