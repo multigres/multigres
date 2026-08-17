@@ -25,6 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/topoclient"
 )
 
 func TestRegister_SuccessOnFirstTry(t *testing.T) {
@@ -152,28 +154,177 @@ func TestUnregister_WithNilPointer(t *testing.T) {
 	}, "Unregister should handle nil pointer gracefully")
 }
 
-func TestUnregister_WithError(t *testing.T) {
-	var unregisterCalled bool
-	var unregisterError error
+// shortenReassert makes the re-assertion loop tick fast enough for tests.
+func shortenReassert(t *testing.T) {
+	t.Helper()
+	old := reassertInterval
+	reassertInterval = 10 * time.Millisecond
+	t.Cleanup(func() { reassertInterval = old })
+}
+
+func TestReassert_RewritesRegistrationPeriodically(t *testing.T) {
+	shortenReassert(t)
+
+	var registerCallCount atomic.Int32
+	register := func(ctx context.Context) error {
+		registerCallCount.Add(1)
+		return nil
+	}
+
+	tr := Register(register, func(context.Context) error { return nil }, func(string) {}, WithReassert())
+	require.NotNil(t, tr)
+	defer tr.Unregister()
+
+	// The initial registration counts as one; re-assertion keeps going.
+	assert.Eventually(t, func() bool {
+		return registerCallCount.Load() >= 4
+	}, time.Second, 5*time.Millisecond, "registration should be re-asserted repeatedly")
+}
+
+func TestReassert_DisabledByDefault(t *testing.T) {
+	shortenReassert(t)
+
+	var registerCallCount atomic.Int32
+	register := func(ctx context.Context) error {
+		registerCallCount.Add(1)
+		return nil
+	}
+
+	// Without WithReassert (e.g. multipooler, which maintains its own
+	// record) the registration is written exactly once.
+	tr := Register(register, func(context.Context) error { return nil }, func(string) {})
+	require.NotNil(t, tr)
+	defer tr.Unregister()
+
+	assert.Never(t, func() bool {
+		return registerCallCount.Load() > 1
+	}, 200*time.Millisecond, 10*time.Millisecond, "registration must not be rewritten without WithReassert")
+}
+
+func TestReassert_StopsBeforeUnregisterDeletes(t *testing.T) {
+	shortenReassert(t)
+
+	// Ordering guard: if re-assertion outlived the deregistration, it would
+	// rewrite the record the component just removed — re-introducing the
+	// stranded entry this whole mechanism exists to prevent.
+	var registerCallCount atomic.Int32
+	var unregistered atomic.Bool
+	var reassertedAfterUnregister atomic.Bool
+
+	register := func(ctx context.Context) error {
+		registerCallCount.Add(1)
+		if unregistered.Load() {
+			reassertedAfterUnregister.Store(true)
+		}
+		return nil
+	}
+	unregister := func(ctx context.Context) error {
+		unregistered.Store(true)
+		return nil
+	}
+
+	tr := Register(register, unregister, func(string) {}, WithReassert())
+	require.NotNil(t, tr)
+
+	// Let the loop run a few times, then shut down.
+	require.Eventually(t, func() bool {
+		return registerCallCount.Load() >= 3
+	}, time.Second, 5*time.Millisecond)
+	tr.Unregister()
+
+	assert.Never(t, func() bool {
+		return reassertedAfterUnregister.Load()
+	}, 200*time.Millisecond, 10*time.Millisecond, "re-assertion must stop before the record is deleted")
+}
+
+func TestReassert_SurvivesTransientFailures(t *testing.T) {
+	shortenReassert(t)
+
+	var registerCallCount atomic.Int32
+	register := func(ctx context.Context) error {
+		// Fail every other attempt; the loop must keep going regardless.
+		if registerCallCount.Add(1)%2 == 0 {
+			return errors.New("topology unavailable")
+		}
+		return nil
+	}
+
+	tr := Register(register, func(context.Context) error { return nil }, func(string) {}, WithReassert())
+	require.NotNil(t, tr)
+	defer tr.Unregister()
+
+	assert.Eventually(t, func() bool {
+		return registerCallCount.Load() >= 6
+	}, time.Second, 5*time.Millisecond, "a failed re-assertion must not stop the loop")
+}
+
+func TestUnregister_RetriesUntilSuccess(t *testing.T) {
+	var unregisterCallCount atomic.Int32
 
 	register := func(ctx context.Context) error {
 		return nil
 	}
 
 	unregister := func(ctx context.Context) error {
-		unregisterCalled = true
-		return errors.New("unregister failed")
+		if unregisterCallCount.Add(1) < 3 {
+			return errors.New("unregister failed")
+		}
+		return nil
 	}
 
-	alarm := func(msg string) {}
-
-	tr := Register(register, unregister, alarm)
+	tr := Register(register, unregister, func(msg string) {})
 	require.NotNil(t, tr)
 
 	tr.Unregister()
 
-	assert.True(t, unregisterCalled, "unregister should be called")
-	assert.Nil(t, unregisterError, "unregister error should be logged but not returned")
+	assert.Equal(t, int32(3), unregisterCallCount.Load(), "unregister should be retried until it succeeds")
+}
+
+func TestUnregister_GivesUpAfterBudget(t *testing.T) {
+	oldBudget := unregisterBudget
+	unregisterBudget = 300 * time.Millisecond
+	defer func() { unregisterBudget = oldBudget }()
+
+	var unregisterCallCount atomic.Int32
+
+	register := func(ctx context.Context) error {
+		return nil
+	}
+
+	unregister := func(ctx context.Context) error {
+		unregisterCallCount.Add(1)
+		return errors.New("unregister always fails")
+	}
+
+	tr := Register(register, unregister, func(msg string) {})
+	require.NotNil(t, tr)
+
+	// Must return (error is only logged), and must have retried within the budget.
+	tr.Unregister()
+
+	assert.Greater(t, unregisterCallCount.Load(), int32(1), "unregister should be retried before giving up")
+}
+
+func TestUnregister_NoNodeIsSuccess(t *testing.T) {
+	var unregisterCallCount atomic.Int32
+
+	register := func(ctx context.Context) error {
+		return nil
+	}
+
+	// NoNode means the registration is already gone (e.g. a previous
+	// attempt's delete was applied but its response was lost).
+	unregister := func(ctx context.Context) error {
+		unregisterCallCount.Add(1)
+		return topoclient.NewError(topoclient.NoNode, "gateways/foo")
+	}
+
+	tr := Register(register, unregister, func(msg string) {})
+	require.NotNil(t, tr)
+
+	tr.Unregister()
+
+	assert.Equal(t, int32(1), unregisterCallCount.Load(), "NoNode should count as success, not be retried")
 }
 
 func TestRegister_AlarmBehavior(t *testing.T) {
