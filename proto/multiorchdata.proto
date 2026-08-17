@@ -36,9 +36,6 @@ message PoolerHealthState {
   // serving_status, hostname, port_map.
   clustermetadata.Multipooler multipooler = 1;
 
-  // Computed fields (cached by multiorch)
-  bool is_last_check_valid = 3;
-
   // Timestamps for staleness detection
   google.protobuf.Timestamp last_check_attempted = 4;
   google.protobuf.Timestamp last_check_successful = 5;

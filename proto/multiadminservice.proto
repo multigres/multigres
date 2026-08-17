@@ -155,6 +155,19 @@ service MultiadminService {
       body: "*"
     };
   }
+
+  // SwitchPrimary performs a graceful switchover for a shard. It quiesces
+  // writes on the current leader, restarts it as a standby, and publishes
+  // REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+  // leader through the normal consensus flow. The RPC returns as soon as the
+  // old primary has been quiesced — it does not wait for the new leader to
+  // appear.
+  rpc SwitchPrimary(SwitchPrimaryRequest) returns (SwitchPrimaryResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -386,31 +399,28 @@ message BackupInfo {
   string type = 5;
   // status of the backup
   BackupStatus status = 6;
-  // backup_time is when the backup was created
-  // Deprecated: use start_timestamp/stop_timestamp instead.
-  google.protobuf.Timestamp backup_time = 7 [deprecated = true];
   // backup_size_bytes is the size of the backup in bytes
-  uint64 backup_size_bytes = 8;
+  uint64 backup_size_bytes = 7;
   // multipooler_service_id is the ID of the multipooler that reported the backup
-  string multipooler_service_id = 9;
+  string multipooler_service_id = 8;
   // routing_role is the routing role of the multipooler that created the backup
   // (PRIMARY or REPLICA)
-  clustermetadata.RoutingRole routing_role = 10;
+  clustermetadata.RoutingRole routing_role = 9;
   // start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
-  string start_lsn = 11;
+  string start_lsn = 10;
   // stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
-  string stop_lsn = 12;
+  string stop_lsn = 11;
   // pg_version is the full PostgreSQL server_version the backup was taken from (e.g. "16.2")
-  string pg_version = 13;
+  string pg_version = 12;
   // start_timestamp is when the backup started, from pgbackrest info backup[].timestamp.start.
   // Unset if unknown.
-  google.protobuf.Timestamp start_timestamp = 14;
+  google.protobuf.Timestamp start_timestamp = 13;
   // stop_timestamp is when the backup completed, from pgbackrest info backup[].timestamp.stop.
   // Unset if unknown.
-  google.protobuf.Timestamp stop_timestamp = 15;
+  google.protobuf.Timestamp stop_timestamp = 14;
   // job_id is the multiadmin backup job ID that produced this backup, if known
   // (from the pgbackrest job_id annotation).
-  string job_id = 16;
+  string job_id = 15;
 }
 
 // BackupStatus indicates the state of a backup artifact
@@ -564,4 +574,19 @@ message ApplyCertifiedRuleChangeResponse {
   // used or term_revocation was filled in by multiadmin, this exposes the
   // values that multiadmin chose.
   clustermetadata.ExternallyCertifiedRevocation cert_used = 2;
+}
+
+// SwitchPrimary operation messages
+
+message SwitchPrimaryRequest {
+  // Shard to perform the switchover on (required).
+  clustermetadata.ShardKey shard_key = 1;
+
+  // Free-text reason recorded in rule_history for audit.
+  string reason = 2;
+}
+
+message SwitchPrimaryResponse {
+  // The pooler that was demoted.
+  clustermetadata.ID old_leader_id = 1;
 }

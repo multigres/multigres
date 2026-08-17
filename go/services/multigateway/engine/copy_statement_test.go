@@ -250,10 +250,6 @@ func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Co
 	return m.releaseAllErr
 }
 
-func (m *mockIExecute) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
-	return nil
-}
-
 // Helper to create a CopyStatement for testing
 func newTestCopyStatement() *CopyStatement {
 	return NewCopyStatement("test_tablegroup", "COPY t FROM STDIN", &ast.CopyStmt{

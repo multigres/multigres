@@ -62,9 +62,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
-			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+			LastSeen: timestamppb.Now(),
+			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -227,9 +226,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(time.Now().Add(-time.Hour)),
-			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+			LastSeen: timestamppb.New(time.Now().Add(-time.Hour)),
+			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -305,9 +303,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			},
 			// Otherwise healthy (fresh, genuinely primary) so the undecided
 			// proposal below is what LeaderWritesProgressing actually rejects on.
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
-			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+			LastSeen: timestamppb.Now(),
+			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},

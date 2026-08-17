@@ -62,7 +62,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		}
 		return newRider(&multiorchdatapb.PoolerHealthState{
 			Multipooler:        &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-			IsLastCheckValid:   true,
+			LastSeen:           timestamppb.Now(),
 			AvailabilityStatus: av,
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
@@ -80,11 +80,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	// subtests that want an unusable leader mutate sa.Leader (see below).
 	leaderRider := func() *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
-			ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
-			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
+			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
+			LastSeen:        timestamppb.Now(),
+			ConsensusStatus: primaryConsensusStatus(primaryID, 1),
+			Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
 		})
 	}
 
@@ -307,13 +306,27 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Empty(t, problems)
 	})
 
-	t.Run("ignores replica with stale health snapshot (LastCheckValid false)", func(t *testing.T) {
+	t.Run("ignores replica with a genuinely stale health snapshot", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.IsLastCheckValid = false })
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.LastSeen = timestamppb.New(time.Now().Add(-time.Minute))
+		})
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		assert.Empty(t, problems)
+	})
+
+	t.Run("still admits a replica with a momentary connectivity blip but a fresh observation", func(t *testing.T) {
+		// StreamConnected false (e.g. a stream reconnect) must not hide an
+		// otherwise fresh, eligible observation from cohort admission.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.StreamConnected = false })
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		assert.Equal(t, types.ProblemPoolerNotInCohort, problems[0].Code)
 	})
 
 	t.Run("metadata accessors return expected values", func(t *testing.T) {

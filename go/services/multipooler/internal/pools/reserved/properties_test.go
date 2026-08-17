@@ -33,6 +33,7 @@ func TestReleaseReason_String(t *testing.T) {
 		{ReleaseRollback, "rollback"},
 		{ReleasePortalComplete, "portal_complete"},
 		{ReleaseAdvisoryUnlock, "advisory_unlock"},
+		{ReleaseUnreserved, "unreserved"},
 		{ReleaseTimeout, "timeout"},
 		{ReleaseKill, "kill"},
 		{ReleaseError, "error"},
@@ -54,6 +55,7 @@ func TestReleaseReason_preventsReuse(t *testing.T) {
 		ReleaseRollback,
 		ReleasePortalComplete,
 		ReleaseAdvisoryUnlock,
+		ReleaseUnreserved,
 	} {
 		t.Run(reason.String()+"_reusable", func(t *testing.T) {
 			assert.False(t, reason.preventsReuse())
@@ -232,21 +234,20 @@ func TestReservationProperties_AddPortal_InitializesMap(t *testing.T) {
 }
 
 // TestRemoveReservationReason_DrainsOnEmpty pins the plain drain contract:
-// a reservation is drained exactly when no reason remains. ReasonSetConfig
-// gets no special treatment — the executor clears it at statement completion
-// whenever another reason holds the connection, so a stale bit never reaches
-// a drain check.
+// a reservation is drained exactly when no reason remains. Removing one of
+// several reasons keeps the connection reserved; removing the last one drains
+// it.
 func TestRemoveReservationReason_DrainsOnEmpty(t *testing.T) {
 	c := &Conn{}
-	c.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
+	c.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonTempTable)
 	assert.False(t, c.RemoveReservationReason(protoutil.ReasonTransaction),
-		"a remaining set_config bit still counts as reserved; the executor clears it at statement end")
-	assert.Equal(t, protoutil.ReasonSetConfig, c.RemainingReasons())
-	assert.True(t, c.RemoveReservationReason(protoutil.ReasonSetConfig))
+		"a remaining temp-table reason still counts as reserved")
+	assert.Equal(t, protoutil.ReasonTempTable, c.RemainingReasons())
+	assert.True(t, c.RemoveReservationReason(protoutil.ReasonTempTable))
 	assert.Equal(t, uint32(0), c.RemainingReasons())
 
 	c2 := &Conn{}
-	c2.AddReservationReason(protoutil.ReasonSetConfig)
-	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonSetConfig),
-		"sole set_config reason drains on removal")
+	c2.AddReservationReason(protoutil.ReasonTempTable)
+	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonTempTable),
+		"sole reason drains on removal")
 }

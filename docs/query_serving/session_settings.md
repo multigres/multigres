@@ -49,22 +49,34 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
 - **Unpinned `RESET`** validates the name with a statement-local reset probe
   (`set_config(name, NULL, true)` errors on unknown names like a real RESET),
   then drops the map entry. **Unpinned `RESET ALL`** is a pure map edit.
-- **Accepted top-level `set_config`** forms route unmodified and update
-  logical state only after success. A session-persisting call
-  (`is_local := false`) carries a `ReasonSetConfig` reservation: the backend
-  that executes it is held out of the pool until the gateway records the new
-  value into its map, then released explicitly with options carrying the
-  updated map, which the multipooler stamps onto the connection's settings
-  label. The same flow covers the dynamic `pg_settings` shape and SQL
-  `EXECUTE` of a prepared body containing such a call. No reconciliation SQL
-  is ever injected mid-transaction (which would latch a REPEATABLE
-  READ/SERIALIZABLE snapshot early), and the reservation intent derives from
-  the statement shape alone, so these plans stay cacheable. The reservation
-  is held only for its statement: it is dropped at statement completion when
-  another reason already holds the connection, handed to the portal reason
-  when a row-limited execute suspends (tracking has fired by then, so every
-  later drain carries the value), and unwinds with the other statement-local
-  reasons on failure.
+- **Accepted top-level `set_config`** mirrors the `SET` split, and updates
+  logical state only after success. Where a tracked ordinary call applies on
+  the backend follows pinned-ness, decided at execute time so the plan stays
+  cacheable — the plan carries both shapes under a `SessionStateBranch`
+  primitive that picks per live session state:
+  - _unpinned_: the call's `is_local` is rewritten to `true`, so it reverts at
+    statement end and leaves nothing on the pooled backend — the value lives
+    only in the gateway map and is replayed at the next checkout, exactly like
+    an unpinned `SET`.
+  - _pinned_: the call runs for real (`is_local := false`), so the reserved
+    backend genuinely carries it (a reserved backend has no pool-replay path);
+    its eventual release stamps the then-current map. "Pinned" here also covers
+    a statement that reserves its OWN backend — an advisory lock in the same
+    query, or a row-limited portal (the multipooler reserves any `maxRows > 0`
+    portal for possible resumption) — since the set_config lands on that
+    reserved backend.
+
+  The dynamic `pg_settings` shape follows the same rule (its synthesized apply
+  forces `is_local := true` when unpinned and keeps each call's captured
+  `is_local` when pinned). SQL `EXECUTE` of a prepared body containing such a
+  call is decided at plan time (EXECUTE is non-cacheable, so it plans fresh with
+  live session state): unpinned, the prepared body is rewritten so its
+  set_config reverts on the pooled backend; pinned, it runs verbatim. No
+  reconciliation SQL is ever injected mid-transaction (which would latch a
+  REPEATABLE READ/SERIALIZABLE snapshot early), and no per-statement capture
+  reservation is involved — unpinned set_config is symmetric with unpinned
+  `SET`.
+
 - **Gateway-managed variables never reach a backend**, whatever the shape. A
   literal-named call is rewritten out of the routed query; the dynamic shape
   applies gateway-managed names with `is_local := true` so nothing persists
@@ -111,26 +123,6 @@ SERIALIZABLE READ ONLY`) are currently rejected — a deliberate unimplemented
 
 Gateway-managed variables are described in
 [`gateway_managed_variables.md`](./gateway_managed_variables.md).
-
-## Rejected alternative: single RPC-driven release for the capture reservation
-
-The `ReasonSetConfig` bit is cleared through several paths (gateway release
-RPC when sole, local pooler-side clear when another reason co-holds, at
-portal suspension, on failure unwind). A unification was considered and
-rejected: never clear locally, and let the gateway's post-statement release
-RPC drop the bit in every state. It is cleaner — the entire class of
-clear-vs-implicit-release ordering bugs becomes unrepresentable — but it
-adds one RPC per mixed-state statement on the latency-sensitive path, and a
-lost RPC strands a mixed-reason connection with no reaper: unlike the sole
-case (where the gateway abandons its shard state and the idle killer reaps
-the orphan), a live transaction's reservation cannot be abandoned, and a
-busy connection never idles. Escalating a lost release RPC to a client
-FATAL closes that hole but converts an invisible, self-healing
-infrastructure blip — including lost-response false positives, correlated
-across sessions on a pooler restart — into client-visible session kills.
-Local clears cannot fail, cost nothing, and keep infrastructure noise
-invisible to clients; each custody-transfer path is pinned by a dedicated
-test. Revisit only if the set of clearing paths keeps growing.
 
 ## Known limitations and PostgreSQL divergence
 

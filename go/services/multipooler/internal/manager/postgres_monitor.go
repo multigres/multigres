@@ -277,6 +277,10 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 			if !pm.consensusMgr.SuspectedDivergence() {
 				pm.consensusMgr.ResetRewindBackoff()
 			}
+			// Postgres came up: the FATAL-loop streak (if any) is broken. This is
+			// the common healthy path, which returns before reaching
+			// trackRecoveryOutcome, so reset the classifier here too.
+			pm.resetUnrecoverableTracking()
 		}
 		return currentState, nil
 	}
@@ -305,7 +309,13 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	action = pm.determineRemedialAction(lockCtx, currentState)
 
 	// Take remedial action with lock held
-	pm.takeRemedialAction(lockCtx, action, currentState)
+	actionErr := pm.takeRemedialAction(lockCtx, action, currentState)
+
+	// Feed the unrecoverable-FATAL-loop classifier: a postgres that keeps
+	// failing to start (or rewind/restore) for long enough is quarantined so it
+	// gets replaced instead of spinning forever. Runs under the same action lock
+	// so the quarantine record write is serialised with the rest of the tick.
+	pm.trackRecoveryOutcome(lockCtx, action, currentState, actionErr)
 
 	return currentState, nil
 }
@@ -538,6 +548,108 @@ func (pm *MultipoolerManager) connInfoReconcileAllowed() (*clustermetadatapb.Poo
 		return nil, false
 	}
 	return target, true
+}
+
+// isRecoveryAction reports whether a remedial action is an attempt to bring
+// postgres back up. Only failures of these count toward the unrecoverable
+// (FATAL-loop) verdict — a benign reconcile or a rewind-ready broadcast failing
+// does not mean the node can't start.
+func isRecoveryAction(action remedialAction) bool {
+	switch action {
+	case remedialActionStartPostgres, remedialActionRewindToLeader, remedialActionRestoreFromBackup:
+		return true
+	default:
+		return false
+	}
+}
+
+// resetUnrecoverableTracking clears the consecutive-failure streak. Called
+// whenever postgres is observed running — the FATAL-loop, if there was one, is
+// over. Touches only monitor-goroutine-local fields.
+func (pm *MultipoolerManager) resetUnrecoverableTracking() {
+	pm.unrecoverableFailedAttempts = 0
+	pm.unrecoverableFirstFailureAt = time.Time{}
+}
+
+// trackRecoveryOutcome is the unrecoverable-FATAL-loop classifier. It runs once
+// per monitor tick, under the action lock, after takeRemedialAction. It observes
+// consecutive failed postgres recovery attempts (start/rewind/restore) and, once
+// postgres has been continuously failing for longer than unrecoverableTimeout
+// AND at least unrecoverableMinAttempts genuine attempts have failed, quarantines
+// the pooler so it is replaced rather than looping forever.
+//
+// The timeout is the primary gate (operator-facing, independent of the monitor
+// interval and of how long individual attempts take — a fast start-FATAL and a
+// slow restore-failure are judged on the same wall-clock budget). The attempts
+// floor guards the degenerate cases where few real attempts happened (a single
+// hung attempt, sparse ticks).
+//
+// It deliberately does NOT fire for a postgres that is merely down transiently:
+// a running postgres resets the streak, and only genuine failed recovery
+// attempts (an action that tried and errored) advance it — a skipped start
+// (restarts disabled), a benign reconcile, or a legitimately in-progress restore
+// do not. This is what distinguishes "postgres momentarily down" from
+// "unrecoverable".
+func (pm *MultipoolerManager) trackRecoveryOutcome(ctx context.Context, action remedialAction, state postgresState, actionErr error) {
+	// Classifier disabled (timeout 0): keep the pre-quarantine behaviour of
+	// retrying indefinitely.
+	if pm.unrecoverableTimeout <= 0 {
+		return
+	}
+
+	// The verdict is latched on the record and only cleared by pod replacement
+	// (a fresh manager). The classifier itself has nothing more to do once
+	// quarantined — but the quarantine side effects are applied across several
+	// steps (record write, cohort ineligibility, restart suppression) and any of
+	// them can fail on the tick we first quarantine. In particular, if the
+	// lifecycle status latched but SetCohortEligibility failed, the coordinator
+	// would keep trying to recruit this node and the orchestrator would never
+	// elect a new primary. Re-run the idempotent side effects each tick until
+	// they fully apply; once cohort eligibility is INELIGIBLE there is genuinely
+	// nothing left to do.
+	if lifecycle := pm.record.Snapshot().GetLifecycleStatus(); lifecycle.GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED {
+		if pm.consensusMgr.CohortEligibility() != clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+			pm.markPoolerQuarantinedLocked(ctx, lifecycle.GetReason())
+		}
+		return
+	}
+
+	// Postgres is up: the streak (if any) is broken.
+	if state.postgresRunning {
+		pm.resetUnrecoverableTracking()
+		return
+	}
+
+	// Only a failed recovery attempt counts. Anything else (benign action,
+	// skipped start, or a success that nonetheless left postgres reported down
+	// this tick) is not evidence the node can't recover.
+	if !isRecoveryAction(action) || actionErr == nil {
+		return
+	}
+
+	now := pm.now()
+	if pm.unrecoverableFailedAttempts == 0 {
+		pm.unrecoverableFirstFailureAt = now
+	}
+	pm.unrecoverableFailedAttempts++
+
+	minAttempts := pm.unrecoverableMinAttempts
+	if minAttempts <= 0 {
+		minAttempts = constants.DefaultUnrecoverableMinAttempts
+	}
+	elapsed := now.Sub(pm.unrecoverableFirstFailureAt)
+	// Both gates must hold: enough real attempts AND long enough elapsed.
+	if pm.unrecoverableFailedAttempts < minAttempts || elapsed < pm.unrecoverableTimeout {
+		return
+	}
+
+	reason := fmt.Sprintf(
+		"postgres failed to recover for %s across %d attempts (last error: %v)",
+		elapsed.Round(time.Second),
+		pm.unrecoverableFailedAttempts,
+		actionErr,
+	)
+	pm.markPoolerQuarantinedLocked(ctx, reason)
 }
 
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
@@ -975,11 +1087,16 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 
 // takeRemedialAction executes the specified remedial action.
 // Caller must hold the action lock.
-func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
+// takeRemedialAction performs the chosen remediation. It returns the error from
+// a postgres recovery attempt (start / rewind / restore) so the caller's
+// unrecoverable-FATAL-loop classifier can count consecutive failures; it returns
+// nil for non-recovery actions, skipped actions, and successes. The returned
+// error is already logged here — the caller uses it only as a failure signal.
+func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) error {
 	// Assert that the action lock is held
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
-		return
+		return nil
 	}
 
 	const (
@@ -993,7 +1110,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	switch action {
 	case remedialActionNone:
 		// No action to take
-		return
+		return nil
 
 	case remedialActionDemoteStalePrimary:
 		// Re-check under the action lock: the decision was made on a lock-free
@@ -1002,7 +1119,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// until the recorded leader has checkpointed onto its current timeline).
 		target := pm.staleStandbyDemoteTarget()
 		if target == nil {
-			return
+			return nil
 		}
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: stale primary; consensus names another leader, restarting as standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -1018,7 +1135,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		// Sync the physical standby role and re-enable reads only after the rewind
 		// path has cleared suspected divergence.
@@ -1073,7 +1190,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// during controlled failovers.
 		if pm.postgresRestartsDisabled.Load() {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		// Retract writability and serving before the blocking restart. Otherwise a
@@ -1091,17 +1208,18 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start Postgres, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return err
 		}
 
 	case remedialActionRewindToLeader:
 		// Honor the in-memory flag set by tests and demos to suppress auto-restart.
 		if pm.postgresRestartsDisabled.Load() {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		host, port, ok := pm.consensusMgr.RewindTarget()
 		if !ok {
-			return
+			return nil
 		}
 		// Stamp the backoff before attempting, so a failed rewind is rate-limited
 		// regardless of how it fails.
@@ -1114,7 +1232,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			"target_host", host, "target_port", port)
 		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return err
 		}
 		// Success: postgres is back as a standby (suspectedDivergence cleared in
 		// restartAsStandbyLocked). The backoff is cleared on the next healthy
@@ -1130,7 +1248,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// orch's old RewindToSource RPC for a diverged-but-running standby.
 		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return
+			return nil
 		}
 		// Clear the debounce timer; the rewind path now owns the incident.
 		pm.standbyStuckSince.Store(0)
@@ -1142,6 +1260,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return err
 		}
 
 	case remedialActionCreateFirstBackup:
@@ -1195,6 +1314,8 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.broadcastHealth()
 		}
 	}
+
+	return nil
 }
 
 // hasCompleteBackups checks if there are any complete backups available
@@ -1250,7 +1371,10 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// been rewound to. Postgres is down, so this edits postgresql.auto.conf
 	// directly rather than via ALTER SYSTEM. Best-effort — a failure here must not
 	// block the start; the rewind (restartAsStandbyLocked, once the leader is
-	// rewind-ready) re-establishes primary_conninfo afterwards.
+	// rewind-ready) re-establishes primary_conninfo afterwards — written back
+	// into postgresql.auto.conf before the post-rewind start, so even a standby
+	// that cannot reach consistency (and thus never accepts the SQL write) comes
+	// back streaming rather than held blind.
 	if pm.consensusMgr.SuspectedDivergence() {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
