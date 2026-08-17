@@ -514,7 +514,7 @@ func latestRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.Shar
 	return latest
 }
 
-// currentDecision returns the highest MARKED (decided) rule any pooler in the
+// currentDecision returns the highest decided rule any pooler in the
 // shard currently reports — the same baseline commonconsensus.NewTermRevocation
 // computes as a brand-new attempt's own ReplaceDecision right now.
 func currentDecision(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.RuleNumber {

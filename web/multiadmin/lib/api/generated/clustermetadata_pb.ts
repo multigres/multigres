@@ -2167,8 +2167,8 @@ export class TermRevocation extends Message<TermRevocation> {
  */
 export class RecruitIntent extends Message<RecruitIntent> {
   /**
-   * The marked (durably decided) rule this recruitment intends to move past —
-   * the decided baseline the attempt count is relative to. Deliberately distinct
+   * The decided rule this recruitment intends to move past — the decided
+   * baseline the attempt count is relative to. Deliberately distinct
    * from TermRevocation.outgoing_rule: once propagation lands, outgoing_rule may
    * be an undecided (quorum-verified) proposal, but the count must key on a
    * settled decision so a stuck proposal — which never advances the decision —

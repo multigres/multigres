@@ -78,7 +78,7 @@ func NewTermRevocation(
 	}
 	outgoingRule := PossiblyUndecidedRule(maxPosition).GetRuleNumber()
 
-	// replaceDecision is the highest MARKED decision across the cohort — the
+	// replaceDecision is the highest decided rule across the cohort — the
 	// baseline the collective failover backoff counts attempts against. It is
 	// computed independently of outgoingRule on purpose: outgoingRule may be an
 	// undecided (quorum-verified) proposal under propagation, but the attempt
@@ -88,8 +88,8 @@ func NewTermRevocation(
 	var replaceDecision *clustermetadatapb.RuleNumber
 
 	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided. The same pass also tracks the highest marked
-	// decision (replaceDecision) and the most recent prior revocation, which the
+	// already accepted or decided. The same pass also tracks the highest decided
+	// rule (replaceDecision) and the most recent prior revocation, which the
 	// backoff carry/reset below is relative to.
 	// TODO: once propagation only recruits statuses sharing the outgoing decision,
 	// this term scan can be narrowed to those.
