@@ -120,13 +120,20 @@ func (s BackoffSchedule) backoff(attempt int64) time.Duration {
 }
 
 // jitter returns a deterministic offset in [0, JitterFraction*base) derived from
-// the orchestrator identity, the decision being replaced, and the attempt number.
-// Using a stable hash (not a RNG) keeps it reproducible across orchestrators and
-// process restarts; every input is observable identically by every
-// orchestrator, so they agree on the ordering while still being spread across the
-// window. The replace_decision varies the ordering across failover episodes and
-// the attempt varies it across rounds within an episode. Scaling the window to
+// the caller identity, the decision being replaced, and the attempt number.
+// Using a stable hash (not a RNG) keeps it reproducible across callers and
+// process restarts; every input is observable identically by every caller, so
+// they agree on the ordering while still being spread across the window. The
+// replace_decision varies the ordering across failover episodes and the
+// attempt varies it across rounds within an episode. Scaling the window to
 // the delay keeps the spread meaningful as the backoff grows.
+//
+// TODO: the window is a fixed fraction of base, so it's narrow at low attempt
+// counts (e.g. 2.5s at attempt 1 with the default schedule) — with enough
+// concurrent callers, more than one can still collide on the same slot.
+// Whether that's a correctness issue depends on the caller's own conflict
+// resolution; if collisions matter at scale, consider a floor independent of
+// JitterFraction.
 func (s BackoffSchedule) jitter(orchID *clustermetadatapb.ID, replaceDecision *clustermetadatapb.RuleNumber, attempt int64, base time.Duration) time.Duration {
 	window := time.Duration(float64(base) * s.JitterFraction)
 	if window <= 0 {
