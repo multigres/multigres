@@ -102,7 +102,7 @@ func runSpec(t *testing.T, ctx context.Context, target specTarget, match string)
 // intentionally don't provide (not gateway bugs), so they don't show up as
 // environment failures. Extend via POSTGREST_SKIP (comma-separated). Currently:
 //   - PgSafeUpdateSpec needs the pg-safeupdate extension (github.com/eradman/
-//     pg-safeupdate), which we don't build; documented in DIVERGENCES.md.
+//     pg-safeupdate), which we don't build.
 func specSkips() []string {
 	skips := []string{"Feature.Query.PgSafeUpdateSpec"}
 	if extra := os.Getenv("POSTGREST_SKIP"); extra != "" {
