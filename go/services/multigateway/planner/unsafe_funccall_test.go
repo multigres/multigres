@@ -463,6 +463,98 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough pins the
+// carve-out that unblocks PostgREST's mutation row-count trick: a
+// transaction-scoped set_config(name, value, true) on an ordinary GUC is
+// allowed outside a top-level SELECT target (WHERE, subquery, CTE-INSERT). It
+// reverts at transaction end, so PostgreSQL runs it verbatim and the gateway
+// tracks nothing — result.SetConfigs stays empty.
+func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0'",
+		},
+		{
+			name: "is_local=true in INSERT ... WHERE inside a CTE (PostgREST shape)",
+			sql: "WITH pgrst_source AS (" +
+				"INSERT INTO t (x) SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0' RETURNING x" +
+				") SELECT * FROM pgrst_source",
+		},
+		{
+			name: "is_local=true in subquery",
+			sql:  "SELECT * FROM (SELECT 1 AS v WHERE set_config('pgrst.inserted', '1', true) <> '0') s",
+		},
+		{
+			name: "ordinary GUC with is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('work_mem', '256MB', true) IS NOT NULL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt, true)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Empty(t, result.SetConfigs, "a transaction-local pass-through must not be tracked")
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected covers the shapes
+// the transaction-local carve-out must still reject: only a literal
+// is_local=true on a non-restricted, non-gateway-managed GUC passes through.
+func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "is_local=false in WHERE leaks untracked backend state",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', false) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "bound is_local can't be resolved at plan time",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', $1) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "non-literal name can't be checked for restricted/gateway-managed",
+			sql:     "SELECT 1 FROM pg_settings WHERE set_config(name, '1', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "restricted GUC is rejected even transaction-scoped",
+			sql:     "SELECT 1 WHERE set_config('synchronous_commit', 'off', true) <> '0'",
+			wantMsg: "setting synchronous_commit is not supported",
+		},
+		{
+			name:    "gateway-managed variable must never reach the backend",
+			sql:     "SELECT 1 WHERE set_config('statement_timeout', '5s', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt, true)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
 // TestInspectExpressionFuncCalls_DynamicSetConfigAccepted pins the
 // resolve-and-apply path: a SELECT whose target list is entirely
 // set_config(...) and that has at least one argument the literal/bound fast
