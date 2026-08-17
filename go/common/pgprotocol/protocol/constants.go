@@ -129,8 +129,9 @@ const (
 
 // Packet length constants
 const (
-	MaxStartupPacketLength = 10000 // Maximum startup packet length
-	PacketHeaderSize       = 4     // Size of packet length field (does not include message type byte)
+	MaxStartupPacketLength = 10000                // Maximum startup packet length
+	PacketHeaderSize       = 4                    // Size of packet length field (does not include message type byte)
+	MessageHeaderSize      = 1 + PacketHeaderSize // Message type byte plus packet length field
 )
 
 // ALPN protocol identifier for PostgreSQL
