@@ -619,10 +619,20 @@ func tempBuffersRetrySafe(sql string) bool {
 	return false
 }
 
-// isBareSetConfigSelect reports whether stmt is `SELECT set_config(...) [, ...]`
-// and nothing more: every target is a set_config call and no other clause is
-// present that could evaluate an unrelated expression (a FROM-list function, a
-// WHERE predicate calling nextval, a CTE, a set operation, ...).
+// isBareSetConfigSelect reports whether stmt is `SELECT set_config(<constants>)
+// [, ...]` and nothing more: every target is a set_config call whose arguments
+// are compile-time constants, and no other clause is present that could
+// evaluate an unrelated expression (a FROM-list function, a WHERE predicate
+// calling nextval, a CTE, a set operation, ...).
+//
+// The argument check is as load-bearing as the clause check. PostgreSQL
+// evaluates a function's arguments BEFORE the function runs, so in
+// `set_config('temp_buffers', nextval('s')::text, true)` the sequence is
+// consumed and then the GUC assign hook raises the freeze — verified on
+// PostgreSQL 17, where is_called flips to true on the failed statement.
+// Replaying that consumes a second value and hands it back as the only result.
+// Matching on the target being a set_config call alone would check what the
+// statement projects rather than what evaluating it does.
 func isBareSetConfigSelect(stmt *ast.SelectStmt) bool {
 	if stmt.Op != ast.SETOP_NONE || stmt.Larg != nil || stmt.Rarg != nil {
 		return false
@@ -649,8 +659,48 @@ func isBareSetConfigSelect(stmt *ast.SelectStmt) bool {
 		if !ok || !isSetConfigFuncName(fc.Funcname) {
 			return false
 		}
+		if !isConstantSetConfigCall(fc) {
+			return false
+		}
 	}
 	return true
+}
+
+// isConstantSetConfigCall reports whether every part of a set_config call is a
+// compile-time constant, so re-running it performs no work beyond the GUC
+// write. Anything else — a nested function call, a sub-select, a column
+// reference, a bound parameter, or an aggregate/window decoration — fails
+// closed, because this predicate cannot prove it is free of effects that
+// outlive the failed statement.
+func isConstantSetConfigCall(fc *ast.FuncCall) bool {
+	if fc.AggOrder != nil || fc.AggFilter != nil || fc.Over != nil ||
+		fc.AggWithinGroup || fc.AggStar || fc.AggDistinct || fc.FuncVariadic {
+		return false
+	}
+	if fc.Args == nil || fc.Args.Len() == 0 {
+		return false
+	}
+	for _, arg := range fc.Args.Items {
+		if !isConstantExpr(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isConstantExpr reports whether n is a literal constant, optionally wrapped in
+// casts (`'100'::text`). Deliberately an allow-list: an unrecognized node is
+// treated as potentially effectful.
+func isConstantExpr(n ast.Node) bool {
+	switch v := n.(type) {
+	case *ast.TypeCast:
+		return v.Arg != nil && isConstantExpr(v.Arg)
+	case *ast.A_Const:
+		return true
+	case *ast.String, *ast.Integer, *ast.Float, *ast.Boolean:
+		return true
+	}
+	return false
 }
 
 // isSetConfigFuncName matches set_config and pg_catalog.set_config.

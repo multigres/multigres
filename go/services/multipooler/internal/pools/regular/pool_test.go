@@ -349,6 +349,22 @@ func TestTempBuffersRetrySafe(t *testing.T) {
 	assert.True(t, tempBuffersRetrySafe("  select set_config('temp_buffers', '100', false)"))
 	assert.True(t, tempBuffersRetrySafe("SELECT set_config('a','1',false), set_config('temp_buffers','100',false)"))
 
+	// Unsafe: a side effect hidden in the set_config ARGUMENTS. PostgreSQL
+	// evaluates arguments before the function runs, so the sequence is consumed
+	// and then the GUC assign hook raises the freeze — verified on PostgreSQL
+	// 17 (is_called flips to true on the failed statement, with the freeze's
+	// own 22023+DETAIL diagnostic, so the recovery would fire and replay).
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', nextval('s')::text, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT pg_catalog.set_config('temp_buffers', nextval('s')::text, false)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', (SELECT pg_advisory_lock(1))::text, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config(lower('temp_buffers'), '100', true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', col, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', $1, true)"))
+	// One effectful call among otherwise-constant ones still poisons the batch.
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('a','1',true), set_config('temp_buffers', nextval('s')::text, true)"))
+	// Casts over literals stay safe.
+	assert.True(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', '100'::text, true)"))
+
 	// Unsafe: a non-transactional side effect would be replayed. Verified on
 	// PostgreSQL 17 that both of these survive the failed statement.
 	assert.False(t, tempBuffersRetrySafe("SELECT nextval('s'), set_config('temp_buffers','100',false)"))
