@@ -28,6 +28,15 @@ import (
 //go:embed testdata/pg17/regress_preseed.sql
 var regressPreseedSQL string
 
+// postgisPreseedSQL holds the PostGIS core test-helper functions re-seeded
+// directly on the primary before each PostGIS test (the patched run_test.pl runs
+// it via psql on the direct port). PostGIS test files CREATE OR REPLACE their own
+// helpers — rejected by the gateway — and DROP them at the end, so they must be
+// re-seeded per test. Extracted from postgis 3.6.3 test sources.
+//
+//go:embed testdata/pg17/external/postgis_preseed.sql
+var postgisPreseedSQL string
+
 // preseedRegressHelpers installs a small set of benign scaffolding helper
 // functions directly on the primary (bypassing multigateway) before the
 // regression suite runs. This is the same "create setup the gateway rejects by

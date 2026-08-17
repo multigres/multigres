@@ -1,0 +1,13 @@
+# Known divergence (by design): this test defines qnodes(), a helper whose body
+# runs a dynamic EXECUTE ('EXPLAIN ' || query) the gateway cannot vet, so its
+# CREATE is rejected. Each PostGIS test creates and DROPs its own qnodes, so it
+# is re-seeded directly on the primary before every test
+# (testdata/pg17/external/postgis_preseed.sql, applied by the patched
+# run_test.pl); the index checks then run and only the rejected CREATE remains.
+--- a
++++ b
+@@ -1,3 +1,4 @@
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ scan_seq|Seq Scan
+ 42.01|POINT Z (42.01 42.01 42.01)
+ 42.03|POINT Z (42.03 42.03 42.03)

@@ -664,6 +664,13 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 	}
 	args = append(args, tests...)
 
+	// Write the per-test helper preseed where the patched run_test.pl can psql it
+	// directly onto the primary before each test. See patchPostGISRunnerDatabase.
+	preseedPath := filepath.Join(tmpDir, "mg_postgis_preseed.sql")
+	if err := os.WriteFile(preseedPath, []byte(postgisPreseedSQL), 0o644); err != nil {
+		return testResultsFromSynthetic(synthetic), fmt.Errorf("write postgis preseed: %w", err)
+	}
+
 	t.Logf("Running external/%s run_test.pl (%d tests) against multigateway...", ext.Name, len(tests))
 	cmd := executil.Command(ctx, "perl", args...).WithProcessGroup().SetDir(cloneDir)
 	cmd.SetWaitDelay(10 * time.Second)
@@ -677,6 +684,13 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 		"POSTGIS_REGRESS_DB=postgres",
 		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
 		"PGIS_REG_TMPDIR="+tmpDir,
+		// Per-test helper re-seed: the patched run_test.pl runs this SQL on the
+		// direct primary port before each test (PGPASSWORD above authenticates it).
+		"MG_POSTGIS_PRESEED_FILE="+preseedPath,
+		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres", directPgPort),
+		// Normalize planner GUCs to PostgreSQL defaults so index scan-type checks
+		// (qnodes) match PostGIS's expected output despite pgctld's tuned GUCs.
+		"PGOPTIONS=-c work_mem=4MB -c random_page_cost=4.0 -c effective_cache_size=4GB -c max_parallel_workers_per_gather=2",
 	)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -737,6 +751,20 @@ func patchPostGISRunnerDatabase(path string) error {
 	patched = strings.ReplaceAll(patched,
 		`    sql("ALTER DATABASE \"$DB\" SET test.executor_slow_factor = $test_executor_slow_factor");`,
 		`    # Multigres runs PostGIS against an existing database through the gateway; ALTER DATABASE is intentionally blocked.`,
+	)
+	// Re-seed the test-helper functions directly on the primary before every
+	// test. PostGIS test files each CREATE OR REPLACE their own helpers (qnodes,
+	// etc.) — rejected by the gateway's body analysis — and DROP them at the end,
+	// so a single pre-seed is dropped by the first test that runs. Seeding
+	// directly (bypassing the gateway) before each test keeps them present. The
+	// direct conninfo + SQL file are passed in via MG_POSTGIS_PRESEED_*.
+	patched = strings.ReplaceAll(patched,
+		"\tstart_test($TEST);\n\t$TEST_OBJ_COUNT_PRE = count_postgis_objects();",
+		"\t# Multigres patch: re-seed gateway-rejected test helpers directly on the primary.\n"+
+			"\tif ($ENV{MG_POSTGIS_PRESEED_FILE} && $ENV{MG_POSTGIS_PRESEED_CONNINFO}) {\n"+
+			"\t\tsystem(\"psql \\\"$ENV{MG_POSTGIS_PRESEED_CONNINFO}\\\" -Xq -f \\\"$ENV{MG_POSTGIS_PRESEED_FILE}\\\" >/dev/null 2>&1\");\n"+
+			"\t}\n\n"+
+			"\tstart_test($TEST);\n\t$TEST_OBJ_COUNT_PRE = count_postgis_objects();",
 	)
 	if patched == string(raw) {
 		return nil
