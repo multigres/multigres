@@ -94,7 +94,7 @@ func renderReport(r *postgrestReport) string {
 	}
 
 	if div > 0 {
-		fmt.Fprintf(&sb, "### %d gateway divergence(s) — see DIVERGENCES.md\n\n", div)
+		fmt.Fprintf(&sb, "### %d gateway divergence(s)\n\n", div)
 		fmt.Fprintf(&sb, "Fail through the gateway — behavioural gaps on the proxied path (the direct-PostgreSQL baseline is asserted green).\n\n")
 		for _, f := range r.Divergences {
 			fmt.Fprintf(&sb, "- `%s`\n", f)
