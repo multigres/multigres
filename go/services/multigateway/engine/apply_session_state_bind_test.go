@@ -397,6 +397,38 @@ func TestApplySessionState_NullNameRejected(t *testing.T) {
 	assert.Empty(t, settings)
 }
 
+// TestApplySessionState_UnknownOidIsDecodedAndVetted pins the PostgREST shape:
+// an untyped bound parameter arrives as OID 705 (unknown), which PostgreSQL
+// coerces to text natively. Refusing it broke real clients — the vet-only
+// disposition routes set_config('search_path', $1, true) into the decoder, so
+// an unknown-typed value failed the statement outright.
+//
+// Accepting it is the safe direction, and this test pins that: the value is
+// DECODED AND VETTED, not waved through. pg_temp in any position must still be
+// rejected; only a benign value passes.
+func TestApplySessionState_UnknownOidIsDecodedAndVetted(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	run := func(t *testing.T, value string) error {
+		t.Helper()
+		prim := NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+			&BoundSetConfigRefs{ValueParam: &ast.ParamRef{Number: 1}})
+		portalInfo := buildBoundPortalInfo(t, sql,
+			[]uint32{uint32(ast.UNKNOWNOID)}, [][]byte{[]byte(value)}, []int16{0})
+		_, _, err := runBindExecute(t, prim, portalInfo)
+		return err
+	}
+
+	t.Run("benign value is accepted", func(t *testing.T) {
+		require.NoError(t, run(t, "public, extensions"))
+	})
+	t.Run("pg_temp is still rejected", func(t *testing.T) {
+		require.ErrorContains(t, run(t, "pg_temp"), "pg_temp")
+	})
+	t.Run("trailing pg_temp is still rejected", func(t *testing.T) {
+		require.ErrorContains(t, run(t, "nosuch, pg_temp"), "pg_temp")
+	})
+}
+
 // TestApplySessionState_UnsupportedOidStaysFailClosed guards the security
 // property behind the OID restriction: the declared parameter OID is
 // CLIENT-controlled, so "cannot decode it, let PostgreSQL handle it" would let

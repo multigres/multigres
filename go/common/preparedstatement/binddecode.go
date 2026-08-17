@@ -27,10 +27,16 @@ import (
 // that can act on a NULL (PostgreSQL semantics rather than an error) should
 // use DecodeBindAsTextOrNull instead.
 //
-// Accepted OIDs: TEXT, VARCHAR, InvalidOid (unspecified — PG infers from
-// the function signature at execute time). For text-like OIDs the binary
-// wire format is byte-identical to the text format (raw UTF-8), so a
-// single branch covers both formats.
+// Accepted OIDs: TEXT, VARCHAR, UNKNOWN, and InvalidOid (unspecified — PG
+// infers from the function signature at execute time). For these the binary
+// wire format is byte-identical to the text format (raw UTF-8), so a single
+// branch covers both formats.
+//
+// UNKNOWN (705) is the type PostgreSQL assigns an untyped parameter, which is
+// what real clients send: PostgREST binds set_config's value that way, and
+// rejecting it failed the statement where PostgreSQL would simply have coerced
+// unknown -> text. Accepting it is also the safe direction — it means the value
+// is DECODED AND VETTED rather than refused before the guards can see it.
 //
 // Other OIDs are rejected, and that rejection is deliberately FAIL-CLOSED
 // rather than a pass-through to PostgreSQL. The declared parameter OID is
@@ -72,7 +78,7 @@ func DecodeBindAsTextOrNull(portalInfo *PortalInfo, pr *ast.ParamRef, callSite s
 		return "", isNull, err
 	}
 	switch oid {
-	case ast.InvalidOid, ast.TEXTOID, ast.VARCHAROID:
+	case ast.InvalidOid, ast.TEXTOID, ast.VARCHAROID, ast.UNKNOWNOID:
 		return string(raw), false, nil
 	}
 	return "", false, mterrors.NewFeatureNotSupported(
