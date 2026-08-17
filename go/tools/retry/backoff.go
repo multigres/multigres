@@ -148,13 +148,15 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 
 // ExponentialBackoffMagnitude returns the exponential backoff magnitude baseDelay *
 // 2^attempt, clamped to maxDelay, with overflow protection. attempt is
-// zero-indexed (attempt 0 → baseDelay). It applies no jitter: callers layer their
-// own jitter strategy on top — Full Jitter here (nextDelay), or the deterministic
-// fractional jitter in go/common/ha, which needs a guaranteed minimum delay that
-// Full Jitter cannot provide.
+// zero-indexed (attempt 0 → baseDelay); negative values are treated as 0. It
+// applies no jitter: callers layer their own jitter strategy on top — Full
+// Jitter here (nextDelay), or the deterministic fractional jitter in
+// go/common/ha, which needs a guaranteed minimum delay that Full Jitter
+// cannot provide.
 func ExponentialBackoffMagnitude(baseDelay, maxDelay time.Duration, attempt int) time.Duration {
-	// Cap attempt to prevent overflow (shifting more than 62 bits overflows int64).
-	multiplier := int64(1 << min(attempt, 62))
+	// Cap attempt to prevent overflow (shifting more than 62 bits overflows
+	// int64); floor at 0 since a negative shift count panics.
+	multiplier := int64(1 << min(max(attempt, 0), 62))
 	baseDelayInt := int64(baseDelay)
 	if baseDelayInt > 0 && multiplier > math.MaxInt64/baseDelayInt {
 		return maxDelay
