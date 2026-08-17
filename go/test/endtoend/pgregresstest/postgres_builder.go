@@ -593,6 +593,9 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 	if err := patchPostGISRunnerDatabase(filepath.Join(cloneDir, "regress", "run_test.pl")); err != nil {
 		return nil, err
 	}
+	if err := patchPostGISConflictingHelpers(cloneDir); err != nil {
+		return nil, err
+	}
 
 	// Pre-install the PostGIS components directly on the primary (directPgPort),
 	// NOT through the gateway. CREATE EXTENSION postgis_topology runs
@@ -740,6 +743,47 @@ func extensionControlExists(installDir, name string) bool {
 		}
 	}
 	return false
+}
+
+// patchPostGISConflictingHelpers renames PostGIS test helpers that are defined
+// across multiple test files with clashing signatures, so they can be pre-seeded
+// without "function is not unique" ambiguity. Each of these helpers has a
+// dynamic-EXECUTE body the gateway rejects, so it must be seeded; but the shared
+// preseed can't hold, for example, both check_changes(text) and
+// check_changes(text, boolean DEFAULT true) — a 1-arg call would match both. We
+// give the colliding variant a per-file unique name here and seed it under that
+// same name (see postgis_preseed.sql). The rename is a pure local identifier
+// substitution in the test's own file; it changes no test behavior.
+func patchPostGISConflictingHelpers(cloneDir string) error {
+	renames := []struct{ file, from, to string }{
+		// check_changes(text, boolean DEFAULT true) collides with check_changes(text).
+		{"topology/test/regress/topogeo_addpolygon.sql", "check_changes", "check_changes_ap"},
+		// runTest is defined with the same signature but different bodies in these two.
+		{"topology/test/regress/topogeo_addlinestring_robust.sql", "runTest", "runtest_alr"},
+		{"topology/test/regress/topogeo_addpoint_merge_edges.sql", "runTest", "runtest_apme"},
+		// make_test_raster is defined in ~23 raster files; only tickets.sql's copy
+		// runs a dynamic EXECUTE (so only it is rejected and needs seeding). Rename
+		// just that one so its seed doesn't collide with the 22 self-created copies.
+		{"raster/test/regress/tickets.sql", "make_test_raster", "make_test_raster_tickets"},
+	}
+	for _, r := range renames {
+		path := filepath.Join(cloneDir, filepath.FromSlash(r.file))
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read postgis test file %q: %w", r.file, err)
+		}
+		// Whole-identifier, case-insensitive rename (PostgreSQL folds unquoted
+		// identifiers, so "runTest" and "runtest" refer to the same function).
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(r.from) + `\b`)
+		patched := re.ReplaceAll(raw, []byte(r.to))
+		if bytes.Equal(patched, raw) {
+			return fmt.Errorf("postgis test file %q: %q not found to rename (PG version drift?)", r.file, r.from)
+		}
+		if err := os.WriteFile(path, patched, 0o644); err != nil {
+			return fmt.Errorf("write postgis test file %q: %w", r.file, err)
+		}
+	}
+	return nil
 }
 
 func patchPostGISRunnerDatabase(path string) error {
