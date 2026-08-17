@@ -149,6 +149,9 @@ func (ts *store) GetMultiorchsByCell(ctx context.Context, cellName string) ([]*M
 		if err := proto.Unmarshal(listResults[n].Value, multiorch); err != nil {
 			return nil, err
 		}
+		if multiorch.GetId().GetCell() != cellName {
+			continue
+		}
 		mtorchs = append(mtorchs, &MultiorchInfo{Multiorch: multiorch, version: listResults[n].Version})
 	}
 	return mtorchs, nil

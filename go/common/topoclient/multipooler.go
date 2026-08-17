@@ -216,6 +216,9 @@ func (ts *store) GetMultipoolersByCell(ctx context.Context, cellName string, opt
 		if err := proto.Unmarshal(listResults[n].Value, multipooler); err != nil {
 			return nil, err
 		}
+		if multipooler.GetId().GetCell() != cellName {
+			continue
+		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
 			sk := multipooler.GetShardKey()
 			// Database must match

@@ -149,6 +149,9 @@ func (ts *store) GetMultigatewaysByCell(ctx context.Context, cellName string) ([
 		if err := proto.Unmarshal(listResults[n].Value, multigateway); err != nil {
 			return nil, err
 		}
+		if multigateway.GetId().GetCell() != cellName {
+			continue
+		}
 		mtgateways = append(mtgateways, &MultigatewayInfo{Multigateway: multigateway, version: listResults[n].Version})
 	}
 	return mtgateways, nil
