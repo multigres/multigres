@@ -22,25 +22,30 @@ import (
 
 // RejectTempSchemaSearchPath returns a feature_not_supported error when a
 // search_path value names the temporary namespace (pg_temp, or a concrete
-// pg_temp_N) in ANY position, and nil otherwise. This is the strict guard for
-// client-reachable runtime surfaces: session SET, set_config in every
-// disposition, and startup parameters.
+// pg_temp_N) in ANY position, and nil otherwise. It is the single guard for
+// every surface that can assign search_path: session SET, set_config in every
+// disposition, startup parameters, ALTER ROLE/DATABASE ... SET, and
+// CREATE/ALTER FUNCTION proconfig.
 //
 // With pg_temp as the effective creation target, PostgreSQL creates
 // unqualified objects as genuine temporary objects (no TEMP keyword involved)
 // and current_schema() instantiates the temp namespace as a side effect —
 // both invisible to the gateway's keyword-based temp detection, so they would
-// silently taint a shared pooled backend. The creation target is the first
-// EXISTING schema in the list (verified empirically: SET search_path =
-// no_such_schema, pg_temp makes pg_temp the creation target and
-// current_schema() returns pg_temp_N), so a position-aware check would be
-// trivially bypassed by a client prefixing a nonexistent schema — any
-// explicit mention is rejected on these surfaces. That loses nothing real for
-// lookups: pg_temp is always searched implicitly.
+// silently taint a shared pooled backend.
 //
-// Admin-authored persisted configuration (ALTER ROLE/DATABASE ... SET,
-// CREATE/ALTER FUNCTION proconfig) uses RejectLeadingTempSchemaSearchPath
-// instead, preserving PostgreSQL's own trailing-pg_temp hardening guidance.
+// The check is deliberately position-INSENSITIVE. The effective creation
+// target is the first EXISTING schema in the list, which the gateway cannot
+// determine, so a trailing pg_temp is only conditionally safe: verified
+// empirically that SET search_path = no_such_schema, pg_temp makes pg_temp the
+// creation target and current_schema() returns pg_temp_N. Any position-aware
+// rule would therefore depend on schema existence the gateway cannot see, and
+// would be bypassed by prefixing a nonexistent schema. One uniform rule
+// instead: no surface may put pg_temp in search_path.
+//
+// The known cost is PostgreSQL's trailing-pg_temp hardening idiom (used to
+// demote temp-object lookup priority, e.g. SET search_path = admin, pg_temp on
+// a SECURITY DEFINER function). It is rejected too, including in pg_dump output
+// that carries it, and must be rewritten without the pg_temp element.
 //
 // The value is split naively on commas: a quoted schema name that itself
 // contains a comma and a pg_temp-prefixed fragment could false-positive, but
@@ -54,33 +59,6 @@ func RejectTempSchemaSearchPath(value string) error {
 					"the temporary namespace belongs to a pooled backend, not to the client session; " +
 					"use CREATE TEMP/TEMPORARY to create temporary objects")
 		}
-	}
-	return nil
-}
-
-// RejectLeadingTempSchemaSearchPath rejects a search_path value only when its
-// FIRST element names the temporary namespace. It is the lenient guard for
-// admin-authored persisted configuration — ALTER ROLE/DATABASE ... SET and
-// CREATE/ALTER FUNCTION|PROCEDURE SET clauses (proconfig) — where PostgreSQL's
-// own hardening guidance appends a trailing pg_temp to demote temp-object
-// lookup priority (the standard SECURITY DEFINER pattern, emitted by pg_dump),
-// and rejecting it would break restores of correctly hardened databases.
-//
-// The trailing position is safe only while some schema listed before pg_temp
-// exists — the creation target is the first EXISTING entry — and these
-// surfaces are trusted to uphold that: the values are written by roles with
-// DDL privileges as part of deliberate configuration, not by arbitrary
-// clients at runtime (which get the strict RejectTempSchemaSearchPath). The
-// residual risk — an admin listing only nonexistent schemas ahead of
-// pg_temp, or dropping them all later — is a misconfiguration within the
-// same trust boundary as any other admin DDL.
-func RejectLeadingTempSchemaSearchPath(value string) error {
-	first, _, _ := strings.Cut(value, ",")
-	if isTempSchemaElem(first) {
-		return mterrors.NewFeatureNotSupported(
-			"pg_temp leading search_path is not supported under connection pooling: " +
-				"it would make the temporary namespace of a shared pooled backend the creation target; " +
-				"list pg_temp after at least one real schema, or use CREATE TEMP/TEMPORARY")
 	}
 	return nil
 }

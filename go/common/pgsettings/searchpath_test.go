@@ -48,29 +48,20 @@ func TestRejectTempSchemaSearchPath(t *testing.T) {
 	}
 }
 
-func TestRejectLeadingTempSchemaSearchPath(t *testing.T) {
-	rejected := []string{
-		"pg_temp",
-		"pg_temp, public",
-		"PG_TEMP, app",
-		` "pg_temp" , app`,
-		"pg_temp_3, app",
-	}
-	for _, value := range rejected {
-		assert.ErrorContains(t, RejectLeadingTempSchemaSearchPath(value), "pg_temp", "value %q", value)
-	}
-
-	// Trailing/inner pg_temp is the PostgreSQL hardening pattern — allowed on
-	// the admin-authored persisted surfaces this guard serves.
-	allowed := []string{
-		"",
-		"public",
-		"app, pg_temp",
-		`"$user", public, pg_temp`,
-		"admin, pg_temp, public",
-		"mypg_temp, app",
-	}
-	for _, value := range allowed {
-		assert.NoError(t, RejectLeadingTempSchemaSearchPath(value), "value %q", value)
+// TestRejectTempSchemaSearchPathIsPositionInsensitive pins that the guard is
+// deliberately position-INSENSITIVE. A trailing pg_temp is only conditionally
+// safe — the effective creation target is the first EXISTING schema, so
+// "nosuch, pg_temp" resolves to the temp namespace — and the gateway cannot
+// determine schema existence. Rather than a rule whose safety depends on state
+// it cannot see, no position is accepted anywhere.
+func TestRejectTempSchemaSearchPathIsPositionInsensitive(t *testing.T) {
+	for _, value := range []string{
+		"pg_temp, public",          // leading: creation target outright
+		"app, pg_temp",             // trailing: the PostgreSQL hardening idiom
+		"nosuch, pg_temp",          // trailing but creation target anyway
+		`"$user", public, pg_temp`, // pg_dumpall / pg_dump shape
+		"admin, pg_temp, public",   // inner
+	} {
+		assert.ErrorContains(t, RejectTempSchemaSearchPath(value), "pg_temp", "value %q", value)
 	}
 }
