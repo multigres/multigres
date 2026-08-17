@@ -205,6 +205,9 @@ func (s *MultiadminServer) buildCert(
 		return decision, &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: &clustermetadatapb.TermRevocation{
 				OutgoingRule: decision.GetRuleNumber(),
+				RecruitIntent: &clustermetadatapb.RecruitIntent{
+					ReplaceDecision: decision.GetRuleNumber(),
+				},
 			},
 			FrozenLsn: pos.GetLsn(),
 		}, nil

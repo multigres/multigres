@@ -524,6 +524,9 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		FrozenLsn: "0/300",
 		TermRevocation: &clustermetadatapb.TermRevocation{
 			OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			RecruitIntent: &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			},
 		},
 	}, got)
 }

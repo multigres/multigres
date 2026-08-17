@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -426,9 +427,21 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 //     self-confirming, so no detection grace is needed.
 //   - Every other action uses the local grace period.
 //
-// TODO: this failover-vs-everything-else split is a stopgap. The cleaner shape is
-// for each recovery action to own its "may I act now?" gate (failover → backoff,
-// others → grace) so this central selection dissolves.
+// TODO: this failover-vs-everything-else split is a stopgap; each recovery
+// action should own its "may I act now?" gate so this selection dissolves.
+//
+// TODO: as a backstop, consider throttling how often *successful* failovers
+// happen for a shard at all — protects against a flapping health bug even
+// though each flap looks like a fresh, ungated problem here.
+//
+// TODO: unlike recoveryGracePeriodTracker, collective backoff has no
+// persist-across-ticks debounce — a first-ever failover acts on a single
+// detection. Fine for first-hand causes (LeaderResigned). Less obviously so
+// for observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy):
+// classifyCohortReachability requires a quorum of followers to agree (and
+// each already tracks how long it's gone without hearing from the leader,
+// covering a shared-cause partition), but that's not proven equivalent to
+// the old per-tick debounce. Revisit if this causes false-positive failovers.
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
 	if isFailoverProblem(problem.Code) {
 		return re.nextFailoverAttempt(problem.ShardKey)
@@ -447,32 +460,50 @@ func isFailoverProblem(code types.ProblemCode) bool {
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover
-// recruitment time for the shard and whether that time has arrived. When no
-// revocation has been observed it returns (zero, true) — act immediately
-// (aggressive-first). Otherwise it derives the deterministic per-orch next-attempt
-// time from the observed revocation's collective backoff, so independent orchs
-// stagger and escalate their retries without coordinating.
+// recruitment time for the shard and whether that time has arrived.
+//
+// RecruitIntent.ReplaceDecision identifies *which problem* a recruit attempt was
+// for — the decided baseline it intended to move past. That gives two ways to
+// act immediately (aggressive-first), and one way to back off:
+//
+//   - No revocation observed at all: nothing to back off from.
+//   - The observed revocation's ReplaceDecision demonstrably targets a
+//     different problem than the one we're now facing — e.g. a shard's
+//     original bootstrap recruitment, whose target was decided long ago and
+//     has been running fine ever since. That's resolved history, not a live
+//     retry, so this failure gets a fresh start.
+//   - Otherwise (ReplaceDecision matches our current problem, or is absent and
+//     so cannot be shown to be a different problem) it's a live or
+//     unfalsifiable retry: derive the deterministic per-orch next-attempt time
+//     from the revocation's collective backoff, so independent orchs stagger
+//     and escalate without coordinating. A revocation with no RecruitIntent at
+//     all (e.g. an externally-supplied cert, or an external actor forcing a
+//     resignation) falls into this default-cooldown case — we cannot prove it
+//     is unrelated, so we do not treat it as a free pass.
 func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
-	rev := latestObservedRevocation(re.poolerCache, shardKey)
+	rev := latestRevocation(re.poolerCache, shardKey)
 	if rev == nil {
+		return time.Time{}, true
+	}
+	if replaceDecision := rev.GetRecruitIntent().GetReplaceDecision(); replaceDecision != nil &&
+		commonconsensus.CompareRuleNumbers(replaceDecision, currentDecision(re.poolerCache, shardKey)) != 0 {
 		return time.Time{}, true
 	}
 	readyAt = re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
 	return readyAt, !time.Now().Before(readyAt)
 }
 
-// latestObservedRevocation returns the most recent TermRevocation any pooler in
-// the shard has accepted (highest revoked_below_term), as seen through the
-// streamed health snapshots, or nil if none has been observed yet. This is how
-// an orchestrator observes other orchestrators' in-flight recruitment for a
-// shard without any orch-to-orch RPC.
+// latestRevocation returns the TermRevocation behind the shard's highest
+// revoked_below_term, as seen through the streamed health snapshots, or nil if
+// none has been observed. This is how an orchestrator observes other
+// orchestrators' in-flight recruitment for a shard without any orch-to-orch RPC.
 //
 // Note: an orchestrator does not observe its OWN just-written revocation until it
 // streams back, so immediately after recruiting it may briefly still see the
 // prior (or no) revocation and re-enter the gate. That window is bounded by
 // recheckProblem, the term CAS on recruit (a stale re-attempt loses), and the
 // next cycle observing the new revocation.
-func latestObservedRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
+func latestRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
 	var latest *clustermetadatapb.TermRevocation
 	for _, p := range store.FindPoolersInShard(cache, shardKey) {
 		rev := p.Health().GetConsensusStatus().GetTermRevocation()
@@ -481,4 +512,16 @@ func latestObservedRevocation(cache *store.PoolerCache, shardKey *clustermetadat
 		}
 	}
 	return latest
+}
+
+// currentDecision returns the highest MARKED (decided) rule any pooler in the
+// shard currently reports — the same baseline commonconsensus.NewTermRevocation
+// computes as a brand-new attempt's own ReplaceDecision right now.
+func currentDecision(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.RuleNumber {
+	poolers := store.FindPoolersInShard(cache, shardKey)
+	statuses := make([]*clustermetadatapb.ConsensusStatus, len(poolers))
+	for i, p := range poolers {
+		statuses[i] = p.Health().GetConsensusStatus()
+	}
+	return commonconsensus.HighestKnownRule(statuses).GetDecision().GetRuleNumber()
 }

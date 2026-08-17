@@ -143,6 +143,16 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
+// GracePeriod is currently unreachable: every problem AppointLeaderAction is
+// attached to (see emitFailover in leader_needs_replacement_analyzer.go) uses
+// one of the isFailoverProblem codes, which Engine.readyToExecute routes
+// through the collective recruitment backoff (nextFailoverAttempt) instead of
+// recoveryGracePeriodTracker — the only caller of GracePeriod(). Left in place
+// only because RecoveryAction requires it.
+//
+// TODO: once each recovery action fully owns its "may I act now?" gate (see
+// the TODO on readyToExecute), remove this method and its backing
+// leader-failover-grace-period-base/-max-jitter config entirely.
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
 		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),

@@ -41,7 +41,7 @@ func TestIsFailoverProblem(t *testing.T) {
 	assert.False(t, isFailoverProblem(types.ProblemPoolerNotInCohort))
 }
 
-func TestLatestObservedRevocation(t *testing.T) {
+func TestLatestRevocation(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	// poolerHealth builds a rider for a shard member; revokedBelow > 0 attaches a
@@ -65,7 +65,7 @@ func TestLatestObservedRevocation(t *testing.T) {
 		cache := store.NewTestCache(t)
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 0), nil))
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 0), nil))
-		assert.Nil(t, latestObservedRevocation(cache, shardKey))
+		assert.Nil(t, latestRevocation(cache, shardKey))
 	})
 
 	t.Run("returns the highest revoked_below_term across the shard", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestLatestObservedRevocation(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 3), nil))
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 7), nil))
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p3", 5), nil))
-		rev := latestObservedRevocation(cache, shardKey)
+		rev := latestRevocation(cache, shardKey)
 		require.NotNil(t, rev)
 		assert.Equal(t, int64(7), rev.GetRevokedBelowTerm())
 	})
@@ -82,7 +82,48 @@ func TestLatestObservedRevocation(t *testing.T) {
 		cache := store.NewTestCache(t)
 		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 4), nil))
 		otherShard := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
-		assert.Nil(t, latestObservedRevocation(cache, otherShard))
+		assert.Nil(t, latestRevocation(cache, otherShard))
+	})
+}
+
+func TestCurrentDecision(t *testing.T) {
+	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+
+	poolerHealth := func(name string, decidedTerm int64) *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
+				ShardKey: shardKey,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: decidedTerm}},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("returns the highest decided rule across the shard", func(t *testing.T) {
+		cache := store.NewTestCache(t)
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 2), nil))
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 4), nil))
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p3", 3), nil))
+		got := currentDecision(cache, shardKey)
+		require.NotNil(t, got)
+		assert.Equal(t, int64(4), got.GetCoordinatorTerm())
+	})
+
+	t.Run("nil when no pooler reports a decided rule", func(t *testing.T) {
+		cache := store.NewTestCache(t)
+		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+				ShardKey: shardKey,
+			},
+		}, nil))
+		assert.Nil(t, currentDecision(cache, shardKey))
 	})
 }
 
@@ -97,21 +138,37 @@ func TestNextFailoverAttempt(t *testing.T) {
 			coordinator:        consensus.NewCoordinator(coordID, nil, nil, slog.Default()),
 		}
 	}
-	seedRevocation := func(cache *store.PoolerCache, name string, initiated time.Time, attempt int64) {
+	// seedRevocation attaches a revocation to p1, decided at term 4. When
+	// replaceDecisionTerm is non-nil, the revocation carries a RecruitIntent
+	// targeting that term with the given attempt count; nil means no
+	// RecruitIntent at all.
+	seedRevocation := func(cache *store.PoolerCache, name string, initiated time.Time, replaceDecisionTerm *int64, attempt int64) {
+		rev := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       5,
+			CoordinatorInitiatedAt: timestamppb.New(initiated),
+		}
+		if replaceDecisionTerm != nil {
+			rev.RecruitIntent = &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: *replaceDecisionTerm},
+				Attempt:         attempt,
+			}
+		}
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
 				ShardKey: shardKey,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm:       5,
-					CoordinatorInitiatedAt: timestamppb.New(initiated),
-					RecruitIntent:          &clustermetadatapb.RecruitIntent{Attempt: attempt},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+					},
 				},
+				TermRevocation: rev,
 			},
 		}, nil))
 	}
+	termPtr := func(term int64) *int64 { return &term }
 
 	t.Run("acts immediately when no revocation is observed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
@@ -122,7 +179,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 
 	t.Run("defers while a recent revocation's backoff has not elapsed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
-		seedRevocation(cache, "p1", time.Now(), 1) // now + base(10s) → in the future
+		seedRevocation(cache, "p1", time.Now(), termPtr(4), 1) // now + base(10s) → in the future
 		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
 		assert.False(t, ready, "should defer within the backoff window")
 		assert.True(t, readyAt.After(time.Now()))
@@ -130,8 +187,30 @@ func TestNextFailoverAttempt(t *testing.T) {
 
 	t.Run("acts once a stale revocation's backoff has elapsed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
-		seedRevocation(cache, "p1", time.Now().Add(-time.Hour), 5) // old anchor → ready time is in the past
+		seedRevocation(cache, "p1", time.Now().Add(-time.Hour), termPtr(4), 5) // old anchor → ready time is in the past
 		_, ready := newEngine(cache).nextFailoverAttempt(shardKey)
 		assert.True(t, ready, "a long-stale revocation should not keep deferring")
+	})
+
+	t.Run("acts immediately when the observed revocation targets a different, already-resolved problem", func(t *testing.T) {
+		// e.g. a shard's original bootstrap revocation: the shard has long
+		// since moved on to decision term 4 (see CurrentPosition above), so
+		// this revocation (which targeted term 0) is resolved history.
+		cache := store.NewTestCache(t)
+		seedRevocation(cache, "p1", time.Now(), termPtr(0), 1)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		assert.True(t, ready, "a revocation targeting a different problem should not gate this one")
+		assert.True(t, readyAt.IsZero())
+	})
+
+	t.Run("defers on a fresh revocation with no RecruitIntent (default cooldown)", func(t *testing.T) {
+		// We cannot tell whether this revocation (e.g. an externally-supplied
+		// cert, or an external actor forcing a resignation) is for our current
+		// problem or an unrelated one, so we do not treat it as a free pass.
+		cache := store.NewTestCache(t)
+		seedRevocation(cache, "p1", time.Now(), nil, 0)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		assert.False(t, ready, "an unidentifiable revocation should get the default cooldown, not a free pass")
+		assert.True(t, readyAt.After(time.Now()))
 	})
 }
