@@ -643,6 +643,21 @@ func (c *Conn) endWriterBuffering() error {
 	return flushErr
 }
 
+// abortWriterBuffering discards buffered bytes and returns the writer to its
+// pool without flushing. It is used when the pgwire stream ends inside a frame:
+// flushing or appending an ErrorResponse would expose malformed protocol data.
+func (c *Conn) abortWriterBuffering() {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if c.bufferedWriter == nil {
+		return
+	}
+	c.bufferedWriter.Reset(nil)
+	c.listener.writersPool.Put(c.bufferedWriter)
+	c.bufferedWriter = nil
+}
+
 // canSendPlaintextStartupError reports whether a best-effort plaintext
 // ErrorResponse during the startup phase would be intelligible to the
 // client. If the client sent SSLRequest and the server already answered
@@ -864,6 +879,12 @@ func (c *Conn) serve() error {
 			if errors.Is(err, errFatalDiagnosticSent) {
 				_ = c.endWriterBuffering()
 				return nil
+			}
+			// The client is still inside an incomplete DataRow. No subsequent
+			// pgwire frame would be parseable, so discard buffered output and close.
+			if errors.Is(err, errIncompleteDataRow) {
+				c.abortWriterBuffering()
+				return err
 			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
@@ -1095,6 +1116,7 @@ func (c *Conn) handleQuery() error {
 	// Track state for current result set.
 	// This is reset when we complete a result set (when CommandTag is set).
 	sentRowDescription := false
+	passthroughRowInProgress := false
 
 	// Execute the query via the handler with streaming callback.
 	// The callback will be invoked multiple times for:
@@ -1133,6 +1155,9 @@ func (c *Conn) handleQuery() error {
 		if err := c.writeResultRows(result); err != nil {
 			return err
 		}
+		if result.PassthroughBlock != nil {
+			passthroughRowInProgress = result.PassthroughRowInProgress
+		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
 		if result.CommandTag != "" {
@@ -1159,6 +1184,9 @@ func (c *Conn) handleQuery() error {
 	if err != nil {
 		err = queryContextError(queryCtx, err)
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
+		if passthroughRowInProgress {
+			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
+		}
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
@@ -1431,6 +1459,7 @@ func (c *Conn) handleExecute() error {
 
 	// Track state for streaming results.
 	sentRowDescription := false
+	passthroughRowInProgress := false
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
@@ -1473,6 +1502,9 @@ func (c *Conn) handleExecute() error {
 		if err := c.writeResultRows(result); err != nil {
 			return err
 		}
+		if result.PassthroughBlock != nil {
+			passthroughRowInProgress = result.PassthroughRowInProgress
+		}
 
 		// If CommandTag is set, this is the last packet.
 		if result.CommandTag != "" {
@@ -1504,6 +1536,9 @@ func (c *Conn) handleExecute() error {
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
+		if passthroughRowInProgress {
+			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
+		}
 		return c.writeExtendedQueryError(err)
 	}
 

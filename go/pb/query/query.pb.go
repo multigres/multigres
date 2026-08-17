@@ -235,17 +235,16 @@ type QueryResult struct {
 	// diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
 	// ConcludeTransaction) use this field to preserve backend notice ordering.
 	Notices []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
-	// passthrough_block is the opaque row-passthrough representation. When set, it
-	// contains the concatenated raw PostgreSQL DataRow ('D') frames for this
-	// batch, exactly as read from the backend, and rows is empty. The multipooler
-	// captures the frames without parsing them into columns and the multigateway
-	// writes the block straight to the client socket, avoiding per-row
-	// marshalling and re-framing on both ends. Requested via
-	// ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+	// passthrough_block is the opaque row-passthrough representation. When set,
+	// it contains the next ordered chunk of raw PostgreSQL DataRow ('D') wire
+	// bytes and rows is empty. A block may contain complete frames or a frame
+	// fragment; concatenating blocks in stream order reconstructs the exact
+	// DataRow byte stream from the backend. The multigateway writes the block
+	// straight to the client socket. fields (RowDescription) remain structured.
 	PassthroughBlock []byte `protobuf:"bytes,7,opt,name=passthrough_block,json=passthroughBlock,proto3" json:"passthrough_block,omitempty"`
-	// passthrough_row_count is the number of DataRow frames packed into
-	// passthrough_block. rows is empty in passthrough mode, so this preserves the
-	// row count for metrics and row-limit accounting.
+	// passthrough_row_count is the number of DataRow frames completed in this
+	// block. It may be zero when the block contains only a fragment of a large
+	// DataRow. This preserves row accounting while rows is empty.
 	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
 	// parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
 	// ParameterStatus display name, e.g. "DateStyle") that a routed statement
@@ -254,8 +253,13 @@ type QueryResult struct {
 	// client, covering the paths that run the real statement on PostgreSQL
 	// (SET/RESET inside a transaction, and the revert on ROLLBACK).
 	ParameterStatus map[string]string `protobuf:"bytes,9,rep,name=parameter_status,json=parameterStatus,proto3" json:"parameter_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// passthrough_row_in_progress reports that this block ends inside a DataRow
+	// frame. If the upstream stream fails before a later block completes that
+	// frame, the gateway must close the client connection instead of appending
+	// an ErrorResponse to the incomplete DataRow.
+	PassthroughRowInProgress bool `protobuf:"varint,10,opt,name=passthrough_row_in_progress,json=passthroughRowInProgress,proto3" json:"passthrough_row_in_progress,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -349,6 +353,13 @@ func (x *QueryResult) GetParameterStatus() map[string]string {
 		return x.ParameterStatus
 	}
 	return nil
+}
+
+func (x *QueryResult) GetPassthroughRowInProgress() bool {
+	if x != nil {
+		return x.PassthroughRowInProgress
+	}
+	return false
 }
 
 // Field represents metadata about a column in the result set.
@@ -1611,7 +1622,7 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xe0\x03\n" +
+	"\apayload\"\x9f\x04\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -1624,7 +1635,9 @@ const file_query_proto_rawDesc = "" +
 	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12+\n" +
 	"\x11passthrough_block\x18\a \x01(\fR\x10passthroughBlock\x122\n" +
 	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\x12R\n" +
-	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x1aB\n" +
+	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x12=\n" +
+	"\x1bpassthrough_row_in_progress\x18\n" +
+	" \x01(\bR\x18passthroughRowInProgress\x1aB\n" +
 	"\x14ParameterStatusEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
