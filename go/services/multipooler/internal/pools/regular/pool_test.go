@@ -375,7 +375,7 @@ func TestTempBuffersRetrySafe(t *testing.T) {
 	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false) FROM t"))
 	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false) UNION SELECT set_config('x','1',false)"))
 
-	// Unsafe: mid-statement transaction control, batches, unparseable input.
+	// Unsafe: mid-statement transaction control, batches, unparsable input.
 	assert.False(t, tempBuffersRetrySafe("CALL p()"))
 	assert.False(t, tempBuffersRetrySafe("DO $$ BEGIN NULL; END $$"))
 	assert.False(t, tempBuffersRetrySafe("SET a = 1; SET temp_buffers = '16MB'"))

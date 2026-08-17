@@ -604,7 +604,7 @@ func tempBuffersRequireFreshSession(err error) bool {
 // Everything else fails closed to surfacing the error (the pre-recovery
 // behavior), including a CALL or DO that can COMMIT mid-statement and any
 // multi-statement batch. Parsing runs only on the freeze error path, which is
-// rare, and an unparseable statement is refused.
+// rare, and an unparsable statement is refused.
 func tempBuffersRetrySafe(sql string) bool {
 	stmts, err := parser.ParseSQL(sql)
 	if err != nil || len(stmts) != 1 {
