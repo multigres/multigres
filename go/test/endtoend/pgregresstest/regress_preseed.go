@@ -37,6 +37,21 @@ var regressPreseedSQL string
 //go:embed testdata/pg17/external/postgis_preseed.sql
 var postgisPreseedSQL string
 
+// hypopgPreseedSQL holds the do_explain helper installed on the primary before
+// the hypopg pg_regress suite. See hypopg_preseed.sql and externalPreseeds.
+//
+//go:embed testdata/pg17/external/hypopg_preseed.sql
+var hypopgPreseedSQL string
+
+// externalPreseeds maps an ExternalExtension.PreseedFile name to the embedded
+// SQL run directly on the primary before that extension's suite. Add an embed
+// var and an entry here for each extension whose test helpers the gateway
+// rejects by design (a dynamic EXECUTE in a helper body) but which the suite
+// then depends on. Keyed by the PreseedFile value in the extension spec.
+var externalPreseeds = map[string]string{
+	"hypopg_preseed.sql": hypopgPreseedSQL,
+}
+
 // preseedRegressHelpers installs a small set of benign scaffolding helper
 // functions directly on the primary (bypassing multigateway) before the
 // regression suite runs. This is the same "create setup the gateway rejects by

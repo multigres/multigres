@@ -394,6 +394,23 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			}
 		}
 
+		// Seed any test-helper the gateway rejects by design (a dynamic EXECUTE in
+		// the helper body) directly on the primary, after the public-schema reset so
+		// it isn't wiped. The suite's own CREATE is still rejected and recorded as a
+		// divergence; the seed just lets the helper's callers resolve. See
+		// ExternalExtension.PreseedFile.
+		if ext.PreseedFile != "" {
+			seed, ok := externalPreseeds[ext.PreseedFile]
+			if !ok {
+				return merged, fmt.Errorf("external/%s: unknown PreseedFile %q (add it to externalPreseeds)", ext.Name, ext.PreseedFile)
+			}
+			if err := execOnPrimary(directPgPort, password, seed); err != nil {
+				t.Logf("external/%s: warning: preseed %q failed: %v", ext.Name, ext.PreseedFile, err)
+			} else {
+				t.Logf("external/%s: pre-seeded %s on primary (port %d)", ext.Name, ext.PreseedFile, directPgPort)
+			}
+		}
+
 		var (
 			res *TestResults
 			err error

@@ -253,6 +253,18 @@ type ExternalExtension struct {
 	// ShardSetup.StartUnsafeMultigateway.
 	UnsafePoolerGlobs []string
 
+	// PreseedFile, when non-empty, names a SQL file (its key in externalPreseeds,
+	// backed by an embed under testdata/pg<major>/external/) run directly on the
+	// primary — bypassing multigateway — after the public-schema reset and before
+	// this extension's suite. Use it for a test helper whose body the gateway
+	// rejects by design (a dynamic EXECUTE) but which the suite then calls: seeding
+	// it on the primary (it replicates to every pooled backend via WAL) lets those
+	// calls resolve, while the test's own CREATE is still rejected and recorded as
+	// the single honest divergence. hypopg's do_explain is the first user. Unlike
+	// FixturesFile (loaded THROUGH the gateway), this runs on the primary precisely
+	// because the gateway would reject it.
+	PreseedFile string
+
 	// PreCreateExtensions lists extensions to CREATE EXTENSION through multigateway,
 	// in order, before the suite runs — each optionally into a specific schema. Used
 	// by every harness path for fixtures that assume an extension already exists:
@@ -600,6 +612,11 @@ var externalSpecs = map[string]ExternalExtension{
 			"hypo_hash",
 			"hypo_hide_index",
 		},
+		// do_explain (a dynamic-EXECUTE EXPLAIN wrapper) is defined once at the top
+		// of hypopg.sql and called by all six files; the gateway rejects its CREATE,
+		// which cascades to "function does not exist" everywhere. Seed it on the
+		// primary so the calls resolve; only hypopg.sql's own rejected CREATE remains.
+		PreseedFile: "hypopg_preseed.sql",
 	},
 	// pgsql-http. Build needs libcurl (the Makefile locates it via curl-config;
 	// CI installs libcurl4-openssl-dev). The harness serves the local httpbin
