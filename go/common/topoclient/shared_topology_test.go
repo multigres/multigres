@@ -58,15 +58,27 @@ func TestGetComponentsByCell_SharedTopology(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, poolers, 1)
 		require.Equal(t, cell, poolers[0].GetId().GetCell())
+		poolerIDs, err := ts.GetMultipoolerIDsByCell(ctx, cell)
+		require.NoError(t, err)
+		require.Len(t, poolerIDs, 1)
+		require.Equal(t, cell, poolerIDs[0].GetCell())
 
 		gateways, err := ts.GetMultigatewaysByCell(ctx, cell)
 		require.NoError(t, err)
 		require.Len(t, gateways, 1)
 		require.Equal(t, cell, gateways[0].GetId().GetCell())
+		gatewayIDs, err := ts.GetMultigatewayIDsByCell(ctx, cell)
+		require.NoError(t, err)
+		require.Len(t, gatewayIDs, 1)
+		require.Equal(t, cell, gatewayIDs[0].GetCell())
 
 		orchs, err := ts.GetMultiorchsByCell(ctx, cell)
 		require.NoError(t, err)
 		require.Len(t, orchs, 1)
 		require.Equal(t, cell, orchs[0].GetId().GetCell())
+		orchIDs, err := ts.GetMultiorchIDsByCell(ctx, cell)
+		require.NoError(t, err)
+		require.Len(t, orchIDs, 1)
+		require.Equal(t, cell, orchIDs[0].GetCell())
 	}
 }

@@ -144,13 +144,16 @@ func (ts *store) GetMultipoolerIDsByCell(ctx context.Context, cell string) ([]*c
 		return nil, err
 	}
 
-	result := make([]*clustermetadatapb.ID, len(children))
-	for i, child := range children {
+	result := make([]*clustermetadatapb.ID, 0, len(children))
+	for _, child := range children {
 		multipooler := &clustermetadatapb.Multipooler{}
 		if err := proto.Unmarshal(child.Value, multipooler); err != nil {
 			return nil, err
 		}
-		result[i] = multipooler.Id
+		if multipooler.GetId().GetCell() != cell {
+			continue
+		}
+		result = append(result, multipooler.Id)
 	}
 	return result, nil
 }

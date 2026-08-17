@@ -114,13 +114,16 @@ func (ts *store) GetMultiorchIDsByCell(ctx context.Context, cell string) ([]*clu
 		return nil, err
 	}
 
-	result := make([]*clustermetadatapb.ID, len(children))
-	for i, child := range children {
+	result := make([]*clustermetadatapb.ID, 0, len(children))
+	for _, child := range children {
 		multiorch := &clustermetadatapb.Multiorch{}
 		if err := proto.Unmarshal(child.Value, multiorch); err != nil {
 			return nil, err
 		}
-		result[i] = multiorch.Id
+		if multiorch.GetId().GetCell() != cell {
+			continue
+		}
+		result = append(result, multiorch.Id)
 	}
 	return result, nil
 }
