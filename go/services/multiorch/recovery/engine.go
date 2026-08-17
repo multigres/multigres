@@ -558,8 +558,11 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	re.pollAndWaitForNewSnapshots(ctx)
 
 	// Expire all grace period deadlines so the next recovery cycle acts on
-	// detected problems immediately instead of waiting. This matches the
-	// documented contract ("bypasses grace periods") of TriggerRecoveryNow.
+	// non-failover problems immediately instead of waiting. Failover problems
+	// are gated on collective recruitment backoff instead (see
+	// Engine.readyToExecute) and are not force-expired here — MaxCycles=0's
+	// retry loop below still resolves them within the RPC's own timeout, just
+	// via a few extra cycles rather than instantly.
 	re.recoveryGracePeriodTracker.ForceExpireAll()
 
 	// Create channel to wait for first cycle completion
