@@ -197,16 +197,17 @@ func (s *MultiadminServer) buildCert(
 		if err != nil {
 			return nil, nil, err
 		}
-		// Normally the outgoing rule is a decision, but for externally-certified
+		// Normally the outgoing rule is a outgoingRule, but for externally-certified
 		// changes it can be an undecided proposal that we'll be able to instantly
 		// "propagate" since outgoing cohorts aren't required to reach quorum for
 		// externally-certified rule changes.
-		decision := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
-		return decision, &clustermetadatapb.ExternallyCertifiedRevocation{
+		outgoingRule := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
+		return outgoingRule, &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: &clustermetadatapb.TermRevocation{
-				OutgoingRule: decision.GetRuleNumber(),
+				OutgoingRule:           outgoingRule.GetRuleNumber(),
+				CoordinatorInitiatedAt: timestamppb.Now(),
 				RecruitIntent: &clustermetadatapb.RecruitIntent{
-					ReplaceDecision: decision.GetRuleNumber(),
+					ReplaceDecision: pos.GetPosition().GetDecision().GetRuleNumber(),
 				},
 			},
 			FrozenLsn: pos.GetLsn(),
