@@ -223,6 +223,12 @@ func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 // down without emitting its own error reply.
 var errFatalDiagnosticSent = errors.New("fatal diagnostic sent; closing connection")
 
+// errIncompleteDataRow signals that opaque passthrough already wrote the
+// beginning of a DataRow but the upstream stream ended before that frame was
+// completed. No PostgreSQL message can be appended safely because the client
+// would interpret it as row data.
+var errIncompleteDataRow = errors.New("upstream failed during a DataRow frame")
+
 // fatalDiagnostic returns the *PgDiagnostic that writeError would put on the
 // wire if it carries a FATAL/PANIC severity, nil otherwise. It mirrors
 // writeError's extraction (RootCause + errors.As) so the close decision always
