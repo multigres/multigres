@@ -17,6 +17,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,8 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
+
+var errInterruptedDataRow = errors.New("backend connection lost")
 
 // PostgreSQL ends a session after a FATAL: the ErrorResponse is the last
 // frame, no ReadyForQuery follows, and the server closes the connection.
@@ -87,6 +90,103 @@ func TestHandleQuery_NonFatalErrorKeepsSessionAlive(t *testing.T) {
 	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
 	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType,
 		"a plain ERROR is followed by ReadyForQuery as usual")
+}
+
+func TestHandleQuery_IncompleteDataRowClosesWithoutErrorFrames(t *testing.T) {
+	partial := []byte("D\x00\x00\x10\x00partial-row")
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		queryFunc: func(ctx context.Context, conn *Conn, queryStr string, callback func(context.Context, *sqltypes.Result) error) error {
+			require.NoError(t, callback(ctx, &sqltypes.Result{
+				PassthroughBlock:         partial,
+				PassthroughRowInProgress: true,
+			}))
+			return errInterruptedDataRow
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	sql := "SELECT huge_value"
+	writeTestInt32(&readBuf, int32(4+len(sql)+1))
+	writeTestString(&readBuf, sql)
+
+	conn.startWriterBuffering()
+	err := conn.handleMessage(protocol.MsgQuery)
+	require.ErrorIs(t, err, errIncompleteDataRow)
+	require.ErrorIs(t, err, errInterruptedDataRow)
+	require.NoError(t, conn.endWriterBuffering())
+	assert.Equal(t, partial, writeBuf.Bytes(),
+		"an ErrorResponse or ReadyForQuery must not follow an incomplete DataRow")
+}
+
+func TestHandleQuery_ErrorAfterCompleteOpaqueRowRemainsFrameSafe(t *testing.T) {
+	complete := []byte("D\x00\x00\x00\x04")
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		queryFunc: func(ctx context.Context, conn *Conn, queryStr string, callback func(context.Context, *sqltypes.Result) error) error {
+			require.NoError(t, callback(ctx, &sqltypes.Result{
+				PassthroughBlock:         complete,
+				PassthroughRowCount:      1,
+				PassthroughRowInProgress: false,
+			}))
+			return errInterruptedDataRow
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	sql := "SELECT rows_then_error"
+	writeTestInt32(&readBuf, int32(4+len(sql)+1))
+	writeTestString(&readBuf, sql)
+
+	conn.startWriterBuffering()
+	require.NoError(t, conn.handleMessage(protocol.MsgQuery))
+	require.NoError(t, conn.endWriterBuffering())
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgDataRow), msgType)
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType)
+}
+
+func TestAbortWriterBufferingDiscardsIncompleteFrame(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+	conn.startWriterBuffering()
+	require.NoError(t, conn.WriteRawMessage([]byte("buffered partial frame")))
+
+	conn.abortWriterBuffering()
+
+	assert.Empty(t, writeBuf.Bytes(), "aborting must not flush an incomplete frame")
+	assert.Nil(t, conn.bufferedWriter, "Close must not later flush the discarded writer")
+}
+
+func TestHandleExecute_IncompleteDataRowClosesWithoutErrorFrames(t *testing.T) {
+	partial := []byte("D\x00\x00\x10\x00partial-row")
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		executeFunc: func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(context.Context, *sqltypes.Result) error) error {
+			require.NoError(t, callback(ctx, &sqltypes.Result{
+				PassthroughBlock:         partial,
+				PassthroughRowInProgress: true,
+			}))
+			return errInterruptedDataRow
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	writeTestInt32(&readBuf, 4+1+4) // length + empty portal name + maxRows
+	writeTestString(&readBuf, "")
+	writeTestInt32(&readBuf, 0)
+
+	conn.startWriterBuffering()
+	err := conn.handleExecute()
+	require.ErrorIs(t, err, errIncompleteDataRow)
+	require.ErrorIs(t, err, errInterruptedDataRow)
+	require.NoError(t, conn.endWriterBuffering())
+	assert.Equal(t, partial, writeBuf.Bytes(),
+		"an ErrorResponse must not follow an incomplete DataRow")
 }
 
 func TestWriteExtendedQueryError_FatalReturnsCloseSentinel(t *testing.T) {

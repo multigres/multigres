@@ -265,12 +265,13 @@ func appendRawDataRow(dst, body []byte) []byte {
 // It centralizes the batching that every response loop shares so opaque handling
 // lives in one place rather than being copied per loop.
 type resultBatcher struct {
-	c      *Conn
-	fields []*query.Field
-	rows   []*sqltypes.Row
-	raw    []byte
-	rawN   int
-	size   int
+	c                *Conn
+	fields           []*query.Field
+	rows             []*sqltypes.Row
+	raw              []byte
+	rawN             int
+	rawRowInProgress bool
+	size             int
 }
 
 // addDataRow accumulates one DataRow message body. Returns any parse error
@@ -334,6 +335,7 @@ func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) erro
 	// field and excludes the one-byte message type.
 	b.raw = append(b.raw, protocol.MsgDataRow)
 	b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
+	b.rawRowInProgress = true
 	b.size += protocol.MessageHeaderSize
 
 	remaining := bodyLen
@@ -353,6 +355,7 @@ func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) erro
 
 		if remaining == 0 {
 			b.rawN++
+			b.rawRowInProgress = false
 		}
 		if b.size >= DefaultStreamingBatchSize || remaining == 0 {
 			flush()
@@ -395,7 +398,10 @@ func (b *resultBatcher) flush() *sqltypes.Result {
 		if len(b.raw) == 0 {
 			return nil
 		}
-		r = &sqltypes.Result{Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN}
+		r = &sqltypes.Result{
+			Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN,
+			PassthroughRowInProgress: b.rawRowInProgress,
+		}
 		b.raw = nil
 		b.rawN = 0
 	} else {
@@ -416,6 +422,7 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 	if b.c.passthroughRow.Load() {
 		r.PassthroughBlock = b.raw
 		r.PassthroughRowCount = b.rawN
+		r.PassthroughRowInProgress = b.rawRowInProgress
 	} else {
 		r.Rows = b.rows
 	}
@@ -423,6 +430,7 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 	b.rows = nil
 	b.raw = nil
 	b.rawN = 0
+	b.rawRowInProgress = false
 	b.size = 0
 	return r
 }

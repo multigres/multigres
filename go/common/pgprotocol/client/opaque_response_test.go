@@ -171,6 +171,11 @@ func TestProcessResponseLoops(t *testing.T) {
 							"every opaque result must remain bounded")
 						if r.PassthroughRowCount == 0 {
 							sawRowFragment = true
+							assert.True(t, r.PassthroughRowInProgress,
+								"an intermediate fragment must mark the DataRow incomplete")
+						} else {
+							assert.False(t, r.PassthroughRowInProgress,
+								"a block that completes the oversized row must restore a frame boundary")
 						}
 					}
 					expected := appendRawDataRow(nil, dataRowBody(bigValue))

@@ -84,6 +84,12 @@ message QueryResult {
   // client, covering the paths that run the real statement on PostgreSQL
   // (SET/RESET inside a transaction, and the revert on ROLLBACK).
   map<string, string> parameter_status = 9;
+
+  // passthrough_row_in_progress reports that this block ends inside a DataRow
+  // frame. If the upstream stream fails before a later block completes that
+  // frame, the gateway must close the client connection instead of appending
+  // an ErrorResponse to the incomplete DataRow.
+  bool passthrough_row_in_progress = 10;
 }
 
 // Field represents metadata about a column in the result set.

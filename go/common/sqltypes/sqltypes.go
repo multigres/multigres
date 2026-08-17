@@ -181,6 +181,11 @@ type Result struct {
 	// row and preserves row accounting while Rows is empty.
 	PassthroughRowCount int
 
+	// PassthroughRowInProgress reports that PassthroughBlock ends inside a
+	// DataRow frame. A downstream pgwire server must close the client connection
+	// if the upstream stream fails before a later block completes that frame.
+	PassthroughRowInProgress bool
+
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
@@ -249,14 +254,15 @@ func (r *Result) ToProto() *query.QueryResult {
 	// each row into a proto Row. Rows is empty in this mode.
 	if len(r.PassthroughBlock) > 0 {
 		return &query.QueryResult{
-			Fields:              r.Fields,
-			HasFields:           r.Fields != nil,
-			RowsAffected:        r.RowsAffected,
-			PassthroughBlock:    r.PassthroughBlock,
-			PassthroughRowCount: uint32(r.PassthroughRowCount),
-			CommandTag:          r.CommandTag,
-			Notices:             protoNotices,
-			ParameterStatus:     r.ParameterStatus,
+			Fields:                   r.Fields,
+			HasFields:                r.Fields != nil,
+			RowsAffected:             r.RowsAffected,
+			PassthroughBlock:         r.PassthroughBlock,
+			PassthroughRowCount:      uint32(r.PassthroughRowCount),
+			PassthroughRowInProgress: r.PassthroughRowInProgress,
+			CommandTag:               r.CommandTag,
+			Notices:                  protoNotices,
+			ParameterStatus:          r.ParameterStatus,
 		}
 	}
 	protoRows := make([]*query.Row, len(r.Rows))
@@ -294,13 +300,14 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	// nil; the multigateway writes PassthroughBlock straight to the client.
 	if pr.PassthroughBlock != nil {
 		return &Result{
-			Fields:              fields,
-			RowsAffected:        pr.RowsAffected,
-			PassthroughBlock:    pr.PassthroughBlock,
-			PassthroughRowCount: int(pr.PassthroughRowCount),
-			CommandTag:          pr.CommandTag,
-			Notices:             notices,
-			ParameterStatus:     pr.ParameterStatus,
+			Fields:                   fields,
+			RowsAffected:             pr.RowsAffected,
+			PassthroughBlock:         pr.PassthroughBlock,
+			PassthroughRowCount:      int(pr.PassthroughRowCount),
+			PassthroughRowInProgress: pr.PassthroughRowInProgress,
+			CommandTag:               pr.CommandTag,
+			Notices:                  notices,
+			ParameterStatus:          pr.ParameterStatus,
 		}
 	}
 	rows := make([]*Row, len(pr.Rows))
