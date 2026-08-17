@@ -664,6 +664,9 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 // plan time; a cluster-managed GUC must never be assigned (its own message is
 // preserved); and a gateway-managed variable must never reach the backend,
 // since the gateway — not PostgreSQL — is the authority on its value.
+//
+// search_path is additionally value-restricted here: transaction scoping bounds
+// the GUC, not the objects created while it is in effect (see below).
 func allowTransactionLocalSetConfig(fc *ast.FuncCall) error {
 	reject := mterrors.NewFeatureNotSupported(
 		"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
@@ -683,6 +686,30 @@ func allowTransactionLocalSetConfig(fc *ast.FuncCall) error {
 	}
 	if handler.IsGatewayManagedVariable(name) {
 		return reject
+	}
+
+	// search_path is value-restricted, and is_local=true does NOT make it safe
+	// here. The GUC change reverts at transaction end, but anything created
+	// under it does not: with pg_temp as the effective creation target, an
+	// unqualified CREATE inside the same transaction lands in the pooled
+	// backend's temporary namespace and survives the COMMIT. That object
+	// carries no TEMP keyword and no pg_temp qualification, so
+	// planTempTableCreation and checkTempSchemaQualifiedCreate both miss it —
+	// no ReasonTempTable, no MarkTempTainted — and the backend returns to the
+	// pool holding it.
+	//
+	// Unlike every other set_config surface, this path emits no primitive, so
+	// there is no execute-time re-check to fall back on (contrast
+	// engine.resolveSetConfig / resolvePreparedSetConfig). A value that cannot
+	// be read at plan time therefore fails closed.
+	if strings.EqualFold(name, "search_path") {
+		value, ok := constStringArg(fc.Args.Items[1])
+		if !ok {
+			return reject
+		}
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -628,6 +628,11 @@ func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *test
 				") SELECT * FROM pgrst_source",
 		},
 		{
+			// A benign search_path value stays allowed — only pg_temp is barred.
+			name: "non-pg_temp search_path value passes through",
+			sql:  "SELECT 1 WHERE set_config('search_path', 'public', true) <> '0'",
+		},
+		{
 			name: "is_local=true in subquery",
 			sql:  "SELECT * FROM (SELECT 1 AS v WHERE set_config('pgrst.inserted', '1', true) <> '0') s",
 		},
@@ -680,6 +685,59 @@ func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
 		{
 			name:    "gateway-managed variable must never reach the backend",
 			sql:     "SELECT 1 WHERE set_config('statement_timeout', '5s', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		// search_path is value-restricted here even though the call is
+		// transaction-scoped: is_local=true bounds the GUC, not the objects
+		// created while it is in effect. With pg_temp as the creation target an
+		// unqualified CREATE in the same transaction lands in the pooled
+		// backend's temp namespace and SURVIVES the COMMIT, carrying no TEMP
+		// keyword and no pg_temp qualification — so planTempTableCreation and
+		// checkTempSchemaQualifiedCreate both miss it and the backend goes back
+		// to the pool holding a temp object (verified on PostgreSQL 17).
+		{
+			name:    "pg_temp search_path in WHERE",
+			sql:     "SELECT 1 WHERE set_config('search_path', 'pg_temp', true) <> '0'",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a VALUES list",
+			sql:     "INSERT INTO t(x) VALUES (set_config('search_path', 'pg_temp', true))",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a subquery",
+			sql:     "SELECT * FROM (SELECT set_config('search_path', 'pg_temp', true) AS v) s",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a CTE",
+			sql:     "WITH c AS (SELECT set_config('search_path', 'pg_temp', true) AS v) SELECT * FROM c",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in an UPDATE target",
+			sql:     "UPDATE t SET x = set_config('search_path', 'pg_temp', true)",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			// The guard is position-insensitive: the creation target is the
+			// first EXISTING schema, so a nonexistent prefix does not help.
+			name:    "nonexistent-prefix bypass attempt",
+			sql:     "SELECT 1 WHERE set_config('search_path', 'nosuch, pg_temp', true) <> '0'",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			// This path emits no primitive, so unlike every other set_config
+			// surface nothing re-checks the value at execute time — a value
+			// that cannot be read at plan time must fail closed.
+			name:    "bound search_path value has no execute-time re-check",
+			sql:     "SELECT 1 WHERE set_config('search_path', $1, true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "dynamic search_path value has no execute-time re-check",
+			sql:     "SELECT 1 FROM t WHERE set_config('search_path', col, true) <> '0'",
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
 		},
 	}
