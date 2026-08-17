@@ -299,7 +299,7 @@ func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) erro
 		return errors.New("streamPassthroughDataRow called with passthrough disabled")
 	}
 
-	frameLen := bodyLen + 5
+	frameLen := bodyLen + protocol.MessageHeaderSize
 	if frameLen <= DefaultStreamingBatchSize {
 		// Preserve complete small rows and the existing multi-row batching
 		// behavior. Flush first when this row would cross the boundary.
@@ -334,7 +334,7 @@ func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) erro
 	// field and excludes the one-byte message type.
 	b.raw = append(b.raw, protocol.MsgDataRow)
 	b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
-	b.size += 5
+	b.size += protocol.MessageHeaderSize
 
 	remaining := bodyLen
 	for remaining > 0 {
