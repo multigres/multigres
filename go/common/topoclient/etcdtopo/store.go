@@ -83,6 +83,9 @@ type etcdtopo struct {
 	root string
 
 	running chan struct{}
+
+	// eph tracks lease-backed ephemeral files; see ephemeral.go.
+	eph ephemeralState
 }
 
 func init() {

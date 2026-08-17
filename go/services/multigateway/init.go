@@ -446,13 +446,19 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	mg.tr, err = toporeg.RegisterSynchronous(
 		regCtx,
 		func(ctx context.Context) error {
-			if multigateway.PidPrefix == 0 {
-				prefix, err := mg.findUnusedPrefix(ctx)
-				if err != nil {
-					return fmt.Errorf("finding unused prefix: %w", err)
-				}
-				multigateway.PidPrefix = prefix
+			if multigateway.PidPrefix != 0 {
+				// The prefix is already claimed and clients hold PIDs
+				// stamped with it, so re-assertions only refresh the
+				// record. Re-running the collision check here would let a
+				// live gateway renumber itself and strand the cancel
+				// routing for every connection it has already served.
+				return mg.ts.RegisterMultigateway(ctx, multigateway, true)
 			}
+			prefix, err := mg.findUnusedPrefix(ctx)
+			if err != nil {
+				return fmt.Errorf("finding unused prefix: %w", err)
+			}
+			multigateway.PidPrefix = prefix
 			if err := mg.ts.RegisterMultigateway(ctx, multigateway, true); err != nil {
 				return err
 			}
@@ -463,6 +469,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 			return nil
 		},
 		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+		toporeg.WithReassert(),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register gateway: %w", err)

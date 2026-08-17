@@ -206,6 +206,10 @@ func (ts *store) UpdateMultigatewayFields(ctx context.Context, id *clustermetada
 }
 
 // CreateMultigateway creates a new multigateway and all associated paths.
+//
+// The record is permanent — it carries no liveness binding and will outlive
+// the process that wrote it. Component self-registration must go through
+// RegisterMultigateway, which creates an ephemeral record instead.
 func (ts *store) CreateMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway) error {
 	conn, err := ts.ConnForCell(ctx, mtgateway.Id.Cell)
 	if err != nil {
@@ -239,22 +243,37 @@ func (ts *store) UnregisterMultigateway(ctx context.Context, id *clustermetadata
 	return nil
 }
 
-// RegisterMultigateway creates or updates a multigateway. If allowUpdate is true,
-// and a multigateway with the same ID exists, just update it.
+// RegisterMultigateway creates or updates a multigateway. If allowUpdate is
+// false and a multigateway with the same ID already exists, it returns
+// NodeExists.
+//
+// The registration is ephemeral: backends with liveness support (etcd
+// leases) bind it to this process, so a gateway that dies without
+// unregistering — SIGKILL, OOM, node loss — disappears from the topology on
+// its own instead of leaking a permanent entry.
 func (ts *store) RegisterMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway, allowUpdate bool) error {
-	err := ts.CreateMultigateway(ctx, mtgateway)
-	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
-		// Try to update then
-		oldMtGateway, err := ts.GetMultigateway(ctx, mtgateway.Id)
-		if err != nil {
+	conn, err := ts.ConnForCell(ctx, mtgateway.Id.Cell)
+	if err != nil {
+		return err
+	}
+
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(mtgateway.Id)), GatewayFile)
+	if !allowUpdate {
+		// Existence check to preserve NodeExists semantics. Not atomic
+		// with the put below, but IDs are unique per process instance, so
+		// concurrent registration of the same ID doesn't happen in
+		// practice.
+		switch _, _, err := conn.Get(ctx, gatewayPath); {
+		case err == nil:
+			return NewError(NodeExists, gatewayPath)
+		case !errors.Is(err, &TopoError{Code: NoNode}):
 			return fmt.Errorf("failed reading existing mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
-
-		oldMtGateway.Multigateway = proto.Clone(mtgateway).(*clustermetadatapb.Multigateway)
-		if err := ts.UpdateMultigateway(ctx, oldMtGateway); err != nil {
-			return fmt.Errorf("failed updating mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
-		}
-		return nil
 	}
-	return err
+
+	data, err := proto.Marshal(mtgateway)
+	if err != nil {
+		return err
+	}
+	return conn.PutEphemeral(ctx, gatewayPath, data)
 }

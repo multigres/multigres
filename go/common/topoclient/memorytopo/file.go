@@ -160,6 +160,13 @@ func (c *conn) Update(ctx context.Context, filePath string, contents []byte, ver
 	return NodeVersion(n.version), nil
 }
 
+// PutEphemeral is part of the topoclient.Conn interface. The memory topo has
+// no process-liveness concept, so this is a plain unconditional update.
+func (c *conn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	_, err := c.Update(ctx, filePath, contents, nil)
+	return err
+}
+
 // Get is part of topoclient.Conn interface.
 func (c *conn) Get(ctx context.Context, filePath string) ([]byte, topoclient.Version, error) {
 	// c.factory.callstats.Add([]string{"Get"}, 1)
