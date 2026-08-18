@@ -466,46 +466,59 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 //     resignation) falls into this default-cooldown case — we cannot prove it
 //     is unrelated, so we do not treat it as a free pass.
 func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
-	rev := latestRevocation(re.poolerCache, shardKey)
+	statuses := consensusStatuses(re.poolerCache, shardKey)
+	decision := commonconsensus.HighestDecidedRule(statuses)
+	rev := commonconsensus.HighestTermRevocation(revocationsRelevantToDecision(statuses, decision))
 	if rev == nil {
-		return time.Time{}, true
-	}
-	if replaceDecision := rev.GetRecruitIntent().GetReplaceDecision(); replaceDecision != nil &&
-		commonconsensus.CompareRuleNumbers(replaceDecision, currentDecision(re.poolerCache, shardKey)) != 0 {
 		return time.Time{}, true
 	}
 	readyAt = re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
 	return readyAt, !time.Now().Before(readyAt)
 }
 
-// latestRevocation returns the TermRevocation behind the shard's highest
-// revoked_below_term, as seen through streamed health snapshots, or nil if
-// none has been observed — how an orchestrator sees others' in-flight
-// recruitment without any orch-to-orch RPC.
+// revocationsRelevantToDecision returns every TermRevocation among statuses
+// that cannot be shown to target a problem other than decision: either its
+// RecruitIntent.ReplaceDecision matches decision, or it has no RecruitIntent
+// at all (e.g. an externally-supplied cert, or an external actor forcing a
+// resignation) and so cannot be proven unrelated. A revocation whose
+// ReplaceDecision demonstrably names a *different* decision is resolved
+// history (e.g. a shard's original bootstrap recruitment) and excluded.
 //
-// Note: an orchestrator doesn't see its own just-written revocation until it
-// streams back, so it may briefly re-enter the gate right after recruiting.
-// Bounded by recheckProblem, the term CAS (a stale re-attempt loses), and the
-// next cycle observing the new revocation.
-func latestRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
-	var latest *clustermetadatapb.TermRevocation
-	for _, p := range store.FindPoolersInShard(cache, shardKey) {
-		rev := p.Health().GetConsensusStatus().GetTermRevocation()
-		if rev.GetRevokedBelowTerm() > 0 && (latest == nil || rev.GetRevokedBelowTerm() > latest.GetRevokedBelowTerm()) {
-			latest = rev
+// Deliberately more permissive than commonconsensus.NewTermRevocation's own
+// decision-matching: that caller is computing this attempt's escalation
+// count, where treating an unproven revocation as unrelated only risks a
+// slightly-wrong count; this caller is deciding whether to act at all, where
+// the same ambiguity should default to caution, not a free pass.
+func revocationsRelevantToDecision(statuses []*clustermetadatapb.ConsensusStatus, decision *clustermetadatapb.RuleNumber) []*clustermetadatapb.TermRevocation {
+	var relevant []*clustermetadatapb.TermRevocation
+	for _, cs := range statuses {
+		rev := cs.GetTermRevocation()
+		if rev.GetRevokedBelowTerm() <= 0 {
+			continue
 		}
+		if replaceDecision := rev.GetRecruitIntent().GetReplaceDecision(); replaceDecision != nil &&
+			commonconsensus.CompareRuleNumbers(replaceDecision, decision) != 0 {
+			continue
+		}
+		relevant = append(relevant, rev)
 	}
-	return latest
+	return relevant
 }
 
-// currentDecision returns the highest decided rule any pooler in the
-// shard currently reports — the same baseline commonconsensus.NewTermRevocation
-// computes as a brand-new attempt's own ReplaceDecision right now.
-func currentDecision(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.RuleNumber {
+// consensusStatuses returns the ConsensusStatus reported by every pooler
+// currently known in the shard, as seen through streamed health snapshots —
+// how an orchestrator sees the cohort's consensus state without any
+// orch-to-orch RPC.
+//
+// Note: an orchestrator doesn't see its own just-written revocation until it
+// streams back, so it may briefly re-enter the failover gate right after
+// recruiting. Bounded by recheckProblem, the term CAS (a stale re-attempt
+// loses), and the next cycle observing the new revocation.
+func consensusStatuses(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) []*clustermetadatapb.ConsensusStatus {
 	poolers := store.FindPoolersInShard(cache, shardKey)
 	statuses := make([]*clustermetadatapb.ConsensusStatus, len(poolers))
 	for i, p := range poolers {
 		statuses[i] = p.Health().GetConsensusStatus()
 	}
-	return commonconsensus.HighestDecidedRule(statuses)
+	return statuses
 }

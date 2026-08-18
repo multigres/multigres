@@ -41,108 +41,83 @@ func TestIsFailoverProblem(t *testing.T) {
 	assert.False(t, types.ProblemPoolerNotInCohort.IsFailoverProblem())
 }
 
-func TestLatestRevocation(t *testing.T) {
+func TestConsensusStatuses(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
-	// poolerHealth builds a rider for a shard member; revokedBelow > 0 attaches a
-	// ConsensusStatus carrying an accepted revocation at that term.
 	poolerHealth := func(name string, revokedBelow int64) *multiorchdatapb.PoolerHealthState {
-		h := &multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
-				ShardKey: shardKey,
-			},
-		}
-		if revokedBelow > 0 {
-			h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: revokedBelow},
-			}
-		}
-		return h
-	}
-
-	t.Run("nil when no revocation has been observed", func(t *testing.T) {
-		cache := store.NewTestCache(t)
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 0), nil))
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 0), nil))
-		assert.Nil(t, latestRevocation(cache, shardKey))
-	})
-
-	t.Run("returns the highest revoked_below_term across the shard", func(t *testing.T) {
-		cache := store.NewTestCache(t)
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 3), nil))
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 7), nil))
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p3", 5), nil))
-		rev := latestRevocation(cache, shardKey)
-		require.NotNil(t, rev)
-		assert.Equal(t, int64(7), rev.GetRevokedBelowTerm())
-	})
-
-	t.Run("ignores poolers in other shards", func(t *testing.T) {
-		cache := store.NewTestCache(t)
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 4), nil))
-		otherShard := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
-		assert.Nil(t, latestRevocation(cache, otherShard))
-	})
-}
-
-func TestCurrentDecision(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-
-	poolerHealth := func(name string, decidedTerm int64) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
 				ShardKey: shardKey,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{
-						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: decidedTerm}},
-					},
-				},
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: revokedBelow},
 			},
 		}
 	}
 
-	t.Run("returns the highest decided rule across the shard", func(t *testing.T) {
+	t.Run("returns every pooler's status in the shard", func(t *testing.T) {
 		cache := store.NewTestCache(t)
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 2), nil))
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 4), nil))
-		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p3", 3), nil))
-		got := currentDecision(cache, shardKey)
-		require.NotNil(t, got)
-		assert.Equal(t, int64(4), got.GetCoordinatorTerm())
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 3), nil))
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p2", 7), nil))
+		statuses := consensusStatuses(cache, shardKey)
+		require.Len(t, statuses, 2)
 	})
 
-	t.Run("nil when no pooler reports a decided rule", func(t *testing.T) {
+	t.Run("ignores poolers in other shards", func(t *testing.T) {
 		cache := store.NewTestCache(t)
-		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
-				ShardKey: shardKey,
-			},
-		}, nil))
-		assert.Nil(t, currentDecision(cache, shardKey))
+		store.SeedCache(t, cache, store.NewPooler(poolerHealth("p1", 4), nil))
+		otherShard := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
+		assert.Empty(t, consensusStatuses(cache, otherShard))
+	})
+}
+
+func TestRevocationsRelevantToDecision(t *testing.T) {
+	decision4 := &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}
+	decision6 := &clustermetadatapb.RuleNumber{CoordinatorTerm: 6}
+	statusWith := func(rev *clustermetadatapb.TermRevocation) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{TermRevocation: rev}
+	}
+
+	t.Run("excludes a revocation with no accepted term", func(t *testing.T) {
+		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{
+			statusWith(&clustermetadatapb.TermRevocation{}),
+		}, decision4)
+		assert.Empty(t, got)
 	})
 
-	t.Run("ignores a higher decision known only via ReplicationPrimary", func(t *testing.T) {
-		// A follower can learn of a newer decision via ReplicationPrimary before
-		// its own CurrentPosition replays it. currentDecision must match
-		// NewTermRevocation's ReplaceDecision computation (CurrentPosition
-		// only), or every revocation would look like a different problem and
-		// backoff would silently stop applying.
-		cache := store.NewTestCache(t)
-		h := poolerHealth("p1", 2)
-		h.ConsensusStatus.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
-			Position: &clustermetadatapb.RulePosition{
-				Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 9}},
-			},
+	t.Run("matches a revocation targeting the same decision", func(t *testing.T) {
+		matching := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: 5,
+			RecruitIntent:    &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4},
 		}
-		store.SeedCache(t, cache, store.NewPooler(h, nil))
-		got := currentDecision(cache, shardKey)
-		require.NotNil(t, got)
-		assert.Equal(t, int64(2), got.GetCoordinatorTerm(), "must ignore ReplicationPrimary, use CurrentPosition only")
+		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(matching)}, decision4)
+		require.Len(t, got, 1)
+		assert.Same(t, matching, got[0])
+	})
+
+	t.Run("excludes a revocation demonstrably targeting a different decision", func(t *testing.T) {
+		// e.g. a shard's original bootstrap revocation: resolved history once
+		// the shard has moved on, so it must not gate a failure against the
+		// current decision.
+		different := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: 9,
+			RecruitIntent:    &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6},
+		}
+		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(different)}, decision4)
+		assert.Empty(t, got)
+	})
+
+	t.Run("includes a revocation with no RecruitIntent at all", func(t *testing.T) {
+		// We cannot tell whether this revocation (e.g. an externally-supplied
+		// cert, or an external actor forcing a resignation) is for our current
+		// problem or an unrelated one, so it is not excluded as a free pass —
+		// unlike commonconsensus.NewTermRevocation's stricter, exact-match
+		// filtering, which only needs a same-decision match to be useful.
+		untargeted := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
+		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(untargeted)}, decision4)
+		require.Len(t, got, 1)
+		assert.Same(t, untargeted, got[0])
 	})
 }
 
@@ -230,6 +205,62 @@ func TestNextFailoverAttempt(t *testing.T) {
 		seedRevocation(cache, "p1", time.Now(), nil, 0)
 		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
 		assert.False(t, ready, "an unidentifiable revocation should get the default cooldown, not a free pass")
+		assert.True(t, readyAt.After(time.Now()))
+	})
+
+	t.Run("a stale revocation for a different, resolved decision does not shadow a live retry", func(t *testing.T) {
+		// p1 carries an old, abandoned revocation at a long-superseded decision
+		// (term 2) that happens to have a numerically higher term (9) than the
+		// real prior attempt. p2 is decided at the current decision (term 6) and
+		// holds the actual live retry at it (term 5). Picking the shard's
+		// globally-highest-term revocation regardless of decision would find
+		// p1's stale one, wrongly conclude "different, resolved problem," and
+		// act immediately instead of deferring to p2's live backoff.
+		cache := store.NewTestCache(t)
+		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+				ShardKey: shardKey,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}},
+					},
+				},
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       9,
+					CoordinatorInitiatedAt: timestamppb.New(time.Now()),
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+						Attempt:         5,
+					},
+				},
+			},
+		}, nil))
+		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
+				ShardKey: shardKey,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6}},
+					},
+				},
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					CoordinatorInitiatedAt: timestamppb.New(time.Now()),
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+						Attempt:         2,
+					},
+				},
+			},
+		}, nil))
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		assert.False(t, ready, "the live retry at the current decision must still gate, despite the stale higher-term revocation elsewhere")
 		assert.True(t, readyAt.After(time.Now()))
 	})
 }

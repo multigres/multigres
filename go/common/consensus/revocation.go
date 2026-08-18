@@ -92,13 +92,10 @@ func NewTermRevocation(
 		maxTerm = t
 	}
 
-	// latestRevocationForDecision is the most recent prior attempt at THIS SAME decision —
-	// deliberately decision-scoped, unlike maxTerm above (see
-	// latestRevocationsForDecision's doc for why).
-	var latestRevocationForDecision *clustermetadatapb.TermRevocation
-	if revs := latestRevocationsForDecision(statuses, replaceDecision); len(revs) > 0 {
-		latestRevocationForDecision = revs[0]
-	}
+	// previousRecruitForDecision is the most recent prior attempt at THIS SAME
+	// decision — deliberately decision-scoped, unlike maxTerm above (see
+	// revocationsMatchingDecision's doc for why).
+	previousRecruitForDecision := HighestTermRevocation(revocationsMatchingDecision(statuses, replaceDecision))
 
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
@@ -107,7 +104,7 @@ func NewTermRevocation(
 		OutgoingRule:           outgoingRule,
 		RecruitIntent: &clustermetadatapb.RecruitIntent{
 			ReplaceDecision: replaceDecision,
-			Attempt:         recruitAttempt(latestRevocationForDecision, initiatedAt, staleRecruitResetWindow),
+			Attempt:         recruitAttempt(previousRecruitForDecision, initiatedAt, staleRecruitResetWindow),
 		},
 	}, nil
 }
@@ -127,47 +124,51 @@ func highestRevokedBelowTerm(statuses []*clustermetadatapb.ConsensusStatus) int6
 	return maxTerm
 }
 
-// latestRevocationsForDecision returns every distinct TermRevocation among
-// statuses whose RecruitIntent.ReplaceDecision matches replaceDecision and
-// whose RevokedBelowTerm is the highest among those, or nil if none match.
-// proto.Equal duplicates are collapsed.
-//
-// Decision-scoped on purpose (see IsRuleRevoked's outgoing_rule-relative
-// comparison — the same principle applies to replace_decision): a
-// revocation's term is only meaningful relative to the decision it targets,
-// so this must not be confused with the global, decision-agnostic scan in
-// highestRevokedBelowTerm. Multiple entries can still come from different
-// coordinators that each believed they held that term for this same
-// decision — at most one could have actually won it, possibly none did.
-func latestRevocationsForDecision(statuses []*clustermetadatapb.ConsensusStatus, replaceDecision *clustermetadatapb.RuleNumber) []*clustermetadatapb.TermRevocation {
-	var maxTerm int64
-	var revs []*clustermetadatapb.TermRevocation
+// revocationsMatchingDecision returns every TermRevocation among statuses
+// whose RecruitIntent.ReplaceDecision matches replaceDecision exactly. A
+// revocation with no RecruitIntent at all is excluded — for this caller's
+// purpose (computing this attempt's escalation count), an untargeted
+// revocation is treated as no prior attempt, not as a same-decision one.
+func revocationsMatchingDecision(statuses []*clustermetadatapb.ConsensusStatus, replaceDecision *clustermetadatapb.RuleNumber) []*clustermetadatapb.TermRevocation {
+	var matches []*clustermetadatapb.TermRevocation
 	for _, cs := range statuses {
 		rev := cs.GetTermRevocation()
-		t := rev.GetRevokedBelowTerm()
-		if t <= 0 || CompareRuleNumbers(rev.GetRecruitIntent().GetReplaceDecision(), replaceDecision) != 0 {
-			continue
-		}
-		switch {
-		case t > maxTerm:
-			maxTerm = t
-			revs = []*clustermetadatapb.TermRevocation{rev}
-		case t == maxTerm && !containsEqualRevocation(revs, rev):
-			revs = append(revs, rev)
+		if rev.GetRevokedBelowTerm() > 0 && rev.GetRecruitIntent() != nil &&
+			CompareRuleNumbers(rev.GetRecruitIntent().GetReplaceDecision(), replaceDecision) == 0 {
+			matches = append(matches, rev)
 		}
 	}
-	return revs
+	return matches
 }
 
-// containsEqualRevocation reports whether revs already holds a proto.Equal
-// copy of rev.
-func containsEqualRevocation(revs []*clustermetadatapb.TermRevocation, rev *clustermetadatapb.TermRevocation) bool {
-	for _, r := range revs {
-		if proto.Equal(r, rev) {
-			return true
+// HighestTermRevocation returns the candidate with the highest
+// RevokedBelowTerm, or nil if candidates is empty.
+//
+// Ties are possible: different coordinators can each believe they held the
+// same term against the same decision on different cohort members — at most
+// one could have actually won it, possibly none did. Ties are broken
+// deterministically by AcceptedCoordinatorId (proto.Equal duplicates count as
+// one candidate) rather than by candidate order, so every caller computes the
+// same result from the same set regardless of how it assembled candidates —
+// required wherever independent orchestrators must agree on what a
+// revocation "is" without coordinating directly (see ha.BackoffSchedule).
+func HighestTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
+	var best *clustermetadatapb.TermRevocation
+	for _, rev := range candidates {
+		switch {
+		case best == nil:
+			best = rev
+		case proto.Equal(best, rev):
+			// Same revocation observed via a different cohort member; keep best.
+		case rev.GetRevokedBelowTerm() != best.GetRevokedBelowTerm():
+			if rev.GetRevokedBelowTerm() > best.GetRevokedBelowTerm() {
+				best = rev
+			}
+		case topoclient.ClusterIDString(rev.GetAcceptedCoordinatorId()) < topoclient.ClusterIDString(best.GetAcceptedCoordinatorId()):
+			best = rev
 		}
 	}
-	return false
+	return best
 }
 
 // recruitAttempt returns the collective-backoff attempt count for a new
