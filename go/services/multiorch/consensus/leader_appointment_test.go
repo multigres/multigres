@@ -433,3 +433,99 @@ func TestAppointLeader_TiebreaksByResignation(t *testing.T) {
 	_, promotedResigned := fakeClient.PromoteRequests[resignedKey]
 	require.False(t, promotedResigned, "resigned primary should NOT be re-elected when a standby is available")
 }
+
+// TestAppointLeader_IneligibleMemberExcludedFromOutgoingRule confirms an
+// INELIGIBLE member's decided rule does NOT influence outgoing_rule or the
+// new revocation's term (see runFailover's pre-vote-check rationale) — it's
+// excluded from that computation the same way it's excluded from recruiting.
+func TestAppointLeader_IneligibleMemberExcludedFromOutgoingRule(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "departing"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+	}
+
+	// "departing" committed a new decision (term 7) as leader and then began
+	// graceful shutdown (INELIGIBLE) before mp2/mp3 replayed it — they're
+	// still decided at term 4.
+	higherRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+	lowerRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	departing := createMockNode(fakeClient, "departing", 7, "0/1000000", true, higherRule)
+	departing.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+		CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+			Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		},
+	}
+	departing.ConsensusStatus.Id = cohortIDs[0]
+	departing.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+		Lsn:      "0/1000000",
+		Position: &clustermetadatapb.RulePosition{Decision: higherRule},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, departing.Multipooler))
+
+	walPositions := []string{"0/2000000", "0/3000000"}
+	cohort := []*multiorchdatapb.PoolerHealthState{departing}
+	for i, id := range cohortIDs[1:] {
+		mp := createMockNode(fakeClient, id.Name, 4, walPositions[i], true, lowerRule)
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:      walPositions[i],
+			Position: &clustermetadatapb.RulePosition{Decision: lowerRule},
+		}
+		key := topoclient.ComponentIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:      walPositions[i],
+					Position: &clustermetadatapb.RulePosition{Decision: lowerRule},
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+		cohort = append(cohort, mp)
+	}
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_ineligible_outgoing_rule"))
+
+	// mp3 (highest LSN among the eligible pair) should be elected.
+	leaderKey := topoclient.ComponentIDString(cohortIDs[2])
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "mp3 should be elected leader")
+	require.Equal(t, int64(4), propReq.GetProposal().GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm(),
+		"outgoing_rule must reflect the eligible pair's decision, not departing's unreachable one")
+	require.Equal(t, int64(5), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should be max prior term among the eligible pair (4) + 1, not departing's (7) + 1")
+
+	// The departing node must not have been contacted at all.
+	departingKey := topoclient.ComponentIDString(cohortIDs[0])
+	_, gotPromote := fakeClient.PromoteRequests[departingKey]
+	_, gotSetPrimary := fakeClient.SetPrimaryRequests[departingKey]
+	require.False(t, gotPromote || gotSetPrimary, "the departing INELIGIBLE node should not be contacted by the recruit round")
+}

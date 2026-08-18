@@ -26,10 +26,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -270,11 +270,13 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// Gate execution: a problem may only proceed once its timing gate permits it.
 	if readyAt, ready := re.readyToExecute(problem); !ready {
 		span.SetAttributes(attribute.String("result", "gated"))
-		re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied",
-			"problem_code", problem.Code,
-			"entity_id", entityID,
-			"ready_at", readyAt,
-		)
+		args := []any{"problem_code", problem.Code, "entity_id", entityID}
+		if !readyAt.IsZero() {
+			// Only failover's collective backoff produces a concrete deadline;
+			// the grace-period tracker's gate has none to report here.
+			args = append(args, "ready_at", readyAt)
+		}
+		re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied", args...)
 		return
 	}
 
@@ -443,80 +445,20 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover
-// recruitment time for the shard and whether that time has arrived.
-//
-// RecruitIntent.ReplaceDecision identifies *which problem* a recruit attempt was
-// for — the decided baseline it intended to move past. That gives two ways to
-// act immediately (aggressive-first), and one way to back off:
-//
-//   - No revocation observed at all: nothing to back off from.
-//   - The observed revocation's ReplaceDecision demonstrably targets a
-//     different problem than the one we're now facing — e.g. a shard's
-//     original bootstrap recruitment, whose target was decided long ago and
-//     has been running fine ever since. That's resolved history, not a live
-//     retry, so this failure gets a fresh start.
-//   - Otherwise (ReplaceDecision matches our current problem, or is absent and
-//     so cannot be shown to be a different problem) it's a live or
-//     unfalsifiable retry: derive the deterministic per-orch next-attempt time
-//     from the revocation's collective backoff, so independent orchs stagger
-//     and escalate without coordinating. A revocation with no RecruitIntent at
-//     all (e.g. an externally-supplied cert, or an external actor forcing a
-//     resignation) falls into this default-cooldown case — we cannot prove it
-//     is unrelated, so we do not treat it as a free pass.
-func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
-	statuses := consensusStatuses(re.poolerCache, shardKey)
-	decision := commonconsensus.HighestDecidedRule(statuses)
-	rev := commonconsensus.HighestTermRevocation(revocationsRelevantToDecision(statuses, decision))
-	if rev == nil {
-		return time.Time{}, true
-	}
-	readyAt = re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
-	return readyAt, !time.Now().Before(readyAt)
-}
-
-// revocationsRelevantToDecision returns every TermRevocation among statuses
-// that cannot be shown to target a problem other than decision: either its
-// RecruitIntent.ReplaceDecision matches decision, or it has no RecruitIntent
-// at all (e.g. an externally-supplied cert, or an external actor forcing a
-// resignation) and so cannot be proven unrelated. A revocation whose
-// ReplaceDecision demonstrably names a *different* decision is resolved
-// history (e.g. a shard's original bootstrap recruitment) and excluded.
-//
-// Deliberately more permissive than commonconsensus.NewTermRevocation's own
-// decision-matching: that caller is computing this attempt's escalation
-// count, where treating an unproven revocation as unrelated only risks a
-// slightly-wrong count; this caller is deciding whether to act at all, where
-// the same ambiguity should default to caution, not a free pass.
-func revocationsRelevantToDecision(statuses []*clustermetadatapb.ConsensusStatus, decision *clustermetadatapb.RuleNumber) []*clustermetadatapb.TermRevocation {
-	var relevant []*clustermetadatapb.TermRevocation
-	for _, cs := range statuses {
-		rev := cs.GetTermRevocation()
-		if rev.GetRevokedBelowTerm() <= 0 {
-			continue
-		}
-		if replaceDecision := rev.GetRecruitIntent().GetReplaceDecision(); replaceDecision != nil &&
-			commonconsensus.CompareRuleNumbers(replaceDecision, decision) != 0 {
-			continue
-		}
-		relevant = append(relevant, rev)
-	}
-	return relevant
-}
-
-// consensusStatuses returns the ConsensusStatus reported by every pooler
-// currently known in the shard, as seen through streamed health snapshots —
-// how an orchestrator sees the cohort's consensus state without any
-// orch-to-orch RPC.
+// recruitment time for the shard and whether that time has arrived — the
+// decision logic lives in consensus.Coordinator.NextFailoverAttempt, which
+// this just supplies with the shard's pooler health states (via streamed
+// health snapshots, no orch-to-orch RPC).
 //
 // Note: an orchestrator doesn't see its own just-written revocation until it
 // streams back, so it may briefly re-enter the failover gate right after
 // recruiting. Bounded by recheckProblem, the term CAS (a stale re-attempt
 // loses), and the next cycle observing the new revocation.
-func consensusStatuses(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) []*clustermetadatapb.ConsensusStatus {
-	poolers := store.FindPoolersInShard(cache, shardKey)
-	statuses := make([]*clustermetadatapb.ConsensusStatus, len(poolers))
+func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
+	poolers := store.FindPoolersInShard(re.poolerCache, shardKey)
+	healthStates := make([]*multiorchdatapb.PoolerHealthState, len(poolers))
 	for i, p := range poolers {
-		statuses[i] = p.Health().GetConsensusStatus()
+		healthStates[i] = p.Health()
 	}
-	return statuses
+	return re.coordinator.NextFailoverAttempt(healthStates, re.recruitmentBackoff)
 }
