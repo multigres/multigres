@@ -127,13 +127,11 @@ func TestCurrentDecision(t *testing.T) {
 	})
 
 	t.Run("ignores a higher decision known only via ReplicationPrimary", func(t *testing.T) {
-		// A follower can learn of a newer decision via its ReplicationPrimary
-		// announcement (e.g. right after a promotion) before its own
-		// CurrentPosition has replayed it. currentDecision must match
-		// NewTermRevocation's ReplaceDecision computation exactly (CurrentPosition
-		// only), or a fresh revocation's ReplaceDecision would never equal
-		// currentDecision, making every revocation look like it targets a
-		// different, resolved problem and silently disabling backoff.
+		// A follower can learn of a newer decision via ReplicationPrimary before
+		// its own CurrentPosition replays it. currentDecision must match
+		// NewTermRevocation's ReplaceDecision computation (CurrentPosition
+		// only), or every revocation would look like a different problem and
+		// backoff would silently stop applying.
 		cache := store.NewTestCache(t)
 		h := poolerHealth("p1", 2)
 		h.ConsensusStatus.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{

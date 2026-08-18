@@ -2152,28 +2152,21 @@ export class TermRevocation extends Message<TermRevocation> {
 }
 
 /**
- * RecruitIntent carries the coordinator's intent and context for a recruitment.
- * It is deliberately a container rather than a flat set of fields so it can grow
- * (e.g. future recruit-scoped hints) without further widening TermRevocation.
- *
- * Its first occupant is the collective failover-backoff accounting: how many
- * recruitment attempts have targeted the same decided baseline without the
- * cohort advancing past it. Independent orchestrators back off collectively
- * without coordinating — each derives the same escalating
- * exponential-backoff-with-jitter retry schedule from this shared, observed
- * state (see go/common/ha).
+ * RecruitIntent carries the coordinator's intent and context for a
+ * recruitment — a container (not flat fields) so it can grow without
+ * widening TermRevocation. Its first occupant is collective failover-backoff
+ * accounting: how many recruitment attempts have targeted the same decided
+ * baseline without the cohort advancing past it, letting independent
+ * orchestrators back off collectively without coordinating (see go/common/ha).
  *
  * @generated from message clustermetadata.RecruitIntent
  */
 export class RecruitIntent extends Message<RecruitIntent> {
   /**
-   * The decided rule this recruitment intends to move past — the decided
-   * baseline the attempt count is relative to. Deliberately distinct
-   * from TermRevocation.outgoing_rule: once propagation lands, outgoing_rule may
-   * be an undecided (quorum-verified) proposal, but the count must key on a
-   * settled decision so a stuck proposal — which never advances the decision —
-   * cannot reset it. On the current base outgoing_rule is always decided, so this
-   * equals it today.
+   * The decided rule this recruitment intends to move past. Deliberately
+   * distinct from TermRevocation.outgoing_rule, which may be an undecided
+   * proposal under propagation — the attempt count must key on a settled
+   * decision, or a stuck proposal could never advance it and reset the count.
    *
    * @generated from field: clustermetadata.RuleNumber replace_decision = 1;
    */

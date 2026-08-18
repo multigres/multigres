@@ -260,12 +260,11 @@ func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermet
 
 // HighestDecidedRule returns the highest decided rule number across the given
 // consensus statuses, considering only each status's own CurrentPosition —
-// unlike HighestKnownRule, it does not also consider ReplicationPrimary, since
-// a follower can learn of a newer decision that way before its own position
-// has replayed it. This is the exact baseline NewTermRevocation computes as a
-// new attempt's ReplaceDecision; any caller comparing against that value
-// (e.g. deciding whether an observed revocation targets the current problem)
-// must use this, not HighestKnownRule, or the two can disagree.
+// unlike HighestKnownRule, not ReplicationPrimary, which a follower can learn
+// of before its own position replays it. This is the exact baseline
+// NewTermRevocation computes as a new attempt's ReplaceDecision; anything
+// comparing against that value must use this, not HighestKnownRule, or the
+// two can disagree.
 func HighestDecidedRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.RuleNumber {
 	var decision *clustermetadatapb.RuleNumber
 	for _, cs := range statuses {

@@ -13,11 +13,10 @@
 // limitations under the License.
 
 // Package ha holds high-availability coordination helpers shared across
-// services. Everything here must be deterministic: given the same inputs, every
-// orchestrator computes the same result, on every call, so that independent
-// orchestrators converge on the same behavior without communicating. The
-// package is guarded against wall-clock reads, goroutines, and non-deterministic
-// map iteration for that reason.
+// services. Everything here must be deterministic — same inputs, same result,
+// on every call — so independent callers converge without communicating.
+// Guarded against wall-clock reads, goroutines, and non-deterministic map
+// iteration for that reason.
 package ha
 
 import (
@@ -31,27 +30,16 @@ import (
 
 // BackoffSchedule parameterizes the collective recruitment backoff. The delay
 // grows exponentially with the recruitment attempt number and is capped at Max;
-// a deterministic per-orchestrator jitter — a fraction of that delay — spreads
-// orchestrators across the retry window so they do not all recruit at once.
+// a deterministic per-caller jitter — a fraction of that delay — spreads callers
+// across the retry window so they do not all recruit at once.
 //
-// This is deliberately none of the AWS "exponential backoff and jitter"
-// variants (Full/Equal/Decorrelated). Those all draw a fresh random number per
-// retry to de-synchronize a *single* client's own retries, and all cap the
-// result at or below the exponential delay. Two constraints here rule that out:
-//
-//   - The delay is an absolute offset from a shared anchor, recomputed every
-//     recovery-loop tick and by every orchestrator. A live RNG would drift
-//     between ticks and disagree between orchestrators; we instead seed a stable
-//     hash with (orch identity, replace_decision, attempt) and draw once, so the
-//     schedule is reproducible and every orchestrator agrees on the ordering.
-//   - We need a guaranteed floor (the full exponential delay), so jitter is added
-//     *above* it — otherwise the luckiest orchestrator's near-zero draw would
-//     recruit immediately every round and defeat the backoff.
-//
-// The closest relative is Equal Jitter (floor + bounded spread), but floored at
-// the full delay rather than half, and deterministic rather than random. In
-// effect it is stable per-orchestrator slot assignment (cf. rendezvous hashing)
-// layered on exponential backoff, not thundering-herd jitter.
+// Unlike AWS-style jitter (Full/Equal/Decorrelated), the jitter here is a
+// stable hash of (caller identity, replace_decision, attempt), not a fresh
+// random draw: every caller must recompute the same delay from the same
+// shared anchor on every recovery-loop tick, which a live RNG can't do
+// consistently across callers. Jitter is added above the full exponential
+// delay (a floor), not sampled below it, so the luckiest caller can't recruit
+// immediately every round and defeat the backoff.
 type BackoffSchedule struct {
 	// Base is the delay after the first attempt (attempt 1).
 	Base time.Duration
@@ -83,25 +71,18 @@ func DefaultBackoffResetDuration() time.Duration {
 	return 30 * time.Minute
 }
 
-// NextAttempt returns the earliest time orchID may launch another recruitment,
-// given the most recently observed TermRevocation for the shard. It is a pure,
-// deterministic function of the revocation and the orchestrator's identity:
-// every orchestrator computes the same value, and re-computing it across
-// recovery-loop ticks yields the same time, so an orchestrator's readiness does
-// not drift while it waits.
+// NextAttempt returns the earliest time orchID may launch another
+// recruitment, given the shard's most recently observed TermRevocation. Pure
+// and deterministic — never reads the wall clock — so every orchestrator
+// computes the same value from the same revocation:
 //
 //	NextAttempt = rev.CoordinatorInitiatedAt
 //	            + backoff(rev.RecruitIntent.Attempt)
 //	            + jitter(orchID, rev.RecruitIntent.ReplaceDecision, Attempt)
 //
-// The replace_decision and attempt are folded into the jitter so the
-// recruitment order reshuffles both each round (by attempt) and each failover
-// episode (by replace_decision, which advances as decisions are committed) — the
-// same orchestrator is not perpetually first.
-//
-// Callers compare the result against their own clock; NextAttempt never reads
-// the wall clock itself. When no revocation has been observed yet (a fresh
-// failover with nothing to back off from), callers should act immediately
+// replace_decision and attempt feed the jitter so recruitment order reshuffles
+// each round and each failover episode — no orchestrator is perpetually first.
+// When no revocation has been observed yet, callers should act immediately
 // rather than call this.
 func (s BackoffSchedule) NextAttempt(rev *clustermetadatapb.TermRevocation, orchID *clustermetadatapb.ID) time.Time {
 	intent := rev.GetRecruitIntent()
@@ -119,21 +100,16 @@ func (s BackoffSchedule) backoff(attempt int64) time.Duration {
 	return retry.ExponentialBackoffMagnitude(s.Base, s.Max, int(attempt-1))
 }
 
-// jitter returns a deterministic offset in [0, JitterFraction*base) derived from
-// the caller identity, the decision being replaced, and the attempt number.
-// Using a stable hash (not a RNG) keeps it reproducible across callers and
-// process restarts; every input is observable identically by every caller, so
-// they agree on the ordering while still being spread across the window. The
-// replace_decision varies the ordering across failover episodes and the
-// attempt varies it across rounds within an episode. Scaling the window to
-// the delay keeps the spread meaningful as the backoff grows.
+// jitter returns a deterministic offset in [0, JitterFraction*base), hashed
+// from the caller identity, replace_decision, and attempt — every caller
+// observes the same inputs and agrees on the ordering, without a shared RNG.
+// replace_decision reshuffles the order across failover episodes, attempt
+// across rounds within one.
 //
-// TODO: the window is a fixed fraction of base, so it's narrow at low attempt
-// counts (e.g. 2.5s at attempt 1 with the default schedule) — with enough
-// concurrent callers, more than one can still collide on the same slot.
-// Whether that's a correctness issue depends on the caller's own conflict
-// resolution; if collisions matter at scale, consider a floor independent of
-// JitterFraction.
+// TODO: the window is narrow at low attempt counts (e.g. 2.5s at attempt 1
+// with the default schedule), so with enough concurrent callers more than one
+// can still collide on the same slot. Consider a floor independent of
+// JitterFraction if collisions matter at scale.
 func (s BackoffSchedule) jitter(orchID *clustermetadatapb.ID, replaceDecision *clustermetadatapb.RuleNumber, attempt int64, base time.Duration) time.Duration {
 	window := time.Duration(float64(base) * s.JitterFraction)
 	if window <= 0 {

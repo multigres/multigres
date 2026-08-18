@@ -416,32 +416,25 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 }
 
 // readyToExecute reports whether problem's timing gate permits acting now, and
-// the earliest time it will (zero if immediate). It selects between the two
-// gating mechanisms:
-//
-//   - Failover uses collective recruitment backoff: independent orchs each defer
-//     to their own deterministic slot derived from the shard's observed
-//     TermRevocation, and the interval escalates while recruits keep churning
-//     against the same decided baseline. A shard with no observed revocation acts
-//     immediately (aggressive-first) — the multi-signal failover trigger is
-//     self-confirming, so no detection grace is needed.
-//   - Every other action uses the local grace period.
+// the earliest time it will (zero if immediate). Failover problems use
+// collective recruitment backoff (independent orchs defer to a deterministic
+// slot derived from the shard's observed TermRevocation, escalating while
+// recruits churn against the same baseline; no observed revocation means act
+// immediately). Every other action uses the local grace period.
 //
 // TODO: this failover-vs-everything-else split is a stopgap; each recovery
 // action should own its "may I act now?" gate so this selection dissolves.
 //
-// TODO: as a backstop, consider throttling how often *successful* failovers
-// happen for a shard at all — protects against a flapping health bug even
-// though each flap looks like a fresh, ungated problem here.
+// TODO: consider throttling how often *successful* failovers happen per
+// shard, as a backstop against a flapping health bug (each flap looks like a
+// fresh, ungated problem here).
 //
-// TODO: unlike recoveryGracePeriodTracker, collective backoff has no
-// persist-across-ticks debounce — a first-ever failover acts on a single
-// detection. Fine for first-hand causes (LeaderResigned). Less obviously so
-// for observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy):
-// classifyCohortReachability requires a quorum of followers to agree (and
-// each already tracks how long it's gone without hearing from the leader,
-// covering a shared-cause partition), but that's not proven equivalent to
-// the old per-tick debounce. Revisit if this causes false-positive failovers.
+// TODO: collective backoff has no persist-across-ticks debounce like
+// recoveryGracePeriodTracker — a first-ever failover acts on one detection.
+// Fine for first-hand causes (LeaderResigned); less clearly so for
+// observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy), whose
+// quorum-of-followers check is a different anti-false-positive mechanism.
+// Revisit if this causes false-positive failovers.
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
 	if isFailoverProblem(problem.Code) {
 		return re.nextFailoverAttempt(problem.ShardKey)
@@ -494,14 +487,13 @@ func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (rea
 }
 
 // latestRevocation returns the TermRevocation behind the shard's highest
-// revoked_below_term, as seen through the streamed health snapshots, or nil if
-// none has been observed. This is how an orchestrator observes other
-// orchestrators' in-flight recruitment for a shard without any orch-to-orch RPC.
+// revoked_below_term, as seen through streamed health snapshots, or nil if
+// none has been observed — how an orchestrator sees others' in-flight
+// recruitment without any orch-to-orch RPC.
 //
-// Note: an orchestrator does not observe its OWN just-written revocation until it
-// streams back, so immediately after recruiting it may briefly still see the
-// prior (or no) revocation and re-enter the gate. That window is bounded by
-// recheckProblem, the term CAS on recruit (a stale re-attempt loses), and the
+// Note: an orchestrator doesn't see its own just-written revocation until it
+// streams back, so it may briefly re-enter the gate right after recruiting.
+// Bounded by recheckProblem, the term CAS (a stale re-attempt loses), and the
 // next cycle observing the new revocation.
 func latestRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
 	var latest *clustermetadatapb.TermRevocation

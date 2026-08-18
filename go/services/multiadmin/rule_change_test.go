@@ -539,12 +539,9 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 }
 
 // TestBuildCert_UnsafeDerive_ReplaceDecisionExcludesUndecidedProposal verifies
-// that when the most-advanced probed position carries an undecided proposal
-// beyond its decision, RecruitIntent.ReplaceDecision uses only the decided
-// portion — never the proposal, unlike OutgoingRule, which legitimately can be
-// the proposal for externally-certified changes. ReplaceDecision must stay a
-// settled decision so later observers correctly recognize a retry against the
-// same baseline rather than mistaking it for a fresh, unrelated problem.
+// that when the most-advanced probed position carries an undecided proposal,
+// RecruitIntent.ReplaceDecision uses only the decided portion — unlike
+// OutgoingRule, which can legitimately be the proposal for certified changes.
 func TestBuildCert_UnsafeDerive_ReplaceDecisionExcludesUndecidedProposal(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t)

@@ -143,17 +143,13 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-// GracePeriod's return value is never consulted: every problem
-// AppointLeaderAction is attached to (see emitFailover in
-// leader_needs_replacement_analyzer.go) uses one of the isFailoverProblem
-// codes, which Engine.readyToExecute gates on the collective recruitment
-// backoff (nextFailoverAttempt) instead of recoveryGracePeriodTracker.
-// RecoveryGracePeriodTracker.Reconcile still calls this every cycle for
-// eviction bookkeeping (harmless — the resulting deadline just never gets
-// read via ShouldExecute), and RecoveryAction requires the method regardless.
+// GracePeriod's return value is never consulted: every problem this action is
+// attached to is gated by Engine.readyToExecute on collective recruitment
+// backoff instead. Reconcile still calls this every cycle for harmless
+// eviction bookkeeping, and RecoveryAction requires the method regardless.
 //
 // TODO: once each recovery action fully owns its "may I act now?" gate (see
-// the TODO on readyToExecute), remove this method and its backing
+// the TODO on readyToExecute), remove this and its backing
 // leader-failover-grace-period-base/-max-jitter config entirely.
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{

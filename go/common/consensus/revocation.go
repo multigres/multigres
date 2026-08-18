@@ -78,14 +78,9 @@ func NewTermRevocation(
 	}
 	outgoingRule := PossiblyUndecidedRule(maxPosition).GetRuleNumber()
 
-	// replaceDecision is the highest decided rule across the cohort — the
-	// baseline the collective failover backoff counts attempts against. It is
-	// computed independently of outgoingRule on purpose: outgoingRule may be an
-	// undecided (quorum-verified) proposal under propagation, but the attempt
-	// count must stay keyed on a settled decision — otherwise a stuck proposal,
-	// which never advances the decision, would reset the backoff. Scoping to the
-	// decision keeps churn escalating. Uses HighestDecidedRule (not
-	// HighestKnownRule) deliberately — see its doc comment.
+	// replaceDecision is the backoff's problem-identity baseline — see
+	// recruitAttempt below for why it must be a settled decision, not
+	// outgoingRule, and HighestDecidedRule's doc for why not HighestKnownRule.
 	replaceDecision := HighestDecidedRule(statuses)
 
 	// The new revocation term must exceed every term any cohort member has
@@ -117,34 +112,22 @@ func NewTermRevocation(
 	}, nil
 }
 
-// recruitAttempt returns the collective-backoff attempt count for a new recruit
-// whose decided baseline is replaceDecision, initiated at initiatedAt, given the
-// cohort's most recent prior revocation (or nil if there is none).
+// recruitAttempt returns the collective-backoff attempt count for a new
+// recruit targeting replaceDecision, given the cohort's most recent prior
+// revocation (or nil if there is none).
 //
-// It carries the prior count forward (+1) while the recruit keeps targeting the
-// same decided baseline, so a run of successive *undecided* attempts to move past
-// the same decision escalates the backoff (see go/common/ha) instead of firing a
-// burst of stuck failovers in fast sequence — a proposal that never gets decided
-// never advances replaceDecision. It resets to 1 when either:
+// Carries the prior count forward (+1) while replaceDecision is unchanged, so
+// repeated undecided attempts to move past the same decision escalate the
+// backoff (see go/common/ha) instead of firing bursts in fast succession.
+// Resets to 1 when either replaceDecision advanced (real progress), or the
+// prior recruit is older than staleRecruitResetWindow — recruitment paused,
+// e.g. scaled to zero and restarted (a zero window disables this reset; both
+// timestamps are passed in, no wall-clock read).
 //
-//   - replaceDecision advanced (the cohort committed a newer decision — real,
-//     durable progress); or
-//   - staleRecruitResetWindow > 0 and the prior recruit is older than it, so
-//     recruitment has clearly paused and the accumulated count is stale (e.g. the
-//     cluster was scaled to zero and restarted). Aggressive-first for a genuinely
-//     fresh failover otherwise comes from the coordinator_initiated_at time
-//     anchor, not from this reset; this reset additionally keeps *retries* fast
-//     after a long dormancy rather than starting them at the backoff cap. A zero
-//     window disables it.
-//
-// The staleness check compares two recorded/passed timestamps (no wall-clock
-// read), so it is safe under the determinism guard on this package.
-//
-// Note this counts *failed establishments*, not lost contention: a coordinator
-// that loses the term race writes no revocation, so it never increments the
-// count — only an accepted recruit that then fails to advance the decision does.
-// Losers simply observe the winner's revocation and back off to their own slot,
-// so no separate contention-vs-establishment signal is needed here.
+// Counts failed *establishments*, not lost contention: a coordinator that
+// loses the term race writes no revocation, so only an accepted recruit that
+// fails to advance the decision increments the count. Losers just observe the
+// winner's revocation and back off to their own slot.
 func recruitAttempt(latest *clustermetadatapb.TermRevocation, replaceDecision *clustermetadatapb.RuleNumber, initiatedAt *timestamppb.Timestamp, staleRecruitResetWindow time.Duration) int64 {
 	if latest == nil {
 		return 1

@@ -371,16 +371,14 @@ func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 }
 
 // triggerFailover performs a planned failover via multiadmin's SwitchPrimary
-// (stop writes on the current primary + REQUESTING_DEMOTION, the real
-// production planned-failover path) and waits for a new primary to be elected.
+// (stops writes on the current primary + REQUESTING_DEMOTION, the real
+// production path) and waits for a new primary to be elected.
 //
-// This deliberately does not use a raw Consensus.Recruit call to simulate
-// demotion: unlike SwitchPrimary, that would revoke the old leader's term
-// itself before multiorch's own recruit attempt, which multiorch's collective
-// recruitment backoff would then (correctly) treat as an already-outstanding
-// attempt and defer against — not the aggressive-first response an actual
-// planned failover gets, since SwitchPrimary's demotion signal creates no
-// TermRevocation ahead of multiorch's own attempt.
+// Deliberately not a raw Consensus.Recruit call: that would revoke the old
+// leader's term itself before multiorch's own attempt, which collective
+// recruitment backoff would then defer against as an already-outstanding
+// attempt — not the immediate response a real planned failover gets, since
+// SwitchPrimary's demotion signal creates no TermRevocation up front.
 func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
 
