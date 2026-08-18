@@ -533,6 +533,7 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 			CoordinatorInitiatedAt: initiatedAt,
 			RecruitIntent: &clustermetadatapb.RecruitIntent{
 				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+				Attempt:         1,
 			},
 		},
 	}, got)

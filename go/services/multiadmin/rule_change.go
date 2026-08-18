@@ -197,7 +197,7 @@ func (s *MultiadminServer) buildCert(
 		if err != nil {
 			return nil, nil, err
 		}
-		// Normally the outgoing rule is a outgoingRule, but for externally-certified
+		// Normally the outgoing rule is a decision, but for externally-certified
 		// changes it can be an undecided proposal that we'll be able to instantly
 		// "propagate" since outgoing cohorts aren't required to reach quorum for
 		// externally-certified rule changes.
@@ -208,6 +208,11 @@ func (s *MultiadminServer) buildCert(
 				CoordinatorInitiatedAt: timestamppb.Now(),
 				RecruitIntent: &clustermetadatapb.RecruitIntent{
 					ReplaceDecision: pos.GetPosition().GetDecision().GetRuleNumber(),
+					// Starts at 1 per the proto's documented contract, so a
+					// subsequent multiorch failover against this same decision
+					// (see consensus.recruitAttempt) counts this as the first
+					// attempt rather than undercounting the escalation by one.
+					Attempt: 1,
 				},
 			},
 			FrozenLsn: pos.GetLsn(),
