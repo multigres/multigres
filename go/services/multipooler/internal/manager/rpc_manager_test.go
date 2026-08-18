@@ -1064,19 +1064,6 @@ func rewindAsStandbyWithContextForTest(t *testing.T, ctx context.Context, manage
 	return manager.restartAsStandbyLocked(lockCtx, source.Hostname, source.PortMap["postgres"])
 }
 
-func TestRewindCompletionBudget(t *testing.T) {
-	budget, err := rewindCompletionBudget(0)
-	require.NoError(t, err)
-	assert.Equal(t, minRewindCompletionBudget, budget)
-
-	budget, err = rewindCompletionBudget(time.Minute)
-	require.NoError(t, err)
-	assert.Equal(t, 2*time.Minute+rewindRestartMargin, budget)
-
-	_, err = rewindCompletionBudget(5 * time.Minute)
-	require.ErrorContains(t, err, "exceeds maximum")
-}
-
 // TestRestartAsStandby_RealRewindFailureQuarantines verifies that once the real
 // pg_rewind has started, a failure prevents any postgres start on the potentially
 // partial PGDATA and publishes a quarantine verdict for replacement.
@@ -1110,9 +1097,7 @@ func TestRestartAsStandby_RealRewindFailureQuarantines(t *testing.T) {
 
 	mockPgctld := &testutil.MockPgCtldService{
 		PgRewindFunc: func(_ context.Context, req *pgctldpb.PgRewindRequest) (*pgctldpb.PgRewindResponse, error) {
-			if req.GetDryRun() {
-				return &pgctldpb.PgRewindResponse{Output: "servers diverged at WAL location 0/5000000 on timeline 1"}, nil
-			}
+			assert.False(t, req.GetDryRun())
 			assert.FileExists(t, filepath.Join(poolerDir, pgRewindSentinelFile))
 			return nil, errors.New("mock real pg_rewind failed")
 		},
@@ -1218,18 +1203,21 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 		},
 	}
 
-	// Cancel the initiating RPC when the real rewind starts. The bounded
-	// maintenance context must keep rewind and restart alive synchronously under
-	// the action lock rather than killing pg_rewind against partial PGDATA.
-	requestCtx, cancelRequest := context.WithTimeout(t.Context(), 15*time.Minute)
+	// Let the single pg_rewind call outlive the initiating RPC deadline. This
+	// models the expensive analysis phase that previously died before reaching
+	// the protected destructive pass.
+	requestCtx, cancelRequest := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancelRequest()
 	mockPgctld := &testutil.MockPgCtldService{}
 	mockPgctld.PgRewindFunc = func(callCtx context.Context, req *pgctldpb.PgRewindRequest) (*pgctldpb.PgRewindResponse, error) {
-		if !req.GetDryRun() {
-			assert.FileExists(t, filepath.Join(poolerDir, pgRewindSentinelFile))
-			cancelRequest()
+		assert.False(t, req.GetDryRun())
+		assert.FileExists(t, filepath.Join(poolerDir, pgRewindSentinelFile))
+		<-requestCtx.Done()
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-callCtx.Done():
+			return nil, errors.New("rewind maintenance did not outlive the initiating RPC")
 		}
-		require.NoError(t, callCtx.Err(), "rewind maintenance must outlive the initiating RPC")
 		return &pgctldpb.PgRewindResponse{
 			Message: "pg_rewind completed",
 			Output:  "servers diverged at WAL location 0/5000000 on timeline 1",
@@ -1314,7 +1302,7 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 
 	rewindPerformed, err := rewindAsStandbyWithContextForTest(t, requestCtx, manager, source)
 	require.NoError(t, err)
-	require.ErrorIs(t, requestCtx.Err(), context.Canceled)
+	require.ErrorIs(t, requestCtx.Err(), context.DeadlineExceeded)
 	assert.True(t, rewindPerformed, "actual pg_rewind should have run (divergence detected)")
 
 	// REGRESSION TEST: primary_conninfo must already be in postgresql.auto.conf
@@ -1324,11 +1312,10 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 	assert.Contains(t, autoConfAtRestart, "primary_conninfo = 'host=source-host port=5433 ",
 		"auto.conf must carry the source's primary_conninfo before the standby starts")
 
-	// Verify both actual rewind calls were made (dry-run + actual).
+	// The analysis and any writes happen in one protected pg_rewind call.
 	rewindCalls := mockPgctld.PgRewindCalls
-	require.Len(t, rewindCalls, 2, "expected dry-run and actual pg_rewind calls")
-	assert.True(t, rewindCalls[0].DryRun, "first call should be dry-run")
-	assert.False(t, rewindCalls[1].DryRun, "second call should be actual rewind")
+	require.Len(t, rewindCalls, 1)
+	assert.False(t, rewindCalls[0].DryRun)
 
 	// REGRESSION TEST: primary_conninfo must be set after pg_rewind so the WAL
 	// receiver can connect to the primary. Before the fix, this was never called
@@ -1341,13 +1328,7 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 
 // TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo guards the helper
 // contract introduced in the unified-rewind refactor: restartAsStandbyLocked
-// sets primary_conninfo on success regardless of whether pg_rewind actually
-// ran. The dry-run reports no divergence here, so pgRewindDryRun skips the
-// actual rewind and rewindPerformed remains false — but the helper must
-// still point primary_conninfo at source. Without this test, a regression
-// that gates the conninfo call on rewindPerformed would pass the divergence
-// test (TestRestartAsStandby_RestoresPrimaryConnInfo) and silently break
-// callers that arrive via this path.
+// sets primary_conninfo when pg_rewind reports that no rewind is required.
 func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
@@ -1376,11 +1357,11 @@ func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		},
 	}
 
-	// A dry-run can report where timelines diverged before concluding that no
-	// rewind is required. The final verdict must win and skip the real rewind.
+	// The single protected call lets pg_rewind make the divergence decision and
+	// return without mutation when no rewind is required.
 	mockPgctld := &testutil.MockPgCtldService{
 		PgRewindResponse: &pgctldpb.PgRewindResponse{
-			Message: "pg_rewind dry-run completed",
+			Message: "pg_rewind completed",
 			Output:  "servers diverged at WAL location 0/5000000 on timeline 1\nno rewind required",
 		},
 	}
@@ -1454,7 +1435,7 @@ func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 
 	rewindPerformed, err := rewindAsStandbyForTest(t, manager, source)
 	require.NoError(t, err)
-	assert.False(t, rewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
+	assert.False(t, rewindPerformed, "pg_rewind reported that no rewrite was required")
 
 	// The no-rewind path must also carry conninfo in auto.conf before the
 	// restart, with the stale entry replaced rather than shadowing the new one.
@@ -1463,10 +1444,10 @@ func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	assert.NotContains(t, autoConfAtRestart, "old-leader",
 		"the stale conninfo entry must be replaced, not left behind")
 
-	// Only the dry-run should have fired; no actual rewind.
+	// One non-dry-run call performs both the decision and any needed rewrite.
 	rewindCalls := mockPgctld.PgRewindCalls
-	require.Len(t, rewindCalls, 1, "expected only the dry-run pg_rewind call")
-	assert.True(t, rewindCalls[0].DryRun, "the single call should be the dry-run")
+	require.Len(t, rewindCalls, 1)
+	assert.False(t, rewindCalls[0].DryRun)
 
 	// The contract: primary_conninfo gets set even when no rewind happens.
 	assert.NotEmpty(t, primaryConnInfoSet, "primary_conninfo must be set even when no rewind runs")

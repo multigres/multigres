@@ -44,9 +44,8 @@ const (
 	// StaleLeaderDrainTimeout is a shorter drain timeout for stale leaders.
 	// Stale leaders that just came back online typically have no active connections.
 	StaleLeaderDrainTimeout = 5 * time.Second
-	// staleLeaderActionTimeout leaves room for a loaded node's pg_rewind dry-run,
-	// measured destructive pass, and restart. Pooler-side budgeting still refuses
-	// to begin the destructive pass when this remaining deadline is insufficient.
+	// staleLeaderActionTimeout leaves room for the pooler's bounded pg_rewind
+	// maintenance and restart while retaining action-level headroom.
 	staleLeaderActionTimeout = 15 * time.Minute
 )
 
