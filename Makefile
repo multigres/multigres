@@ -35,6 +35,13 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
+GIT_COMMIT ?= unknown
+COMMIT_DATE ?= unknown
+SERVENV_PACKAGE = github.com/multigres/multigres/go/common/servenv
+RELEASE_LDFLAGS = -w -s \
+	-X $(SERVENV_PACKAGE).gitCommit=$(GIT_COMMIT) \
+	-X $(SERVENV_PACKAGE).commitDate=$(COMMIT_DATE)
+
 .PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
 
 ##@ General
@@ -141,7 +148,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
-		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+		CGO_ENABLED=0 go build -ldflags="$(RELEASE_LDFLAGS)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)

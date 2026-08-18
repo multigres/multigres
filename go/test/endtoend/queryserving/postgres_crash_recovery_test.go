@@ -39,16 +39,14 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	setup := getSharedSetup(t)
-	setup.SetupTest(t)
-
-	// This test stops the primary's postgres. On the start-as-standby branch it
-	// restarts in recovery (read-only) rather than as a writable primary, which
-	// would fail ValidateCleanState for every subsequent test in this shared
-	// fixture. Rebuild a clean, writable cluster before returning. This test-body
-	// defer runs before SetupTest's clean-state cleanup (test-body defers run
-	// before t.Cleanup callbacks).
-	defer setup.ReinitializeCluster(t)
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultiorchCount(1),
+		shardsetup.WithMultigateway(),
+	)
+	defer cleanup()
+	setup.StartMultiorchs(t.Context(), t)
+	setup.WaitForMultigatewayQueryServing(t)
 
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 

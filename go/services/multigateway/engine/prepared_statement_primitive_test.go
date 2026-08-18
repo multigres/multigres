@@ -47,7 +47,7 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	parsed, err := parser.ParseSQL("EXECUTE p('value')")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
-	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil), h
+	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil, nil), h
 }
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
@@ -111,11 +111,9 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 		{Name: "work_mem", Value: "64MB", IsLocalLiteralTrue: true},
 		{Name: "application_name", Value: "prepared"},
 	}}
-	actions, info, err := p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	actions, _, err := p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
-	assert.True(t, info.HasPostQuerySessionSettings)
-	assert.Equal(t, "prepared", info.PostQuerySessionSettings["application_name"])
 	actions[0]()
 	got, ok := state.GetSessionVariable("application_name")
 	require.True(t, ok)
@@ -123,10 +121,9 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "1s", IsLocalLiteralTrue: true}}
-	actions, info, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	actions, _, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
-	assert.False(t, info.HasPostQuerySessionSettings)
 	actions[0]()
 
 	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "invalid"}}

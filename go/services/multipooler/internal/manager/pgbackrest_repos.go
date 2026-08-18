@@ -90,7 +90,7 @@ func (pm *MultipoolerManager) createPgBackRestReposTable(ctx context.Context) er
 // freshly created, empty table with no conflict handling needed.
 func (pm *MultipoolerManager) insertInitialPgBackRestRepo(ctx context.Context) error {
 	repo := backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)
-	pm.logger.InfoContext(ctx, "Seeding pgbackrest_repos",
+	pm.logger.InfoContext(ctx, "seeding pgbackrest_repos",
 		"generation", repo.Generation, "repo_number", repo.RepoNumber, "key_fingerprint", repo.KeyFingerprint, "encrypted", repo.Encrypted)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()

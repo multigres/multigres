@@ -301,23 +301,28 @@
   },
   {
     "comment": "plpgsql_control.sql #6",
-    "body": "\nbegin\n    begin\n        continue;\n    end;\nend;\n"
+    "body": "\nbegin\n    begin\n        continue;\n    end;\nend;\n",
+    "error": "CONTINUE cannot be used outside a loop"
   },
   {
     "comment": "plpgsql_control.sql #7",
-    "body": "\nbegin\n    begin\n        exit;\n    end;\nend;\n"
+    "body": "\nbegin\n    begin\n        exit;\n    end;\nend;\n",
+    "error": "EXIT cannot be used outside a loop, unless it has a label"
   },
   {
     "comment": "plpgsql_control.sql #8",
-    "body": "\nbegin\n    begin\n        loop\n            continue no_such_label;\n        end loop;\n    end;\nend;\n"
+    "body": "\nbegin\n    begin\n        loop\n            continue no_such_label;\n        end loop;\n    end;\nend;\n",
+    "error": "there is no label \"no_such_label\""
   },
   {
     "comment": "plpgsql_control.sql #9",
-    "body": "\nbegin\n    begin\n        loop\n            exit no_such_label;\n        end loop;\n    end;\nend;\n"
+    "body": "\nbegin\n    begin\n        loop\n            exit no_such_label;\n        end loop;\n    end;\nend;\n",
+    "error": "there is no label \"no_such_label\""
   },
   {
     "comment": "plpgsql_control.sql #10",
-    "body": "\nbegin\n    <<begin_block1>>\n    begin\n        loop\n            continue begin_block1;\n        end loop;\n    end;\nend;\n"
+    "body": "\nbegin\n    <<begin_block1>>\n    begin\n        loop\n            continue begin_block1;\n        end loop;\n    end;\nend;\n",
+    "error": "block label \"begin_block1\" cannot be used in CONTINUE"
   },
   {
     "comment": "plpgsql_control.sql #11",
@@ -996,15 +1001,18 @@
   },
   {
     "comment": "plpgsql_varprops.sql #2",
-    "body": "\ndeclare x constant int;\nbegin\n  x := 42;  -- fail\nend"
+    "body": "\ndeclare x constant int;\nbegin\n  x := 42;  -- fail\nend",
+    "error": "variable \"x\" is declared CONSTANT"
   },
   {
     "comment": "plpgsql_varprops.sql #3",
-    "body": "\ndeclare x constant int; y int;\nbegin\n  for x, y in select 1, 2 loop  -- fail\n  end loop;\nend"
+    "body": "\ndeclare x constant int; y int;\nbegin\n  for x, y in select 1, 2 loop  -- fail\n  end loop;\nend",
+    "error": "variable \"x\" is declared CONSTANT"
   },
   {
     "comment": "plpgsql_varprops.sql #4",
-    "body": "\ndeclare x constant int[];\nbegin\n  x[1] := 42;  -- fail\nend"
+    "body": "\ndeclare x constant int[];\nbegin\n  x[1] := 42;  -- fail\nend",
+    "error": "variable \"x\" is declared CONSTANT"
   },
   {
     "comment": "plpgsql_varprops.sql #5",

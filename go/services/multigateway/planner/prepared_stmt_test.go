@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -296,23 +297,39 @@ func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
 	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
 }
 
-func TestPlanExecuteStmtTracksPreparedBodySetConfig(t *testing.T) {
+// TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig pins the unpinned
+// EXECUTE handling that replaces the old capture reservation: a prepared body
+// carrying a session-persisting set_config(..., false) runs on the pooled
+// backend with its is_local rewritten to true, so nothing persists there (the
+// gateway tracks the value and pool-rotation replay carries it). A
+// transaction-scoped (is_local true) body already persists nothing and runs
+// verbatim.
+func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 	s := newTestSetup(t)
 
+	routedBody := func(sql string) string {
+		_, err := planAndExecute(t, s, sql)
+		require.NoError(t, err)
+		require.NotEmpty(t, s.exec.streamExecuteCalls)
+		last := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+		require.NotNil(t, last.executeSQLPreparedStatement)
+		require.NotNil(t, last.executeSQLPreparedStatement.GetPreparedStatement())
+		return strings.ToLower(last.executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+	}
+
+	// Unpinned session (no transaction, no reserved conn): the persisting
+	// is_local=false body is rewritten so the pooled backend reverts it.
 	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
 	require.NoError(t, err)
+	body := routedBody("EXECUTE myplan('prepared_app')")
+	assert.Contains(t, body, "true", "the routed body must apply set_config with is_local := true")
+	assert.NotContains(t, body, "false", "the persisting is_local := false must be rewritten out")
 
-	_, err = planAndExecute(t, s, "EXECUTE myplan('prepared_app')")
+	// A transaction-scoped body persists nothing, so it runs verbatim.
+	_, err = planAndExecute(t, s, "PREPARE localplan(text) AS SELECT set_config('application_name', $1, true)")
 	require.NoError(t, err)
-	require.Len(t, s.exec.streamExecuteCalls, 1)
-	call := s.exec.streamExecuteCalls[0]
-	assert.True(t, call.info.HasPostQuerySessionSettings)
-	assert.Equal(t, "prepared_app", call.info.PostQuerySessionSettings["application_name"])
-
-	state := s.conn.Conn.GetConnectionState().(*handler.MultigatewayConnectionState)
-	got, ok := state.GetSessionVariable("application_name")
-	require.True(t, ok)
-	assert.Equal(t, "prepared_app", got)
+	body = routedBody("EXECUTE localplan('x')")
+	assert.Contains(t, body, "true", "the transaction-scoped body runs verbatim (is_local := true)")
 }
 
 func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
@@ -328,7 +345,7 @@ func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
 	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
 
 	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
-	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn, nil)
 	require.ErrorContains(t, err, "pg_read_file is not supported")
 }
 
@@ -419,4 +436,32 @@ func TestPlanPrepareExecuteDeallocateLifecycle(t *testing.T) {
 	_, err = planAndExecute(t, s, "EXECUTE myplan")
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+}
+
+// TestPlanPrepareStmtRejectsGatewayManagedSetConfig pins the fail-closed
+// gate: a prepared body executes verbatim on the backend, so the direct
+// path's gateway-managed rewrite cannot apply — a literal gateway-managed
+// set_config in the body would put a real statement_timeout on a pooled
+// backend that the release label (built from SessionSettings) can never
+// describe. Rejected at PREPARE time, for both is_local variants, so the
+// prepared form cannot silently diverge from the identical direct statement.
+func TestPlanPrepareStmtRejectsGatewayManagedSetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s,
+		"PREPARE leak AS SELECT set_config('statement_timeout', '5s', false)")
+	require.ErrorContains(t, err, `gateway-managed variable "statement_timeout"`)
+	require.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "leak"),
+		"a rejected PREPARE must register nothing")
+
+	_, err = planAndExecute(t, s,
+		"PREPARE leak2 AS SELECT set_config('idle_session_timeout', '5s', true)")
+	require.ErrorContains(t, err, `gateway-managed variable "idle_session_timeout"`,
+		"statement-local form is rejected too so prepared and direct semantics cannot diverge")
+
+	// An ordinary GUC keeps the capture-intent path.
+	_, err = planAndExecute(t, s,
+		"PREPARE ok AS SELECT set_config('work_mem', '64MB', false)")
+	require.NoError(t, err)
+	require.NotNil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "ok"))
 }

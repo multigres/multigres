@@ -487,6 +487,9 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	}
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
+	state.SetSessionVariable("work_mem", "4MB")
+	state.BeginTransaction()
+	state.SetSessionVariable("work_mem", "64MB")
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
@@ -495,6 +498,9 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "commit failed")
+	workMem, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	require.Equal(t, "4MB", workMem, "gateway state must not commit before PostgreSQL confirms COMMIT")
 	// State should still be reset to Idle regardless of error
 	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")

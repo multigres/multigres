@@ -26,38 +26,24 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// ValidateSetting runs a SET's value through PostgreSQL's own set_config(),
-// either as a throwaway validation probe or as the real, persisting change,
-// depending on Persist.
+// ValidateSetting runs a SET's value through PostgreSQL's own set_config() as
+// a throwaway validation probe: `SELECT pg_catalog.set_config(name, value,
+// true)` on a backend. The is_local := true argument scopes the change to the
+// statement's own implicit transaction, so it reverts the instant the
+// statement completes, leaving the backend's session state (and therefore
+// multipooler's per-backend connstate) exactly as it was. The gateway must
+// remain the sole authority on session GUCs; routing a raw `SET name = value`
+// here would mutate a pooled backend behind its bookkeeping. set_config still
+// validates the value, so an invalid name or out-of-range value raises the
+// same error a real SET would, surfacing it at SET time rather than on a
+// later unrelated query.
 //
-// The default (Persist false) validates without persisting: it runs
-// `SELECT pg_catalog.set_config(name, value, true)` on a backend. The
-// is_local := true argument scopes the change to the statement's own implicit
-// transaction, so it reverts the instant the statement completes, leaving the
-// backend's session state (and therefore multipooler's per-backend connstate)
-// exactly as it was. multipooler must remain the sole authority on backend
-// session GUCs; routing a raw `SET name = value` here would mutate the backend
-// behind its back and break a later RESET (the pooler wouldn't know to reset
-// the orphaned value). set_config still validates the value, so an invalid name
-// or out-of-range value raises the same error a real SET would, surfacing it at
-// SET time rather than on a later unrelated query.
-//
-// When Persist is true, is_local := false instead: the change genuinely
-// persists on the backend (matching a plain SET's real semantics: survives
-// COMMIT, still reverts on ROLLBACK / ROLLBACK TO SAVEPOINT). This mode is
-// for planVariableSetStmt's in-transaction SET, once an earlier statement in
-// the same transaction has already run, so it is safe to route the value
-// through set_config (see planVariableSetStmt's PendingBeginQuery gate) and
-// the backend is already pinned for the rest of the transaction and must
-// actually carry the new value, not just validate it.
-//
-// Either way, the result row is discarded; this primitive emits nothing to
-// the client. It is the first step of Sequence[ValidateSetting,
-// ApplySessionState]: the trailing ApplySessionState records the setting
-// (PostgreSQL's own confirmed value, captured from set_config's return) for
-// pool-rotation replay and emits the synthetic CommandComplete("SET"), and
-// runs only if this step succeeded because the Sequence stops on the first
-// child's error.
+// The result row is discarded; this primitive emits nothing to the client. It
+// is the first step of Sequence[ValidateSetting, ApplySessionState]: the
+// trailing ApplySessionState records the setting (PostgreSQL's own confirmed
+// value, captured from set_config's return) for pool-rotation replay and
+// emits the synthetic CommandComplete("SET"), and runs only if this step
+// succeeded because the Sequence stops on the first child's error.
 type ValidateSetting struct {
 	TableGroup string
 	Shard      string
@@ -70,12 +56,6 @@ type ValidateSetting struct {
 	// reportable GUC's reverted value is captured the same way a SET's new value
 	// is. Value is ignored when IsReset is true.
 	IsReset bool
-	// Persist, when true, makes the underlying set_config call use is_local :=
-	// false so the change genuinely persists on the backend, instead of
-	// reverting immediately. Defaults to false: the ordinary, outside-transaction
-	// case is a throwaway validation probe that must not mutate the pooled
-	// backend.
-	Persist bool
 	// Query is the original SQL string, for debug output.
 	Query string
 }
@@ -104,30 +84,13 @@ func NewValidateSettingReset(tableGroup, shard, name, sql string) *ValidateSetti
 	}
 }
 
-// NewValidateSettingPersist creates a ValidateSetting primitive whose
-// set_config call persists for real (is_local := false) instead of reverting.
-// Used by planVariableSetStmt for an in-transaction SET once an earlier
-// statement has already run; see the Persist field doc comment above.
-func NewValidateSettingPersist(tableGroup, shard, name, value, sql string) *ValidateSetting {
-	return &ValidateSetting{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Name:       name,
-		Value:      value,
-		Persist:    true,
-		Query:      sql,
-	}
-}
-
 // validateSQL deparses `SELECT pg_catalog.set_config('<name>', '<value>', true)`
 // from an AST rather than formatting a string. Building the tree and letting the
 // deparser render it means the name and value are quoted/escaped by the
 // canonical path (ast.QuoteStringLiteral), so a single quote in either — a
 // hostile variable name or value — cannot break out of the string literal.
-// is_local is the inverse of Persist: true (revert) by default, false (persist)
-// when Persist is set.
 func (v *ValidateSetting) validateSQL() string {
-	return buildSetConfigSQL(v.Name, v.Value, !v.Persist, v.IsReset)
+	return buildSetConfigSQL(v.Name, v.Value, true, v.IsReset)
 }
 
 // buildSetConfigSQL deparses `SELECT pg_catalog.set_config('<name>', '<value>',
@@ -173,11 +136,19 @@ func (v *ValidateSetting) run(
 ) error {
 	display, reportable := pgsettings.ReportableGUCName(v.Name)
 
+	// captured distinguishes "probe returned a value" (possibly the legitimate
+	// empty string, e.g. SET application_name = '') from "no value came back"
+	// (zero rows, or a NULL scalar from a reset probe on a GUC with no
+	// default). Only a captured value may be confirmed on the exchange —
+	// otherwise the tracker falls back to the client's literal, its designed
+	// fallback, instead of recording a phantom empty string.
 	var effective string
+	var captured bool
 	capture := func(_ context.Context, result *sqltypes.Result) error {
 		if len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
 			if val := result.Rows[0].Values[0]; !val.IsNull() {
 				effective = string(val)
+				captured = true
 			}
 		}
 		return nil
@@ -190,7 +161,7 @@ func (v *ValidateSetting) run(
 		return err
 	}
 
-	if info.Exchange != nil {
+	if info.Exchange != nil && captured {
 		info.Exchange.SetConfirmedValue(effective)
 		if reportable {
 			info.Exchange.AddReportedSetting(display, effective)

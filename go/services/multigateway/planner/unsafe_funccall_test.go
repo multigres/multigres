@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -462,6 +463,98 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough pins the
+// carve-out that unblocks PostgREST's mutation row-count trick: a
+// transaction-scoped set_config(name, value, true) on an ordinary GUC is
+// allowed outside a top-level SELECT target (WHERE, subquery, CTE-INSERT). It
+// reverts at transaction end, so PostgreSQL runs it verbatim and the gateway
+// tracks nothing — result.SetConfigs stays empty.
+func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0'",
+		},
+		{
+			name: "is_local=true in INSERT ... WHERE inside a CTE (PostgREST shape)",
+			sql: "WITH pgrst_source AS (" +
+				"INSERT INTO t (x) SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0' RETURNING x" +
+				") SELECT * FROM pgrst_source",
+		},
+		{
+			name: "is_local=true in subquery",
+			sql:  "SELECT * FROM (SELECT 1 AS v WHERE set_config('pgrst.inserted', '1', true) <> '0') s",
+		},
+		{
+			name: "ordinary GUC with is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('work_mem', '256MB', true) IS NOT NULL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Empty(t, result.SetConfigs, "a transaction-local pass-through must not be tracked")
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected covers the shapes
+// the transaction-local carve-out must still reject: only a literal
+// is_local=true on a non-restricted, non-gateway-managed GUC passes through.
+func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "is_local=false in WHERE leaks untracked backend state",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', false) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "bound is_local can't be resolved at plan time",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', $1) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "non-literal name can't be checked for restricted/gateway-managed",
+			sql:     "SELECT 1 FROM pg_settings WHERE set_config(name, '1', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "restricted GUC is rejected even transaction-scoped",
+			sql:     "SELECT 1 WHERE set_config('synchronous_commit', 'off', true) <> '0'",
+			wantMsg: "setting synchronous_commit is not supported",
+		},
+		{
+			name:    "gateway-managed variable must never reach the backend",
+			sql:     "SELECT 1 WHERE set_config('statement_timeout', '5s', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
 // TestInspectExpressionFuncCalls_DynamicSetConfigAccepted pins the
 // resolve-and-apply path: a SELECT whose target list is entirely
 // set_config(...) and that has at least one argument the literal/bound fast
@@ -644,20 +737,6 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			wantNameBind:   true,
 			wantLiteralVal: "public",
 		},
-		{
-			name:            "bound is_local",
-			sql:             "SELECT set_config('search_path', 'public', $1)",
-			wantLiteralName: "search_path",
-			wantLiteralVal:  "public",
-			wantIsLocalBind: true,
-		},
-		{
-			name:            "all three bound",
-			sql:             "SELECT set_config($1, $2, $3)",
-			wantNameBind:    true,
-			wantValueBind:   true,
-			wantIsLocalBind: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -677,6 +756,24 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			if !tt.wantValueBind {
 				assert.Equal(t, tt.wantLiteralVal, sc.Value)
 			}
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_BoundIsLocalRejected pins that a bound
+// is_local on a non-gateway-managed set_config is rejected fail-closed: it can
+// resolve to false at execute time, which would persist real session state on
+// a pooled backend outside the gateway's authoritative map.
+func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT set_config('search_path', 'public', $1)",
+		"SELECT set_config($1, $2, $3)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			_, err := analyzeFunctionCalls(stmt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
 	}
 }
@@ -882,9 +979,12 @@ func TestResolveFuncName(t *testing.T) {
 }
 
 // TestPlan_SetConfig_ProducesSequence verifies that every accepted
-// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets —
-// plans as the same Sequence[Route, silent ApplySessionState...]. No fast-path
-// for the bare case: uniform construction is worth the extra round-trip.
+// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets — plans as
+// Sequence[SessionStateBranch, silent ApplySessionState...]. The branch carries
+// both routes: the pinned one routes the original (is_local false, persists on a
+// reserved backend) and the unpinned one reverts (is_local true) so a pooled
+// backend is left clean. No fast-path for the bare case: uniform construction is
+// worth the extra round-trip.
 func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -923,8 +1023,18 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
-			_, ok = seq.Primitives[0].(*engine.Route)
-			require.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+			// The leading primitive is a SessionStateBranch: the pinned branch
+			// routes the original (is_local false, persists on a reserved backend)
+			// while the unpinned branch reverts (is_local true) so a pooled backend
+			// keeps nothing. No capture reservation is involved.
+			branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+			require.True(t, ok, "first primitive should be a SessionStateBranch, got %T", seq.Primitives[0])
+			pinnedRoute, ok := branch.Pinned.(*engine.Route)
+			require.True(t, ok, "pinned branch should be a plain Route, got %T", branch.Pinned)
+			assert.Equal(t, stmt.SqlString(), pinnedRoute.Query, "pinned branch routes the base AST verbatim (is_local=false)")
+			unpinnedRoute, ok := branch.Unpinned.(*engine.Route)
+			require.True(t, ok, "unpinned branch should be a plain Route, got %T", branch.Unpinned)
+			assert.NotEqual(t, pinnedRoute.Query, unpinnedRoute.Query, "unpinned branch must rewrite is_local to revert")
 
 			for i, wantName := range tt.wantTrackers {
 				primIdx := i + 1
@@ -937,11 +1047,70 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	}
 }
 
-// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo verifies that a
-// statement creating a logical replication slot — even nested inside a CASE +
-// scalar subquery, matching Supabase Realtime's real call site — produces a
-// plan whose ExecInfo.LogicalReplicationSlot is true, so the reservation
-// machinery in scatterconn picks it up.
+// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-branch shape: the
+// plan is always a SessionStateBranch (the plan is cacheable, so the
+// pinned/unpinned choice is deferred to execute time), and its pinned branch
+// routes the ORIGINAL query (is_local false intact, plain Route — no value-route
+// wrapper). At execute time a pinned session selects that branch so its backend
+// genuinely carries the value in lockstep with the gateway map, and no SELECT is
+// injected later to re-propagate it (which would latch a
+// REPEATABLE READ/SERIALIZABLE snapshot early).
+func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	sql := "SELECT set_config('work_mem', '256MB', false)"
+	stmt := parseOne(t, sql)
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+	require.True(t, ok, "expected SessionStateBranch, got %T", seq.Primitives[0])
+	route, ok := branch.Pinned.(*engine.Route)
+	require.True(t, ok, "the pinned branch must route as a plain Route, got %T", branch.Pinned)
+	assert.Equal(t, stmt.SqlString(), route.Query, "the is_local=false call must reach the pinned backend unmodified")
+}
+
+// TestRewriteSetConfigToRevert pins the revert rewrite that replaces the old
+// capture reservation: exactly the tracked calls that would leave real session
+// state on the backend get their is_local flipped false→true (so the rewrite
+// returns a non-nil clone), while shapes that persist nothing — the hot
+// PostgREST is_local-literal-true form, and gateway-managed calls (rewritten out
+// of the routed query entirely) — are left unchanged.
+func TestRewriteSetConfigToRevert(t *testing.T) {
+	tests := []struct {
+		sql      string
+		wantFlip bool
+	}{
+		{"SELECT set_config('work_mem', '256MB', false)", true},
+		{"SELECT set_config('work_mem', $1, false)", true},
+		{"SELECT set_config('work_mem', '256MB', false), 1 AS x", true},
+		{"SELECT set_config('request.jwt.claims', '{}', true)", false},
+		// Gateway-managed with literal false: not flipped here — it is removed
+		// from the routed query entirely by rewriteGatewayManagedSetConfig.
+		{"SELECT set_config('statement_timeout', '5s', false)", false},
+		{"SELECT 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			reverted := rewriteSetConfigToRevert(stmt)
+			if tt.wantFlip {
+				require.NotNil(t, reverted, "expected a reverting rewrite")
+				assert.NotEqual(t, stmt.SqlString(), reverted.SqlString(),
+					"the rewrite must flip is_local so the routed query differs")
+			} else {
+				assert.Nil(t, reverted, "expected no rewrite")
+			}
+		})
+	}
+}
+
 func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
 	sql := `select
 	  case when not exists (

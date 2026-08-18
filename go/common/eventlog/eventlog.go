@@ -37,6 +37,11 @@ type Event interface {
 // Emit logs a lifecycle event through the provided logger.
 // Context is required for OpenTelemetry trace correlation.
 // Failed outcome logs at ERROR; all others at INFO.
+//
+// The record message is the event's canonical type (e.g. "primary.promotion"),
+// so events read the same way as any other log line in the message column
+// instead of collapsing into a single opaque "multigres.event" string. The
+// event_type attribute is retained alongside it for structured filtering.
 func Emit(ctx context.Context, logger *slog.Logger, outcome Outcome, event Event, extra ...any) {
 	level := slog.LevelInfo
 	if outcome == Failed {
@@ -56,5 +61,5 @@ func Emit(ctx context.Context, logger *slog.Logger, outcome Outcome, event Event
 		}
 	}
 
-	logger.LogAttrs(ctx, level, "multigres.event", attrs...)
+	logger.LogAttrs(ctx, level, event.EventType(), attrs...)
 }

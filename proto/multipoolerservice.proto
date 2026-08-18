@@ -368,7 +368,6 @@ message CopyBidiExecuteResponse {
 enum ReplicationMode {
   REPLICATION_MODE_UNSPECIFIED = 0;
   REPLICATION_MODE_DATABASE = 1;  // replication=database (logical)
-  REPLICATION_MODE_TRUE = 2;      // replication=true (physical) — reserved, not used in v1
 }
 
 message StreamReplicationInit {
@@ -392,9 +391,6 @@ message StreamReplicationRequest {
     StreamReplicationInit init = 1;  // MUST be the first message
     bytes data = 2;                  // opaque client->server bytes
   }
-  // Reserved for future end-to-end latency measurement; unused in v1.
-  // Carried in the envelope, never inside `data`, to stay protocol-blind.
-  int64 send_unixnano = 3;
 }
 
 message StreamReplicationReady {
@@ -411,7 +407,6 @@ message StreamReplicationResponse {
     bytes data = 2;                    // opaque server->client bytes
     StreamReplicationError error = 3;  // infrastructure error (NOT a PG ErrorResponse)
   }
-  int64 send_unixnano = 4;             // reserved, unused in v1
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
@@ -498,6 +493,26 @@ message ConcludeTransactionRequest {
   // transaction-ending command. The reserved backend remains pinned for the
   // next transaction so transaction characteristics are inherited exactly.
   bool chain = 7;
+
+  // rollback_session_settings is the session-settings map that is true when
+  // this transaction ends in a rollback: the multigateway's pre-BEGIN
+  // snapshot. options.session_settings carries the in-transaction map (true
+  // on COMMIT success); PostgreSQL can conclude a COMMIT request as a
+  // rollback (COMMIT on a failed transaction, or a COMMIT that itself fails
+  // on e.g. a deferred constraint), and in those outcomes the released
+  // backend must be labelled with this map, never the in-transaction one.
+  // REQUIRED on every conclude (on the plain-ROLLBACK path the gateway has
+  // already reverted, so it sends its current map here). A message (not a
+  // bare map) so present-but-empty is distinguishable from absent; the
+  // multipooler treats absence on a rollback outcome as an invariant
+  // violation and closes the backend instead of stamping any label.
+  SessionSettingsSnapshot rollback_session_settings = 8;
+}
+
+// SessionSettingsSnapshot wraps a session-settings map so message presence
+// distinguishes "no snapshot provided" from "snapshot with zero settings".
+message SessionSettingsSnapshot {
+  map<string, string> vars = 1;
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.

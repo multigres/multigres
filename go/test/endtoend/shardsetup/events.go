@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,9 +29,10 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// ParseEvents scans a reader for multigres.event log lines.
+// ParseEvents scans a reader for eventlog lifecycle log lines.
 // Each line is expected to be a JSON object; non-JSON lines are skipped.
-// Returns a slice of attribute maps for lines where msg == "multigres.event".
+// Event lines are identified by the presence of an "event_type" attribute
+// (the record message is the event type itself, not a fixed sentinel).
 func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 	t.Helper()
 	var events []map[string]any
@@ -41,7 +43,7 @@ func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
 			continue // not JSON, skip
 		}
-		if m["msg"] == "multigres.event" {
+		if _, ok := m["event_type"]; ok {
 			events = append(events, m)
 		}
 	}
@@ -65,6 +67,48 @@ func FindEvents(events []map[string]any, eventType, outcome string) []map[string
 		}
 	}
 	return matches
+}
+
+// WaitForLogLine polls logFile until a single raw line contains ALL of substrs,
+// or the timeout expires (failing the test fatally). Unlike WaitForEvent it
+// matches any log line, not just structured eventlog JSON (records carrying an
+// "event_type" attribute), so it works for plain slog output such as the
+// gateway's "routing primary retracted" debug line. Passing several substrs pins
+// the match to one specific line (e.g. a message plus the pooler id it concerns).
+// Returns the matching line.
+func WaitForLogLine(t *testing.T, logFile string, timeout time.Duration, substrs ...string) string {
+	t.Helper()
+	require.NotEmpty(t, substrs, "WaitForLogLine requires at least one substring")
+	timeout = utils.ScaleTimeout(timeout)
+	var match string
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			return false
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if lineContainsAll(line, substrs) {
+				match = line
+				return true
+			}
+		}
+		return false
+	}, timeout, 200*time.Millisecond,
+		"timed out waiting for log line containing all of %q in %s", substrs, logFile)
+	return match
+}
+
+// lineContainsAll reports whether line contains every substring in substrs.
+func lineContainsAll(line string, substrs []string) bool {
+	for _, s := range substrs {
+		if !strings.Contains(line, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // WaitForEvent polls logFile until the given event_type+outcome appears or timeout expires.

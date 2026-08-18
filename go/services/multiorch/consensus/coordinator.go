@@ -17,6 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -61,7 +62,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
 func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	c.logger.InfoContext(ctx, "Starting leader appointment",
+	c.logger.InfoContext(ctx, "starting leader appointment",
 		"database", shardKey.GetDatabase(),
 		"tablegroup", shardKey.GetTableGroup(),
 		"shard", shardKey.GetShard(),
@@ -120,8 +121,20 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
 
-	poolerByID, _ := buildCohortMaps(cohort)
+	poolerByID, healthByID := buildCohortMaps(cohort)
+	less := poolerHealthStateLess(healthByID)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		// Prefer non-resigning nodes when multiple candidates share the highest
+		// LSN. A node signalling REQUESTING_DEMOTION has explicitly asked to be
+		// replaced. Electing it again immediately defeats the purpose of the
+		// switchover.
+		//
+		// A resigning node still wins if it holds a strictly higher LSN than
+		// every other node, but consensus status serves as a tiebreaker when
+		// multiple nodes are at the same WAL position.
+		sort.SliceStable(r.EligibleLeaders, func(i, j int) bool {
+			return less(r.EligibleLeaders[i], r.EligibleLeaders[j])
+		})
 		return buildFailoverProposal(r, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {

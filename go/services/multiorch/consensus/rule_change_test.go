@@ -54,7 +54,6 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": 5432, "grpc": 9000},
 		},
-		IsLastCheckValid: true,
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{

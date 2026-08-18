@@ -322,7 +322,7 @@ func (s *etcdtopo) TryLockWithLease(ctx context.Context, key, contents string, t
 		revokeCtx, revokeCancel := context.WithCancel(ctxutil.Detach(ctx))
 		defer revokeCancel()
 		if _, rerr := s.cli.Revoke(revokeCtx, lease.ID); rerr != nil {
-			slog.InfoContext(ctx, "Revoke failed after TryLockWithLease error", "error", rerr)
+			slog.InfoContext(ctx, "revoke failed after TryLockWithLease error", "error", rerr)
 		}
 		return nil, convertError(err, key)
 	}
@@ -332,7 +332,7 @@ func (s *etcdtopo) TryLockWithLease(ctx context.Context, key, contents string, t
 		revokeCtx, revokeCancel := context.WithCancel(ctxutil.Detach(ctx))
 		defer revokeCancel()
 		if _, rerr := s.cli.Revoke(revokeCtx, lease.ID); rerr != nil {
-			slog.InfoContext(ctx, "Revoke failed after lock contention", "error", rerr)
+			slog.InfoContext(ctx, "revoke failed after lock contention", "error", rerr)
 		}
 		return nil, topoclient.NewError(topoclient.NodeExists, "lock already exists at key "+key)
 	}
@@ -364,7 +364,7 @@ func (s *etcdtopo) RevokeLockWithLease(ctx context.Context, key string) error {
 	// Revoking the lease automatically deletes the ephemeral key, so a
 	// subsequent TryLockWithLease on the same key will succeed.
 	if _, err := s.cli.Revoke(ctx, leaseID); err != nil {
-		slog.WarnContext(ctx, "RevokeLockWithLease: failed to revoke lease",
+		slog.WarnContext(ctx, "RevokeLockWithLease: failed to revoke lease", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"key", key,
 			"lease_id", leaseID,
 			"error", err)

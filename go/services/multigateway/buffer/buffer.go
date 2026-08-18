@@ -15,7 +15,7 @@
 // Package buffer implements failover buffering for multigateway.
 //
 // During PRIMARY failovers, requests that would otherwise fail with UNAVAILABLE
-// are held in a buffer and retried once a new PRIMARY appears in topology.
+// are held in a buffer and retried once a new PRIMARY self-reports as serving.
 // This achieves zero application-visible errors during planned failovers.
 //
 // The design uses a global FIFO queue for eviction (oldest request evicted
@@ -149,6 +149,28 @@ func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key *clustermetadat
 	}
 
 	return sb.waitIfAlreadyBuffering(ctx)
+}
+
+// RecordUnbufferedFailure counts a request that failed with a non-bufferable
+// error while this shard's buffer was active (BUFFERING or DRAINING). It is
+// the alarm for buffering classification gaps: during a healthy failover no
+// infrastructure error should reach a client, so a burst of UNAVAILABLE-coded
+// increments means an error class is slipping past an armed buffer. The code
+// attribute is the error's mtrpc code string.
+func (b *Buffer) RecordUnbufferedFailure(ctx context.Context, key *clustermetadatapb.ShardKey, code string) {
+	b.mu.Lock()
+	sb, ok := b.buffers[commontypes.FormatShardKey(key)]
+	b.mu.Unlock()
+	if !ok {
+		return
+	}
+
+	sb.mu.Lock()
+	active := sb.state != stateIdle
+	sb.mu.Unlock()
+	if active {
+		b.stats.recordFailedUnbuffered(ctx, code)
+	}
 }
 
 // StopBuffering is called when a new PRIMARY is discovered for the given shard.

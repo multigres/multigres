@@ -514,6 +514,126 @@ func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	assert.Equal(t, "on", show("track_io_timing"))
 }
 
+// TestPgInitdbExtraConfLiveReload verifies that the file passed via
+// --pg-initdb-extra-conf is live-included, not copied into
+// PGDATA/postgresql.conf at initdb: editing the file in place and refreshing
+// postgres picks up the new value. This mirrors the multigres-operator flow,
+// where the extra file is a mounted ConfigMap the operator edits then expects a
+// reload or restart to apply.
+//
+// Two refresh mechanisms are checked against a running server:
+//   - reload: change a SIGHUP-context GUC (work_mem) in the file, pg_reload_conf(),
+//     and observe the new value.
+//   - restart: change a postmaster-context GUC (max_connections) in the file,
+//     `pgctld restart`, and observe the new value.
+func TestPgInitdbExtraConfLiveReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_extra_conf_live_test")
+	t.Cleanup(cleanup)
+
+	dataDir := filepath.Join(tempDir, "data")
+	extraDir := filepath.Join(tempDir, "extras")
+	require.NoError(t, os.MkdirAll(extraDir, 0o755))
+
+	// This is the operator-managed file. We rewrite it in place below, exactly
+	// as the operator rewrites a mounted ConfigMap.
+	extra := filepath.Join(extraDir, "postgresql.conf")
+	writeExtra := func(contents string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(extra, []byte(contents), 0o644))
+	}
+	writeExtra("work_mem = 8MB\nmax_connections = 111\n")
+
+	port := utils.GetFreePort(t)
+
+	initCmd := executil.Command(t.Context(), "pgctld", "init",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+		"--pg-initdb-extra-conf", extra,
+	)
+	setupTestEnv(initCmd, dataDir)
+	initOut, err := initCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld init failed: %s", string(initOut))
+
+	startCmd := executil.Command(t.Context(), "pgctld", "start",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(startCmd, dataDir)
+	startOut, err := startCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld start failed: %s", string(startOut))
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stopCmd := executil.Command(cleanupCtx, "pgctld", "stop",
+			"--pooler-dir", dataDir,
+			"--pg-port", strconv.Itoa(port),
+		)
+		setupTestEnv(stopCmd, dataDir)
+		_ = stopCmd.Run()
+	})
+
+	socketDir := filepath.Join(dataDir, "pg_sockets")
+	query := func(sql string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", sql,
+		)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql query failed (%s): %s", sql, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	show := func(setting string) string {
+		t.Helper()
+		return query("SHOW " + setting)
+	}
+
+	// The live-included file is effective at first init.
+	require.Equal(t, "8MB", show("work_mem"))
+	require.Equal(t, "111", show("max_connections"))
+
+	// Reload path: edit the mounted file, SIGHUP via pg_reload_conf(). Under the
+	// old copy-the-bytes behaviour PGDATA/postgresql.conf still held work_mem=8MB,
+	// so this stayed stale.
+	writeExtra("work_mem = 16MB\nmax_connections = 111\n")
+	require.Equal(t, "t", query("SELECT pg_reload_conf()"))
+	require.Eventually(t, func() bool {
+		return show("work_mem") == "16MB"
+	}, 10*time.Second, 100*time.Millisecond,
+		"work_mem edit in the live-included file must take effect after SIGHUP")
+
+	// Restart path: max_connections is postmaster context, so it needs a full
+	// restart. Edit the mounted file, then `pgctld restart`.
+	writeExtra("work_mem = 16MB\nmax_connections = 122\n")
+	restartCmd := executil.Command(t.Context(), "pgctld", "restart",
+		"--pooler-dir", dataDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(restartCmd, dataDir)
+	restartOut, err := restartCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld restart failed: %s", string(restartOut))
+
+	require.Eventually(t, func() bool {
+		return show("max_connections") == "122"
+	}, 10*time.Second, 100*time.Millisecond,
+		"max_connections edit in the live-included file must take effect after restart")
+
+	// The reloaded work_mem survives the restart too (still sourced from the file).
+	assert.Equal(t, "16MB", show("work_mem"))
+}
+
 // TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize checks that the
 // scaled-down WAL settings for a 1 GiB volume actually start a real PostgreSQL
 // initialized with non-default WAL segments. Unit tests already cover how the

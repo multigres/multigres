@@ -70,16 +70,16 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 
 // Open starts the heartbeat writer.
 func (w *Writer) Open() {
-	w.logger.Info("Heartbeat Writer: opening")
+	w.logger.Info("heartbeat Writer: opening")
 	w.runner.Start(w.writeHeartbeat, nil)
 }
 
 // Close stops the heartbeat writer. After Close returns, no more heartbeat
 // writes will be made and any in-flight write has completed.
 func (w *Writer) Close() {
-	w.logger.Info("Heartbeat Writer: closing")
+	w.logger.Info("heartbeat Writer: closing")
 	w.runner.Stop()
-	w.logger.Info("Heartbeat Writer: closed")
+	w.logger.Info("heartbeat Writer: closed")
 }
 
 // IsOpen returns true if the writer is open.
@@ -94,11 +94,11 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 
 	err := w.write(writeCtx)
 	if err != nil {
-		w.logger.ErrorContext(ctx, "Failed to write heartbeat", "error", err)
+		w.logger.ErrorContext(ctx, "failed to write heartbeat", "error", err)
 		w.writeErrors.Add(1)
 	} else {
 		w.writes.Add(1)
-		w.logger.DebugContext(ctx, "Heartbeat written",
+		w.logger.DebugContext(ctx, "heartbeat written",
 			"shard_id", w.shardID,
 			"pooler_id", w.poolerID,
 			"ts", w.now().UnixNano())

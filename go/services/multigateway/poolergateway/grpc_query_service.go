@@ -75,6 +75,24 @@ func newGRPCQueryService(
 	}
 }
 
+// markStreamStartFailure converts a failure from a generated streaming-client
+// constructor into the typed pre-execution signal consumed by failover
+// buffering. A non-EOF UNAVAILABLE there is provably a NewStream/pick failure
+// (e.g. dialing a dead pooler): the request message never left the gateway, so
+// no query can have executed and buffering a retry is safe. The two ways a
+// constructor error could follow request delivery cannot reach this marking:
+// gRPC-Go's ClientStream.CloseSend always returns nil, and SendMsg on a broken
+// stream returns io.EOF (which FromGRPC passes through untranslated, never as
+// UNAVAILABLE). Mid-stream transport loss surfaces at stream.Recv instead and
+// is deliberately left unmarked — retrying it could double-apply a write.
+func markStreamStartFailure(err error) error {
+	err = mterrors.FromGRPC(err)
+	if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+		return mterrors.MarkPreExecutionUnavailable(err)
+	}
+	return err
+}
+
 // StreamExecute executes a query and streams results back via callback.
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (g *grpcQueryService) StreamExecute(
@@ -104,7 +122,7 @@ func (g *grpcQueryService) StreamExecute(
 	// Call the gRPC StreamExecute
 	stream, err := g.client.StreamExecute(ctx, req)
 	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start stream execute")
+		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
 	}
 
 	var reservedState *querypb.ReservedState
@@ -163,7 +181,7 @@ func (g *grpcQueryService) StreamExecute(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
-	g.logger.DebugContext(ctx, "Executing query",
+	g.logger.DebugContext(ctx, "executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.GetShardKey().GetTableGroup(),
 		"shard", target.GetShardKey().GetShard(),
@@ -180,6 +198,12 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 
 	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
 	// by the multipooler so the client sees the underlying PostgreSQL error.
+	//
+	// Unlike the streaming methods, an UNAVAILABLE here is deliberately NOT
+	// marked pre-execution (see markStreamStartFailure): a unary RPC gives no
+	// way to tell a pick/dial failure from a connection lost after the request
+	// was delivered and possibly executed, so marking it could double-apply a
+	// write on retry.
 	res, err := g.client.ExecuteQuery(ctx, req)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
@@ -222,7 +246,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Call the gRPC PortalStreamExecute
 	stream, err := g.client.PortalStreamExecute(ctx, req)
 	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start portal stream execute")
+		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
 	}
 
 	var reservedState *querypb.ReservedState
@@ -635,6 +659,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	releasePortalNames []string,
 	releaseAllPortals bool,
 	chain bool,
+	rollbackSessionSettings map[string]string,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
@@ -655,6 +680,9 @@ func (g *grpcQueryService) ConcludeTransaction(
 		ReleaseAllPortals:  releaseAllPortals,
 		Chain:              chain,
 		CallerId:           callerid.FromContext(ctx),
+	}
+	if rollbackSessionSettings != nil {
+		req.RollbackSessionSettings = &multipoolerservice.SessionSettingsSnapshot{Vars: rollbackSessionSettings}
 	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic

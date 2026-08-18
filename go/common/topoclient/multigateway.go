@@ -114,13 +114,16 @@ func (ts *store) GetMultigatewayIDsByCell(ctx context.Context, cell string) ([]*
 		return nil, err
 	}
 
-	result := make([]*clustermetadatapb.ID, len(children))
-	for i, child := range children {
+	result := make([]*clustermetadatapb.ID, 0, len(children))
+	for _, child := range children {
 		multigateway := &clustermetadatapb.Multigateway{}
 		if err := proto.Unmarshal(child.Value, multigateway); err != nil {
 			return nil, err
 		}
-		result[i] = multigateway.Id
+		if multigateway.GetId().GetCell() != cell {
+			continue
+		}
+		result = append(result, multigateway.Id)
 	}
 	return result, nil
 }
@@ -148,6 +151,9 @@ func (ts *store) GetMultigatewaysByCell(ctx context.Context, cellName string) ([
 		multigateway := &clustermetadatapb.Multigateway{}
 		if err := proto.Unmarshal(listResults[n].Value, multigateway); err != nil {
 			return nil, err
+		}
+		if multigateway.GetId().GetCell() != cellName {
+			continue
 		}
 		mtgateways = append(mtgateways, &MultigatewayInfo{Multigateway: multigateway, version: listResults[n].Version})
 	}

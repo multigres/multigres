@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -84,6 +85,17 @@ type PreparedStatementPrimitive struct {
 	// prepared statement body. They are applied by PostgreSQL as part of EXECUTE;
 	// the gateway mirrors session-scoped effects only after EXECUTE succeeds.
 	setConfigs []SQLPreparedSetConfig
+
+	// bodyOverride, when set, replaces the prepared statement's registered body
+	// for the query sent to the backend. The planner sets it for an EXECUTE on an
+	// UNPINNED session whose body carries a session-persisting set_config(...,
+	// false): the override is the same body with each such call's is_local flipped
+	// to true, so the pooled backend reverts it instead of persisting it (the
+	// gateway map + pool-rotation replay carry the value, mirroring an unpinned
+	// SET). On a pinned session the override is nil and the body runs verbatim, so
+	// the reserved backend genuinely carries the change. setConfigs (tracking) is
+	// unaffected — the value is still recorded either way.
+	bodyOverride *query.PreparedStatement
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
@@ -98,13 +110,16 @@ func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []u
 }
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
-func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig) *PreparedStatementPrimitive {
+// bodyOverride is nil for the verbatim (pinned) case; the planner passes a
+// rewritten body for the unpinned persisting-set_config case (see bodyOverride).
+func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig, bodyOverride *query.PreparedStatement) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
-		kind:        preparedStmtExecute,
-		tableGroup:  tableGroup,
-		stmtName:    stmt.Name,
-		executeStmt: stmt,
-		setConfigs:  setConfigs,
+		kind:         preparedStmtExecute,
+		tableGroup:   tableGroup,
+		stmtName:     stmt.Name,
+		executeStmt:  stmt,
+		setConfigs:   setConfigs,
+		bodyOverride: bodyOverride,
 	}
 }
 
@@ -190,7 +205,14 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return fmt.Errorf("internal error: execute statement AST missing for statement \"%s\"", p.stmtName)
 	}
 
-	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, psi.PreparedStatement)
+	// On an unpinned session with a persisting set_config in the body, the
+	// planner supplies a rewritten body (is_local flipped to true) so the pooled
+	// backend reverts it; otherwise the registered body runs verbatim.
+	body := psi.PreparedStatement
+	if p.bodyOverride != nil {
+		body = p.bodyOverride
+	}
+	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, body)
 	if err != nil {
 		return err
 	}
@@ -227,18 +249,11 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 		if !resolved.shouldTrack {
 			continue
 		}
-		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		if err != nil {
 			return nil, info, err
 		}
 		actions = append(actions, action)
-		if preview != nil {
-			if !info.HasPostQuerySessionSettings {
-				info.PostQuerySessionSettings = state.GetSessionSettings()
-				info.HasPostQuerySessionSettings = true
-			}
-			info.PostQuerySessionSettings = preview(info.PostQuerySessionSettings)
-		}
 	}
 	return actions, info, nil
 }

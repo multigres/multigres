@@ -22,7 +22,10 @@ Browse the design and reference docs by area:
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
-  management).
+  management, [logging conventions](./general/logging.md)).
+- **[pgctld init](./pgctld-init.md)** — data directory initialization: the init
+  flags, execution order, superuser password resolution, init SQL, and init
+  secrets (role passwords and database settings).
 
 ## Alpha Deployment Notes
 

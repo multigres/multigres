@@ -235,17 +235,16 @@ type QueryResult struct {
 	// diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
 	// ConcludeTransaction) use this field to preserve backend notice ordering.
 	Notices []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
-	// passthrough_block is the opaque row-passthrough representation. When set, it
-	// contains the concatenated raw PostgreSQL DataRow ('D') frames for this
-	// batch, exactly as read from the backend, and rows is empty. The multipooler
-	// captures the frames without parsing them into columns and the multigateway
-	// writes the block straight to the client socket, avoiding per-row
-	// marshalling and re-framing on both ends. Requested via
-	// ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+	// passthrough_block is the opaque row-passthrough representation. When set,
+	// it contains the next ordered chunk of raw PostgreSQL DataRow ('D') wire
+	// bytes and rows is empty. A block may contain complete frames or a frame
+	// fragment; concatenating blocks in stream order reconstructs the exact
+	// DataRow byte stream from the backend. The multigateway writes the block
+	// straight to the client socket. fields (RowDescription) remain structured.
 	PassthroughBlock []byte `protobuf:"bytes,7,opt,name=passthrough_block,json=passthroughBlock,proto3" json:"passthrough_block,omitempty"`
-	// passthrough_row_count is the number of DataRow frames packed into
-	// passthrough_block. rows is empty in passthrough mode, so this preserves the
-	// row count for metrics and row-limit accounting.
+	// passthrough_row_count is the number of DataRow frames completed in this
+	// block. It may be zero when the block contains only a fragment of a large
+	// DataRow. This preserves row accounting while rows is empty.
 	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
 	// parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
 	// ParameterStatus display name, e.g. "DateStyle") that a routed statement
@@ -254,8 +253,13 @@ type QueryResult struct {
 	// client, covering the paths that run the real statement on PostgreSQL
 	// (SET/RESET inside a transaction, and the revert on ROLLBACK).
 	ParameterStatus map[string]string `protobuf:"bytes,9,rep,name=parameter_status,json=parameterStatus,proto3" json:"parameter_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// passthrough_row_in_progress reports that this block ends inside a DataRow
+	// frame. If the upstream stream fails before a later block completes that
+	// frame, the gateway must close the client connection instead of appending
+	// an ErrorResponse to the incomplete DataRow.
+	PassthroughRowInProgress bool `protobuf:"varint,10,opt,name=passthrough_row_in_progress,json=passthroughRowInProgress,proto3" json:"passthrough_row_in_progress,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -349,6 +353,13 @@ func (x *QueryResult) GetParameterStatus() map[string]string {
 		return x.ParameterStatus
 	}
 	return nil
+}
+
+func (x *QueryResult) GetPassthroughRowInProgress() bool {
+	if x != nil {
+		return x.PassthroughRowInProgress
+	}
+	return false
 }
 
 // Field represents metadata about a column in the result set.
@@ -1297,24 +1308,24 @@ type ExecuteOptions struct {
 	User string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
 	// max_rows is the maximum number of rows to return from Execute.
 	// 0 means return all rows. Used by the Execute message in the extended query protocol.
-	MaxRows uint64 `protobuf:"varint,4,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	MaxRows uint64 `protobuf:"varint,3,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
 	// reserved_connection_id is the ID of a reserved connection on the multipooler.
 	// Used for connection pinning - this tells the multipooler which specific
 	// connection to use for executing this query.
-	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
+	ReservedConnectionId uint64 `protobuf:"varint,4,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
 	// user_auth carries SCRAM-SHA-256 passthrough keys captured during the
 	// client's authentication handshake at the multigateway. When the
 	// multipooler has SCRAM passthrough enabled, it uses these keys to
 	// authenticate to the backing PostgreSQL as the session's real user
 	// instead of relying on trust on the local connection. Unset for
 	// sessions that did not authenticate via SCRAM.
-	UserAuth *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
+	UserAuth *UserAuth `protobuf:"bytes,5,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
 	// client_connection_id is the multigateway's virtual PID for this client
 	// connection. The multipooler can register it against the underlying
 	// PostgreSQL backend PID so lock-detection functions can map virtual PIDs
 	// (visible to clients) back to real backend PIDs without altering the
 	// client-visible application_name.
-	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
+	ClientConnectionId uint32 `protobuf:"varint,6,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
 	// execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE
 	// wrapper that references a gateway-managed prepared statement. The
 	// multipooler first prepares the underlying query using pooler-level
@@ -1324,21 +1335,7 @@ type ExecuteOptions struct {
 	//
 	// This field is only consumed by StreamExecute. PortalStreamExecute has its
 	// own top-level prepared_statement field.
-	ExecuteSqlPreparedStatement *ExecuteSqlPreparedStatement `protobuf:"bytes,9,opt,name=execute_sql_prepared_statement,json=executeSqlPreparedStatement,proto3" json:"execute_sql_prepared_statement,omitempty"`
-	// has_post_query_session_settings indicates that post_query_session_settings
-	// is authoritative for the backend's session state after this statement
-	// succeeds. This is distinct from session_settings, which is the desired
-	// state before execution. Route-first SELECT set_config(...) uses this so the
-	// multipooler can recycle a backend into the correct settings bucket without
-	// mutating gateway state until PostgreSQL accepts the statement. The explicit
-	// boolean preserves an intentionally-empty post state (for example, a reset to
-	// clean) because proto3 maps cannot distinguish nil from empty on the wire.
-	HasPostQuerySessionSettings bool `protobuf:"varint,10,opt,name=has_post_query_session_settings,json=hasPostQuerySessionSettings,proto3" json:"has_post_query_session_settings,omitempty"`
-	// post_query_session_settings contains the backend session settings that will
-	// be true after the statement succeeds. The multipooler must only apply this
-	// to connection-state bookkeeping after PostgreSQL success; it must not issue
-	// SET commands from this map before running the query.
-	PostQuerySessionSettings map[string]string `protobuf:"bytes,11,rep,name=post_query_session_settings,json=postQuerySessionSettings,proto3" json:"post_query_session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ExecuteSqlPreparedStatement *ExecuteSqlPreparedStatement `protobuf:"bytes,7,opt,name=execute_sql_prepared_statement,json=executeSqlPreparedStatement,proto3" json:"execute_sql_prepared_statement,omitempty"`
 	// passthrough_row requests opaque row passthrough for this query: the
 	// multipooler returns rows as concatenated raw DataRow frames in
 	// QueryResult.passthrough_block instead of structured Row messages, and the
@@ -1346,7 +1343,7 @@ type ExecuteOptions struct {
 	// for straight client pass-through queries and leaves it false for results it
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
-	PassthroughRow bool `protobuf:"varint,12,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
+	PassthroughRow bool `protobuf:"varint,8,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1426,20 +1423,6 @@ func (x *ExecuteOptions) GetClientConnectionId() uint32 {
 func (x *ExecuteOptions) GetExecuteSqlPreparedStatement() *ExecuteSqlPreparedStatement {
 	if x != nil {
 		return x.ExecuteSqlPreparedStatement
-	}
-	return nil
-}
-
-func (x *ExecuteOptions) GetHasPostQuerySessionSettings() bool {
-	if x != nil {
-		return x.HasPostQuerySessionSettings
-	}
-	return false
-}
-
-func (x *ExecuteOptions) GetPostQuerySessionSettings() map[string]string {
-	if x != nil {
-		return x.PostQuerySessionSettings
 	}
 	return nil
 }
@@ -1559,13 +1542,8 @@ type ReservationOptions struct {
 	// pg_try_advisory_lock — or a release), so the probe runs only when it can
 	// matter rather than after every query on a pinned connection.
 	RecheckAdvisoryLocks bool `protobuf:"varint,5,opt,name=recheck_advisory_locks,json=recheckAdvisoryLocks,proto3" json:"recheck_advisory_locks,omitempty"`
-	// mark_session_state_untrusted asks the multipooler to mark the reserved
-	// connection's cached session state as maybe-diverged after this statement
-	// succeeds. Used for ROLLBACK TO SAVEPOINT, where PostgreSQL can revert GUCs
-	// on the backend without the pooler knowing the exact reverted state.
-	MarkSessionStateUntrusted bool `protobuf:"varint,6,opt,name=mark_session_state_untrusted,json=markSessionStateUntrusted,proto3" json:"mark_session_state_untrusted,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ReservationOptions) Reset() {
@@ -1633,13 +1611,6 @@ func (x *ReservationOptions) GetRecheckAdvisoryLocks() bool {
 	return false
 }
 
-func (x *ReservationOptions) GetMarkSessionStateUntrusted() bool {
-	if x != nil {
-		return x.MarkSessionStateUntrusted
-	}
-	return false
-}
-
 var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
@@ -1651,7 +1622,7 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xe0\x03\n" +
+	"\apayload\"\x9f\x04\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -1664,7 +1635,9 @@ const file_query_proto_rawDesc = "" +
 	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12+\n" +
 	"\x11passthrough_block\x18\a \x01(\fR\x10passthroughBlock\x122\n" +
 	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\x12R\n" +
-	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x1aB\n" +
+	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x12=\n" +
+	"\x1bpassthrough_row_in_progress\x18\n" +
+	" \x01(\bR\x18passthroughRowInProgress\x1aB\n" +
 	"\x14ParameterStatusEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
@@ -1739,38 +1712,31 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x89\x06\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x82\x04\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
-	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
-	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12,\n" +
-	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
-	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12g\n" +
-	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12D\n" +
-	"\x1fhas_post_query_session_settings\x18\n" +
-	" \x01(\bR\x1bhasPostQuerySessionSettings\x12r\n" +
-	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x12'\n" +
-	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x1aB\n" +
+	"\bmax_rows\x18\x03 \x01(\x04R\amaxRows\x124\n" +
+	"\x16reserved_connection_id\x18\x04 \x01(\x04R\x14reservedConnectionId\x12,\n" +
+	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
+	"\x14client_connection_id\x18\x06 \x01(\rR\x12clientConnectionId\x12g\n" +
+	"\x1eexecute_sql_prepared_statement\x18\a \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12'\n" +
+	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aK\n" +
-	"\x1dPostQuerySessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
 	"\bUserAuth\x12\"\n" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
 	"\n" +
-	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xa2\x02\n" +
+	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xe1\x01\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
 	"beginQuery\x12(\n" +
 	"\x10pin_portal_names\x18\x03 \x03(\tR\x0epinPortalNames\x120\n" +
 	"\x14release_portal_names\x18\x04 \x03(\tR\x12releasePortalNames\x124\n" +
-	"\x16recheck_advisory_locks\x18\x05 \x01(\bR\x14recheckAdvisoryLocks\x12?\n" +
-	"\x1cmark_session_state_untrusted\x18\x06 \x01(\bR\x19markSessionStateUntrusted*[\n" +
+	"\x16recheck_advisory_locks\x18\x05 \x01(\bR\x14recheckAdvisoryLocks*[\n" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMODE_WRITABLE\x10\x01\x12\x13\n" +
@@ -1790,7 +1756,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_query_proto_goTypes = []any{
 	(Mode)(0),                           // 0: query.Mode
 	(*QueryResultPayload)(nil),          // 1: query.QueryResultPayload
@@ -1811,9 +1777,8 @@ var file_query_proto_goTypes = []any{
 	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
 	nil,                                 // 17: query.QueryResult.ParameterStatusEntry
 	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
-	nil,                                 // 19: query.ExecuteOptions.PostQuerySessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 20: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),          // 21: clustermetadata.ID
+	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1825,19 +1790,18 @@ var file_query_proto_depIdxs = []int32{
 	17, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
 	8,  // 7: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	3,  // 8: query.StatementDescription.fields:type_name -> query.Field
-	20, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	19, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
 	0,  // 10: query.Target.mode:type_name -> query.Mode
 	10, // 11: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
-	21, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	20, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
 	18, // 13: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
 	15, // 14: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
 	11, // 15: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	19, // 16: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1856,7 +1820,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

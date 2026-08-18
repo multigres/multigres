@@ -56,7 +56,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // HTTPServe starts the HTTP server for the internal servenv mux on the listener.
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
-	slog.Info("Listening for HTTP calls on port", "httpPort", sv.httpPort.Get())
+	slog.Info("listening for HTTP calls on port", "http_port", sv.httpPort.Get())
 
 	// Wrap the mux with CORS middleware and OpenTelemetry instrumentation
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead

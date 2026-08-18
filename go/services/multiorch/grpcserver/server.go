@@ -55,7 +55,7 @@ func NewMultiorchServer(engine *recovery.Engine, coordinator *consensus.Coordina
 // RegisterWithGRPCServer registers the MultiorchService with the provided gRPC server.
 func (s *MultiorchServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multiorchpb.RegisterMultiorchServiceServer(grpcServer, s)
-	s.logger.Info("Multiorch service registered")
+	s.logger.Info("multiorch service registered")
 }
 
 // GetShardStatus returns diagnostic information for a specific shard.
@@ -201,11 +201,11 @@ func (s *MultiorchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequ
 		poolerType := h.GetStatus().GetPoolerType().String()
 
 		healthList = append(healthList, &multiorchpb.PoolerHealth{
-			PoolerId:      h.Multipooler.Id,
-			Reachable:     h.IsLastCheckValid,
-			PostgresReady: h.GetStatus().GetPostgresReady(),
-			PoolerType:    poolerType,
-			LastCheck:     h.LastCheckAttempted,
+			PoolerId:        h.Multipooler.Id,
+			StreamConnected: h.StreamConnected,
+			PostgresReady:   h.GetStatus().GetPostgresReady(),
+			PoolerType:      poolerType,
+			LastSeen:        h.LastSeen,
 		})
 	}
 

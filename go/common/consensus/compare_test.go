@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -234,6 +236,113 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 	})
 }
 
+func TestMergeReplicationPrimary(t *testing.T) {
+	mkRP := func(term int64, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+			RewindReady: rewindReady,
+		}
+	}
+	mkRPWithAddr := func(term int64, host string, port int32) *clustermetadatapb.ReplicationPrimary {
+		rp := mkRP(term, false)
+		rp.Primary = &clustermetadatapb.PoolerAddress{
+			Id:           &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
+			Host:         host,
+			PostgresPort: port,
+		}
+		return rp
+	}
+
+	t.Run("nil candidate never changes anything", func(t *testing.T) {
+		current := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(current, nil)
+		assert.False(t, changed)
+		assert.Same(t, current, result)
+	})
+
+	t.Run("nil current is always replaceable", func(t *testing.T) {
+		candidate := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(nil, candidate)
+		assert.True(t, changed)
+		assert.True(t, proto.Equal(candidate, result))
+	})
+
+	t.Run("higher position replaces", func(t *testing.T) {
+		result, changed := MergeReplicationPrimary(mkRP(3, false), mkRP(5, false))
+		assert.True(t, changed)
+		assert.True(t, proto.Equal(mkRP(5, false), result))
+	})
+
+	t.Run("lower position never replaces", func(t *testing.T) {
+		current := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(current, mkRP(3, false))
+		assert.False(t, changed)
+		assert.Same(t, current, result)
+	})
+
+	t.Run("same position, rewind_ready false to true replaces", func(t *testing.T) {
+		result, changed := MergeReplicationPrimary(mkRP(5, false), mkRP(5, true))
+		assert.True(t, changed)
+		assert.True(t, result.GetRewindReady())
+	})
+
+	t.Run("same position, rewind_ready true to false never regresses", func(t *testing.T) {
+		result, changed := MergeReplicationPrimary(mkRP(5, true), mkRP(5, false))
+		assert.False(t, changed)
+		assert.True(t, result.GetRewindReady())
+	})
+
+	t.Run("same position, both unchanged does not replace", func(t *testing.T) {
+		_, changed := MergeReplicationPrimary(mkRP(5, false), mkRP(5, false))
+		assert.False(t, changed)
+		_, changed = MergeReplicationPrimary(mkRP(5, true), mkRP(5, true))
+		assert.False(t, changed)
+	})
+
+	t.Run("same position, different host replaces", func(t *testing.T) {
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-b", 5432))
+		assert.True(t, changed)
+	})
+
+	t.Run("same position, different port replaces", func(t *testing.T) {
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5433))
+		assert.True(t, changed)
+	})
+
+	t.Run("same position, same address does not replace", func(t *testing.T) {
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5432))
+		assert.False(t, changed)
+	})
+
+	t.Run("rewind_ready carries forward when a decision replaces its own term's proposal", func(t *testing.T) {
+		// CompareRulePosition ranks a decision strictly above its own term's
+		// undecided proposal (cmp > 0, not cmp == 0), so this exercises the
+		// carry-forward on the advance path, not just the same-position path.
+		proposal := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(4, 0)},
+				Proposal: &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)},
+			},
+			RewindReady: true,
+		}
+		decision := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}},
+			// RewindReady deliberately left unset, as a caller not restating it would.
+		}
+		result, changed := MergeReplicationPrimary(proposal, decision)
+		require.True(t, changed)
+		assert.True(t, result.GetRewindReady(), "rewind_ready must not regress across a same-term proposal->decision transition")
+	})
+
+	t.Run("primary preserved when candidate doesn't supply one", func(t *testing.T) {
+		current := mkRPWithAddr(5, "host-a", 5432)
+		candidate := mkRP(6, false) // advances the rule, no Primary set
+		result, changed := MergeReplicationPrimary(current, candidate)
+		require.True(t, changed)
+		assert.True(t, proto.Equal(current.GetPrimary(), result.GetPrimary()))
+	})
+}
+
 func TestComparePosition(t *testing.T) {
 	tests := []struct {
 		name string
@@ -295,6 +404,62 @@ func TestFormatRulePosition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, FormatRulePosition(tt.pos))
+		})
+	}
+}
+
+func TestFormatRuleNumberPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.RuleNumberPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{"decision only", &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0)}, "5.0"},
+		{
+			"decision and proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: rn(6, 0)},
+			"5.0 proposal=6.0",
+		},
+		{
+			// A zero-valued (unset-sentinel) Proposal must not render as a
+			// phantom "proposal=0.0" suffix.
+			"decision with zero-valued proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: &clustermetadatapb.RuleNumber{}},
+			"5.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatRuleNumberPosition(tt.pos))
+		})
+	}
+}
+
+func TestFormatLsnPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.LsnPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{
+			"decision only",
+			&clustermetadatapb.LsnPosition{Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(1, 0)}, Lsn: "0/6000000"},
+			"1.0@0/6000000",
+		},
+		{
+			"decision and proposal",
+			&clustermetadatapb.LsnPosition{
+				Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 1), Proposal: rn(6, 0)},
+				Lsn:      "0/6000000",
+			},
+			"5.1 proposal=6.0@0/6000000",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatLsnPosition(tt.pos))
 		})
 	}
 }

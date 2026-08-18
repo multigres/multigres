@@ -35,8 +35,8 @@ import (
 // transactions, multi-statement, error recovery), which the existing
 // copy_test.go mirrors — so the net-new delta here is the fault path: a backend
 // hard-killed mid-stream must surface a clean error to the client (not a hang),
-// the proxy must recover, and the interrupted COPY must commit nothing (COPY
-// FROM is all-or-nothing).
+// the proxy and orchestrator must recover, and the interrupted COPY must commit
+// nothing (COPY FROM is all-or-nothing).
 //
 // Black-box: the client streams real COPY data over the wire and observes only
 // the COPY result and post-recovery queries. The fault is KillPostgres (SIGKILL),
@@ -58,9 +58,11 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithMultigateway(),
 	)
 	defer cleanup()
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	ctx := utils.WithTimeout(t, 120*time.Second)
@@ -107,6 +109,7 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 	recoveryCtx := utils.WithTimeout(t, 30*time.Second)
 
 	// A fresh connection must serve queries again after recovery.
+	setup.WaitForMultigatewayQueryServing(t)
 	conn2 := connectGateway(t, recoveryCtx, gatewayDSN)
 	defer conn2.Close(recoveryCtx)
 

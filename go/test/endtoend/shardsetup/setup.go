@@ -93,7 +93,7 @@ type SetupConfig struct {
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
-	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
+	PgInitdbExtraConfFiles             []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -375,9 +375,10 @@ func WithPgInitdbArgs(args string) SetupOption {
 }
 
 // WithPgInitdbExtraConfFiles appends the given postgresql.conf snippet paths
-// to every pgctld via --pg-initdb-extra-conf. Files are concatenated onto the
-// generated postgresql.conf at init time; postgres applies last-write-wins so
-// settings here override the template defaults. Used by the pgregress harness
+// to every pgctld via --pg-initdb-extra-conf. The generated postgresql.conf
+// live-includes each file (include_if_exists) at its end; postgres applies
+// last-write-wins so settings here override the template defaults. Used by the
+// pgregress harness
 // to force `lc_messages/lc_monetary/lc_numeric/lc_time = 'C'` (the template
 // otherwise hard-codes en_US.UTF-8, which makes locale-sensitive output
 // diverge from upstream `pg_regress --no-locale` expected fixtures).
@@ -649,7 +650,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
-			// Append SSL config to postgresql.conf at init time.
+			// Live-include SSL config into the generated postgresql.conf.
 			inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths.ExtraConfFile)
 			// Use a permissive pg_hba template that trusts 127.0.0.1 over TLS so
 			// the multipooler's per-user pools (which dial password="" without
@@ -927,6 +928,10 @@ const (
 	// then hands control back to multiorch to elect a new primary and
 	// stabilize the shard.
 	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
+	// RecoveryScenarioPlannedFailover is the wait after a SwitchPrimary / planned
+	// failover. The old primary restarts as standby before the election begins, so
+	// the end-to-end election window is longer than a pure emergency demotion.
+	RecoveryScenarioPlannedFailover RecoveryScenario = "planned-failover"
 )
 
 // recoveryScenarioTimeouts configures how long RequireRecovery waits per RecoveryScenario.
@@ -935,6 +940,7 @@ var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
 	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
 	RecoveryScenarioFixReplication:     30 * time.Second,
 	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+	RecoveryScenarioPlannedFailover:    60 * time.Second,
 }
 
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
@@ -1014,9 +1020,10 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 }
 
 // WaitForHealthStreamsEstablished blocks until the named multiorch instance
-// reports `Reachable=true` for every pooler in this shard, indicating it has
-// received at least one snapshot from each pooler over the ManagerHealthStream
-// — i.e. the stream is dialled, handshaked, and exchanging data.
+// reports a non-zero LastSeen for every pooler in this shard, indicating it
+// has received at least one snapshot from each pooler over the
+// ManagerHealthStream. StreamConnected alone isn't enough for this: it goes
+// true at the handshake, before any snapshot has arrived.
 //
 // Tests should call this after StartMultiorchs (and RequireRecovery, if used)
 // but before any test action that depends on the orchestrator observing a
@@ -1057,20 +1064,20 @@ func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName stri
 		cancel()
 
 		if err == nil {
-			reachable := 0
+			established := 0
 			missing := make([]string, 0, expected)
 			for _, ph := range resp.PoolerHealths {
-				if ph.Reachable {
-					reachable++
+				if ph.LastSeen != nil {
+					established++
 					continue
 				}
 				missing = append(missing, ph.PoolerId.GetName())
 			}
-			if reachable == expected {
+			if established == expected {
 				t.Logf("All %d health streams established on '%s'", expected, orchName)
 				return
 			}
-			lastSummary = fmt.Sprintf("%d/%d reachable, missing: %v", reachable, expected, missing)
+			lastSummary = fmt.Sprintf("%d/%d established, missing: %v", established, expected, missing)
 		} else {
 			lastSummary = fmt.Sprintf("GetShardStatus failed: %v", err)
 		}
@@ -2297,6 +2304,39 @@ func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) (resume func())
 	return s.StopPostgres(t, name, "fast")
 }
 
+// FreezeMultipooler sends SIGSTOP to the named multipooler process, freezing it
+// without terminating it. The frozen pooler stops serving RPCs and stops feeding
+// its health stream to the gateway and multiorch, so both observe it as a stalled
+// (stale) connection — simulating a pooler that is hung or unreachable while its
+// postgres keeps running. pgctld and postgres are left running, so a frozen
+// primary remains a write-capable "stranded" primary.
+//
+// It returns an idempotent resume function (SIGCONT) that the caller should defer
+// to guarantee the process is thawed before teardown even if the test fails.
+func (s *ShardSetup) FreezeMultipooler(t *testing.T, name string) (resume func()) {
+	t.Helper()
+
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+	require.NotNil(t, inst.Multipooler.Process, "multipooler %s has no process handle", name)
+
+	require.NoError(t, inst.Multipooler.Process.Suspend(), "failed to SIGSTOP multipooler %s", name)
+	t.Logf("Froze multipooler %s (pid %d) with SIGSTOP", name, inst.Multipooler.Process.Process.Pid)
+
+	resumed := false
+	return func() {
+		if resumed {
+			return
+		}
+		resumed = true
+		if err := inst.Multipooler.Process.Resume(); err != nil {
+			t.Logf("FreezeMultipooler resume: failed to SIGCONT multipooler %s: %v", name, err)
+			return
+		}
+		t.Logf("Resumed multipooler %s with SIGCONT", name)
+	}
+}
+
 // baselineGucNames returns the GUC names to save/restore for baseline state.
 var baselineGucNames = []string{
 	"synchronous_standby_names",
@@ -2418,7 +2458,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 	// Count reachable poolers
 	reachableCount := 0
 	for _, h := range healthList {
-		if h.Reachable {
+		if h.StreamConnected {
 			reachableCount++
 		}
 	}
@@ -2433,7 +2473,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.Reachable && h.PostgresReady {
+		if h.StreamConnected && h.PostgresReady {
 			status = "up"
 		}
 

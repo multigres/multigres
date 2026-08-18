@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	query "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -198,6 +199,21 @@ func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
 	}
 	_, ok = state.GetSessionVariable("role")
 	require.False(t, ok, "set_config('role', 'none', false) resets role")
+}
+
+func TestResolveTrackSetConfig_GatewayManagedRegistry(t *testing.T) {
+	state := handler.NewMultigatewayConnectionState()
+	state.InitIdleSessionTimeout(30 * time.Second)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
+
+	actions, err := resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("idle_session_timeout"), []byte("5s"), []byte("false"),
+	}}})
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	actions[0]()
+	assert.Equal(t, 5*time.Second, state.GetIdleSessionTimeout())
 }
 
 func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
@@ -901,4 +917,125 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 		`SET LOCAL var TO DEFAULT (even outside txn) must return CommandTag "SET"`)
 	require.Len(t, results[0].Notices, 1)
 	assert.Equal(t, mterrors.PgSSNoActiveTransaction, results[0].Notices[0].Code)
+}
+
+// silentRouteExec is a minimal IExecute whose StreamExecute answers every
+// query with one canned result.
+type silentRouteExec struct {
+	IExecute
+	result *sqltypes.Result
+	sqls   []string
+}
+
+func (e *silentRouteExec) StreamExecute(
+	_ context.Context,
+	_ *server.Conn,
+	_ string,
+	_ string,
+	sql string,
+	_ *query.ExecuteSqlPreparedStatement,
+	_ *handler.MultigatewayConnectionState,
+	_ PlanExecInfo,
+	_ bool,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	e.sqls = append(e.sqls, sql)
+	return callback(context.Background(), e.result)
+}
+
+// TestSilentRoute_ForwardsParameterStatusOnly pins the reconciliation
+// contract: rows and the command tag of a gateway-synthesized statement are
+// swallowed (the client-visible response comes from a sibling primitive),
+// but a GUC_REPORT change made by that statement must still reach the client
+// as a tag-less ParameterStatus-only result — dropping it would leave the
+// driver's cached DateStyle/TimeZone/application_name stale or, after the
+// RESET ALL restores, actively wrong.
+func TestSilentRoute_ForwardsParameterStatusOnly(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		Rows:            []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("x")}}},
+		ParameterStatus: map[string]string{"application_name": "mtg_reset_e2e"},
+	}}
+	route := NewSilentRoute("tg", "", "SET application_name = 'mtg_reset_e2e'")
+
+	var forwarded []*sqltypes.Result
+	err := route.StreamExecute(context.Background(), exec, nil, nil, nil, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			forwarded = append(forwarded, r)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Len(t, forwarded, 1)
+	assert.Empty(t, forwarded[0].CommandTag, "the synthesized statement's tag must not reach the client")
+	assert.Empty(t, forwarded[0].Rows, "rows must not reach the client")
+	assert.Equal(t, map[string]string{"application_name": "mtg_reset_e2e"}, forwarded[0].ParameterStatus)
+
+	// A result with no reportable change is swallowed entirely.
+	exec.result = &sqltypes.Result{CommandTag: "SET"}
+	forwarded = nil
+	require.NoError(t, route.StreamExecute(context.Background(), exec, nil, nil, nil, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			forwarded = append(forwarded, r)
+			return nil
+		}))
+	assert.Empty(t, forwarded)
+}
+
+// TestPinnedRouteTrackscanonicalReportedValue pins the composite-GUC fix on
+// the pinned shape Sequence[Route, silent tracker]: PostgreSQL's
+// ParameterStatus on the routed result carries the CANONICAL value (SET
+// datestyle = 'dmy' on a backend at 'German, YMD' reports 'German, DMY'),
+// the Route captures it onto the exchange, and the silent tracker's apply —
+// which runs after the Route — must record the canonical form into the
+// replayable map, not the client's partial literal, or the style component
+// is dropped on the next pool-rotation replay.
+func TestPinnedRouteTracksCanonicalReportedValue(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		ParameterStatus: map[string]string{"DateStyle": "German, DMY"},
+	}}
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := syntheticSetForTest("datestyle", "dmy")
+	seq := NewSequence([]Primitive{
+		NewRoute("tg", "", "SET datestyle = 'dmy'", nil),
+		NewApplySessionStateSilent("SET datestyle = 'dmy'", stmt),
+	})
+
+	require.NoError(t, seq.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil }))
+
+	got, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "German, DMY", got,
+		"the tracked value must be PostgreSQL's canonical report, not the partial literal")
+}
+
+// TestPinnedRouteTracksLiteralWhenNotReported pins the two guardrails on the
+// canonical preference: a non-reportable GUC always tracks the literal, and a
+// reported value for an UNRELATED variable on the same result can never be
+// mistaken for this one (the lookup is keyed by display name).
+func TestPinnedRouteTracksLiteralWhenNotReported(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		ParameterStatus: map[string]string{"application_name": "someone_else"},
+	}}
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := syntheticSetForTest("work_mem", "64MB")
+	seq := NewSequence([]Primitive{
+		NewRoute("tg", "", "SET work_mem = '64MB'", nil),
+		NewApplySessionStateSilent("SET work_mem = '64MB'", stmt),
+	})
+
+	require.NoError(t, seq.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil }))
+
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	assert.Equal(t, "64MB", got, "non-reportable GUCs track the literal; unrelated reports must not leak in")
+	_, tracked := state.GetSessionVariable("application_name")
+	assert.False(t, tracked, "an unrelated ParameterStatus must not create a tracked variable")
 }

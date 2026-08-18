@@ -273,7 +273,7 @@ func (s *MultiadminServer) probeCohort(
 	for range poolers {
 		r := <-results
 		if r.err != nil {
-			s.logger.WarnContext(ctx, "Status probe failed",
+			s.logger.WarnContext(ctx, "status probe failed",
 				"pooler", topoclient.ClusterIDString(r.pooler.GetId()), "error", r.err)
 			continue
 		}

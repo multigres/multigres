@@ -35,7 +35,6 @@ type reservedConnAPI interface {
 	BeginWithQuery(ctx context.Context, beginQuery string) error
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
-	MarkSessionStateUntrusted()
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
 	// Query runs a simple query and buffers all results. Used for internal
 	// probes (e.g. checking pg_locks to decide whether a session still holds an
@@ -55,6 +54,9 @@ type reservedConnAPI interface {
 	// gatewaySessionSettings is the gateway's authoritative session settings at
 	// release time; pass nil when unavailable.
 	Release(reason reserved.ReleaseReason, gatewaySessionSettings map[string]string)
+	// ResetAllSettings discards all session state on the backend (RESET ROLE /
+	// SESSION AUTHORIZATION / ALL), returning it to a clean state.
+	ResetAllSettings(ctx context.Context) error
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.

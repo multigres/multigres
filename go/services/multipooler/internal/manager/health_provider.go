@@ -102,6 +102,21 @@ func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
 	hs.queryServer = qs
 }
 
+// SetRecommendedStalenessTimeout overrides the staleness window advertised to
+// clients (RecommendedStalenessTimeout). A non-positive value resets it to the
+// built-in defaultRecommendedStalenessTimeout, so the method is idempotent and a
+// later Set(0) undoes an earlier override rather than leaving it stuck. Must be
+// called before the pooler starts serving; the value is read under the same lock
+// as broadcasts.
+func (hs *healthStreamer) SetRecommendedStalenessTimeout(d time.Duration) {
+	if d <= 0 {
+		d = defaultRecommendedStalenessTimeout
+	}
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.recommendedStalenessTimeout = d
+}
+
 // OnStateChange updates the health stream's poolerType, leader observation, and
 // servingStatus atomically with a single broadcast. This implements the
 // StateAware interface so the healthStreamer can be registered with StateManager.
@@ -195,7 +210,7 @@ func (hs *healthStreamer) broadcastLocked() {
 			//
 			// TODO: consider adding a metric for this to detect if clients are
 			// falling behind frequently.
-			hs.logger.Warn("Health stream buffer full, closing channel to force reconnect")
+			hs.logger.Warn("health stream buffer full, closing channel to force reconnect")
 			close(ch)
 			delete(hs.clients, ch)
 		}

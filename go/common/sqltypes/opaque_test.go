@@ -48,22 +48,25 @@ func TestResultStructuredRows(t *testing.T) {
 func TestResultOpaqueRoundTrip(t *testing.T) {
 	block := []byte("D\x00\x00\x00\x0eraw-frame-bytes")
 	r := &Result{
-		PassthroughBlock:    block,
-		PassthroughRowCount: 4,
-		CommandTag:          "SELECT 4",
-		RowsAffected:        4,
+		PassthroughBlock:         block,
+		PassthroughRowCount:      4,
+		PassthroughRowInProgress: true,
+		CommandTag:               "SELECT 4",
+		RowsAffected:             4,
 	}
 
 	pr := r.ToProto()
 	require.NotNil(t, pr)
 	assert.Equal(t, block, pr.PassthroughBlock)
 	assert.Equal(t, uint32(4), pr.PassthroughRowCount)
+	assert.True(t, pr.PassthroughRowInProgress)
 	assert.Empty(t, pr.Rows, "opaque result must not carry structured Row messages")
 
 	back := ResultFromProto(pr)
 	require.NotNil(t, back)
 	assert.Equal(t, block, back.PassthroughBlock)
 	assert.Equal(t, 4, back.PassthroughRowCount)
+	assert.True(t, back.PassthroughRowInProgress)
 	assert.Nil(t, back.Rows, "opaque result must not reconstruct structured Rows")
 	assert.Equal(t, "SELECT 4", back.CommandTag)
 }

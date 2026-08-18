@@ -104,7 +104,7 @@ func (s *PgCtldService) runCrashRecoveryInDir(
 	logger := s.logger
 	signalPath := s.standbySignalPath()
 	if _, err := os.Stat(signalPath); err == nil {
-		logger.InfoContext(ctx, "Temporarily removing standby.signal for single-user crash recovery",
+		logger.InfoContext(ctx, "temporarily removing standby.signal for single-user crash recovery",
 			"path", signalPath)
 		if _, rmErr := s.removeStandbySignal(); rmErr != nil {
 			return fmt.Errorf("failed to remove standby.signal before crash recovery: %w", rmErr)
@@ -131,7 +131,7 @@ func (s *PgCtldService) runCrashRecoveryAttempts(
 	r *retry.Retry,
 ) error {
 	logger := s.logger
-	logger.InfoContext(ctx, "Starting single-user crash recovery")
+	logger.InfoContext(ctx, "starting single-user crash recovery")
 
 	var lastOutput string
 	for attempt, rerr := range r.Attempts(ctx) {
@@ -148,7 +148,7 @@ func (s *PgCtldService) runCrashRecoveryAttempts(
 		lastOutput = outputStr
 
 		if !postgresAlreadyRunningPattern.MatchString(outputStr) {
-			logger.WarnContext(ctx, "Single-user crash recovery failed",
+			logger.WarnContext(ctx, "single-user crash recovery failed",
 				"error", err,
 				"output", outputStr)
 			return fmt.Errorf("crash recovery failed: %w", err)
@@ -158,13 +158,13 @@ func (s *PgCtldService) runCrashRecoveryAttempts(
 			break
 		}
 
-		logger.InfoContext(ctx, "Single-user crash recovery: lock file held, retrying",
+		logger.InfoContext(ctx, "single-user crash recovery: lock file held, retrying",
 			"attempt", attempt,
 			"max_attempts", constants.CrashRecoveryMaxAttempts,
 			"output", outputStr)
 	}
 
-	logger.InfoContext(ctx, "Single-user crash recovery not needed, postgres is already running",
+	logger.InfoContext(ctx, "single-user crash recovery not needed, postgres is already running",
 		"attempts", constants.CrashRecoveryMaxAttempts,
 		"output", lastOutput)
 	return nil

@@ -42,6 +42,12 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_if_elsif(in)
 	case *PLpgSQL_raise_option:
 		return CloneRefOfPLpgSQL_raise_option(in)
+	case *PLpgSQL_rec:
+		return CloneRefOfPLpgSQL_rec(in)
+	case *PLpgSQL_recfield:
+		return CloneRefOfPLpgSQL_recfield(in)
+	case *PLpgSQL_row:
+		return CloneRefOfPLpgSQL_row(in)
 	case *PLpgSQL_stmt_assert:
 		return CloneRefOfPLpgSQL_stmt_assert(in)
 	case *PLpgSQL_stmt_assign:
@@ -123,6 +129,12 @@ func CloneDatum(in Datum) Datum {
 	switch in := in.(type) {
 	case *PLpgSQL_alias:
 		return CloneRefOfPLpgSQL_alias(in)
+	case *PLpgSQL_rec:
+		return CloneRefOfPLpgSQL_rec(in)
+	case *PLpgSQL_recfield:
+		return CloneRefOfPLpgSQL_recfield(in)
+	case *PLpgSQL_row:
+		return CloneRefOfPLpgSQL_row(in)
 	case *PLpgSQL_var:
 		return CloneRefOfPLpgSQL_var(in)
 	default:
@@ -237,6 +249,40 @@ func CloneRefOfPLpgSQL_raise_option(n *PLpgSQL_raise_option) *PLpgSQL_raise_opti
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_rec creates a deep clone of the input.
+func CloneRefOfPLpgSQL_rec(n *PLpgSQL_rec) *PLpgSQL_rec {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.DataType = CloneRefOfPLpgSQL_type(n.DataType)
+	out.DefaultVal = CloneRefOfPLpgSQL_expr(n.DefaultVal)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_recfield creates a deep clone of the input.
+func CloneRefOfPLpgSQL_recfield(n *PLpgSQL_recfield) *PLpgSQL_recfield {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_row creates a deep clone of the input.
+func CloneRefOfPLpgSQL_row(n *PLpgSQL_row) *PLpgSQL_row {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Fieldnames = CloneSliceOfString(n.Fieldnames)
+	out.Varnos = CloneSliceOfInt(n.Varnos)
 	return &out
 }
 
@@ -677,6 +723,26 @@ func CloneSliceOfRefOfPLpgSQL_exception(n []*PLpgSQL_exception) []*PLpgSQL_excep
 	for i, x := range n {
 		res[i] = CloneRefOfPLpgSQL_exception(x)
 	}
+	return res
+}
+
+// CloneSliceOfString creates a deep clone of the input.
+func CloneSliceOfString(n []string) []string {
+	if n == nil {
+		return nil
+	}
+	res := make([]string, len(n))
+	copy(res, n)
+	return res
+}
+
+// CloneSliceOfInt creates a deep clone of the input.
+func CloneSliceOfInt(n []int) []int {
+	if n == nil {
+		return nil
+	}
+	res := make([]int, len(n))
+	copy(res, n)
 	return res
 }
 

@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -387,6 +388,18 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 		if sc.IsLocalBind != nil {
 			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
 		}
+		// A gateway-managed variable must never reach a backend, but a
+		// prepared body executes there VERBATIM — the direct path's
+		// gateway-managed rewrite cannot apply to a body registered
+		// pooler-side as-is, and the release label (built from
+		// SessionSettings) structurally cannot describe a gateway-managed
+		// value. Rejected regardless of is_local so the prepared form cannot
+		// silently diverge from the identical direct statement, which the
+		// gateway rewrites and handles itself.
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config on gateway-managed variable %q is not supported inside SQL PREPARE", sc.Name))
+		}
 	}
 	return nil
 }
@@ -499,9 +512,19 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 
 		if _, isAllowed := allowedSetConfigs[fc]; !isAllowed {
-			walkErr = mterrors.NewFeatureNotSupported(
-				"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
-			return false
+			// set_config outside a top-level SELECT target — e.g. in a WHERE
+			// clause, subquery, or CTE. Its conditional / repeated evaluation
+			// semantics there can't be mirrored into a tracked SET, so we don't
+			// try. But a transaction-scoped call (is_local=true) on an ordinary
+			// GUC reverts at transaction end and leaves nothing for the pooler to
+			// track, so it may pass straight through to the backend untracked.
+			// This unblocks PostgREST's mutation row-count trick, which calls
+			// set_config('pgrst.inserted', …, true) inside an INSERT ... WHERE.
+			if err := allowTransactionLocalSetConfig(fc); err != nil {
+				walkErr = err
+				return false
+			}
+			return true
 		}
 		accepted = append(accepted, fc)
 		return true
@@ -603,6 +626,50 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 		allowed[fc] = struct{}{}
 	}
 	return allowed
+}
+
+// allowTransactionLocalSetConfig decides whether a set_config call sitting
+// outside a top-level SELECT target (in a WHERE clause, subquery, CTE, ...) may
+// pass through to the backend untracked. It returns nil to allow the
+// pass-through, or a rejection error otherwise.
+//
+// A call qualifies only when it is unambiguously transaction-scoped and
+// harmless for the pooler to ignore:
+//   - exactly three arguments;
+//   - is_local is the literal boolean true, so PostgreSQL reverts it at
+//     transaction end and no untracked backend session state survives the
+//     statement — the same reasoning the top-level path uses to leave
+//     is_local=true calls untracked (see validateAcceptedSetConfig); and
+//   - name is a literal constant that is neither a cluster-managed GUC nor a
+//     gateway-managed variable.
+//
+// Everything else fails closed with the original "top-level SELECT target"
+// message: a persistent (is_local=false) change would leak untracked backend
+// state; a bound or otherwise non-literal is_local / name can't be resolved at
+// plan time; a cluster-managed GUC must never be assigned (its own message is
+// preserved); and a gateway-managed variable must never reach the backend,
+// since the gateway — not PostgreSQL — is the authority on its value.
+func allowTransactionLocalSetConfig(fc *ast.FuncCall) error {
+	reject := mterrors.NewFeatureNotSupported(
+		"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
+
+	if fc.Args == nil || fc.Args.Len() != 3 {
+		return reject
+	}
+	if isLocal, ok := constBoolArg(fc.Args.Items[2]); !ok || !isLocal {
+		return reject
+	}
+	name, ok := constStringArg(fc.Args.Items[0])
+	if !ok {
+		return reject
+	}
+	if err := restrictedGUCError(name); err != nil {
+		return err
+	}
+	if handler.IsGatewayManagedVariable(name) {
+		return reject
+	}
+	return nil
 }
 
 // targetListAllSetConfig reports whether every entry in stmt's top-level
@@ -913,6 +980,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	sc := &setConfigCall{}
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
+		// A bound is_local can resolve to false at execute time. For an
+		// ordinary variable that would persist real session state on the pooled
+		// backend the routed query already executed on — untrackable divergence
+		// from the gateway's authoritative session map. Only gateway-managed
+		// variables (whose call is rewritten out of the routed query entirely)
+		// support a bound is_local.
+		if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(
+				"set_config is_local argument must be a boolean literal for this variable")
+		}
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {

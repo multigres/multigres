@@ -72,6 +72,33 @@ func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 	})
 }
 
+// TestManagerReloadConfig verifies that MultipoolerManager.ReloadConfig triggers
+// a PostgreSQL config reload and confirms it took effect by returning a
+// pg_conf_load_time() that advanced past the moment the call was made.
+func TestManagerReloadConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	setupPoolerTest(t, setup, WithoutReplication())
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+
+	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryClient.Close() })
+
+	before := time.Now().Add(-time.Second) // small allowance for clock granularity
+	resp, err := primaryClient.Manager.ReloadConfig(utils.WithShortDeadline(t),
+		&multipoolermanagerdatapb.ReloadConfigRequest{})
+	require.NoError(t, err, "ReloadConfig should succeed while postgres is running")
+	require.NotNil(t, resp)
+
+	require.NotNil(t, resp.GetConfigLoadTime(), "config_load_time should be set while postgres is running")
+	assert.False(t, resp.GetConfigLoadTime().AsTime().Before(before),
+		"config_load_time should reflect a reload at/after the call")
+}
+
 // TestMultipoolerPrimaryLSN verifies that a primary pooler reports a valid WAL position
 // via the manager Status RPC.
 func TestMultipoolerPrimaryLSN(t *testing.T) {

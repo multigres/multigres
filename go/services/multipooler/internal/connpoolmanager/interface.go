@@ -101,19 +101,6 @@ type PoolManager interface {
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
-	// ApplySettingsToConn ensures the connection's settings match the given
-	// session settings. If they differ, executes SET commands on the connection
-	// and updates its tracked state. This is needed because reserved connections
-	// bypass the pool's normal ApplySettings mechanism.
-	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
-
-	// RecordSettingsOnConn updates only the pooler's in-memory connstate for a
-	// connection after PostgreSQL itself has already changed the backend session
-	// state (for example, Route-first SELECT set_config(...)). It must not issue
-	// SQL. Settings are interned through the shared SettingsCache so the backend
-	// recycles into the correct pool bucket.
-	RecordSettingsOnConn(conn *regular.Conn, settings map[string]string)
-
 	// --- Drain ---
 
 	// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
