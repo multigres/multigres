@@ -491,6 +491,40 @@ The SQLSTATE `0A000` (`feature_not_supported`) was chosen because:
 - It clearly communicates that this is a pooler limitation, not a
   syntax error
 
+### Transaction behavior
+
+A rejection does **not** abort the surrounding transaction. The gateway
+raises the error itself — before the statement ever reaches a backend — so
+the backend's transaction is untouched: it stays in whatever state it was
+in, and the client can keep issuing statements or `COMMIT`. This is the
+opposite of an ordinary backend error, which PostgreSQL raises on the
+backend and which poisons the transaction (`25P02`, `current transaction is
+aborted, commands ignored until end of transaction block`) until a
+`ROLLBACK`.
+
+Concretely, in
+
+```sql
+BEGIN;
+LOAD 'somelib';                    -- rejected (0A000)
+INSERT INTO audit VALUES ('ok');   -- still runs
+COMMIT;                            -- succeeds
+```
+
+the `INSERT` runs and the `COMMIT` commits; the client sees only the single
+`0A000` error for the `LOAD`. Were the rejection allowed to poison the
+transaction, every following statement would instead fail with "current
+transaction is aborted" — a cascade that buries the one real signal.
+
+This is implemented by tagging every refusal as a `*GatewayRejection`
+(`NewFeatureNotSupported` returns one; see `mterrors/pgdiagnostic.go`) and
+skipping the `in_block → failed` transaction-status transition whenever
+`mterrors.IsGatewayRejection(err)` holds — the guard on each
+`SetTxnStatus(TxnStatusFailed)` call in `handler.go` and
+`transaction_helpers.go`. It applies to every rejection layer below (Tier 1,
+Tier 2, the restricted-GUC guard, and the dangerous-function filter), since
+all of them raise `feature_not_supported` through the same constructor.
+
 ### Protocol Coverage
 
 Both query protocols are covered, and both call the same
