@@ -535,11 +535,23 @@ var externalSpecs = map[string]ExternalExtension{
 		// excluded: its four prepared/execute assertions run inside throws_ok's
 		// exception trap, so the file completes and a narrow patch documents just
 		// those by-design failures.
+		//
+		// privs.sql is excluded for the same "absorb the whole file" reason via a
+		// different mechanism: its entire suite runs behind set_search_path(), a
+		// helper whose body does `EXECUTE 'SET search_path = …' || current_setting(…)`
+		// — a runtime-built session SET the gateway rejects (it mutates backend GUC
+		// state the pooler cannot track; the p_force_parellel_mode case). With that
+		// helper's CREATE rejected and the missing-helper call aborting the wrapping
+		// transaction at the top of the file, zero of its 372 table_privs_are
+		// assertions run, so a patch would delete the whole file. The FDW-tail
+		// files (aretap/hastap/ownership) are NOT excluded: they reject late, so the
+		// bulk of each file runs and a bounded tail patch documents the rest.
 		ExcludeGlobs: []string{
 			"sql/performs_ok.sql",
 			"sql/performs_within.sql",
 			"sql/resultset.sql",
 			"sql/valueset.sql",
+			"sql/privs.sql",
 		},
 	},
 	"pg_partman": {
