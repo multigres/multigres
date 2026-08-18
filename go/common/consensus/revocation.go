@@ -84,19 +84,16 @@ func NewTermRevocation(
 	replaceDecision := HighestDecidedRule(statuses)
 
 	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided. The same pass also tracks the most recent
-	// prior revocation, which the backoff carry/reset below is relative to.
+	// already accepted or decided.
 	// TODO: once propagation only recruits statuses sharing the outgoing decision,
 	// this term scan can be narrowed to those.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
+	highestRevs := highestTermRevocations(statuses)
 	var latestRevocation *clustermetadatapb.TermRevocation
-	for _, cs := range statuses {
-		rev := cs.GetTermRevocation()
-		if t := rev.GetRevokedBelowTerm(); t > maxTerm {
+	if len(highestRevs) > 0 {
+		latestRevocation = highestRevs[0]
+		if t := latestRevocation.GetRevokedBelowTerm(); t > maxTerm {
 			maxTerm = t
-		}
-		if rev.GetRevokedBelowTerm() > 0 && (latestRevocation == nil || rev.GetRevokedBelowTerm() > latestRevocation.GetRevokedBelowTerm()) {
-			latestRevocation = rev
 		}
 	}
 
@@ -110,6 +107,41 @@ func NewTermRevocation(
 			Attempt:         recruitAttempt(latestRevocation, replaceDecision, initiatedAt, staleRecruitResetWindow),
 		},
 	}, nil
+}
+
+// highestTermRevocations returns every distinct TermRevocation across
+// statuses whose RevokedBelowTerm equals the highest observed, or nil if none
+// carries one.
+//
+// It's possible that none of the revocations returned reached a majority of
+// the outgoing cohort and won the term.
+func highestTermRevocations(statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.TermRevocation {
+	var maxTerm int64
+	var revs []*clustermetadatapb.TermRevocation
+	for _, cs := range statuses {
+		rev := cs.GetTermRevocation()
+		t := rev.GetRevokedBelowTerm()
+		switch {
+		case t <= 0:
+		case t > maxTerm:
+			maxTerm = t
+			revs = []*clustermetadatapb.TermRevocation{rev}
+		case t == maxTerm && !containsEqualRevocation(revs, rev):
+			revs = append(revs, rev)
+		}
+	}
+	return revs
+}
+
+// containsEqualRevocation reports whether revs already holds a proto.Equal
+// copy of rev.
+func containsEqualRevocation(revs []*clustermetadatapb.TermRevocation, rev *clustermetadatapb.TermRevocation) bool {
+	for _, r := range revs {
+		if proto.Equal(r, rev) {
+			return true
+		}
+	}
+	return false
 }
 
 // recruitAttempt returns the collective-backoff attempt count for a new

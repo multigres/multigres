@@ -372,6 +372,68 @@ func TestIsSelfRevoked(t *testing.T) {
 	}
 }
 
+func TestHighestTermRevocations(t *testing.T) {
+	t.Run("nil when no status carries a revocation", func(t *testing.T) {
+		assert.Nil(t, highestTermRevocations(nil))
+		assert.Nil(t, highestTermRevocations([]*clustermetadatapb.ConsensusStatus{{}}))
+	})
+
+	t.Run("single highest revocation", func(t *testing.T) {
+		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}
+		high := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}
+		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: low},
+			{TermRevocation: high},
+		})
+		require.Len(t, got, 1)
+		assert.Same(t, high, got[0])
+	})
+
+	t.Run("returns every revocation tied at the highest term", func(t *testing.T) {
+		// Two different coordinators (coordA, coordB) each accepted at term 7 on
+		// different cohort members — sharing a term number doesn't mean sharing
+		// an outcome; both are returned, and it's the caller's job to reason
+		// about what that means.
+		tiedA := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
+		tiedB := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordB}
+		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
+		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: low},
+			{TermRevocation: tiedA},
+			{TermRevocation: tiedB},
+		})
+		require.Len(t, got, 2)
+		assert.Same(t, tiedA, got[0])
+		assert.Same(t, tiedB, got[1])
+	})
+
+	t.Run("ignores statuses with no revocation or a zero-valued one", func(t *testing.T) {
+		high := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 4}
+		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+			{},
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}},
+			{TermRevocation: high},
+		})
+		require.Len(t, got, 1)
+		assert.Same(t, high, got[0])
+	})
+
+	t.Run("collapses the same revocation reported by multiple cohort members", func(t *testing.T) {
+		// The routine case: one coordinator's revocation replicated to every
+		// cohort member. Each status holds its own (distinct) pointer, but the
+		// content is identical, so this must not look like a genuine split.
+		same := func() *clustermetadatapb.TermRevocation {
+			return &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
+		}
+		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: same()},
+			{TermRevocation: same()},
+			{TermRevocation: same()},
+		})
+		require.Len(t, got, 1)
+	})
+}
+
 func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
