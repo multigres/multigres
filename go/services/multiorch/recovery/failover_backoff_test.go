@@ -32,13 +32,13 @@ import (
 )
 
 func TestIsFailoverProblem(t *testing.T) {
-	assert.True(t, isFailoverProblem(types.ProblemLeaderUnspecified))
-	assert.True(t, isFailoverProblem(types.ProblemLeaderUnreachableByCohort))
-	assert.True(t, isFailoverProblem(types.ProblemLeaderUnhealthy))
-	assert.True(t, isFailoverProblem(types.ProblemLeaderResigned))
-	assert.False(t, isFailoverProblem(types.ProblemReplicaNotReplicating))
-	assert.False(t, isFailoverProblem(types.ProblemStaleLeader))
-	assert.False(t, isFailoverProblem(types.ProblemPoolerNotInCohort))
+	assert.True(t, types.ProblemLeaderUnspecified.IsFailoverProblem())
+	assert.True(t, types.ProblemLeaderUnreachableByCohort.IsFailoverProblem())
+	assert.True(t, types.ProblemLeaderUnhealthy.IsFailoverProblem())
+	assert.True(t, types.ProblemLeaderResigned.IsFailoverProblem())
+	assert.False(t, types.ProblemReplicaNotReplicating.IsFailoverProblem())
+	assert.False(t, types.ProblemStaleLeader.IsFailoverProblem())
+	assert.False(t, types.ProblemPoolerNotInCohort.IsFailoverProblem())
 }
 
 func TestLatestRevocation(t *testing.T) {

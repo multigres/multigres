@@ -435,21 +435,13 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 // observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy), whose
 // quorum-of-followers check is a different anti-false-positive mechanism.
 // Revisit if this causes false-positive failovers.
+// readyToExecute gates failover problems on collective recruitment backoff
+// rather than the local grace period (see types.ProblemCode.IsFailoverProblem).
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
-	if isFailoverProblem(problem.Code) {
+	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardKey)
 	}
 	return time.Time{}, re.recoveryGracePeriodTracker.ShouldExecute(problem)
-}
-
-// isFailoverProblem reports whether a problem is resolved by leader-replacement
-// recruitment, and so is gated on collective recruitment backoff rather than the
-// local grace period.
-func isFailoverProblem(code types.ProblemCode) bool {
-	return code == types.ProblemLeaderUnspecified ||
-		code == types.ProblemLeaderUnreachableByCohort ||
-		code == types.ProblemLeaderUnhealthy ||
-		code == types.ProblemLeaderResigned
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover
