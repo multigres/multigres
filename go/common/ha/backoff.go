@@ -22,6 +22,7 @@ package ha
 import (
 	"fmt"
 	"hash/fnv"
+	"math"
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -97,7 +98,14 @@ func (s BackoffSchedule) NextAttempt(rev *clustermetadatapb.TermRevocation, orch
 // (0-based) for the overflow-safe magnitude; the jitter strategy differs (see
 // the type doc).
 func (s BackoffSchedule) backoff(attempt int64) time.Duration {
-	return retry.ExponentialBackoffMagnitude(s.Base, s.Max, int(attempt-1))
+	max := s.Max
+	if max <= 0 {
+		// ExponentialBackoffMagnitude clamps to maxDelay unconditionally, so a
+		// literal zero would floor every delay at zero instead of leaving it
+		// uncapped as Max's doc promises.
+		max = math.MaxInt64
+	}
+	return retry.ExponentialBackoffMagnitude(s.Base, max, int(attempt-1))
 }
 
 // jitter returns a deterministic offset in [0, JitterFraction*base), hashed

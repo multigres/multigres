@@ -65,6 +65,15 @@ func TestBackoffSchedule_ExponentialGrowthAndCap(t *testing.T) {
 	}
 }
 
+func TestBackoffSchedule_ZeroMaxIsUncapped(t *testing.T) {
+	// Max's doc says zero means uncapped, not "clamp every delay to zero."
+	s := BackoffSchedule{Base: 2 * time.Second} // Max left at zero
+	initiated := time.Unix(1_000_000, 0)
+
+	got := s.NextAttempt(revAt(initiated, decision(4), 5), orch("a")).Sub(initiated)
+	assert.Equal(t, 32*time.Second, got, "should keep growing exponentially, not clamp to zero")
+}
+
 func TestBackoffSchedule_Deterministic(t *testing.T) {
 	s := DefaultBackoffSchedule()
 	initiated := time.Unix(1_000_000, 0)
