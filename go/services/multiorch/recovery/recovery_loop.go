@@ -435,8 +435,6 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 // observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy), whose
 // quorum-of-followers check is a different anti-false-positive mechanism.
 // Revisit if this causes false-positive failovers.
-// readyToExecute gates failover problems on collective recruitment backoff
-// rather than the local grace period (see types.ProblemCode.IsFailoverProblem).
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
 	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardKey)
