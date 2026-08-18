@@ -147,11 +147,17 @@ func revocationsMatchingDecision(statuses []*clustermetadatapb.ConsensusStatus, 
 // Ties are possible: different coordinators can each believe they held the
 // same term against the same decision on different cohort members — at most
 // one could have actually won it, possibly none did. Ties are broken
-// deterministically by AcceptedCoordinatorId (proto.Equal duplicates count as
-// one candidate) rather than by candidate order, so every caller computes the
-// same result from the same set regardless of how it assembled candidates —
-// required wherever independent orchestrators must agree on what a
-// revocation "is" without coordinating directly (see ha.BackoffSchedule).
+// deterministically (proto.Equal duplicates count as one candidate) rather
+// than by candidate order, so every caller computes the same result from the
+// same set regardless of how it assembled candidates — required wherever
+// independent orchestrators must agree on what a revocation "is" without
+// coordinating directly (see ha.BackoffSchedule):
+//
+//   - Different AcceptedCoordinatorId: the lexicographically smaller one wins.
+//   - Same AcceptedCoordinatorId (e.g. a restarted coordinator reusing a term
+//     with a fresh CoordinatorInitiatedAt — the conflict ValidateRevocation
+//     rejects once a pooler has already accepted one of them): the more
+//     recent CoordinatorInitiatedAt wins, as the newer attempt.
 func HighestTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
 	var best *clustermetadatapb.TermRevocation
 	for _, rev := range candidates {
@@ -164,7 +170,11 @@ func HighestTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clus
 			if rev.GetRevokedBelowTerm() > best.GetRevokedBelowTerm() {
 				best = rev
 			}
-		case topoclient.ClusterIDString(rev.GetAcceptedCoordinatorId()) < topoclient.ClusterIDString(best.GetAcceptedCoordinatorId()):
+		case topoclient.ClusterIDString(rev.GetAcceptedCoordinatorId()) != topoclient.ClusterIDString(best.GetAcceptedCoordinatorId()):
+			if topoclient.ClusterIDString(rev.GetAcceptedCoordinatorId()) < topoclient.ClusterIDString(best.GetAcceptedCoordinatorId()) {
+				best = rev
+			}
+		case rev.GetCoordinatorInitiatedAt().AsTime().After(best.GetCoordinatorInitiatedAt().AsTime()):
 			best = rev
 		}
 	}
@@ -174,7 +184,7 @@ func HighestTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clus
 // recruitAttempt returns the collective-backoff attempt count for a new
 // recruit, given previousRecruitForDecision — the cohort's most recent prior
 // revocation targeting the same decision (or nil if there is none; see
-// latestRevocationsForDecision, whose decision-scoping this relies on).
+// revocationsMatchingDecision, whose decision-scoping this relies on).
 //
 // Carries the prior count forward (+1) unless the prior recruit is older
 // than staleRecruitResetWindow — recruitment paused, e.g. scaled to zero and

@@ -489,6 +489,27 @@ func TestHighestTermRevocation(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, int64(7), got.GetRevokedBelowTerm())
 	})
+
+	t.Run("same coordinator and term but unequal content: the more recent CoordinatorInitiatedAt wins, not candidate order", func(t *testing.T) {
+		// A restarted coordinator can reuse a term with a fresh
+		// CoordinatorInitiatedAt — the exact conflict ValidateRevocation
+		// rejects once a pooler has already accepted one of them, so different
+		// poolers can end up holding different ones. Same AcceptedCoordinatorId
+		// and RevokedBelowTerm rules out the earlier tie-breaks entirely; the
+		// winner must still not depend on iteration order.
+		older := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       7,
+			AcceptedCoordinatorId:  coordA,
+			CoordinatorInitiatedAt: ts1,
+		}
+		newer := &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       7,
+			AcceptedCoordinatorId:  coordA,
+			CoordinatorInitiatedAt: ts2,
+		}
+		assert.Same(t, newer, HighestTermRevocation([]*clustermetadatapb.TermRevocation{older, newer}))
+		assert.Same(t, newer, HighestTermRevocation([]*clustermetadatapb.TermRevocation{newer, older}))
+	})
 }
 
 func TestRecruitAttempt(t *testing.T) {
