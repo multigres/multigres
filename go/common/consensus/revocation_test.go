@@ -372,50 +372,75 @@ func TestIsSelfRevoked(t *testing.T) {
 	}
 }
 
-func TestHighestTermRevocations(t *testing.T) {
-	t.Run("nil when no status carries a revocation", func(t *testing.T) {
-		assert.Nil(t, highestTermRevocations(nil))
-		assert.Nil(t, highestTermRevocations([]*clustermetadatapb.ConsensusStatus{{}}))
+func TestHighestRevokedBelowTerm(t *testing.T) {
+	t.Run("zero when no status carries a revocation", func(t *testing.T) {
+		assert.Zero(t, highestRevokedBelowTerm(nil))
+		assert.Zero(t, highestRevokedBelowTerm([]*clustermetadatapb.ConsensusStatus{{}}))
 	})
 
-	t.Run("single highest revocation", func(t *testing.T) {
-		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}
-		high := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}
-		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
-			{TermRevocation: low},
-			{TermRevocation: high},
+	t.Run("highest term across statuses, regardless of decision", func(t *testing.T) {
+		// Deliberately not decision-scoped: this is the safety floor a new
+		// revocation's own term must exceed, which applies no matter what
+		// decision each observed revocation targeted.
+		got := highestRevokedBelowTerm([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: rn(1, 0)}}},
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: rn(4, 0)}}},
 		})
-		require.Len(t, got, 1)
-		assert.Same(t, high, got[0])
-	})
-
-	t.Run("returns every revocation tied at the highest term", func(t *testing.T) {
-		// Two different coordinators (coordA, coordB) each accepted at term 7 on
-		// different cohort members — sharing a term number doesn't mean sharing
-		// an outcome; both are returned, and it's the caller's job to reason
-		// about what that means.
-		tiedA := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
-		tiedB := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordB}
-		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
-		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
-			{TermRevocation: low},
-			{TermRevocation: tiedA},
-			{TermRevocation: tiedB},
-		})
-		require.Len(t, got, 2)
-		assert.Same(t, tiedA, got[0])
-		assert.Same(t, tiedB, got[1])
+		assert.Equal(t, int64(7), got)
 	})
 
 	t.Run("ignores statuses with no revocation or a zero-valued one", func(t *testing.T) {
-		high := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 4}
-		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+		got := highestRevokedBelowTerm([]*clustermetadatapb.ConsensusStatus{
 			{},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 0}},
-			{TermRevocation: high},
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 4}},
 		})
+		assert.Equal(t, int64(4), got)
+	})
+}
+
+func TestLatestRevocationsForDecision(t *testing.T) {
+	decision4 := rn(4, 0)
+	decision6 := rn(6, 0)
+
+	t.Run("nil when no status matches the decision", func(t *testing.T) {
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6}}},
+		}, decision4)
+		assert.Nil(t, got)
+	})
+
+	t.Run("a numerically higher revocation targeting a different decision must not shadow a match", func(t *testing.T) {
+		// This is the bug this function fixes: the stale revocation at term 9
+		// targets decision6 (already resolved/unrelated), while the real prior
+		// attempt at decision4 is only at term 5. A global (decision-agnostic)
+		// max-term scan would have picked the term-9 one and missed this.
+		stale := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 9, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6}}
+		relevant := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4, Attempt: 2}}
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: stale},
+			{TermRevocation: relevant},
+		}, decision4)
 		require.Len(t, got, 1)
-		assert.Same(t, high, got[0])
+		assert.Same(t, relevant, got[0])
+	})
+
+	t.Run("returns every distinct revocation tied at the highest term for the decision", func(t *testing.T) {
+		// Two different coordinators (coordA, coordB) each accepted at term 7
+		// for the same decision on different cohort members — sharing a term
+		// number and decision doesn't mean sharing an outcome; both are
+		// returned, and it's the caller's job to reason about what that means.
+		tiedA := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4}}
+		tiedB := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordB, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4}}
+		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4}}
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: low},
+			{TermRevocation: tiedA},
+			{TermRevocation: tiedB},
+		}, decision4)
+		require.Len(t, got, 2)
+		assert.Same(t, tiedA, got[0])
+		assert.Same(t, tiedB, got[1])
 	})
 
 	t.Run("collapses the same revocation reported by multiple cohort members", func(t *testing.T) {
@@ -423,14 +448,77 @@ func TestHighestTermRevocations(t *testing.T) {
 		// cohort member. Each status holds its own (distinct) pointer, but the
 		// content is identical, so this must not look like a genuine split.
 		same := func() *clustermetadatapb.TermRevocation {
-			return &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
+			return &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4}}
 		}
-		got := highestTermRevocations([]*clustermetadatapb.ConsensusStatus{
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
 			{TermRevocation: same()},
 			{TermRevocation: same()},
 			{TermRevocation: same()},
-		})
+		}, decision4)
 		require.Len(t, got, 1)
+	})
+
+	t.Run("the real match is found regardless of its position among irrelevant entries", func(t *testing.T) {
+		// Same scenario as the shadowing test above, but with the matching
+		// entry buried between two mismatched ones, to rule out any
+		// accidental reliance on scan order.
+		before := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 9, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6}}
+		relevant := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4, Attempt: 2}}
+		after := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 8, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6}}
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: before},
+			{TermRevocation: relevant},
+			{TermRevocation: after},
+		}, decision4)
+		require.Len(t, got, 1)
+		assert.Same(t, relevant, got[0])
+	})
+
+	t.Run("among same-decision entries, a strictly higher term wins over a lower one", func(t *testing.T) {
+		// Unlike the tie case above, these two both target decision4 but at
+		// different terms — the lower one must not survive alongside the
+		// higher one, nor be returned instead of it.
+		older := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4, Attempt: 1}}
+		newer := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5, RecruitIntent: &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4, Attempt: 4}}
+		got := latestRevocationsForDecision([]*clustermetadatapb.ConsensusStatus{
+			{TermRevocation: older},
+			{TermRevocation: newer},
+		}, decision4)
+		require.Len(t, got, 1)
+		assert.Same(t, newer, got[0])
+	})
+}
+
+func TestRecruitAttempt(t *testing.T) {
+	t.Run("1 when there is no prior recruit for the decision", func(t *testing.T) {
+		assert.Equal(t, int64(1), recruitAttempt(nil, ts1, 5*time.Minute))
+	})
+
+	t.Run("carries the prior count forward when fresh", func(t *testing.T) {
+		prior := &clustermetadatapb.TermRevocation{
+			CoordinatorInitiatedAt: ts1,
+			RecruitIntent:          &clustermetadatapb.RecruitIntent{Attempt: 2},
+		}
+		got := recruitAttempt(prior, timestamppb.New(ts1.AsTime().Add(time.Minute)), 5*time.Minute)
+		assert.Equal(t, int64(3), got)
+	})
+
+	t.Run("resets to 1 when the prior recruit is older than the reset window", func(t *testing.T) {
+		prior := &clustermetadatapb.TermRevocation{
+			CoordinatorInitiatedAt: ts1,
+			RecruitIntent:          &clustermetadatapb.RecruitIntent{Attempt: 7},
+		}
+		got := recruitAttempt(prior, timestamppb.New(ts1.AsTime().Add(time.Hour)), 5*time.Minute)
+		assert.Equal(t, int64(1), got)
+	})
+
+	t.Run("a zero reset window disables the staleness reset", func(t *testing.T) {
+		prior := &clustermetadatapb.TermRevocation{
+			CoordinatorInitiatedAt: ts1,
+			RecruitIntent:          &clustermetadatapb.RecruitIntent{Attempt: 2},
+		}
+		got := recruitAttempt(prior, timestamppb.New(ts1.AsTime().Add(time.Hour)), 0)
+		assert.Equal(t, int64(3), got)
 	})
 }
 
@@ -727,6 +815,50 @@ func TestNewTermRevocation(t *testing.T) {
 			RecruitIntent: &clustermetadatapb.RecruitIntent{
 				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				Attempt:         1,
+			},
+		}, rev)
+	})
+
+	t.Run("a stale revocation targeting an unrelated decision does not shadow the real prior attempt", func(t *testing.T) {
+		// pooler-A carries an old, abandoned attempt at a long-superseded
+		// decision (term 2) that happens to have a numerically higher term
+		// (9) than the real prior attempt. pooler-B is decided at the current
+		// decision (term 6) and holds the actual prior attempt at it (term 5,
+		// attempt 2). A decision-agnostic max-term scan would pick pooler-A's
+		// stale revocation and wrongly reset the count to 1; this must
+		// instead find pooler-B's and carry it forward to 3.
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{
+				CurrentPosition: positionAtCoordTerm(2),
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 9,
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+						Attempt:         5,
+					},
+				},
+			},
+			{
+				CurrentPosition: positionAtCoordTerm(6),
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 5,
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+						Attempt:         2,
+					},
+				},
+			},
+		}
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
+		require.NoError(t, err)
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       10,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+			RecruitIntent: &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+				Attempt:         3,
 			},
 		}, rev)
 	})

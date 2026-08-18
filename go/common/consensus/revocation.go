@@ -88,13 +88,16 @@ func NewTermRevocation(
 	// TODO: once propagation only recruits statuses sharing the outgoing decision,
 	// this term scan can be narrowed to those.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
-	highestRevs := highestTermRevocations(statuses)
-	var latestRevocation *clustermetadatapb.TermRevocation
-	if len(highestRevs) > 0 {
-		latestRevocation = highestRevs[0]
-		if t := latestRevocation.GetRevokedBelowTerm(); t > maxTerm {
-			maxTerm = t
-		}
+	if t := highestRevokedBelowTerm(statuses); t > maxTerm {
+		maxTerm = t
+	}
+
+	// latestRevocationForDecision is the most recent prior attempt at THIS SAME decision —
+	// deliberately decision-scoped, unlike maxTerm above (see
+	// latestRevocationsForDecision's doc for why).
+	var latestRevocationForDecision *clustermetadatapb.TermRevocation
+	if revs := latestRevocationsForDecision(statuses, replaceDecision); len(revs) > 0 {
+		latestRevocationForDecision = revs[0]
 	}
 
 	return &clustermetadatapb.TermRevocation{
@@ -104,25 +107,48 @@ func NewTermRevocation(
 		OutgoingRule:           outgoingRule,
 		RecruitIntent: &clustermetadatapb.RecruitIntent{
 			ReplaceDecision: replaceDecision,
-			Attempt:         recruitAttempt(latestRevocation, replaceDecision, initiatedAt, staleRecruitResetWindow),
+			Attempt:         recruitAttempt(latestRevocationForDecision, initiatedAt, staleRecruitResetWindow),
 		},
 	}, nil
 }
 
-// highestTermRevocations returns every distinct TermRevocation across
-// statuses whose RevokedBelowTerm equals the highest observed, or nil if none
-// carries one.
+// highestRevokedBelowTerm returns the highest revoked_below_term across all
+// statuses (0 if none), regardless of what decision each revocation
+// targeted. Once a pooler accepts a term, it refuses anything lower no
+// matter what a new proposal claims to transition from — this is the
+// decision-agnostic safety floor a new revocation's own term must exceed.
+func highestRevokedBelowTerm(statuses []*clustermetadatapb.ConsensusStatus) int64 {
+	var maxTerm int64
+	for _, cs := range statuses {
+		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
+			maxTerm = t
+		}
+	}
+	return maxTerm
+}
+
+// latestRevocationsForDecision returns every distinct TermRevocation among
+// statuses whose RecruitIntent.ReplaceDecision matches replaceDecision and
+// whose RevokedBelowTerm is the highest among those, or nil if none match.
+// proto.Equal duplicates are collapsed.
 //
-// It's possible that none of the revocations returned reached a majority of
-// the outgoing cohort and won the term.
-func highestTermRevocations(statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.TermRevocation {
+// Decision-scoped on purpose (see IsRuleRevoked's outgoing_rule-relative
+// comparison — the same principle applies to replace_decision): a
+// revocation's term is only meaningful relative to the decision it targets,
+// so this must not be confused with the global, decision-agnostic scan in
+// highestRevokedBelowTerm. Multiple entries can still come from different
+// coordinators that each believed they held that term for this same
+// decision — at most one could have actually won it, possibly none did.
+func latestRevocationsForDecision(statuses []*clustermetadatapb.ConsensusStatus, replaceDecision *clustermetadatapb.RuleNumber) []*clustermetadatapb.TermRevocation {
 	var maxTerm int64
 	var revs []*clustermetadatapb.TermRevocation
 	for _, cs := range statuses {
 		rev := cs.GetTermRevocation()
 		t := rev.GetRevokedBelowTerm()
+		if t <= 0 || CompareRuleNumbers(rev.GetRecruitIntent().GetReplaceDecision(), replaceDecision) != 0 {
+			continue
+		}
 		switch {
-		case t <= 0:
 		case t > maxTerm:
 			maxTerm = t
 			revs = []*clustermetadatapb.TermRevocation{rev}
@@ -145,33 +171,30 @@ func containsEqualRevocation(revs []*clustermetadatapb.TermRevocation, rev *clus
 }
 
 // recruitAttempt returns the collective-backoff attempt count for a new
-// recruit targeting replaceDecision, given the cohort's most recent prior
-// revocation (or nil if there is none).
+// recruit, given previousRecruitForDecision — the cohort's most recent prior
+// revocation targeting the same decision (or nil if there is none; see
+// latestRevocationsForDecision, whose decision-scoping this relies on).
 //
-// Carries the prior count forward (+1) while replaceDecision is unchanged, so
-// repeated undecided attempts to move past the same decision escalate the
-// backoff (see go/common/ha) instead of firing bursts in fast succession.
-// Resets to 1 when either replaceDecision advanced (real progress), or the
-// prior recruit is older than staleRecruitResetWindow — recruitment paused,
-// e.g. scaled to zero and restarted (a zero window disables this reset; both
-// timestamps are passed in, no wall-clock read).
+// Carries the prior count forward (+1) unless the prior recruit is older
+// than staleRecruitResetWindow — recruitment paused, e.g. scaled to zero and
+// restarted (a zero window disables this reset; both timestamps are passed
+// in, no wall-clock read). Resetting on replaceDecision advancing (real
+// progress) is handled by the caller only passing a same-decision
+// previousRecruitForDecision in the first place.
 //
 // Counts failed *establishments*, not lost contention: a coordinator that
 // loses the term race writes no revocation, so only an accepted recruit that
 // fails to advance the decision increments the count. Losers just observe the
 // winner's revocation and back off to their own slot.
-func recruitAttempt(latest *clustermetadatapb.TermRevocation, replaceDecision *clustermetadatapb.RuleNumber, initiatedAt *timestamppb.Timestamp, staleRecruitResetWindow time.Duration) int64 {
-	if latest == nil {
-		return 1
-	}
-	if CompareRuleNumbers(replaceDecision, latest.GetRecruitIntent().GetReplaceDecision()) != 0 {
+func recruitAttempt(previousRecruitForDecision *clustermetadatapb.TermRevocation, initiatedAt *timestamppb.Timestamp, staleRecruitResetWindow time.Duration) int64 {
+	if previousRecruitForDecision == nil {
 		return 1
 	}
 	if staleRecruitResetWindow > 0 &&
-		initiatedAt.AsTime().Sub(latest.GetCoordinatorInitiatedAt().AsTime()) > staleRecruitResetWindow {
+		initiatedAt.AsTime().Sub(previousRecruitForDecision.GetCoordinatorInitiatedAt().AsTime()) > staleRecruitResetWindow {
 		return 1
 	}
-	return latest.GetRecruitIntent().GetAttempt() + 1
+	return previousRecruitForDecision.GetRecruitIntent().GetAttempt() + 1
 }
 
 // IsRuleRevoked reports whether the pooler's recorded revocation forbids
