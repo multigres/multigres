@@ -1,9 +1,21 @@
-# Known divergence: multigateway rejects LOAD by design (loading shared
-# libraries through the connection pooler is not permitted; see
-# go/services/multigateway/planner/unsafe_stmt.go). The library is preloaded
-# cluster-wide instead via shared_preload_libraries (PreloadLibraries on the
-# plpgsql_check spec in extensions.go), so the test's LOAD is semantically a
-# no-op and only the extra ERROR line differs.
+# Known divergences, all by design. plpgsql_check's suite feeds multigres exactly
+# the PL/pgSQL patterns the connection pooler refuses, so the rejections below are
+# the intended behavior a pooled user sees -- recorded here rather than hidden.
+#
+# 1. LOAD is rejected (loading shared libraries through the pooler is not
+#    permitted; see go/services/multigateway/planner/unsafe_stmt.go). The library
+#    is preloaded cluster-wide via shared_preload_libraries (PreloadLibraries on
+#    the plpgsql_check spec in extensions.go), so the LOAD is a semantic no-op and
+#    only the extra ERROR line differs.
+#
+# 2. multigateway parses every PL/pgSQL body at CREATE for safety analysis and
+#    rejects one it cannot parse. This suite deliberately creates functions with
+#    errors PostgreSQL only reports at run time (here: too many / too few
+#    parameters for RAISE), so stock PG creates the function and the error surfaces
+#    on `select f1()`, whereas multigres rejects the CREATE up front. The rejected
+#    `create or replace f1` leaves no f1, so `select f1()` / `drop function f1()`
+#    then report "does not exist" -- a consequence of the rejection, not a
+#    separate divergence.
 --- a
 +++ b
 @@ -1,5 +1,7 @@
@@ -14,3 +26,37 @@
  set client_min_messages to notice;
  -- enforce context's displaying
  -- emulate pre 9.6 behave
+@@ -257,10 +259,14 @@
+ end if;
+ end;
+ $$ language plpgsql;
++ERROR: the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ select f1();
+-ERROR: too many parameters specified for RAISE
+-CONTEXT: compilation of PL/pgSQL function "f1" near line 4
++ERROR: function f1() does not exist
++LINE 1: select f1();
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ drop function f1();
++ERROR: function f1() does not exist
+ create or replace function f1()
+ returns void as $$
+ begin
+@@ -269,10 +275,14 @@
+ end if;
+ end;
+ $$ language plpgsql;
++ERROR: the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ select f1();
+-ERROR: too few parameters specified for RAISE
+-CONTEXT: compilation of PL/pgSQL function "f1" near line 4
++ERROR: function f1() does not exist
++LINE 1: select f1();
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ drop function f1();
++ERROR: function f1() does not exist
+ create type _exception_type as (
+ state text,
+ message text,
