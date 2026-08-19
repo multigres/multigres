@@ -102,7 +102,7 @@ func TestFilterCohortIneligible(t *testing.T) {
 	}
 }
 
-func TestRevocationsRelevantToDecision(t *testing.T) {
+func TestBackoffRelevantRevocations(t *testing.T) {
 	decision4 := &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}
 	decision6 := &clustermetadatapb.RuleNumber{CoordinatorTerm: 6}
 	statusWith := func(rev *clustermetadatapb.TermRevocation) *clustermetadatapb.ConsensusStatus {
@@ -110,7 +110,7 @@ func TestRevocationsRelevantToDecision(t *testing.T) {
 	}
 
 	t.Run("excludes a revocation with no accepted term", func(t *testing.T) {
-		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{
+		got := backoffRelevantRevocations([]*clustermetadatapb.ConsensusStatus{
 			statusWith(&clustermetadatapb.TermRevocation{}),
 		}, decision4)
 		assert.Empty(t, got)
@@ -121,7 +121,7 @@ func TestRevocationsRelevantToDecision(t *testing.T) {
 			RevokedBelowTerm: 5,
 			RecruitIntent:    &clustermetadatapb.RecruitIntent{ReplaceDecision: decision4},
 		}
-		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(matching)}, decision4)
+		got := backoffRelevantRevocations([]*clustermetadatapb.ConsensusStatus{statusWith(matching)}, decision4)
 		require.Len(t, got, 1)
 		assert.Same(t, matching, got[0])
 	})
@@ -134,7 +134,7 @@ func TestRevocationsRelevantToDecision(t *testing.T) {
 			RevokedBelowTerm: 9,
 			RecruitIntent:    &clustermetadatapb.RecruitIntent{ReplaceDecision: decision6},
 		}
-		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(different)}, decision4)
+		got := backoffRelevantRevocations([]*clustermetadatapb.ConsensusStatus{statusWith(different)}, decision4)
 		assert.Empty(t, got)
 	})
 
@@ -145,7 +145,7 @@ func TestRevocationsRelevantToDecision(t *testing.T) {
 		// unlike commonconsensus.NewTermRevocation's stricter, exact-match
 		// filtering, which only needs a same-decision match to be useful.
 		untargeted := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
-		got := revocationsRelevantToDecision([]*clustermetadatapb.ConsensusStatus{statusWith(untargeted)}, decision4)
+		got := backoffRelevantRevocations([]*clustermetadatapb.ConsensusStatus{statusWith(untargeted)}, decision4)
 		require.Len(t, got, 1)
 		assert.Same(t, untargeted, got[0])
 	})
