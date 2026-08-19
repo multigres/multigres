@@ -24,6 +24,8 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // newSentinelTestManager builds a manager whose pooler directory is a writable
@@ -146,6 +148,42 @@ func TestTrackRecoveryOutcome_RewindSentinelCountsWhileRunning(t *testing.T) {
 	quarantined, reason, _ := quarantineState(pm)
 	assert.True(t, quarantined, "an unrecoverable interrupted rewind must quarantine despite postgres appearing to run")
 	assert.NotEmpty(t, reason)
+}
+
+// TestRewindDetachOutlivesCallerCancellation verifies the point-of-no-return
+// contract used by restartAsStandbyLocked: once the destructive stop -> pg_rewind
+// -> restart sequence is detached from the caller's context (an incoming
+// SetPrimary RPC that carries multiorch's action deadline, e.g. FixReplication's
+// 45s), the caller's cancellation neither cancels the operation nor drops the
+// action lock it holds. That is what lets a started pg_rewind run to completion
+// rather than be SIGKILLed mid-write when the RPC times out.
+func TestRewindDetachOutlivesCallerCancellation(t *testing.T) {
+	pm := newTestManager(t)
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	// The caller's RPC context (carrying a deadline in production), derived from
+	// the locked context the way an incoming RPC handler holds the action lock.
+	callerCtx, cancel := context.WithCancel(lockCtx)
+
+	// The exact detach restartAsStandbyLocked performs at the point of no return.
+	opCtx, opCancel := context.WithTimeout(
+		actionlock.CarryLock(ctxutil.Detach(callerCtx), callerCtx), time.Minute)
+	defer opCancel()
+
+	// The caller's deadline fires.
+	cancel()
+	require.Error(t, callerCtx.Err(), "precondition: caller context is cancelled")
+
+	// The detached operation continues unaffected...
+	assert.NoError(t, opCtx.Err(),
+		"a started rewind must not be cancelled when the caller's RPC deadline fires")
+	// ...and still holds the action lock, so pgctld's protected Stop/Restart/PgRewind
+	// calls (which assert ownership) still succeed and the monitor stays blocked.
+	assert.NoError(t, actionlock.AssertActionLockHeld(opCtx),
+		"the detached rewind context must keep proving action-lock ownership")
 }
 
 // TestTrackRecoveryOutcome_ResetsWhenRunningWithoutSentinel guards the boundary:

@@ -36,7 +36,18 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
+
+// rewindOperationTimeout bounds the detached stop -> pg_rewind ->
+// restart-as-standby sequence in restartAsStandbyLocked. Once postgres is
+// stopped that sequence runs to completion independent of the caller's deadline
+// (see the point-of-no-return detach), so this is only a backstop against a
+// genuinely hung operation holding the action lock forever. It is deliberately
+// generous: pg_rewind runtime scales with retained pg_wal (gigabytes, minutes
+// under IO throttling), and a rewind that merely runs long must be allowed to
+// finish rather than be abandoned mid-write.
+const rewindOperationTimeout = 30 * time.Minute
 
 // broadcastHealth broadcasts the current health state to all subscribers.
 //
@@ -939,6 +950,24 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}
 	}
+
+	// Point of no return. The measurement above ran on the caller's ctx and is
+	// safe to abort — postgres is still up and the data directory is untouched.
+	// From here we stop postgres and (if diverged) pg_rewind it, which mutates the
+	// data directory in place and is not transactional: abandoning midway leaves a
+	// half-rewound, unstartable directory. This function is reached under an
+	// incoming SetPrimary RPC whose context carries multiorch's action budget (e.g.
+	// FixReplication's 45s), and a rewind can outlive that budget because its
+	// runtime scales with retained pg_wal. So detach the destructive sequence from
+	// the caller's cancellation — keeping the action lock (via CarryLock, since
+	// Detach drops context values) so the monitor still cannot start postgres
+	// underneath us, and preserving telemetry — under our own generous timeout. If
+	// the caller's deadline fires, its RPC returns while this sequence keeps running
+	// to a valid standby (or a definitive failure); the caller simply retries and
+	// finds the node already healed.
+	opCtx, cancel := context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+	defer cancel()
+	ctx = opCtx
 
 	pm.logger.InfoContext(ctx, "pausing manager and stopping Postgres to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
