@@ -72,13 +72,18 @@ type Conn struct {
 	// released indicates whether this connection has been released.
 	released atomic.Bool
 
-	// closeOnRelease prevents temporary-object access from leaking to another
-	// logical session. Set by MarkTempTainted only after a temp-reason
-	// statement SUCCEEDS on this backend — a rejected statement leaves no
-	// temp objects behind (an aborted creating transaction rolls back even
-	// the namespace instantiation), so it must not cost the backend its life.
-	// One-way: DISCARD TEMP drops the objects but cannot unfreeze
-	// temp_buffers, so once set the backend is closed at release.
+	// closeOnRelease marks this backend as no longer safe to hand to another
+	// logical session: at release it is closed rather than recycled into the
+	// pool. It is one-way — nothing clears it — because the conditions that
+	// set it are ones no cleanup statement can reliably undo.
+	//
+	// Temporary-object access is currently the only thing that sets it (via
+	// MarkTempTainted), and it is set only after a temp-reason statement
+	// SUCCEEDS: a rejected statement leaves no temp objects behind (an aborted
+	// creating transaction rolls back even the namespace instantiation), so it
+	// must not cost the backend its life. That case is also why the flag is
+	// one-way — DISCARD TEMP drops the objects but cannot unfreeze
+	// temp_buffers. Other reasons to retire a backend can set it the same way.
 	closeOnRelease atomic.Bool
 
 	// txnStartTime is when the current transaction began. Set by the begin

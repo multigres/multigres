@@ -52,12 +52,39 @@ var restrictedGUCs = map[string]string{
 // value. Shared by the planner's statement/expression guards and the engine's
 // execute-time bound-name resolution so all surfaces give the same message.
 func RestrictedGUCError(name string) error {
-	canonical := strings.ToLower(name)
-	reason, ok := restrictedGUCs[canonical]
+	canonical, reason, ok := restrictedGUC(name)
 	if !ok {
 		return nil
 	}
 	return mterrors.NewFeatureNotSupported(fmt.Sprintf(
 		"setting %s is not supported: %s; use RESET %s (or SET %s TO DEFAULT) to restore the managed value",
 		canonical, reason, canonical, canonical))
+}
+
+// RestrictedGUCStartupError is RestrictedGUCError for the connection startup
+// path, where a client can supply a GUC as a startup parameter or via
+// options=-c name=value. Those values flow into the session settings replayed
+// onto pooled backends, so the statement-level guard alone would leave a
+// connect-time bypass.
+//
+// The message differs because the advice does: at startup there is no revert
+// form to point at — supplying the parameter at all is the assignment — so the
+// fix is to omit it and let the cluster-managed value apply.
+func RestrictedGUCStartupError(name string) error {
+	canonical, reason, ok := restrictedGUC(name)
+	if !ok {
+		return nil
+	}
+	return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+		"setting %s at connection startup is not supported: %s; omit it and the cluster-managed value applies",
+		canonical, reason))
+}
+
+// restrictedGUC looks name up in restrictedGUCs, returning its canonical
+// (lowercased) spelling and reason. Keeping the lookup in one place means a new
+// entry in the map is honored by every surface at once.
+func restrictedGUC(name string) (canonical, reason string, ok bool) {
+	canonical = strings.ToLower(name)
+	reason, ok = restrictedGUCs[canonical]
+	return canonical, reason, ok
 }
