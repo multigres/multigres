@@ -94,9 +94,14 @@ const (
 //	regularConn, _ := mgr.GetRegularConn(ctx, user)
 //	reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 type Manager struct {
-	config     *Config
-	logger     *slog.Logger      // Set by Open()
-	connConfig *ConnectionConfig // Stored for lazy pool creation
+	config *Config
+	logger *slog.Logger // Set by Open()
+
+	// connConfig holds the connection settings, stored once at Open and read
+	// lock-free elsewhere — PgDatabase (off the postgres-monitor loop) and
+	// buildClientConfig (on pool creation). An atomic pointer so those reads never
+	// race the Open write; nil until the first Open.
+	connConfig atomic.Pointer[ConnectionConfig]
 
 	ctx           context.Context          // Manager lifecycle context, used for lazy pool creation
 	adminPool     *admin.Pool              // Shared admin pool for kill operations
@@ -186,7 +191,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	defer m.createMu.Unlock()
 
 	m.ctx = ctx
-	m.connConfig = connConfig
+	m.connConfig.Store(connConfig)
 	emptyPools := make(map[string]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
 
@@ -277,16 +282,20 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // this manager. They are honored only on TCP connections (libpq parity); the
 // client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
+	// Non-nil on every call: buildClientConfig runs only after Open has stored
+	// connConfig (the admin pool is built later in Open; user pools are built
+	// lazily thereafter).
+	cc := m.connConfig.Load()
 	return &client.Config{
-		SocketFile:     m.connConfig.SocketFile,
-		Host:           m.connConfig.Host,
-		Port:           m.connConfig.Port,
-		Database:       m.connConfig.Database,
+		SocketFile:     cc.SocketFile,
+		Host:           cc.Host,
+		Port:           cc.Port,
+		Database:       cc.Database,
 		User:           user,
 		Password:       password,
-		SSLMode:        m.connConfig.SSLMode,
-		SSLNegotiation: m.connConfig.SSLNegotiation,
-		TLSConfig:      m.connConfig.TLSConfig,
+		SSLMode:        cc.SSLMode,
+		SSLNegotiation: cc.SSLNegotiation,
+		TLSConfig:      cc.TLSConfig,
 		DialTimeout:    m.config.DialTimeout(),
 	}
 }
@@ -532,6 +541,16 @@ func (m *Manager) teardownLocked() {
 // PgUser returns the configured PostgreSQL user for system queries.
 func (m *Manager) PgUser() string {
 	return m.config.PgUser()
+}
+
+// PgDatabase returns the PostgreSQL database the pooler connects to, taken from
+// the connection config supplied at Open. Empty before Open.
+func (m *Manager) PgDatabase() string {
+	cc := m.connConfig.Load()
+	if cc == nil {
+		return ""
+	}
+	return cc.Database
 }
 
 // PgPassword returns the resolved PostgreSQL superuser password and an "ok"
