@@ -97,6 +97,11 @@ type Multipooler struct {
 	backendVpidTrackingEnabled       viperutil.Value[bool]
 	postgresUnrecoverableTimeout     viperutil.Value[time.Duration]
 	postgresUnrecoverableMinAttempts viperutil.Value[int]
+	// slotBasedReplicationEnabled gates slot-based physical replication
+	// (per-follower physical slots, primary_slot_name, synchronized_standby_slots).
+	// Dynamic so it can be toggled at runtime as a rollout kill-switch; default
+	// false keeps the current slot-less behavior.
+	slotBasedReplicationEnabled viperutil.Value[bool]
 	// flagSet is saved at RegisterFlags time so resolvers can distinguish an
 	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
 	// which viperutil.Get cannot.
@@ -223,6 +228,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "postgres-unrecoverable-min-attempts",
 			Dynamic:  false,
 		}),
+		slotBasedReplicationEnabled: viperutil.Configure(reg, "enable-slot-based-replication", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-slot-based-replication",
+			Dynamic:  true,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -264,6 +274,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement (e.g. 5m). 0 (default) disables it; enable only where an actor replaces quarantined nodes.")
 	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
+	flags.Bool("enable-slot-based-replication", mp.slotBasedReplicationEnabled.Default(), "Enable slot-based physical replication (per-follower physical replication slots, primary_slot_name, synchronized_standby_slots) for logical-slot failover. Dynamic (runtime-toggleable); default off keeps the slot-less posture.")
 
 	viperutil.BindFlags(
 		flags,
@@ -286,6 +297,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.backendVpidTrackingEnabled,
 		mp.postgresUnrecoverableTimeout,
 		mp.postgresUnrecoverableMinAttempts,
+		mp.slotBasedReplicationEnabled,
 	)
 	mp.flagSet = flags
 
@@ -447,6 +459,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		ConsensusEnabled:             mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 		ConnPoolConfig:               mp.connPoolConfig,
 		BackendVpidTrackingEnabled:   mp.backendVpidTrackingEnabled.Get(),
+		SlotBasedReplicationEnabled:  mp.slotBasedReplicationEnabled.Get,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),

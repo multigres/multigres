@@ -155,6 +155,17 @@ func (s *managerService) ResignLeadership(ctx context.Context, req *multipoolerm
 	return resp, nil
 }
 
+// ReconcileFollowers ensures the primary holds a per-follower physical replication
+// slot for each cohort-eligible follower in the request (creating missing slots,
+// dropping managed slots for members no longer listed). It is a declarative,
+// non-consensus notification the orchestrator sends off the cohort path.
+func (s *managerService) ReconcileFollowers(ctx context.Context, req *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error) {
+	if err := s.manager.ReconcileFollowers(ctx, req.GetFollowers()); err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.ReconcileFollowersResponse{}, nil
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
 func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)

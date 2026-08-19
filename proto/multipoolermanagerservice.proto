@@ -96,6 +96,17 @@ service MultipoolerManager {
   rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
       returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
 
+  // ReconcileFollowers declares to the primary the full set of cohort-eligible
+  // follower members it should hold per-follower physical replication slots for.
+  // The primary creates any missing slot and drops managed slots for members no
+  // longer in the set. It is level-triggered and declarative: the orchestrator
+  // re-sends the set each cycle, so a missed event or a primary restart
+  // self-heals. It creates only the physical slots (so a late-joining standby
+  // can stream); it does NOT touch synchronized_standby_slots — a follower is
+  // added there only once it is streaming and caught up, via the cohort path.
+  rpc ReconcileFollowers(multipoolermanagerdata.ReconcileFollowersRequest)
+      returns (multipoolermanagerdata.ReconcileFollowersResponse);
+
   //
   // PostgreSQL Configuration Reload
   //

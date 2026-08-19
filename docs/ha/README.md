@@ -43,6 +43,7 @@ Point-in-time records of specific HA decisions and their rationale:
 - [Use `synchronous_commit = on`](decision-log/2026-02-12-synchronous-commit-on.md)
 - [Wait for WAL replay to stabilize during standby revoke](decision-log/2026-02-12-wait-for-replay-stabilize-during-revoke.md)
 - [Block user changes to `synchronous_commit`](decision-log/2026-05-29-block-synchronous-commit-changes.md)
+- [Failover-slot readiness before promotion](decision-log/2026-08-17-failover-slot-readiness-before-promotion.md)
 
 ## Status of these docs
 

@@ -337,6 +337,19 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
 
+	// Failover-slot readiness feeds multiorch's slot-aware leader appointment.
+	// Only meaningful with slot-based replication on; best-effort — a read
+	// failure (e.g. postgres unreachable) leaves the counts zero, which safely
+	// deprioritizes this node as a promotion target rather than failing Status.
+	if pm.slotBasedReplicationEnabled() {
+		if ready, total, err := pm.failoverSlotReadiness(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "failed to read failover-slot readiness for status", "error", err)
+		} else {
+			poolerStatus.FailoverSlotsReady = int32(ready)
+			poolerStatus.FailoverSlotsTotal = int32(total)
+		}
+	}
+
 	resp := &multipoolermanagerdatapb.StatusResponse{
 		Status: poolerStatus,
 	}
@@ -540,6 +553,31 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	newPos, err := pm.DoUpdateRule(ctx, standbyUpdate)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to record replication config history")
+	}
+
+	// Slot-based replication (flag-gated): keep the per-follower physical slots in
+	// step with the committed cohort change. Best-effort — the rule is already
+	// committed, so a slot hiccup must not fail the cohort update; a later
+	// lifecycle event reconciles. ADD creates the new follower's slot so its
+	// primary_slot_name resolves once multiorch re-issues SetPrimary; REMOVE drops
+	// the departed follower's slot so it stops pinning WAL.
+	switch operation {
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD:
+		if err := pm.ensureFollowerPhysicalSlots(ctx, standbyIDs); err != nil {
+			pm.logger.WarnContext(ctx, "failed to create physical slots for added cohort members (non-fatal)", "error", err)
+		}
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE:
+		if err := pm.dropFollowerPhysicalSlots(ctx, standbyIDs); err != nil {
+			pm.logger.WarnContext(ctx, "failed to drop physical slots for removed cohort members (non-fatal)", "error", err)
+		}
+	}
+	// Recompute synchronized_standby_slots from the full committed cohort so the
+	// hold tracks the current follower set after an add or remove.
+	if operation == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD ||
+		operation == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE {
+		if err := pm.setSynchronizedStandbySlots(ctx, updatedStandbyIDs); err != nil {
+			pm.logger.WarnContext(ctx, "failed to update synchronized_standby_slots after cohort change (non-fatal)", "error", err)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully", //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -783,6 +821,14 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
 	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
 		return err
+	}
+
+	// Slot-based replication (flag-gated): the restart terminated this node's
+	// walsenders, so its former follower physical slots are now inactive and
+	// obsolete. Drop them so they don't pin WAL on a node that no longer backs
+	// any followers. Best-effort — a later demote / the monitor can retry.
+	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop managed physical slots after demote (non-fatal)", "error", err)
 	}
 
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next

@@ -74,6 +74,7 @@ type FakeClient struct {
 	GetBackupsResponses                 map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	ResignLeadershipResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse
+	ReconcileFollowersResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 
@@ -118,6 +119,7 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                 make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		ResignLeadershipResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse),
+		ReconcileFollowersResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
@@ -195,6 +197,13 @@ func (f *FakeClient) SetResignLeadershipResponse(poolerID topoclient.ComponentID
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ResignLeadershipResponses[poolerID] = resp
+}
+
+// SetReconcileFollowersResponse sets a ReconcileFollowers response for a pooler.
+func (f *FakeClient) SetReconcileFollowersResponse(poolerID topoclient.ComponentID, resp *multipoolermanagerdatapb.ReconcileFollowersResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ReconcileFollowersResponses[poolerID] = resp
 }
 
 // SetPostgresRestartsEnabledResponse sets a SetPostgresRestartsEnabled response for a pooler.
@@ -492,6 +501,23 @@ func (f *FakeClient) ResignLeadership(ctx context.Context, pooler *clustermetada
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.ResignLeadershipResponse{}, nil
+}
+
+// ReconcileFollowers records the call and returns a scripted or empty response.
+func (f *FakeClient) ReconcileFollowers(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ReconcileFollowers", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ReconcileFollowersResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ReconcileFollowersResponse{}, nil
 }
 
 //
