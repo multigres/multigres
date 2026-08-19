@@ -886,6 +886,12 @@ func (c *Conn) serve() error {
 				c.abortWriterBuffering()
 				return err
 			}
+			// PostgreSQL closes the connection without emitting a pgwire error
+			// when a frontend frame exceeds PQ_LARGE_MESSAGE_LIMIT.
+			if errors.Is(err, errFrontendMessageTooLarge) {
+				c.abortWriterBuffering()
+				return err
+			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
@@ -1056,8 +1062,17 @@ func (c *Conn) handleMessage(msgType byte) error {
 		// consumed by serve()'s ReadMessageType; if we don't consume
 		// the length here, the next ReadMessageType picks up 0x00
 		// and treats it as a bogus type.
-		if _, err := c.ReadMessageLength(); err != nil {
+		bodyLen, err := c.ReadMessageLength()
+		if err != nil {
 			return fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		if bodyLen != 0 {
+			if _, err := c.readMessageBody(bodyLen); err != nil {
+				return fmt.Errorf("failed to read Flush message body: %w", err)
+			}
+			c.returnReadBuffer()
+			return c.writeExtendedProtocolViolation("invalid Flush message",
+				fmt.Errorf("expected empty body, got %d bytes", bodyLen))
 		}
 		// Push any buffered bytes (including a deferred Describe('P')
 		// that resolveDeferredPortalDescribe flushed into the buffer
@@ -1222,6 +1237,25 @@ func preserveExtendedQueryError(err error, fallback *mterrors.MTError) error {
 	return fallback.NewWithDetail(err.Error())
 }
 
+func protocolViolation(message string, err error) *mterrors.PgDiagnostic {
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation, message, detail)
+}
+
+func (c *Conn) writeExtendedProtocolViolation(message string, err error) error {
+	return c.writeExtendedQueryError(protocolViolation(message, err))
+}
+
+func requireMessageConsumed(reader *MessageReader, messageType string) error {
+	if remaining := reader.Remaining(); remaining != 0 {
+		return fmt.Errorf("invalid %s message: %d trailing bytes", messageType, remaining)
+	}
+	return nil
+}
+
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 // Parse message format:
 // - Statement name (string, null-terminated)
@@ -1252,26 +1286,33 @@ func (c *Conn) handleParse() error {
 
 	stmtName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read statement name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read statement name: %w", err))
 	}
 
 	queryStr, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read query string: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read query string: %w", err))
 	}
 
-	paramCount, err := reader.ReadInt16()
+	paramCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read parameter count: %w", err))
+	}
+	if int(paramCount) > reader.Remaining()/4 {
+		return c.writeExtendedProtocolViolation("invalid Parse message",
+			fmt.Errorf("parameter type count %d exceeds remaining message body", paramCount))
 	}
 
-	paramTypes := make([]uint32, paramCount)
+	paramTypes := make([]uint32, int(paramCount))
 	for i := range paramCount {
 		oid, err := reader.ReadUint32()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter type %d: %w", i, err)
+			return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read parameter type %d: %w", i, err))
 		}
 		paramTypes[i] = oid
+	}
+	if err := requireMessageConsumed(&reader, "Parse"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Parse message", err)
 	}
 
 	c.logger.Debug("parse", "name", stmtName, "query", queryStr, "param_count", paramCount)
@@ -1321,54 +1362,77 @@ func (c *Conn) handleBind() error {
 
 	portalName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read portal name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read portal name: %w", err))
 	}
 
 	stmtName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read statement name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read statement name: %w", err))
 	}
 
 	// Read parameter format codes
-	paramFormatCount, err := reader.ReadInt16()
+	paramFormatCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter format count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter format count: %w", err))
 	}
-	paramFormats := make([]int16, paramFormatCount)
+	if int(paramFormatCount) > reader.Remaining()/2 {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("parameter format count %d exceeds remaining message body", paramFormatCount))
+	}
+	paramFormats := make([]int16, int(paramFormatCount))
 	for i := range paramFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter format: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter format: %w", err))
+		}
+		if format != 0 && format != 1 {
+			return c.writeExtendedQueryError(mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("unsupported format code: %d", format), "Formats must be 0 (text) or 1 (binary)."))
 		}
 		paramFormats[i] = format
 	}
 
 	// Read parameters
-	paramCount, err := reader.ReadInt16()
+	paramCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter count: %w", err))
 	}
-	params := make([][]byte, paramCount)
+	if int(paramCount) > reader.Remaining()/4 {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("parameter count %d exceeds remaining message body", paramCount))
+	}
+	params := make([][]byte, int(paramCount))
 	for i := range paramCount {
 		param, err := reader.ReadByteString()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter: %w", err))
 		}
 		params[i] = param
 	}
 
 	// Read result format codes
-	resultFormatCount, err := reader.ReadInt16()
+	resultFormatCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read result format count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read result format count: %w", err))
 	}
-	resultFormats := make([]int16, resultFormatCount)
+	if int(resultFormatCount) > reader.Remaining()/2 {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("result format count %d exceeds remaining message body", resultFormatCount))
+	}
+	resultFormats := make([]int16, int(resultFormatCount))
 	for i := range resultFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read result format: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read result format: %w", err))
+		}
+		if format != 0 && format != 1 {
+			return c.writeExtendedQueryError(mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("unsupported format code: %d", format), "Formats must be 0 (text) or 1 (binary)."))
 		}
 		resultFormats[i] = format
+	}
+	if err := requireMessageConsumed(&reader, "Bind"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Bind message", err)
 	}
 
 	c.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
@@ -1418,12 +1482,15 @@ func (c *Conn) handleExecute() error {
 
 	portalName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read portal name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Execute message", fmt.Errorf("failed to read portal name: %w", err))
 	}
 
 	maxRows, err := reader.ReadInt32()
 	if err != nil {
-		return fmt.Errorf("failed to read max rows: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Execute message", fmt.Errorf("failed to read max rows: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Execute"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Execute message", err)
 	}
 
 	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
@@ -1555,24 +1622,27 @@ func (c *Conn) handleDescribe() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
-	if msgLen < 2 {
-		return errors.New("invalid describe message: missing type or name")
-	}
-
-	// Read the full body (type byte + null-terminated name) into a
-	// pooled buffer.
 	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
 		return fmt.Errorf("failed to read describe body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
-	if buf[len(buf)-1] != 0 {
-		return errors.New("invalid describe message: name missing null terminator")
+	reader := NewMessageReader(buf)
+	typ, err := reader.ReadByte()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("failed to read target type: %w", err))
 	}
-	typ := buf[0]
-	// String() copies, so the body buffer can be returned to the pool.
-	name := string(buf[1 : len(buf)-1])
+	if typ != 'S' && typ != 'P' {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("unsupported target type %q", typ))
+	}
+	name, err := reader.ReadString()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("failed to read target name: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Describe"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", err)
+	}
 
 	c.logger.Debug("describe", "type", string(typ), "name", name)
 
@@ -1663,24 +1733,27 @@ func (c *Conn) handleClose() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
-	if msgLen < 2 {
-		return errors.New("invalid close message: missing type or name")
-	}
-
-	// Read the full body (type byte + null-terminated name) into a
-	// pooled buffer.
 	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
 		return fmt.Errorf("failed to read close body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
-	if buf[len(buf)-1] != 0 {
-		return errors.New("invalid close message: name missing null terminator")
+	reader := NewMessageReader(buf)
+	typ, err := reader.ReadByte()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("failed to read target type: %w", err))
 	}
-	typ := buf[0]
-	// String() copies, so the body buffer can be returned to the pool.
-	name := string(buf[1 : len(buf)-1])
+	if typ != 'S' && typ != 'P' {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("unsupported target type %q", typ))
+	}
+	name, err := reader.ReadString()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("failed to read target name: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Close"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", err)
+	}
 
 	c.logger.Debug("close", "type", string(typ), "name", name)
 
@@ -1730,8 +1803,15 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 		// Flush still pushes any buffered ErrorResponse to the client
 		// but writes no reply of its own. Mirror the length-consume +
 		// flush dance that handleMessage's MsgFlush branch does.
-		if _, err := c.ReadMessageLength(); err != nil {
+		bodyLen, err := c.ReadMessageLength()
+		if err != nil {
 			return true, fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		if bodyLen != 0 {
+			if _, err := c.readMessageBody(bodyLen); err != nil {
+				return true, fmt.Errorf("failed to read Flush message body: %w", err)
+			}
+			c.returnReadBuffer()
 		}
 		return true, c.flush()
 	default:
@@ -1832,9 +1912,19 @@ func (c *Conn) writeExtendedQueryError(err error) error {
 // DataRow / CommandComplete from earlier messages in the batch, plus
 // the ReadyForQuery we write here) once we return.
 func (c *Conn) handleSync() error {
-	// Read (and discard) message length.
-	if _, err := c.ReadMessageLength(); err != nil {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
 		return fmt.Errorf("failed to read Sync message length: %w", err)
+	}
+	if bodyLen != 0 {
+		if _, err := c.readMessageBody(bodyLen); err != nil {
+			return fmt.Errorf("failed to read Sync message body: %w", err)
+		}
+		c.returnReadBuffer()
+		if err := c.writeError(protocolViolation("invalid Sync message", fmt.Errorf("expected empty body, got %d bytes", bodyLen))); err != nil {
+			return err
+		}
+		return c.writeReadyForQuery()
 	}
 
 	c.logger.Debug("sync")

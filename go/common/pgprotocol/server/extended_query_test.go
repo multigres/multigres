@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -975,9 +976,9 @@ func TestHandleDescribeMissingNullTerminator(t *testing.T) {
 	readBuf.WriteByte('S')
 	readBuf.WriteString("stmt")
 
-	err := conn.handleDescribe()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing null terminator")
+	require.NoError(t, conn.handleDescribe())
+	assert.Equal(t, mterrors.PgSSProtocolViolation, errorResponseSQLSTATE(t, &writeBuf))
+	assert.True(t, conn.discardingUntilSync)
 }
 
 // TestHandleCloseMissingNullTerminator verifies the same for handleClose.
@@ -991,9 +992,9 @@ func TestHandleCloseMissingNullTerminator(t *testing.T) {
 	readBuf.WriteByte('S')
 	readBuf.WriteString("stmt")
 
-	err := conn.handleClose()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing null terminator")
+	require.NoError(t, conn.handleClose())
+	assert.Equal(t, mterrors.PgSSProtocolViolation, errorResponseSQLSTATE(t, &writeBuf))
+	assert.True(t, conn.discardingUntilSync)
 }
 
 // TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
