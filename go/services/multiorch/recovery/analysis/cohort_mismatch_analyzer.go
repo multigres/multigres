@@ -98,6 +98,13 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			// case below does, so removal doesn't leave the shard unable to
 			// survive a subsequent leader failure. Deferred every cycle
 			// until another member makes it safe.
+			//
+			// A permanently-broken INELIGIBLE member can therefore never be
+			// removed from a standard 3-node AT_LEAST_N(2) shard. Intentional
+			// for now: relaxing this needs a fallback that can still recruit
+			// an "ineligible" member for quorum in a genuine emergency
+			// (design not yet built) — without it, removing this gate risks
+			// stranding the shard on the next real leader failure.
 			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
 				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
 				problems = append(problems, types.Problem{
