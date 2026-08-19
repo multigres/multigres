@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -440,4 +441,57 @@ func TestConfig_PgUser_EnvVar(t *testing.T) {
 	config.RegisterFlags(fs)
 
 	assert.Equal(t, "multigres", config.PgUser())
+}
+
+func TestConfig_PgChannelBinding(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	// Default mirrors libpq: prefer.
+	cb, err := config.PgChannelBinding()
+	require.NoError(t, err)
+	assert.Equal(t, client.ChannelBindingPrefer, cb)
+
+	require.NoError(t, fs.Set("pg-client-channel-binding", "require"))
+	cb, err = config.PgChannelBinding()
+	require.NoError(t, err)
+	assert.Equal(t, client.ChannelBindingRequire, cb)
+}
+
+func TestConfig_ValidatePGSSL_ChannelBinding(t *testing.T) {
+	tests := []struct {
+		name           string
+		host           string
+		sslmode        string
+		channelBinding string
+		wantErr        string
+	}{
+		{"require rejects non-TLS sslmode", "localhost", "disable", "require", "needs a TLS-enabled"},
+		{"require ok with require sslmode", "localhost", "require", "require", ""},
+		{"prefer ok with disable sslmode", "localhost", "disable", "prefer", ""},
+		{"invalid channel-binding value", "localhost", "require", "bogus", "channel-binding"},
+		{"require rejected on unix socket", "", "disable", "require", "Unix socket"},
+		{"prefer ok on unix socket", "", "disable", "prefer", ""},
+		{"invalid channel-binding on unix socket", "", "disable", "bogus", "channel-binding"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := viperutil.NewRegistry()
+			config := NewConfig(reg)
+			fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			config.RegisterFlags(fs)
+			require.NoError(t, fs.Set("pg-client-sslmode", tt.sslmode))
+			require.NoError(t, fs.Set("pg-client-channel-binding", tt.channelBinding))
+
+			err := config.ValidatePGSSL(tt.host)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
