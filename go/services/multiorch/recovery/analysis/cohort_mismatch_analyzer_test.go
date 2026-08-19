@@ -72,6 +72,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 					LastReceiveLsn:    "0/3000000",
 				},
 			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:              id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/3000000"},
+			},
 		})
 	}
 
