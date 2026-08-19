@@ -1256,6 +1256,12 @@ func requireMessageConsumed(reader *MessageReader, messageType string) error {
 	return nil
 }
 
+const (
+	parameterTypeOIDWireSize = 4
+	formatCodeWireSize       = 2
+	parameterLengthWireSize  = 4
+)
+
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 // Parse message format:
 // - Statement name (string, null-terminated)
@@ -1298,7 +1304,7 @@ func (c *Conn) handleParse() error {
 	if err != nil {
 		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read parameter count: %w", err))
 	}
-	if int(paramCount) > reader.Remaining()/4 {
+	if int(paramCount) > reader.Remaining()/parameterTypeOIDWireSize {
 		return c.writeExtendedProtocolViolation("invalid Parse message",
 			fmt.Errorf("parameter type count %d exceeds remaining message body", paramCount))
 	}
@@ -1375,7 +1381,7 @@ func (c *Conn) handleBind() error {
 	if err != nil {
 		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter format count: %w", err))
 	}
-	if int(paramFormatCount) > reader.Remaining()/2 {
+	if int(paramFormatCount) > reader.Remaining()/formatCodeWireSize {
 		return c.writeExtendedProtocolViolation("invalid Bind message",
 			fmt.Errorf("parameter format count %d exceeds remaining message body", paramFormatCount))
 	}
@@ -1397,7 +1403,7 @@ func (c *Conn) handleBind() error {
 	if err != nil {
 		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter count: %w", err))
 	}
-	if int(paramCount) > reader.Remaining()/4 {
+	if int(paramCount) > reader.Remaining()/parameterLengthWireSize {
 		return c.writeExtendedProtocolViolation("invalid Bind message",
 			fmt.Errorf("parameter count %d exceeds remaining message body", paramCount))
 	}
@@ -1415,7 +1421,7 @@ func (c *Conn) handleBind() error {
 	if err != nil {
 		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read result format count: %w", err))
 	}
-	if int(resultFormatCount) > reader.Remaining()/2 {
+	if int(resultFormatCount) > reader.Remaining()/formatCodeWireSize {
 		return c.writeExtendedProtocolViolation("invalid Bind message",
 			fmt.Errorf("result format count %d exceeds remaining message body", resultFormatCount))
 	}
