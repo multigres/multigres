@@ -129,7 +129,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 	)
 
 	// Sort by priority and apply filtering logic
-	filteredProblems := re.filterAndPrioritize(problems)
+	filteredProblems := re.filterAndPrioritize(ctx, problems)
 
 	// Check if there's a leader problem in this shard
 	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
@@ -170,11 +170,18 @@ func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 	return false
 }
 
-// filterAndPrioritize sorts problems by priority and applies filtering:
-// - Sorts by priority (highest first)
-// - If there's a shard-wide problem, return only the highest priority shard-wide problem
-// - Otherwise, return the highest-priority problem per pooler (different poolers run in parallel)
-func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem {
+// filterAndPrioritize sorts problems by priority, resolves scope conflicts,
+// and drops any that aren't ready to execute yet (logging why via
+// recordGated) — attemptRecovery only ever runs on problems already known to
+// be ready:
+//   - Sorts by priority (highest first)
+//   - Returns the highest-priority actionable shard-wide problem that's ready
+//     now, if any (gated ones are skipped, not just the top one)
+//   - If none are ready, don't let a gated shard-wide problem preempt
+//     pooler-scoped fixes — fall through to per-pooler filtering
+//   - Otherwise, return the highest-priority ready problem per pooler
+//     (different poolers run in parallel)
+func (re *Engine) filterAndPrioritize(ctx context.Context, problems []types.Problem) []types.Problem {
 	if len(problems) == 0 {
 		return problems
 	}
@@ -184,9 +191,8 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		return problems[i].Priority > problems[j].Priority
 	})
 
-	// Check if there are any shard-wide problems, separating alert-only ones
-	// (no remediation, so nothing to preempt for) from ones with a real
-	// recovery action.
+	// Separate alert-only shard-wide problems (no remediation, so nothing to
+	// preempt for) from ones with a real recovery action.
 	var shardWideProblems, alertOnlyShardWideProblems []types.Problem
 	for _, problem := range problems {
 		if !problem.IsShardWide() {
@@ -199,34 +205,46 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		}
 	}
 
-	// If we have an actionable shard-wide problem, return only the highest
-	// priority one (since problems are now sorted by priority, the first one
-	// is highest).
+	// TODO: a shard-wide problem that's always ready (e.g. a failover that
+	// never manages to persist a revocation anywhere, so backoff never gates
+	// it) still preempts pooler-scoped fixes every cycle, indefinitely — the
+	// gated case below only narrows the original deadlock risk, doesn't
+	// eliminate it.
 	//
-	// TODO: this drops all pooler-scoped problems while any shard-wide problem
-	// is active. That can deadlock: a failover (shard-wide) may require a pooler
-	// to be fixed first (e.g. pg_rewind so it can participate as a standby), but
-	// the pooler-scoped fix is never scheduled because the shard-wide problem
-	// keeps preempting it.
-	if len(shardWideProblems) > 0 {
-		re.logger.DebugContext(re.shutdownCtx, "shard-wide problem detected, focusing on single recovery",
-			"problem_code", shardWideProblems[0].Code,
-			"priority", shardWideProblems[0].Priority,
+	// Record every shard-wide problem that doesn't run this cycle, not just
+	// the highest-priority one: gated ones (not ready) and, among the ready
+	// ones, any outranked by a higher-priority ready problem (recordPreempted)
+	// — a lower-priority ready problem should still run if nothing
+	// higher-priority is ready, so check readiness for all of them first.
+	var readyShardWide []types.Problem
+	for _, p := range shardWideProblems {
+		if readyAt, ready := re.readyToExecute(p); !ready {
+			re.recordGated(ctx, p, readyAt)
+		} else {
+			readyShardWide = append(readyShardWide, p)
+		}
+	}
+	if len(readyShardWide) > 0 {
+		picked := readyShardWide[0]
+		for _, p := range readyShardWide[1:] {
+			re.recordPreempted(ctx, p)
+		}
+		re.logger.DebugContext(ctx, "shard-wide problem detected, focusing on single recovery",
+			"problem_code", picked.Code,
+			"priority", picked.Priority,
 			"total_shard_wide", len(shardWideProblems),
 			"total_problems", len(problems),
 		)
-		return []types.Problem{shardWideProblems[0]}
+		return []types.Problem{picked}
 	}
 
-	// No actionable shard-wide problem: keep only the highest-priority problem
-	// per pooler. Problems are already sorted highest-first, so the first
-	// occurrence for each pooler is the one to run. Different poolers execute
-	// in parallel. An alert-only shard-wide problem (if any) rides along
-	// unchanged — it has no action to conflict with anything.
+	// No shard-wide problem preempting: gather the highest-priority candidate
+	// per pooler (problems are sorted highest-first, so the first occurrence
+	// per pooler wins), then keep only the ones actually ready to run.
 	seen := make(map[topoclient.ComponentID]bool)
-	var filtered []types.Problem
+	var candidates []types.Problem
 	if len(alertOnlyShardWideProblems) > 0 {
-		filtered = append(filtered, alertOnlyShardWideProblems[0])
+		candidates = append(candidates, alertOnlyShardWideProblems[0])
 	}
 	for _, p := range problems {
 		if p.IsShardWide() {
@@ -235,13 +253,76 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		id := topoclient.ComponentIDString(p.PoolerID)
 		if !seen[id] {
 			seen[id] = true
-			filtered = append(filtered, p)
+			candidates = append(candidates, p)
 		}
+	}
+
+	var filtered []types.Problem
+	for _, p := range candidates {
+		readyAt, ready := re.readyToExecute(p)
+		if !ready {
+			re.recordGated(ctx, p, readyAt)
+			continue
+		}
+		filtered = append(filtered, p)
 	}
 	return filtered
 }
 
-// attemptRecovery attempts to recover from a single problem.
+// recoveryAttemptAttributes builds the OTel attributes shared by every
+// recovery/attempt span, whether the attempt runs the full attemptRecovery
+// path or filterAndPrioritize already found it gated.
+func recoveryAttemptAttributes(problem types.Problem) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("shard.database", problem.ShardKey.GetDatabase()),
+		attribute.String("shard.tablegroup", problem.ShardKey.GetTableGroup()),
+		attribute.String("shard.id", problem.ShardKey.GetShard()),
+		attribute.String("problem.code", string(problem.Code)),
+		attribute.String("entity.id", problem.EntityID()),
+		attribute.String("action.name", problem.RecoveryAction.Metadata().Name),
+		attribute.Int("problem.priority", int(problem.Priority)),
+	}
+}
+
+// recordGated emits the same span/log combination for a problem that isn't
+// ready to execute yet, so gating is decided and recorded once regardless of
+// whether filterAndPrioritize excludes it up front or attemptRecovery's own
+// gate would have deferred it.
+//
+// TODO: this logs at Debug (a gated problem can repeat every cycle for
+// minutes) and relies on the span for prod visibility. Consider an Info log
+// once some anti-spam mechanism exists (e.g. log on state transition only).
+func (re *Engine) recordGated(ctx context.Context, problem types.Problem, readyAt time.Time) {
+	_, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
+		trace.WithAttributes(recoveryAttemptAttributes(problem)...))
+	span.SetAttributes(attribute.String("result", "gated"))
+
+	args := []any{"problem_code", problem.Code, "entity_id", problem.EntityID()}
+	if !readyAt.IsZero() {
+		// Only failover's collective backoff produces a concrete deadline;
+		// the grace-period tracker's gate has none to report here.
+		span.SetAttributes(attribute.String("ready_at", readyAt.Format(time.RFC3339)))
+		args = append(args, "ready_at", readyAt)
+	}
+	span.End()
+	re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied", args...)
+}
+
+// recordPreempted emits a recovery/attempt span (result=preempted) for a
+// shard-wide problem that was ready to run but lost this cycle's single slot
+// to a higher-priority shard-wide problem that was also ready — distinct
+// from recordGated, since this one could have run.
+func (re *Engine) recordPreempted(ctx context.Context, problem types.Problem) {
+	_, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
+		trace.WithAttributes(recoveryAttemptAttributes(problem)...))
+	span.SetAttributes(attribute.String("result", "preempted"))
+	span.End()
+	re.logger.DebugContext(ctx, "skipping recovery: preempted by a higher-priority shard-wide problem",
+		"problem_code", problem.Code, "entity_id", problem.EntityID())
+}
+
+// attemptRecovery attempts to recover from a single problem. Callers must
+// only pass problems filterAndPrioritize has already found ready to execute.
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
 func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
@@ -249,15 +330,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	actionName := problem.RecoveryAction.Metadata().Name
 
 	ctx, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
-		trace.WithAttributes(
-			attribute.String("shard.database", problem.ShardKey.Database),
-			attribute.String("shard.tablegroup", problem.ShardKey.TableGroup),
-			attribute.String("shard.id", problem.ShardKey.Shard),
-			attribute.String("problem.code", string(problem.Code)),
-			attribute.String("entity.id", entityID),
-			attribute.String("action.name", actionName),
-			attribute.Int("problem.priority", int(problem.Priority)),
-		))
+		trace.WithAttributes(recoveryAttemptAttributes(problem)...))
 	defer span.End()
 
 	re.logger.DebugContext(ctx, "attempting recovery",
@@ -266,19 +339,6 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"priority", problem.Priority,
 		"description", problem.Description,
 	)
-
-	// Gate execution: a problem may only proceed once its timing gate permits it.
-	if readyAt, ready := re.readyToExecute(problem); !ready {
-		span.SetAttributes(attribute.String("result", "gated"))
-		args := []any{"problem_code", problem.Code, "entity_id", entityID}
-		if !readyAt.IsZero() {
-			// Only failover's collective backoff produces a concrete deadline;
-			// the grace-period tracker's gate has none to report here.
-			args = append(args, "ready_at", readyAt)
-		}
-		re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied", args...)
-		return
-	}
 
 	// Force re-poll to validate the problem still exists
 	stillExists, err := re.recheckProblem(ctx, problem)
