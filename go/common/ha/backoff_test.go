@@ -74,6 +74,18 @@ func TestBackoffSchedule_ZeroMaxIsUncapped(t *testing.T) {
 	assert.Equal(t, 32*time.Second, got, "should keep growing exponentially, not clamp to zero")
 }
 
+func TestBackoffSchedule_UncappedHighAttemptDoesNotOverflowIntoThePast(t *testing.T) {
+	// An uncapped (Max=0) schedule saturates backoff() near math.MaxInt64 once
+	// Base*2^(attempt-1) overflows. Adding jitter on top must not wrap the
+	// sum negative, which would land readyAt before initiated and silently
+	// report ready despite the schedule being "uncapped", not "no delay".
+	s := BackoffSchedule{Base: 10 * time.Second, JitterFraction: 0.25}
+	initiated := time.Unix(1_000_000, 0)
+
+	got := s.NextAttempt(revAt(initiated, decision(4), 40), orch("a"))
+	assert.True(t, got.After(initiated), "readyAt must stay after initiated, not wrap into the past")
+}
+
 func TestBackoffSchedule_Deterministic(t *testing.T) {
 	s := DefaultBackoffSchedule()
 	initiated := time.Unix(1_000_000, 0)

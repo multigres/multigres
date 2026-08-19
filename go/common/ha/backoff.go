@@ -89,8 +89,16 @@ func (s BackoffSchedule) NextAttempt(rev *clustermetadatapb.TermRevocation, orch
 	intent := rev.GetRecruitIntent()
 	attempt := max(intent.GetAttempt(), 1)
 	base := s.backoff(attempt)
+	delay := base + s.jitter(orchID, intent.GetReplaceDecision(), attempt, base)
+	if delay < base {
+		// An uncapped (Max<=0) schedule saturates base near math.MaxInt64 at
+		// a high enough attempt count; adding jitter on top overflows and
+		// wraps negative, which would land readyAt in the past and silently
+		// defeat the cap. Saturate instead of wrapping.
+		delay = math.MaxInt64
+	}
 	initiated := rev.GetCoordinatorInitiatedAt().AsTime()
-	return initiated.Add(base + s.jitter(orchID, intent.GetReplaceDecision(), attempt, base))
+	return initiated.Add(delay)
 }
 
 // backoff returns the exponential delay for the (1-based) attempt: Base *
