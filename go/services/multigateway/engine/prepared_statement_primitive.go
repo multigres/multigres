@@ -18,11 +18,13 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -50,6 +52,17 @@ type SQLPreparedSetConfig struct {
 	ValueParam *ast.ParamRef
 
 	IsLocalLiteralTrue bool
+
+	// ValueIsNull marks a literal NULL value in the PREPARE body. set_config is
+	// not STRICT, so PostgreSQL resets the parameter and the gateway must track
+	// a REMOVAL — without this flag the zero-valued Value ("") is
+	// indistinguishable from set_config(name, '', false) and the tracker writes
+	// an empty string the backend never had, which the next pool replay pushes
+	// back as SET name = '' (rejected for most GUCs, silently empty for
+	// search_path). Mirrors planner.setConfigCall.ValueIsNull; the direct
+	// SELECT set_config(...) path carries the same information as a VAR_RESET
+	// synthetic instead.
+	ValueIsNull bool
 }
 
 // PreparedStatementPrimitive handles SQL PREPARE, EXECUTE, and DEALLOCATE
@@ -249,6 +262,13 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 		if !resolved.shouldTrack {
 			continue
 		}
+		if resolved.isReset {
+			// EXECUTE arg was NULL: PostgreSQL cleared the parameter, so drop
+			// the tracked entry rather than writing a value.
+			name := resolved.name
+			actions = append(actions, func() { resetTrackedSessionVariable(state, name) })
+			continue
+		}
 		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		if err != nil {
 			return nil, info, err
@@ -260,27 +280,61 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 
 func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
 	isLocal := sc.IsLocalLiteralTrue
+
+	// Resolve the value once, from whichever source carries it: a literal NULL
+	// the planner recorded at PREPARE time, an EXECUTE argument (which may
+	// itself be NULL), or a plain literal. Both NULL sources must converge here
+	// — gating only on ValueParam would leave a literal NULL looking like an
+	// explicit empty string and track a value PostgreSQL never set.
+	value := sc.Value
+	valueIsNull := sc.ValueIsNull
+	if sc.ValueParam != nil {
+		v, isNull, err := p.resolveExecuteArgAsTextOrNull(sc.ValueParam, portalInfo, "set_config value argument")
+		if err != nil {
+			return resolvedSetConfig{}, err
+		}
+		value, valueIsNull = v, isNull
+	}
+
+	// search_path is value-restricted (see pgsettings.RejectTempSchemaSearchPath):
+	// the EXECUTE argument is the one place a prepared set_config value first
+	// becomes known, so it is vetted here — before the untracked early return
+	// below, mirroring resolveSetConfig on the wire-protocol path. The name is
+	// always a literal in a PREPARE body (bound names are rejected at PREPARE
+	// time by validateSQLPreparedSetConfigs). A NULL value resets search_path to
+	// its server/admin-configured default, which can never carry a
+	// client-injected pg_temp — nothing to vet.
+	if strings.EqualFold(sc.Name, "search_path") && !valueIsNull {
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return resolvedSetConfig{}, err
+		}
+	}
+
 	if isLocal && !handler.IsGatewayManagedVariable(sc.Name) {
 		return resolvedSetConfig{shouldTrack: false}, nil
 	}
 
-	value := sc.Value
-	if sc.ValueParam != nil {
-		v, err := p.resolveExecuteArgAsText(sc.ValueParam, portalInfo, "set_config value argument")
-		if err != nil {
-			return resolvedSetConfig{}, err
+	if valueIsNull {
+		// set_config(name, NULL, false) resets the parameter (it is not STRICT),
+		// so track a removal. Gateway-managed variables stay fail-closed — no
+		// per-variable reset primitive exists for them. (Unreachable in practice:
+		// validateSQLPreparedSetConfigs rejects a GMV in a PREPARE body outright.)
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", sc.Name, sc.Name))
 		}
-		value = v
+		return resolvedSetConfig{name: sc.Name, isLocal: isLocal, shouldTrack: true, isReset: true}, nil
 	}
+
 	return resolvedSetConfig{name: sc.Name, value: value, isLocal: isLocal, shouldTrack: true}, nil
 }
 
-func (p *PreparedStatementPrimitive) resolveExecuteArgAsText(pr *ast.ParamRef, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+func (p *PreparedStatementPrimitive) resolveExecuteArgAsTextOrNull(pr *ast.ParamRef, portalInfo *preparedstatement.PortalInfo, callSite string) (string, bool, error) {
 	arg, err := p.executeArg(pr, callSite)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return executeArgAsText(arg, portalInfo, callSite)
+	return executeArgAsTextOrNull(arg, portalInfo, callSite)
 }
 
 func (p *PreparedStatementPrimitive) executeArg(pr *ast.ParamRef, callSite string) (ast.Node, error) {
@@ -297,24 +351,27 @@ func executeArgCount(stmt *ast.ExecuteStmt) int {
 	return stmt.Params.Len()
 }
 
-func executeArgAsText(arg ast.Node, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+// executeArgAsTextOrNull renders a SQL EXECUTE argument as text, reporting a
+// NULL argument via the flag rather than an error so callers can mirror
+// PostgreSQL's NULL semantics (for set_config, a reset to the default).
+func executeArgAsTextOrNull(arg ast.Node, portalInfo *preparedstatement.PortalInfo, callSite string) (string, bool, error) {
 	switch v := unwrapTypeCastNode(arg).(type) {
 	case *ast.ParamRef:
 		if portalInfo == nil {
-			return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+			return "", false, mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
 		}
-		return preparedstatement.DecodeBindAsText(portalInfo, v, callSite)
+		return preparedstatement.DecodeBindAsTextOrNull(portalInfo, v, callSite)
 	case *ast.A_Const:
 		if v.Isnull {
-			return "", mterrors.NewFeatureNotSupported(callSite + " cannot be NULL")
+			return "", true, nil
 		}
-		return extractConstValue(v), nil
+		return extractConstValue(v), false, nil
 	case *ast.String:
-		return v.SVal, nil
+		return v.SVal, false, nil
 	case *ast.Integer:
-		return strconv.Itoa(v.IVal), nil
+		return strconv.Itoa(v.IVal), false, nil
 	default:
-		return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+		return "", false, mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
 	}
 }
 
