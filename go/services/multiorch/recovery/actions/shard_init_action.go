@@ -174,9 +174,18 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 			len(committedCohort), len(committedIDs), err)
 	}
 	if !a.allowUnsafeInitialCohort() && !commonconsensus.CohortSurvivesAnyMemberLoss(durabilityPolicy, committedCohortIDs) {
+		// The committed cohort is fixed and can never grow (see
+		// ClaimShardInitialization), so if all its members are already
+		// reachable, no new pooler can help — only an externally-certified
+		// rule change can bootstrap the shard at that point.
+		if len(committedCohort) < len(committedIDs) {
+			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"committed cohort (%d of %d reachable) satisfies the durability policy but isn't failure-safe while a member is unreachable; waiting for it to return",
+				len(committedCohort), len(committedIDs))
+		}
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"committed cohort (%d of %d reachable) satisfies the durability policy but isn't failure-safe; add another pooler to this shard",
-			len(committedCohort), len(committedIDs))
+			"committed cohort (%d members, all reachable) satisfies the durability policy but isn't failure-safe and is fixed for this shard's init claim; bootstrap via an externally-certified rule change (multiadmin) instead",
+			len(committedCohort))
 	}
 
 	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey, committedCohort); err != nil {

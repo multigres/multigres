@@ -404,6 +404,69 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2", "prior-p3"}, names)
 }
 
+func TestShardInitAction_Execute_CommittedCohortNotFailureSafe(t *testing.T) {
+	// The freshly-computed cohort (p1/p2/p3) is failure-safe and passes the
+	// first check, but the claim was already committed with a smaller,
+	// non-failure-safe cohort (p1/p2). ClaimShardInitialization returns that
+	// committed cohort regardless, and it's fixed forever — no new pooler can
+	// help, so the error should point at an externally-certified rule change
+	// rather than suggesting to add one.
+	ps := newPoolerStore(t)
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p3", "testdb", "default", "0", true, nil))
+
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
+	ts := memorytopo.NewServer(t.Context(), "cell1")
+
+	committedCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
+	}
+	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID, committedCohort)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	action := newTestAction(t, coord, ps, ts)
+	err = action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
+
+	require.EqualError(t, err,
+		"committed cohort (2 members, all reachable) satisfies the durability policy but isn't failure-safe and is fixed for this shard's init claim; bootstrap via an externally-certified rule change (multiadmin) instead")
+	assert.Empty(t, coord.appointedCohort)
+}
+
+func TestShardInitAction_Execute_CommittedCohortMemberUnreachable(t *testing.T) {
+	// The committed cohort (prior-p1/p2/p3) is failure-safe on its own, but
+	// only prior-p2/p3 are currently reachable in the pooler store — enough to
+	// satisfy the durability policy but not failure-safety. prior-p1 might
+	// still come back, so the error should say to wait rather than claim the
+	// cohort is permanently stuck.
+	ps := newPoolerStore(t)
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p3", "testdb", "default", "0", true, nil))
+
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
+	ts := memorytopo.NewServer(t.Context(), "cell1")
+
+	committedCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p1"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p3"},
+	}
+	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID, committedCohort)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	action := newTestAction(t, coord, ps, ts)
+	err = action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
+
+	require.EqualError(t, err,
+		"committed cohort (2 of 3 reachable) satisfies the durability policy but isn't failure-safe while a member is unreachable; waiting for it to return")
+	assert.Empty(t, coord.appointedCohort)
+}
+
 func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 	// A different coordinator already claimed this shard. We should back off
 	// without calling AppointInitialLeader.
