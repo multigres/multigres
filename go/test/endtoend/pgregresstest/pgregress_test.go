@@ -245,7 +245,10 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Run("regression", func(t *testing.T) {
 			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 			defer cancel()
-			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			// directPgPort lets the harness pre-seed scaffolding helper functions
+			// on the primary (bypassing the gateway's body-analysis rejection).
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Test harness failed to execute: %v", err)
@@ -412,6 +415,13 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// directPgPort lets the harness reset the public schema on the
 			// primary between extensions (bypassing the gateway's DDL block).
 			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			// Lazily start a second, --unsafe-pooler-mode gateway for the handful of
+			// pgTAP files (ExternalExtension.UnsafePoolerGlobs) whose scaffolding the
+			// enforcing gateway rejects by design. Started only if such a file is
+			// actually reached; torn down with the cluster.
+			builder.UnsafeGatewayProvider = func(t *testing.T) int {
+				return setup.StartUnsafeMultigateway(t)
+			}
 			results, err := builder.RunExternalTests(t, suiteCtx, exts, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {

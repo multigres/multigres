@@ -40,20 +40,20 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 }
 
 func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
-	analysis, err := analyzeSQLPreparedBody(nil)
+	analysis, err := analyzeSQLPreparedBody(nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, analysis)
 
-	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"})
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"}, false)
 	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"), false)
 	require.ErrorContains(t, err, "synchronous_commit")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"), false)
 	require.ErrorContains(t, err, "pg_read_file is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"), false)
 	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
 
 	require.NoError(t, validateSQLPreparedSetConfigs(nil))
@@ -120,7 +120,7 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.Nil(t, result)
 			require.Error(t, err)
 
@@ -223,7 +223,7 @@ func TestInspectExpressionFuncCalls_ReplicationSlots(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			if !tt.wantErr {
 				require.NoError(t, err)
 				require.NotNil(t, result)
@@ -250,13 +250,13 @@ func TestReplicationSlotAfterNormalization(t *testing.T) {
 	accept := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST)
+		_, err := analyzeStatement(norm.NormalizedAST, false)
 		assert.NoError(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 	}
 	reject := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST)
+		_, err := analyzeStatement(norm.NormalizedAST, false)
 		require.Error(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 		var diag *mterrors.PgDiagnostic
 		require.True(t, errors.As(err, &diag))
@@ -375,7 +375,7 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCalls, result.SetConfigs)
@@ -452,7 +452,7 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -497,7 +497,7 @@ func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "a transaction-local pass-through must not be tracked")
@@ -544,7 +544,7 @@ func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -589,7 +589,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.DynamicSetConfig, "expected DynamicSetConfig")
@@ -664,7 +664,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			_, err := analyzeFunctionCalls(stmt)
+			_, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
 		})
@@ -701,7 +701,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.False(t, result.DynamicSetConfig, "should not take the dynamic path")
@@ -741,7 +741,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
@@ -771,7 +771,7 @@ func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			_, err := analyzeFunctionCalls(stmt)
+			_, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
@@ -790,7 +790,7 @@ func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "is_local literal true must not produce a tracker entry")
@@ -815,7 +815,7 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	for _, sql := range allowed {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)
@@ -888,7 +888,7 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires temporary=true")
@@ -942,7 +942,7 @@ func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.CallsSetSeed)

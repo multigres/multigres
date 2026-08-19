@@ -1744,6 +1744,15 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		s.Multigateway.TerminateGracefully(t.Logf, gracePeriod)
 		t.Logf("ReinitializeCluster: stopped multigateway")
 	}
+	// Also stop the on-demand unsafe-pooler-mode gateway if one is running: it
+	// points at the cluster being torn down, so a later StartUnsafeMultigateway
+	// must spin up a fresh one against the reinitialized topology.
+	if s.unsafeMultigateway != nil {
+		s.unsafeMultigateway.TerminateGracefully(t.Logf, gracePeriod)
+		s.unsafeMultigateway = nil
+		s.unsafeMultigatewayPgPort = 0
+		t.Logf("ReinitializeCluster: stopped unsafe multigateway")
+	}
 
 	// 2. Stop multiorch instances
 	for name, mo := range s.MultiorchInstances {

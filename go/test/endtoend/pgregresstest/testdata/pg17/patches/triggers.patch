@@ -1,0 +1,15 @@
+# Known divergence (by design): the depth_b_tf trigger function runs a dynamic
+# EXECUTE (an INSERT built from NEW.id) the pooler cannot vet, so its runtime
+# CREATE is rejected. It is pre-seeded on the primary
+# (testdata/pg17/regress_preseed.sql), so create trigger depth_b_tr succeeds and
+# the recursive-trigger depth checks still run, leaving only the rejected CREATE.
+--- a
++++ b
+@@ -1614,6 +1614,7 @@
+ return new;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ create trigger depth_b_tr before insert on depth_b
+ for each row execute procedure depth_b_tf();
+ create function depth_c_tf() returns trigger

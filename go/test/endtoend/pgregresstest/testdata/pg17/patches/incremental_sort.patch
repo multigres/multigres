@@ -1,0 +1,22 @@
+# Known divergence (by design): the explain_analyze_* helpers run a dynamic
+# EXECUTE the pooler cannot vet, so their runtime CREATE is rejected. They are
+# pre-seeded on the primary (testdata/pg17/regress_preseed.sql) so the
+# incremental-sort checks still run; only the rejected CREATEs remain.
+--- a
++++ b
+@@ -46,6 +46,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ create or replace function explain_analyze_inc_sort_nodes(query text)
+ returns jsonb language plpgsql
+ as
+@@ -82,6 +83,7 @@
+ return matching_nodes;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ create or replace function explain_analyze_inc_sort_nodes_without_memory(query text)
+ returns jsonb language plpgsql
+ as

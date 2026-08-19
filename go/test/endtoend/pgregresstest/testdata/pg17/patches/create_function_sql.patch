@@ -1,0 +1,17 @@
+# Known divergence (by design): a LANGUAGE SQL function with an unparseable body
+# is rejected by the gateway's body analysis with a generic "could not be parsed
+# for safety analysis" message instead of PostgreSQL's specific syntax error;
+# both reject the definition.
+--- a
++++ b
+@@ -690,9 +690,7 @@
+ CONTEXT: SQL function "test1"
+ CREATE FUNCTION test1 (int) RETURNS int LANGUAGE SQL
+ AS 'not even SQL';
+-ERROR: syntax error at or near "not"
+-LINE 2: AS 'not even SQL';
+-^
++ERROR: the SQL function body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ CREATE FUNCTION test1 (int) RETURNS int LANGUAGE SQL
+ AS 'SELECT 1, 2, 3;';
+ ERROR: return type mismatch in function declared to return integer

@@ -103,5 +103,30 @@
     "comment": "CREATE FUNCTION with a BEGIN ATOMIC body keeps its inner semicolons",
     "body": "BEGIN CREATE FUNCTION f() RETURNS int BEGIN ATOMIC SELECT 1; SELECT 2; END; PERFORM f(); END",
     "deparse": "BEGIN\nCREATE FUNCTION f() RETURNS int BEGIN ATOMIC SELECT 1; SELECT 2; END;\nPERFORM f();\nEND"
+  },
+  {
+    "comment": "SELECT INTO scalar",
+    "body": "BEGIN SELECT a INTO x FROM t; END",
+    "deparse": "BEGIN\nSELECT a FROM t INTO x;\nEND"
+  },
+  {
+    "comment": "SELECT INTO before target list",
+    "body": "BEGIN SELECT INTO rec * FROM t WHERE n = 1; END",
+    "deparse": "BEGIN\nSELECT * FROM t WHERE n = 1 INTO rec;\nEND"
+  },
+  {
+    "comment": "SELECT INTO STRICT multi-target",
+    "body": "BEGIN SELECT 1, 2 INTO STRICT x, y; END",
+    "deparse": "BEGIN\nSELECT 1, 2 INTO STRICT x, y;\nEND"
+  },
+  {
+    "comment": "INSERT RETURNING INTO",
+    "body": "BEGIN INSERT INTO t VALUES (1) RETURNING id INTO x; END",
+    "deparse": "BEGIN\nINSERT INTO t VALUES (1) RETURNING id INTO x;\nEND"
+  },
+  {
+    "comment": "UPDATE RETURNING INTO",
+    "body": "BEGIN UPDATE t SET a = 1 WHERE id = 2 RETURNING a INTO x; END",
+    "deparse": "BEGIN\nUPDATE t SET a = 1 WHERE id = 2 RETURNING a INTO x;\nEND"
   }
 ]

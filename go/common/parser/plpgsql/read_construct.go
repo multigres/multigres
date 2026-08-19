@@ -602,17 +602,175 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // makeWordStmt implements the assign-vs-execsql dispatch for a word-initiated
 // statement (PG decides this in the stmt_execsql T_WORD action). word is the
 // already-consumed first token; startPos its byte offset. If the next token is an
-// assignment operator we build an assignment (PG errors here, since a real
-// variable would have been T_DATUM; we have no resolution, so we treat it as the
-// assignment it looks like); otherwise the whole statement is captured as execsql.
+// assignment operator we build an assignment; otherwise the whole statement is
+// captured as execsql.
+//
+// A resolved assignment target is a T_DATUM and reaches stmt_assign directly, so
+// PG's T_WORD/T_CWORD arms are only for words that did NOT resolve. Most such
+// words begin an embedded SQL statement — but a compound like `rec.field` on a
+// composite variable we cannot recognize as composite without a catalog (a named
+// row type is indistinguishable from a scalar, so field access on it does not
+// resolve) arrives here as an unresolved T_CWORD, and it is still an assignment
+// target, not a SQL statement. When an assignment operator follows we therefore
+// build the assignment (PG errors in that spot, since a real target would be a
+// T_DATUM; with no such resolution we treat it as the assignment it plainly is —
+// no valid SQL statement begins `identifier[.identifier] :=`). The target is kept
+// as text, as PG keeps a resolved datum's name.
+//
+// The lvalue can also extend past the leading word: the scanner assembles a
+// compound name only up to three parts (A.B.C), and it never folds a subscript
+// into the word, so a deeper field path (`b.c.c2.x`) or a subscripted target
+// (`a[i]`, `a.c1[1].i`) arrives as the word followed by more `.`/`[` tokens. When
+// the token after the word is `.` or `[` we scan the whole target up to the
+// assignment operator with readAssignTarget — the same path the resolved T_DATUM
+// subscript case (makeAssignStmt) uses.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
-	// A leading word that did NOT resolve to a variable (T_WORD/T_CWORD) can only
-	// begin an embedded SQL statement — PG routes a resolved assignment target
-	// through stmt_assign (T_DATUM) instead. So there is no assignment branch
-	// here anymore; the whole statement is captured as SQL text.
+	tok := l.scanNext()
+	switch tok.tok {
+	case COLON_EQUALS, '=':
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	case '.', '[':
+		l.pushBack(tok)
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(l.readAssignTarget(startPos))
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	}
+	l.pushBack(tok)
+	return l.makeExecSQLStmt(T_WORD, strings.EqualFold(word, "create"), startPos)
+}
+
+// makeExecSQLStmt is the Go port of PG's make_execsql_stmt: it scans an embedded
+// SQL statement to its terminating ';' and, like PG, lifts out any PL/pgSQL INTO
+// clause so the stored query text is valid stand-alone SQL — a plain
+// SELECT … INTO, RETURNING … INTO, or INTO STRICT / multi-target clause is not
+// accepted by the SQL grammar. firsttoken is the already-consumed first token,
+// used to recognise the SQL uses of INTO that are *not* a PL/pgSQL target
+// (IMPORT … INTO) and to seed the CREATE … routine-body detection; firstIsCreate
+// says that first token was the word "create"; startPos is its byte offset.
+func (l *lexer) makeExecSQLStmt(firsttoken int, firstIsCreate bool, startPos int) *plpgsqlast.PLpgSQL_stmt_execsql {
+	// Scan the statement in EXPR mode so identifiers in the SQL text are left for
+	// the SQL parser, not resolved to a T_DATUM here — matching scanStmtText and
+	// PG's make_execsql_stmt. Save/restore keeps the statement-level mode intact.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
+	parenDepth, beginDepth := 0, 0
+	inRoutineDef := false
+	var tokens []byte
+	if firstIsCreate {
+		tokens = append(tokens, 'c')
+	}
+	prevTok := firsttoken
+	intoStart, intoEnd, end := -1, -1, -1
+	var haveInto, strict bool
+	var target string
+
+	for {
+		tok := l.scanNext()
+
+		// CREATE [OR REPLACE] {FUNCTION|PROCEDURE} detection, matching scanStmtText.
+		if len(tokens) > 0 && tokens[0] == 'c' && len(tokens) < 4 {
+			switch {
+			case tok.tok == K_OR:
+				tokens = append(tokens, 'o')
+			case tok.tok == T_WORD && strings.EqualFold(tok.str, "replace"):
+				tokens = append(tokens, 'r')
+			case tok.tok == T_WORD && (strings.EqualFold(tok.str, "function") || strings.EqualFold(tok.str, "procedure")):
+				tokens = append(tokens, 'f')
+			default:
+				tokens = append(tokens, 0)
+			}
+			if (len(tokens) > 1 && tokens[1] == 'f') ||
+				(len(tokens) > 3 && tokens[1] == 'o' && tokens[2] == 'r' && tokens[3] == 'f') {
+				inRoutineDef = true
+			}
+		}
+
+		switch tok.tok {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		}
+		if inRoutineDef && parenDepth == 0 {
+			if tok.tok == K_BEGIN || tok.tok == K_CASE {
+				beginDepth++
+			} else if tok.tok == K_END && beginDepth > 0 {
+				beginDepth--
+			}
+		}
+
+		if tok.tok == ';' && parenDepth == 0 && beginDepth == 0 {
+			end = tok.pos
+			break
+		}
+		if tok.tok == 0 {
+			// Unterminated statement. Match scanStmtText: flag the error and
+			// return an empty node rather than slicing with the EOF token's
+			// zero position (which would run off the source).
+			l.Error("unexpected end of function definition")
+			return plpgsqlast.NewPLpgSQL_stmt_execsql()
+		}
+
+		// A PL/pgSQL INTO clause, but only at paren depth 0 and not one of the SQL
+		// uses of INTO: INSERT INTO / MERGE INTO (INTO adjacent to the command
+		// word) or IMPORT … INTO (INTO anywhere in an IMPORT statement).
+		if tok.tok == K_INTO && parenDepth == 0 &&
+			prevTok != K_INSERT && prevTok != K_MERGE && firsttoken != K_IMPORT {
+			if haveInto {
+				l.Error("INTO specified more than once")
+			}
+			haveInto = true
+			intoStart = tok.pos
+			strict, target, intoEnd = l.readExecSQLIntoTarget()
+		}
+		prevTok = tok.tok
+	}
+
+	var query string
+	if haveInto && intoStart >= 0 && intoEnd >= 0 {
+		query = strings.TrimRight(l.input[startPos:intoStart]+l.input[intoEnd:end], " \t\r\n")
+	} else {
+		query = strings.TrimRight(l.input[startPos:end], " \t\r\n")
+	}
+
 	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	stmt.Sqlstmt = makeExpr(query, plpgsqlast.RAW_PARSE_DEFAULT)
+	stmt.Into = haveInto
+	stmt.Strict = strict
+	stmt.Target = target
 	return stmt
+}
+
+// readExecSQLIntoTarget reads a PL/pgSQL INTO target following the INTO keyword:
+// an optional STRICT, then a comma-separated list of target names. It stops at
+// the first token that cannot continue the list (a SQL keyword, ';', etc.),
+// pushes that terminator back for the caller's scan loop to re-read, and returns
+// STRICT, the verbatim target text, and the terminator's byte offset (the end of
+// the INTO clause). PG resolves the targets to variables via read_into_target;
+// we keep the text, mirroring dynexecute's INTO handling.
+func (l *lexer) readExecSQLIntoTarget() (strict bool, target string, endPos int) {
+	tok := l.scanNext()
+	if tok.tok == K_STRICT {
+		strict = true
+		tok = l.scanNext()
+	}
+	targetStart := tok.pos
+	for {
+		next := l.scanNext()
+		if next.tok == ',' {
+			l.scanNext() // consume the next target name and continue the list
+			continue
+		}
+		l.pushBack(next)
+		target = strings.TrimRight(l.input[targetStart:next.pos], " \t\r\n")
+		return strict, target, next.pos
+	}
 }
 
 // makeAssignStmt builds an assignment from a resolved target datum, porting the
@@ -1263,7 +1421,7 @@ func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
 		return stmt // bare OPEN c (bound cursor, no args)
 	case '(':
 		l.pushBack(tok)
-		stmt.Argquery, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+		stmt.Args = l.readCursorArgs()
 		return stmt
 	}
 
@@ -1301,6 +1459,62 @@ func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
 		stmt.Query, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
 	}
 	return stmt
+}
+
+// readCursorArgs ports PG's read_cursor_args for the bound-cursor OPEN argument
+// list `( … )`. PG resolves each value against the cursor's declared parameter
+// row — a `name :=` label matched by name, a bare value by position — and emits
+// a clean positional `SELECT val1, val2, …`; the labels and the PL/pgSQL-only
+// `:=` never survive into the query it compiles.
+//
+// We keep no declared-parameter resolution (no T_DATUM row for the cursor), so
+// we cannot reorder the values or validate arity/names — an OPEN that PG rejects
+// (duplicate, unknown, or wrong-count arguments) still parses here and is left
+// for PG to reject at execution. Instead of PG's positional fold we retain each
+// argument's surface form — its optional `name :=` label (PG's raw IDENT +
+// COLON_EQUALS peek) and its value expression — as a PLpgSQL_cursor_arg. Keeping
+// the value expressions separate from the labels lets the body walker analyze
+// each value as its own `SELECT <value>`, so PL/pgSQL's `:=` (not valid SQL)
+// never reaches the SQL parser, while the labels survive for a faithful deparse.
+func (l *lexer) readCursorArgs() []*plpgsqlast.PLpgSQL_cursor_arg {
+	if tok := l.scanNext(); tok.tok != '(' {
+		l.pushBack(tok)
+		l.Error("syntax error, expected \"(\"")
+		return nil
+	}
+
+	var args []*plpgsqlast.PLpgSQL_cursor_arg
+	for {
+		// Optional "name :=" label. PG peeks two RAW tokens (plpgsql_peek2 →
+		// internal_yylex, with no variable/keyword reclassification) and treats
+		// IDENT + COLON_EQUALS as a named argument; a name that happens to match an
+		// in-scope variable is still a plain IDENT at the raw level, so it is
+		// detected the same way. On a match we keep the label's verbatim source
+		// text (so a quoted name round-trips exactly) and consume both tokens; a
+		// non-match is pushed back intact.
+		var name string
+		tok1 := l.internalLex()
+		tok2 := l.internalLex()
+		if tok1.tok == IDENT && tok2.tok == COLON_EQUALS {
+			name = l.input[tok1.pos:tok1.end]
+		} else {
+			l.pushBack(tok2)
+			l.pushBack(tok1)
+		}
+
+		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ')')
+		args = append(args, plpgsqlast.NewPLpgSQL_cursor_arg(name, expr))
+		if endtoken == ')' {
+			break
+		}
+	}
+
+	if tok := l.scanNext(); tok.tok != ';' {
+		l.pushBack(tok)
+		l.Error("syntax error")
+	}
+
+	return args
 }
 
 // readCaseTestExpr is the manual scan behind opt_expr_until_when (PG's action).

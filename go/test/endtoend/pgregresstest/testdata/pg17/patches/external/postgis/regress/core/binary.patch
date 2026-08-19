@@ -1,0 +1,10 @@
+# Known divergence (by design): the PostGIS helper preseed pre-creates schema tm
+# on the primary before every test (needed to seed tm.insert_all for typmod), so
+# this test's own CREATE SCHEMA tm reports "already exists". A one-line artifact
+# of that shared seeding; the test is otherwise unaffected.
+--- a
++++ b
+@@ -1,2 +1,3 @@
++ERROR: schema "tm" already exists
+ geometry|114
+ geometry|56
