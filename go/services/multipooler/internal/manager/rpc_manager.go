@@ -36,7 +36,29 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
+
+// rewindOperationTimeout bounds the detached stop -> pg_rewind ->
+// restart-as-standby sequence in restartAsStandbyLocked. Once postgres is
+// stopped that sequence runs to completion independent of the caller's deadline
+// (see the point-of-no-return detach), so this is only a backstop against a
+// genuinely hung operation holding the action lock forever. It is deliberately
+// generous: pg_rewind runtime scales with retained pg_wal (gigabytes, minutes
+// under IO throttling), and a rewind that merely runs long must be allowed to
+// finish rather than be abandoned mid-write.
+const rewindOperationTimeout = 30 * time.Minute
+
+// detachRewindOpContext returns the context for the destructive stop -> pg_rewind
+// -> restart-as-standby sequence: detached from the caller's cancellation
+// (ctxutil.Detach) so a started rewind is not aborted when an RPC deadline fires,
+// yet still carrying the caller's action-lock ownership (actionlock.CarryLock,
+// since Detach drops context values) and telemetry, bounded by
+// rewindOperationTimeout as a backstop against a hung operation. The caller must
+// hold the action lock and must call the returned cancel func.
+func (pm *MultipoolerManager) detachRewindOpContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+}
 
 // broadcastHealth broadcasts the current health state to all subscribers.
 //
@@ -940,6 +962,24 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// Point of no return. The measurement above ran on the caller's ctx and is
+	// safe to abort — postgres is still up and the data directory is untouched.
+	// From here we stop postgres and (if diverged) pg_rewind it, which mutates the
+	// data directory in place and is not transactional: abandoning midway leaves a
+	// half-rewound, unstartable directory. This function is reached under an
+	// incoming SetPrimary RPC whose context carries multiorch's action budget (e.g.
+	// FixReplication's 45s), and a rewind can outlive that budget because its
+	// runtime scales with retained pg_wal. So detach the destructive sequence from
+	// the caller's cancellation — keeping the action lock (via CarryLock, since
+	// Detach drops context values) so the monitor still cannot start postgres
+	// underneath us, and preserving telemetry — under our own generous timeout. If
+	// the caller's deadline fires, its RPC returns while this sequence keeps running
+	// to a valid standby (or a definitive failure); the caller simply retries and
+	// finds the node already healed.
+	opCtx, cancel := pm.detachRewindOpContext(ctx)
+	defer cancel()
+	ctx = opCtx
+
 	pm.logger.InfoContext(ctx, "pausing manager and stopping Postgres to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	// Pause without stopping the monitor: every caller either runs inside the
@@ -1088,6 +1128,16 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// The rewind (if any) completed and postgres is verified back up as a standby,
+	// so the data directory is no longer mid-rewind: clear the sentinel. Only
+	// meaningful when a rewind actually ran (runPgRewind writes it on the mutating
+	// path); Remove is idempotent otherwise. A failure here is not fatal — the node
+	// is healthy — but leaves a stale sentinel that the monitor's healthy path would
+	// otherwise re-arm into a benign no-op re-rewind, so surface it as a warning.
+	if err := pm.removeRewindSentinel(); err != nil {
+		pm.logger.WarnContext(ctx, "failed to remove rewind sentinel after successful restart as standby", "error", err)
+	}
+
 	return rewindPerformed, nil
 }
 
@@ -1122,6 +1172,18 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Check if servers diverged
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
+
+		// Mark the data directory as being rewound before the mutating pg_rewind
+		// runs. pg_rewind is not transactional: an interruption here leaves a
+		// half-rewound, unstartable directory. The sentinel is the durable signal
+		// that lets the monitor detect that on the next tick (or after a pod
+		// restart) and repair-or-quarantine instead of starting postgres on it.
+		// restartAsStandbyLocked removes it once postgres is verified back as a
+		// standby. Fail-safe: if we cannot record the marker, do not mutate the
+		// directory.
+		if err := pm.writeRewindSentinel(); err != nil {
+			return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
+		}
 
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
