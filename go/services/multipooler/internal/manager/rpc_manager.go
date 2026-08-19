@@ -49,6 +49,17 @@ import (
 // finish rather than be abandoned mid-write.
 const rewindOperationTimeout = 30 * time.Minute
 
+// detachRewindOpContext returns the context for the destructive stop -> pg_rewind
+// -> restart-as-standby sequence: detached from the caller's cancellation
+// (ctxutil.Detach) so a started rewind is not aborted when an RPC deadline fires,
+// yet still carrying the caller's action-lock ownership (actionlock.CarryLock,
+// since Detach drops context values) and telemetry, bounded by
+// rewindOperationTimeout as a backstop against a hung operation. The caller must
+// hold the action lock and must call the returned cancel func.
+func (pm *MultipoolerManager) detachRewindOpContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+}
+
 // broadcastHealth broadcasts the current health state to all subscribers.
 //
 // This should be called whenever there is a state change that clients should be
@@ -965,7 +976,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// the caller's deadline fires, its RPC returns while this sequence keeps running
 	// to a valid standby (or a definitive failure); the caller simply retries and
 	// finds the node already healed.
-	opCtx, cancel := context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+	opCtx, cancel := pm.detachRewindOpContext(ctx)
 	defer cancel()
 	ctx = opCtx
 

@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,7 +27,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // newSentinelTestManager builds a manager whose pooler directory is a writable
@@ -169,9 +170,13 @@ func TestRewindDetachOutlivesCallerCancellation(t *testing.T) {
 	callerCtx, cancel := context.WithCancel(lockCtx)
 
 	// The exact detach restartAsStandbyLocked performs at the point of no return.
-	opCtx, opCancel := context.WithTimeout(
-		actionlock.CarryLock(ctxutil.Detach(callerCtx), callerCtx), time.Minute)
+	opCtx, opCancel := pm.detachRewindOpContext(callerCtx)
 	defer opCancel()
+
+	// The detached sequence is bounded by its own backstop deadline.
+	if _, ok := opCtx.Deadline(); !ok {
+		t.Fatal("detached rewind context should carry a backstop deadline")
+	}
 
 	// The caller's deadline fires.
 	cancel()
@@ -184,6 +189,59 @@ func TestRewindDetachOutlivesCallerCancellation(t *testing.T) {
 	// calls (which assert ownership) still succeed and the monitor stays blocked.
 	assert.NoError(t, actionlock.AssertActionLockHeld(opCtx),
 		"the detached rewind context must keep proving action-lock ownership")
+}
+
+// TestRunPgRewind_SentinelBracket verifies runPgRewind writes the rewind sentinel
+// before the mutating pg_rewind on the divergence path, and writes nothing when
+// there is no divergence (so a no-op dry-run leaves no stale sentinel).
+func TestRunPgRewind_SentinelBracket(t *testing.T) {
+	t.Run("writes sentinel when servers diverged", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		pm.pgctldClient = &mockPgctldClient{
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
+		}
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.True(t, performed, "a diverged rewind is performed")
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.True(t, present, "sentinel must be written before the mutating pg_rewind")
+	})
+
+	t.Run("no sentinel when not diverged", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		pm.pgctldClient = &mockPgctldClient{
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "no rewind required"},
+		}
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.False(t, performed, "no divergence means no rewind")
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.False(t, present, "no sentinel written when there is no divergence")
+	})
+}
+
+// TestRewindSentinel_ErrorPaths covers the sentinel helpers' error branches so a
+// failure to record/clear the marker is surfaced rather than silently ignored.
+func TestRewindSentinel_ErrorPaths(t *testing.T) {
+	// fsyncPath surfaces an open error for a path that does not exist.
+	require.Error(t, fsyncPath(filepath.Join(t.TempDir(), "does-not-exist")))
+
+	// writeRewindSentinel surfaces a write error when the pooler dir is missing.
+	missingDir := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
+		Type:      clustermetadatapb.PoolerType_REPLICA,
+		PoolerDir: filepath.Join(t.TempDir(), "no", "such", "dir"),
+	})))
+	require.Error(t, missingDir.writeRewindSentinel(), "write to a nonexistent pooler dir should error")
+
+	// removeRewindSentinel surfaces a non-NotExist error: a non-empty directory at
+	// the sentinel path cannot be removed by os.Remove.
+	pm := newSentinelTestManager(t)
+	sentinelPath := pm.rewindSentinelPath()
+	require.NoError(t, os.Mkdir(sentinelPath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sentinelPath, "child"), []byte("x"), 0o644))
+	require.Error(t, pm.removeRewindSentinel(), "removing a non-empty directory at the sentinel path should error")
 }
 
 // TestTrackRecoveryOutcome_ResetsWhenRunningWithoutSentinel guards the boundary:
