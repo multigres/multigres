@@ -83,10 +83,14 @@ func NewTermRevocation(
 	// outgoingRule, and HighestDecidedRule's doc for why not HighestKnownRule.
 	replaceDecision := HighestDecidedRule(statuses)
 
-	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided.
-	// TODO: once propagation only recruits statuses sharing the outgoing decision,
-	// this term scan can be narrowed to those.
+	// The new revocation term must exceed every term discoverable within reach
+	// of this attempt (i.e. observed on an eligible member) — not necessarily
+	// every term any pooler anywhere has ever accepted. A term that only
+	// landed on a member outside this attempt's reach (e.g. INELIGIBLE)
+	// couldn't have contributed to any quorum-committed state; that member
+	// becomes a stranded straggler RecruitAbandonedAnalyzer already
+	// reconciles via a leader-led no-op rule bump, the same as any other
+	// abandoned-recruit case.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	if t := highestRevokedBelowTerm(statuses); t > maxTerm {
 		maxTerm = t
