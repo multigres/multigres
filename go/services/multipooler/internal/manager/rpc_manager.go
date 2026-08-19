@@ -1161,10 +1161,13 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		DryRun:          true,
 		ApplicationName: pid.AppName(),
 	}
+	dryRunStart := time.Now()
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
+	dryRunDuration := time.Since(dryRunStart)
+	pm.metrics.recordRewindExecutionDuration(ctx, rewindPhaseDryRun, dryRunDuration)
 	if err != nil {
 		if dryRunResp != nil {
-			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "output", dryRunResp.Output)
+			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "duration", dryRunDuration.String(), "output", dryRunResp.Output)
 		}
 		return false, mterrors.Wrap(err, "pg_rewind dry-run failed")
 	}
@@ -1192,15 +1195,18 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			ApplicationName: pid.AppName(),
 			ExtraArgs:       []string{"-R"},
 		}
+		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
+		rewindDuration := time.Since(rewindStart)
+		pm.metrics.recordRewindExecutionDuration(ctx, rewindPhaseRewind, rewindDuration)
 		if err != nil {
 			if rewindResp != nil {
-				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "output", rewindResp.Output)
+				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "duration", rewindDuration.String(), "output", rewindResp.Output)
 			}
 			return false, mterrors.Wrap(err, "pg_rewind failed")
 		}
 
-		pm.logger.InfoContext(ctx, "pg_rewind completed")
+		pm.logger.InfoContext(ctx, "pg_rewind completed", "duration", rewindDuration.String(), "dry_run_duration", dryRunDuration.String())
 		return true, nil
 	}
 
