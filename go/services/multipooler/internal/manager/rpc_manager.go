@@ -1088,6 +1088,16 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// The rewind (if any) completed and postgres is verified back up as a standby,
+	// so the data directory is no longer mid-rewind: clear the sentinel. Only
+	// meaningful when a rewind actually ran (runPgRewind writes it on the mutating
+	// path); Remove is idempotent otherwise. A failure here is not fatal — the node
+	// is healthy — but leaves a stale sentinel that the monitor's healthy path would
+	// otherwise re-arm into a benign no-op re-rewind, so surface it as a warning.
+	if err := pm.removeRewindSentinel(); err != nil {
+		pm.logger.WarnContext(ctx, "failed to remove rewind sentinel after successful restart as standby", "error", err)
+	}
+
 	return rewindPerformed, nil
 }
 
@@ -1122,6 +1132,18 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Check if servers diverged
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
+
+		// Mark the data directory as being rewound before the mutating pg_rewind
+		// runs. pg_rewind is not transactional: an interruption here leaves a
+		// half-rewound, unstartable directory. The sentinel is the durable signal
+		// that lets the monitor detect that on the next tick (or after a pod
+		// restart) and repair-or-quarantine instead of starting postgres on it.
+		// restartAsStandbyLocked removes it once postgres is verified back as a
+		// standby. Fail-safe: if we cannot record the marker, do not mutate the
+		// directory.
+		if err := pm.writeRewindSentinel(); err != nil {
+			return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
+		}
 
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
