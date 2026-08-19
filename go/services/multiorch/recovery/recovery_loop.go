@@ -128,11 +128,11 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 		"problem_count", len(problems),
 	)
 
+	// Check if there's a leader problem in this shard.
+	hasLeaderProblem := re.hasLeaderProblem(problems)
+
 	// Sort by priority and apply filtering logic
 	filteredProblems := re.filterAndPrioritize(ctx, problems)
-
-	// Check if there's a leader problem in this shard
-	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
 
 	// Attempt recoveries. Pooler-scoped problems run in parallel since each
 	// targets a distinct node and can take up to its action timeout (e.g. 60s

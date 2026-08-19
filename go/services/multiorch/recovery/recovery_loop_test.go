@@ -617,6 +617,95 @@ func TestFilterAndPrioritize_GatedShardWideDoesNotBlockPoolerScoped(t *testing.T
 	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code)
 }
 
+// TestProcessShardProblems_GatedLeaderProblemStillBlocksHealthyLeaderActions
+// tests that a pooler-scoped action requiring a healthy leader is still
+// skipped while the shard's failover problem is gated — even though
+// filterAndPrioritize drops the gated failover problem from the list it
+// returns (so it doesn't starve unrelated pooler-scoped fixes). The leader is
+// still broken either way; only the "should this preempt everything else"
+// question changes.
+//
+// Uses real analyzers (not a hand-built problems slice) because
+// attemptRecovery re-runs the originating analyzer via recheckProblem before
+// executing — a problem with no matching analyzer is treated as resolved and
+// silently skipped regardless of the hasLeaderProblem gate, which would make
+// this test pass even without the fix it's meant to catch.
+func TestProcessShardProblems_GatedLeaderProblemStillBlocksHealthyLeaderActions(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	fakeClient := rpcclient.NewFakeClient()
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-pooler"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"}
+
+	primaryRecovery := &mockRecoveryAction{name: "FailoverPrimary", timeout: 45 * time.Second}
+	replicaRecovery := &mockRecoveryAction{name: "FixReplication", timeout: 10 * time.Second, requiresHealthyLeader: true}
+	analysis.SetTestAnalyzers([]analysis.Analyzer{
+		&mockPrimaryDeadAnalyzer{recoveryAction: primaryRecovery},
+		&mockReplicaNotReplicatingAnalyzer{recoveryAction: replicaRecovery},
+	})
+	t.Cleanup(analysis.ResetAnalyzers)
+
+	// Primary is unreachable (StreamConnected: false) at decision term 4, and
+	// already carries a fresh revocation at term 5 — NextFailoverAttempt is
+	// gated by collective backoff from here, same setup as
+	// TestFilterAndPrioritize_GatedShardWideDoesNotBlockPoolerScoped.
+	decision := &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}
+	primaryPooler := &multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       primaryID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
+		},
+		StreamConnected: false,
+		LastSeen:        timestamppb.Now(),
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: primaryID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: decision, LeaderId: primaryID}},
+			},
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       5,
+				AcceptedCoordinatorId:  &clustermetadatapb.ID{Name: "other-coordinator"},
+				CoordinatorInitiatedAt: timestamppb.Now(),
+				OutgoingRule:           decision,
+				RecruitIntent:          &clustermetadatapb.RecruitIntent{ReplaceDecision: decision, Attempt: 1},
+			},
+		},
+	}
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
+
+	replicaPooler := &multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       replicaID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
+		},
+		LastSeen: timestamppb.Now(),
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: true,
+			},
+		},
+	}
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
+
+	problems := detectProblems(t, engine)
+	require.Len(t, problems, 2, "should detect both the gated primary-unreachable problem and the replica-not-replicating problem")
+
+	engine.processShardProblems(ctx, shardKey, problems)
+
+	assert.False(t, replicaRecovery.executed.Load(),
+		"action requiring a healthy leader must not run while the shard's failover problem is gated")
+}
+
 // TestFilterAndPrioritize_GatedShardWideFallsBackToLowerPriorityShardWide
 // tests that when the highest-priority shard-wide problem is gated, a
 // lower-priority but ready shard-wide problem still runs instead of falling
