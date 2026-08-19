@@ -108,8 +108,23 @@ func (m *healthMetrics) recordTransition(ctx context.Context, from, to clusterme
 
 // managerMetrics holds the OTel instruments for the pooler manager.
 type managerMetrics struct {
-	rewindCheckpointWait metric.Float64Histogram
+	rewindCheckpointWait    metric.Float64Histogram
+	rewindExecutionDuration metric.Float64Histogram
 }
+
+// rewindPhase labels a pg_rewind execution-duration sample.
+type rewindPhase string
+
+const (
+	// rewindPhaseDryRun is the read-only dry-run: connect to source, read the
+	// timeline history, find the last common checkpoint, and scan the target WAL
+	// (it may also run crash recovery first). No target data is written.
+	rewindPhaseDryRun rewindPhase = "dry_run"
+	// rewindPhaseRewind is the actual mutating pg_rewind (-R): the phase that
+	// copies changed blocks and WAL from the source, whose runtime is dominated by
+	// the retained pg_wal it copies.
+	rewindPhaseRewind rewindPhase = "rewind"
+)
 
 // newManagerMetrics creates and registers the manager's OTel instruments. It
 // always returns a non-nil *managerMetrics; a registration error is returned
@@ -123,12 +138,26 @@ func newManagerMetrics() (*managerMetrics, error) {
 	// it; seconds when the follower had to wait for the checkpoint. A consistently
 	// high distribution would argue for keeping the explicit post-promotion
 	// checkpoint over relying on PostgreSQL's lazy one.
-	h, err := meter.Float64Histogram(
+	wait, waitErr := meter.Float64Histogram(
 		"multipooler.rewind.checkpoint_wait.duration",
 		metric.WithDescription("Time a diverged follower's pg_rewind waited for the new leader to become rewind-ready (post-promotion checkpoint completion)"),
 		metric.WithUnit("s"),
 	)
-	return &managerMetrics{rewindCheckpointWait: h}, err
+	// How long pg_rewind itself ran, split by phase (dry_run vs rewind). This is
+	// the actual subprocess runtime, distinct from checkpoint_wait above. It
+	// matters operationally because pg_rewind runtime scales with retained pg_wal
+	// (it copies the whole retained WAL, not just the divergence), so a rewind can
+	// take minutes under load — long enough to matter for shutdown grace and for
+	// the detached-rewind backstop timeout.
+	exec, execErr := meter.Float64Histogram(
+		"multipooler.rewind.execution.duration",
+		metric.WithDescription("Duration of a pg_rewind invocation, labelled by phase (dry_run vs the mutating rewind)"),
+		metric.WithUnit("s"),
+	)
+	return &managerMetrics{
+		rewindCheckpointWait:    wait,
+		rewindExecutionDuration: exec,
+	}, errors.Join(waitErr, execErr)
 }
 
 // recordRewindCheckpointWait records how long a pg_rewind waited for the source
@@ -139,4 +168,15 @@ func (m *managerMetrics) recordRewindCheckpointWait(ctx context.Context, d time.
 		return
 	}
 	m.rewindCheckpointWait.Record(ctx, d.Seconds())
+}
+
+// recordRewindExecutionDuration records how long a pg_rewind invocation took, for
+// the given phase. Nil-receiver safe so manager values constructed without
+// metrics (e.g. in unit tests) are no-ops.
+func (m *managerMetrics) recordRewindExecutionDuration(ctx context.Context, phase rewindPhase, d time.Duration) {
+	if m == nil || m.rewindExecutionDuration == nil {
+		return
+	}
+	m.rewindExecutionDuration.Record(ctx, d.Seconds(),
+		metric.WithAttributes(attribute.String("phase", string(phase))))
 }
