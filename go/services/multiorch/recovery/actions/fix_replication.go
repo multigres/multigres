@@ -143,7 +143,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
 	case types.ProblemReplicaNotReplicating:
-		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownPosition)
+		return a.fixNotReplicating(ctx, replica, leader, members)
 
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
@@ -167,7 +167,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *store.Pooler,
 	leader *store.Pooler,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	members store.ShardMembers,
 ) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.Health().Multipooler.Id.Name,
@@ -187,6 +187,22 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
+	// Backstop for the discovery-driven reconcile (§2.6): ensure the primary
+	// holds a physical replication slot for this replica before we point the
+	// replica at it, so the replica's WAL receiver START_REPLICATION SLOT
+	// mg_<self> cannot fail with "slot does not exist" and strand it (the very
+	// deadlock this reactive step exists to break if the proactive reconcile was
+	// missed). Declarative: we send the full cohort-eligible set, so no peer's
+	// slot is dropped. Best-effort — on error we log and proceed; SetPrimary and
+	// the pooler's own repair still run, and the proactive loop retries.
+	if _, err := a.rpcClient.ReconcileFollowers(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.ReconcileFollowersRequest{
+		Followers: store.CohortEligibleFollowerIDs(members),
+	}); err != nil {
+		a.logger.WarnContext(ctx, "fix replication: ensuring follower physical slot on primary failed; proceeding",
+			"replica", replica.Health().Multipooler.Id.Name,
+			"primary", leader.Health().Multipooler.Id.Name, "error", err)
+	}
+
 	// Configure primary_conninfo on the replica via SetPrimary. The rule is the
 	// shard's highest-known rule (authoritative — the leader may not yet know it
 	// holds that rule), the contact is the leader's topology address, and we
@@ -194,7 +210,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    highestKnownPosition,
+			Position:    members.HighestKnownPosition,
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
