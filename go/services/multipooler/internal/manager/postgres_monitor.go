@@ -1524,6 +1524,18 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	return nil
 }
 
+// latestCompleteBackup returns the most recent COMPLETE backup in backups,
+// or nil if none is complete. backups must be sorted newest-first, as
+// Engine.ListBackups returns them.
+func latestCompleteBackup(backups []*multipoolermanagerdatapb.BackupMetadata) *multipoolermanagerdatapb.BackupMetadata {
+	for _, b := range backups {
+		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
+			return b
+		}
+	}
+	return nil
+}
+
 // restoreAndStartPostgres restores from backup and starts PostgreSQL.
 // This is used by MonitorPostgres for auto-restore functionality.
 // Caller must hold the action lock.
@@ -1542,26 +1554,17 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		// If status check fails, continue with restore attempt
 	}
 
-	// Get the latest complete backup
+	// Get the latest complete backup. ListBackups returns backups
+	// newest-first.
 	backups, err := pm.backup.ListBackups(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list backups: %w", err)
 	}
 
-	// Filter to only complete backups
-	var completeBackups []*multipoolermanagerdatapb.BackupMetadata
-	for _, b := range backups {
-		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
-			completeBackups = append(completeBackups, b)
-		}
-	}
-
-	if len(completeBackups) == 0 {
+	latestBackup := latestCompleteBackup(backups)
+	if latestBackup == nil {
 		return errors.New("no complete backups available")
 	}
-
-	// Use the latest complete backup (last in the list)
-	latestBackup := completeBackups[len(completeBackups)-1]
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"backup_id", latestBackup.BackupId)
