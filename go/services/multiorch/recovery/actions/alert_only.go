@@ -41,7 +41,8 @@ func NewAlertOnlyAction(logger *slog.Logger) *AlertOnlyAction {
 
 // Execute records the problem for human attention and returns nil. It never
 // mutates cluster state.
-func (a *AlertOnlyAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *AlertOnlyAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.WarnContext(ctx, "non-actionable problem detected; human intervention required",
 		"problem_code", problem.Code,
 		"database", problem.ShardKey.GetDatabase(),

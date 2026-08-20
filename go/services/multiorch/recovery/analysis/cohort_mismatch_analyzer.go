@@ -105,6 +105,16 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			// an "ineligible" member for quorum in a genuine emergency
 			// (design not yet built) — without it, removing this gate risks
 			// stranding the shard on the next real leader failure.
+			//
+			// This check isn't capped to one removal per cycle the way the
+			// missing-from-cache path below is: multiple INELIGIBLE members
+			// each get their own problem, all checked against the same
+			// current rule. ReconcileCohortAction trusts this verdict as-is
+			// (it CASes on the same rule the engine's recheck re-verified
+			// this problem against, rather than re-deriving safety itself),
+			// and UpdateConsensusRule's compare-and-swap means only one
+			// removal lands per cycle regardless — the rest fail the CAS and
+			// retry next cycle against the now-changed cohort.
 			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
 				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
 				problems = append(problems, types.Problem{
