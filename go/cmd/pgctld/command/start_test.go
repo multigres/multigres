@@ -163,62 +163,115 @@ func TestIsDataDirInitialized(t *testing.T) {
 	}
 }
 
-func TestIsPostgreSQLRunning(t *testing.T) {
+// TestPostgresIsRunning: only an inconclusive pidfile consults pg_isready.
+func TestPostgresIsRunning(t *testing.T) {
 	tests := []struct {
-		name      string
-		setupDir  func(string) string
-		isRunning bool
+		name         string
+		setupDir     func(*testing.T, string) string
+		pgIsReady    string // mock body; empty means the default (always ready)
+		want         bool
+		needsNonRoot bool
 	}{
 		{
 			name: "server running with PID file",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
 			},
-			isRunning: true,
+			want: true,
+		},
+		{
+			// Frozen postmaster: stop must still try to stop it.
+			name: "PID file wins over an unresponsive server",
+			setupDir: func(t *testing.T, baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				testutil.CreatePIDFile(t, dataDir, 12345)
+				return dataDir
+			},
+			pgIsReady: "exit 1",
+			want:      true,
 		},
 		{
 			name: "server not running",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				return testutil.CreateDataDir(t, baseDir, true)
 			},
-			isRunning: false,
+			want: false,
 		},
 		{
 			name: "uninitialized directory",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				return testutil.CreateDataDir(t, baseDir, false)
 			},
-			isRunning: false,
+			want: false,
+		},
+		{
+			// Regression: this used to read as "not running", so stop
+			// reported success without stopping.
+			name: "unreadable PID file falls back to a reachable probe",
+			setupDir: func(t *testing.T, baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "postmaster.pid"), []byte("12345\n"), 0o000))
+				return dataDir
+			},
+			want:         true,
+			needsNonRoot: true,
+		},
+		{
+			name: "unreadable PID file with nothing answering is not running",
+			setupDir: func(t *testing.T, baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "postmaster.pid"), []byte("12345\n"), 0o000))
+				return dataDir
+			},
+			pgIsReady:    "exit 1",
+			want:         false,
+			needsNonRoot: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.needsNonRoot && os.Geteuid() == 0 {
+				t.Skip("root bypasses file permissions, so an unreadable pidfile cannot be simulated")
+			}
+
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_running_test")
 			defer cleanup()
 
-			dataDir := tt.setupDir(baseDir)
-			result := isPostgreSQLRunning(dataDir)
-			assert.Equal(t, tt.isRunning, result)
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			if tt.pgIsReady != "" {
+				testutil.MockBinary(t, binDir, "pg_isready", tt.pgIsReady)
+			}
+			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+			dataDir := tt.setupDir(t, baseDir)
+			config, err := pgctld.NewPostgresCtlConfig(
+				5432, "postgres", "postgres", 30,
+				dataDir, filepath.Join(dataDir, "postgresql.conf"),
+				baseDir, "localhost", pgctld.PostgresSocketDir(baseDir),
+			)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, postgresIsRunning(slog.Default(), config))
 		})
 	}
 }
 
-// TestPostgresLiveness covers the distinction isPostgreSQLRunning collapses:
-// "PGDATA is readable and says nothing is running" versus "postmaster.pid could
-// not be read". Status reporting probes for connectivity only in the latter case.
+// TestPostgresLiveness: "nothing is running" vs "cannot tell" must not collapse.
 func TestPostgresLiveness(t *testing.T) {
 	tests := []struct {
 		name         string
-		setupDir     func(string) string
+		setupDir     func(*testing.T, string) string
 		want         pgLiveness
 		needsNonRoot bool
 	}{
 		{
 			name: "PID file names a live process",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
@@ -227,14 +280,21 @@ func TestPostgresLiveness(t *testing.T) {
 		},
 		{
 			name: "no PID file is an authoritative down",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				return testutil.CreateDataDir(t, baseDir, true)
 			},
 			want: pgDown,
 		},
 		{
+			name: "uninitialized directory is down",
+			setupDir: func(t *testing.T, baseDir string) string {
+				return testutil.CreateDataDir(t, baseDir, false)
+			},
+			want: pgDown,
+		},
+		{
 			name: "stale PID file whose process is gone is down",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
 				cmd := exec.Command("sleep", "3600")
 				require.NoError(t, cmd.Start())
@@ -250,9 +310,7 @@ func TestPostgresLiveness(t *testing.T) {
 		},
 		{
 			name: "unreadable PID file is inconclusive",
-			setupDir: func(baseDir string) string {
-				// No cleanup needed: this subtest gets its own TempDir, and
-				// removing a 0o000 file only needs the directory to be writable.
+			setupDir: func(t *testing.T, baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
 				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "postmaster.pid"), []byte("12345\n"), 0o000))
 				return dataDir
@@ -262,7 +320,7 @@ func TestPostgresLiveness(t *testing.T) {
 		},
 		{
 			name: "malformed PID file is inconclusive",
-			setupDir: func(baseDir string) string {
+			setupDir: func(t *testing.T, baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
 				pidFile := filepath.Join(dataDir, "postmaster.pid")
 				require.NoError(t, os.WriteFile(pidFile, []byte("not-a-pid\n"), 0o644))
@@ -281,7 +339,7 @@ func TestPostgresLiveness(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_liveness_test")
 			defer cleanup()
 
-			got, _ := postgresLiveness(tt.setupDir(baseDir))
+			got, _ := postgresLiveness(tt.setupDir(t, baseDir))
 			assert.Equal(t, tt.want, got)
 		})
 	}
