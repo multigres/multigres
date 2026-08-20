@@ -32,6 +32,9 @@ spec:
             - --topo-global-root=/multigres/test/global
             - --cell=zone1
             - --pprof-http=true
+            # Logical-slot failover (PR #1394): admit non-temporary logical
+            # replication slots registered for failover through the gateway.
+            - --enable-slot-based-replication=true
           env:
             - name: POD_IP
               valueFrom:
