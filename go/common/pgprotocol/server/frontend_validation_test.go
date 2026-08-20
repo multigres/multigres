@@ -40,13 +40,36 @@ func TestStrictFrontendMessageValidation(t *testing.T) {
 		body   []byte
 		handle func(*Conn) error
 	}{
+		{"Parse missing statement name", nil, func(c *Conn) error { return c.handleParse() }},
+		{"Parse unterminated statement name", []byte("s"), func(c *Conn) error { return c.handleParse() }},
+		{"Parse missing query", []byte("s\x00"), func(c *Conn) error { return c.handleParse() }},
+		{"Parse unterminated query", []byte("s\x00SELECT 1"), func(c *Conn) error { return c.handleParse() }},
+		{"Parse missing parameter count", []byte("s\x00SELECT 1\x00"), func(c *Conn) error { return c.handleParse() }},
 		{"Parse trailing byte", append(append([]byte(nil), parseBody...), 'x'), func(c *Conn) error { return c.handleParse() }},
 		{"Parse unsigned count without OIDs", []byte("s\x00SELECT 1\x00\x80\x00"), func(c *Conn) error { return c.handleParse() }},
+		{"Bind missing portal name", nil, func(c *Conn) error { return c.handleBind() }},
+		{"Bind unterminated portal name", []byte("p"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind missing statement name", []byte("p\x00"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind unterminated statement name", []byte("p\x00s"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind missing parameter format count", []byte("p\x00s\x00"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind parameter format count exceeds body", []byte("p\x00s\x00\x00\x01"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind missing parameter count", []byte("p\x00s\x00\x00\x00"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind parameter count exceeds body", []byte("p\x00s\x00\x00\x00\x00\x01"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind truncated parameter value", []byte("p\x00s\x00\x00\x00\x00\x01\x00\x00\x00\x01"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind missing result format count", []byte("p\x00s\x00\x00\x00\x00\x00"), func(c *Conn) error { return c.handleBind() }},
+		{"Bind result format count exceeds body", []byte("p\x00s\x00\x00\x00\x00\x00\x00\x01"), func(c *Conn) error { return c.handleBind() }},
 		{"Bind trailing byte", append(append([]byte(nil), bindBody...), 'x'), func(c *Conn) error { return c.handleBind() }},
+		{"Execute missing portal name", nil, func(c *Conn) error { return c.handleExecute() }},
+		{"Execute unterminated portal name", []byte("p"), func(c *Conn) error { return c.handleExecute() }},
+		{"Execute missing max rows", []byte("p\x00"), func(c *Conn) error { return c.handleExecute() }},
 		{"Execute trailing byte", append(append([]byte(nil), executeBody...), 'x'), func(c *Conn) error { return c.handleExecute() }},
+		{"Describe missing target", nil, func(c *Conn) error { return c.handleDescribe() }},
 		{"Describe invalid target", []byte{'X', 0}, func(c *Conn) error { return c.handleDescribe() }},
+		{"Describe unterminated name", []byte{'S', 's'}, func(c *Conn) error { return c.handleDescribe() }},
 		{"Describe trailing byte", []byte{'S', 0, 'x'}, func(c *Conn) error { return c.handleDescribe() }},
+		{"Close missing target", nil, func(c *Conn) error { return c.handleClose() }},
 		{"Close invalid target", []byte{'X', 0}, func(c *Conn) error { return c.handleClose() }},
+		{"Close unterminated name", []byte{'S', 's'}, func(c *Conn) error { return c.handleClose() }},
 		{"Close trailing byte", []byte{'S', 0, 'x'}, func(c *Conn) error { return c.handleClose() }},
 	}
 
@@ -64,25 +87,47 @@ func TestStrictFrontendMessageValidation(t *testing.T) {
 }
 
 func TestBindRejectsInvalidFormatAtBind(t *testing.T) {
-	var readBuf, writeBuf bytes.Buffer
-	called := false
-	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{
-		bindFunc: func(_ context.Context, _ *Conn, _, _ string, _ [][]byte, _, _ []int16) error {
-			called = true
-			return nil
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "parameter format",
+			body: []byte{
+				'p', 0, 's', 0,
+				0, 1, 0, 2,
+				0, 0,
+				0, 0,
+			},
 		},
-	})
-	body := []byte{
-		'p', 0, 's', 0,
-		0, 1, 0, 2,
-		0, 0,
-		0, 0,
+		{
+			name: "result format",
+			body: []byte{
+				'p', 0, 's', 0,
+				0, 0,
+				0, 0,
+				0, 1, 0, 2,
+			},
+		},
 	}
-	writeFrontendBody(&readBuf, body)
 
-	require.NoError(t, conn.handleBind())
-	assert.Equal(t, mterrors.PgSSInvalidParameterValue, errorResponseSQLSTATE(t, &writeBuf))
-	assert.False(t, called)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var readBuf, writeBuf bytes.Buffer
+			called := false
+			conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{
+				bindFunc: func(_ context.Context, _ *Conn, _, _ string, _ [][]byte, _, _ []int16) error {
+					called = true
+					return nil
+				},
+			})
+			writeFrontendBody(&readBuf, tc.body)
+
+			require.NoError(t, conn.handleBind())
+			assert.Equal(t, mterrors.PgSSInvalidParameterValue, errorResponseSQLSTATE(t, &writeBuf))
+			assert.False(t, called)
+		})
+	}
 }
 
 func TestParseAcceptsUnsignedParameterCount(t *testing.T) {
