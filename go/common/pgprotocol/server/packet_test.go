@@ -177,6 +177,23 @@ func TestReadMessageBody(t *testing.T) {
 	})
 }
 
+func TestReadMessageLengthRejectsOversizedFrameBeforeAllocation(t *testing.T) {
+	var maximum [4]byte
+	binary.BigEndian.PutUint32(maximum[:], protocol.MaxFrontendMessageBodyLength+4)
+	conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(maximum[:]))}
+	bodyLength, err := conn.ReadMessageLength()
+	require.NoError(t, err)
+	assert.Equal(t, int(protocol.MaxFrontendMessageBodyLength), bodyLength)
+
+	var oversized [4]byte
+	binary.BigEndian.PutUint32(oversized[:], protocol.MaxFrontendMessageBodyLength+4+1)
+	conn = &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(oversized[:]))}
+	_, err = conn.ReadMessageLength()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errFrontendMessageTooLarge)
+	assert.ErrorContains(t, err, "exceeds maximum")
+}
+
 // TestWritePacketSizeMismatchPanics verifies that writePacket panics
 // when the encoded byte count doesn't match the bodyLen passed to
 // startPacket — the safety net that catches sizing-arithmetic bugs in
