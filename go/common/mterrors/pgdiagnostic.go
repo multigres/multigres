@@ -43,6 +43,9 @@ type PgDiagnostic struct {
 	Column           string
 	DataType         string
 	Constraint       string
+	File             string
+	Line             int32
+	Routine          string
 }
 
 // IsError returns true if this diagnostic represents an error (MessageType == 'E').
@@ -226,6 +229,9 @@ func PgDiagnosticToProto(d *PgDiagnostic) *query.PgDiagnostic {
 		ColumnName:       d.Column,
 		DataTypeName:     d.DataType,
 		ConstraintName:   d.Constraint,
+		File:             d.File,
+		Line:             d.Line,
+		Routine:          d.Routine,
 	}
 }
 
@@ -250,5 +256,8 @@ func PgDiagnosticFromProto(pd *query.PgDiagnostic) *PgDiagnostic {
 		Column:           pd.ColumnName,
 		DataType:         pd.DataTypeName,
 		Constraint:       pd.ConstraintName,
+		File:             pd.File,
+		Line:             pd.Line,
+		Routine:          pd.Routine,
 	}
 }
