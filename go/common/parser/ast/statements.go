@@ -523,6 +523,21 @@ func (s *SelectStmt) String() string {
 	return fmt.Sprintf("SelectStmt@%d", s.Location())
 }
 
+// LeafIntoClause returns the statement's SELECT INTO target, drilling to the
+// leftmost leaf of a set operation. The grammar attaches INTO to the leaf
+// SELECT, never the set-op node (`SELECT 1 INTO t UNION SELECT 2` carries the
+// IntoClause on Larg), mirroring PostgreSQL's transformOptionalSelectInto
+// which performs the same leftmost walk. Returns nil when no INTO is present.
+func (s *SelectStmt) LeafIntoClause() *IntoClause {
+	for s.Op != SETOP_NONE {
+		if s.Larg == nil {
+			return nil
+		}
+		s = s.Larg
+	}
+	return s.IntoClause
+}
+
 func (s *SelectStmt) StatementType() string {
 	return "SELECT"
 }
