@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -127,19 +126,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	// Get the configured logger
 	logger := s.senv.GetLogger()
 
-	// Start reaping orphaned children to prevent zombie processes.
-	// Only start when running as PID 1 (container init process). pg_ctl with -W
-	// forks a child that gets reparented to PID 1 on exit; without this reaper
-	// those children become zombies.
-	//
-	// When pgctld is NOT PID 1 (tests, CI, systemd), orphaned children are
-	// reparented to the system init — not pgctld — so the reaper is unnecessary.
-	// Starting it anyway races with cmd.Wait() in RPC handlers (initdb, pg_rewind)
-	// causing "waitid: no child processes" errors.
-	if os.Getpid() == 1 {
-		go reapOrphanedChildren(logger)
-	}
-
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
 	pgbackrestPort := s.pgbackrestPort.Get()
@@ -187,6 +173,17 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 			"http_port", s.senv.GetHTTPPort(),
 		)
 
+		// Start reaping the postmaster to prevent a zombie. Only needed when
+		// pgctld is PID 1 (container init): `pg_ctl start -W` forks the postmaster
+		// and exits, so it is reparented to pgctld and must be wait()ed on. When
+		// pgctld is NOT PID 1 (tests, CI, systemd) orphans reparent to the system
+		// init instead, so no reaper is needed. See childReaper for why it tracks
+		// exact PIDs rather than using Wait4(-1).
+		if os.Getpid() == 1 {
+			pgctldService.reaper = newChildReaper(logger)
+			go pgctldService.reaper.Run()
+		}
+
 		// Start pgBackRest management
 		pgctldService.StartPgBackRestManagement()
 
@@ -202,31 +199,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	return s.senv.RunDefault(s.grpcServer)
-}
-
-// reapOrphanedChildren handles SIGCHLD signals to reap zombie processes.
-// This is necessary because pg_ctl with -W flag creates child processes that get
-// reparented to pgctld (when running as PID 1 in a container). Without this reaper,
-// these child processes remain in defunct (zombie) state after exit.
-//
-// The function runs in a goroutine and continuously waits for SIGCHLD signals,
-// then reaps all available zombie children using Wait4 with WNOHANG.
-func reapOrphanedChildren(logger *slog.Logger) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGCHLD)
-
-	for range sigCh {
-		// Reap all zombie children
-		for {
-			var status syscall.WaitStatus
-			pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
-			if err != nil || pid <= 0 {
-				// No more children to reap
-				break
-			}
-			logger.Debug("reaped orphaned child process", "pid", pid, "status", status)
-		}
-	}
 }
 
 // PgCtldServiceConfig holds the PostgreSQL instance identity and initialization
@@ -272,6 +244,9 @@ type PgCtldService struct {
 	statusMu         sync.RWMutex
 	restartCount     int32
 	metrics          *Metrics
+
+	// reaper reaps the postmaster when pgctld runs as PID 1. Nil otherwise.
+	reaper *childReaper
 }
 
 // pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
@@ -624,7 +599,15 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	// is instead crash-recovered by the postmaster on the normal start below and
 	// does not set it.
 	var crashRecoveryRan bool
-	if req.GetAllowCrashRecovery() {
+	if req.GetAllowCrashRecovery() && isPostgreSQLRunning(s.pgConfig.PostgresDataDir) {
+		// Never crash-recover a running postmaster: runCrashRecovery removes
+		// standby.signal for single-user recovery, and doing that to a postmaster
+		// that is up — or still starting after a Start whose success was misreported
+		// — can bring it up read-write on a timeline it must not claim. A Start
+		// against an already-running node is an idempotent no-op via
+		// StartPostgreSQLWithResult below.
+		s.logger.InfoContext(ctx, "skipping crash recovery before start: postgres is already running")
+	} else if req.GetAllowCrashRecovery() {
 		needed, nErr := s.crashRecoveryNeeded(ctx)
 		if nErr != nil {
 			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
@@ -658,6 +641,9 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
+
+	// Reap this postmaster when it exits (no-op unless pgctld is PID 1).
+	s.reaper.TrackPID(result.PID)
 
 	pid, err := intToInt32(result.PID)
 	if err != nil {
@@ -705,6 +691,9 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
+
+	// Reap the restarted postmaster when it exits (no-op unless pgctld is PID 1).
+	s.reaper.TrackPID(result.PID)
 
 	pid, err := intToInt32(result.PID)
 	if err != nil {
