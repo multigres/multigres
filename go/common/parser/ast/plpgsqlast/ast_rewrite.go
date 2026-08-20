@@ -42,6 +42,12 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_if_elsif(parent, node, replacer)
 	case *PLpgSQL_raise_option:
 		return a.rewriteRefOfPLpgSQL_raise_option(parent, node, replacer)
+	case *PLpgSQL_rec:
+		return a.rewriteRefOfPLpgSQL_rec(parent, node, replacer)
+	case *PLpgSQL_recfield:
+		return a.rewriteRefOfPLpgSQL_recfield(parent, node, replacer)
+	case *PLpgSQL_row:
+		return a.rewriteRefOfPLpgSQL_row(parent, node, replacer)
 	case *PLpgSQL_stmt_assert:
 		return a.rewriteRefOfPLpgSQL_stmt_assert(parent, node, replacer)
 	case *PLpgSQL_stmt_assign:
@@ -145,6 +151,12 @@ func (a *application) rewriteDatum(parent Node, node Datum, replacer replacerFun
 	switch node := node.(type) {
 	case *PLpgSQL_alias:
 		return a.rewriteRefOfPLpgSQL_alias(parent, node, replacer)
+	case *PLpgSQL_rec:
+		return a.rewriteRefOfPLpgSQL_rec(parent, node, replacer)
+	case *PLpgSQL_recfield:
+		return a.rewriteRefOfPLpgSQL_recfield(parent, node, replacer)
+	case *PLpgSQL_row:
+		return a.rewriteRefOfPLpgSQL_row(parent, node, replacer)
 	case *PLpgSQL_var:
 		return a.rewriteRefOfPLpgSQL_var(parent, node, replacer)
 	default:
@@ -509,6 +521,107 @@ func (a *application) rewriteRefOfPLpgSQL_raise_option(parent Node, node *PLpgSQ
 		a.cur.replacer = replacer
 		a.cur.parent = parent
 		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_rec(parent Node, node *PLpgSQL_rec, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_type(node, node.DataType, func(newNode, parent Node) {
+		parent.(*PLpgSQL_rec).DataType = newNode.(*PLpgSQL_type)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.DefaultVal, func(newNode, parent Node) {
+		parent.(*PLpgSQL_rec).DefaultVal = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_recfield(parent Node, node *PLpgSQL_recfield, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_row(parent Node, node *PLpgSQL_row, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
 		if !a.post(&a.cur) {
 			return false
 		}

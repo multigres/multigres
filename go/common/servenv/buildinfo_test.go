@@ -38,6 +38,38 @@ func TestReadBuildSnapshot(t *testing.T) {
 	}
 }
 
+// TestApplyBuildFallbacks checks linker-injected metadata is used only when
+// Go's native VCS settings are absent.
+func TestApplyBuildFallbacks(t *testing.T) {
+	fallbackTime := time.Date(2026, 8, 5, 6, 8, 55, 0, time.UTC)
+	nativeTime := fallbackTime.Add(-time.Hour)
+
+	tests := []struct {
+		name string
+		snap buildSnapshot
+		want buildSnapshot
+	}{
+		{
+			name: "missing native VCS settings",
+			want: buildSnapshot{revision: "e481b99bde12b9600ee1e3134f108cb79826bc78", commitTime: fallbackTime},
+		},
+		{
+			name: "native VCS settings take precedence",
+			snap: buildSnapshot{revision: "native", commitTime: nativeTime},
+			want: buildSnapshot{revision: "native", commitTime: nativeTime},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			applyBuildFallbacks(&tt.snap, "e481b99bde12b9600ee1e3134f108cb79826bc78", "2026-08-05T08:08:55+02:00")
+			if tt.snap.revision != tt.want.revision || !tt.snap.commitTime.Equal(tt.want.commitTime) {
+				t.Errorf("applyBuildFallbacks() = %+v, want revision %q and commit time %s", tt.snap, tt.want.revision, tt.want.commitTime)
+			}
+		})
+	}
+}
+
 // TestFormatAppVersion pins the string layout of the version reported by
 // `SHOW multigres.server_version` across the combinations of build fields that may be
 // present or absent.

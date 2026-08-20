@@ -58,10 +58,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// precondition the analyzer needs (it knows where to point the replica).
 	leaderHealth := func() *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(time.Now()),
-			Status:           &multipoolermanagerdatapb.Status{PostgresReady: true},
+			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
+			LastSeen:    timestamppb.New(time.Now()),
+			Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		}, nil)
 	}
 
@@ -71,9 +70,8 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// "streaming", "waiting", or "" when the WAL receiver is not running).
 	pooler := func(id *clustermetadatapb.ID, selfLeader, initialized bool, primaryHost string, walReplayPaused bool, walReceiverStatus string) *store.Pooler {
 		h := &multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.Now(),
+			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			LastSeen:    timestamppb.Now(),
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized:   initialized,
 				PostgresRunning: true,
@@ -191,6 +189,25 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
+	})
+
+	t.Run("still analyzes a replica with a momentary connectivity blip but a fresh observation", func(t *testing.T) {
+		// StreamConnected false (e.g. a stream reconnect) must not hide an
+		// otherwise fresh observation from analysis.
+		replica := pooler(replicaID, false, true, "primary.example.com", true, "")
+		replica.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.StreamConnected = false })
+		sa := &ShardAnalysis{
+			ShardKey: shardKey,
+			Leader:   leaderHealth(),
+			Analyses: []*store.Pooler{replica},
+			Now:      time.Now(),
+			Policy:   DefaultAvailabilityPolicy(),
+		}
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
 	})
 
 	// Skip the problem when we have no health for the leader (Leader is nil), so

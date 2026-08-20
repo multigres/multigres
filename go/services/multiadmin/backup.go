@@ -105,10 +105,10 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 }
 
 // findPoolerForBackup finds a pooler for backup operations. forceLeader=true
-// returns the consensus leader (highest-rule routing_state wins if more than
-// one pooler self-claims PRIMARY, which can happen briefly during a rule
-// change); forceLeader=false returns a follower (any pooler whose routing_state
-// role is not PRIMARY).
+// returns the serving consensus leader (highest-rule routing_state wins if more
+// than one pooler self-claims PRIMARY, which can happen briefly during a rule
+// change); forceLeader=false returns a serving follower (any serving pooler
+// whose routing_state role is not PRIMARY).
 //
 // Leader identity is read from each pooler's routing_state.role topology
 // field, never from the deprecated Multipooler.Type label — the topology Type
@@ -121,7 +121,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
 	}
 
-	// Collect every pooler in the (database, tableGroup) so leader selection
+	// Collect every serving pooler in the (database, tableGroup) so leader selection
 	// can pick the highest-rule self_leadership across cells (a leader can be
 	// in any cell, and during a rule change two poolers may briefly both
 	// self-claim).
@@ -142,7 +142,9 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 			continue
 		}
 		for _, info := range poolerInfos {
-			poolers = append(poolers, info.Multipooler)
+			if info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
+				poolers = append(poolers, info.Multipooler)
+			}
 		}
 	}
 
@@ -162,7 +164,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		if bestLeader != nil {
 			return bestLeader, nil
 		}
-		return nil, fmt.Errorf("leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
+		return nil, fmt.Errorf("serving leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 	}
 
 	for _, p := range poolers {
@@ -170,7 +172,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
+	return nil, fmt.Errorf("serving follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 }
 
 // GetBackupJobStatus checks the status of a backup or restore job
@@ -317,6 +319,9 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 			StartLsn:             b.StartLsn,
 			StopLsn:              b.StopLsn,
 			PgVersion:            b.PgVersion,
+			StartTimestamp:       b.StartTimestamp,
+			StopTimestamp:        b.StopTimestamp,
+			JobId:                b.JobId,
 		}
 	}
 

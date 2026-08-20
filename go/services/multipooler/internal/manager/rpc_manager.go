@@ -26,8 +26,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -36,7 +36,29 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
+
+// rewindOperationTimeout bounds the detached stop -> pg_rewind ->
+// restart-as-standby sequence in restartAsStandbyLocked. Once postgres is
+// stopped that sequence runs to completion independent of the caller's deadline
+// (see the point-of-no-return detach), so this is only a backstop against a
+// genuinely hung operation holding the action lock forever. It is deliberately
+// generous: pg_rewind runtime scales with retained pg_wal (gigabytes, minutes
+// under IO throttling), and a rewind that merely runs long must be allowed to
+// finish rather than be abandoned mid-write.
+const rewindOperationTimeout = 30 * time.Minute
+
+// detachRewindOpContext returns the context for the destructive stop -> pg_rewind
+// -> restart-as-standby sequence: detached from the caller's cancellation
+// (ctxutil.Detach) so a started rewind is not aborted when an RPC deadline fires,
+// yet still carrying the caller's action-lock ownership (actionlock.CarryLock,
+// since Detach drops context values) and telemetry, bounded by
+// rewindOperationTimeout as a backstop against a hung operation. The caller must
+// hold the action lock and must call the returned cancel func.
+func (pm *MultipoolerManager) detachRewindOpContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+}
 
 // broadcastHealth broadcasts the current health state to all subscribers.
 //
@@ -128,8 +150,6 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
-	appName := pm.servicePoolerID
-
 	// Optionally stop replication before making changes
 	if stopReplicationBefore {
 		_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, false)
@@ -138,30 +158,23 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		}
 	}
 
-	// Build primary_conninfo connection string
-	// Format: host=<host> port=<port> user=<user> application_name=<name> [passfile=<path>]
-	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle.
-	// passfile points libpq at the pgpass file written at manager startup so the
-	// standby can authenticate to the primary via SCRAM without embedding the
-	// password in postgresql.auto.conf. It is omitted when pgpassPath is unset
-	// (early startup or unit tests that bypass loadShardConfigFromGlobalTopo).
-	user := constants.DefaultPostgresUser
-	if pm.connPoolMgr != nil {
-		user = pm.connPoolMgr.PgUser()
-	}
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, user, appName.AppName())
-	if pgpass := pm.pgpassFilePath(); pgpass != "" {
-		connInfo += " passfile=" + pgpass
-	} else {
+	// Assemble the expected primary_conninfo from the single authoritative
+	// representation and render it via the one builder. Writing the SAME value
+	// the drift check (connInfoDrifted) compares against is what keeps the write
+	// path and the comparator from diverging. passfile points libpq at the pgpass
+	// file so the standby authenticates via SCRAM without embedding the password
+	// in postgresql.auto.conf; it is empty until pgpassPath is known (early
+	// startup or unit tests that bypass loadShardConfigFromGlobalTopo).
+	expected := pm.expectedPrimaryConnInfoAt(host, port)
+	if expected.GetPassfile() == "" {
 		// Writing a conninfo with no passfile: the walreceiver will fail SCRAM
 		// with "fe_sendauth: no password supplied" until pgpassPath is known and
-		// the drift check (primaryConnInfoDiffersFromRecorded) self-heals it.
-		// Surface it so a stuck standby is diagnosable from the pooler log rather
-		// than only the postgres log.
+		// the drift check self-heals it. Surface it so a stuck standby is
+		// diagnosable from the pooler log rather than only the postgres log.
 		pm.logger.WarnContext(ctx, "writing primary_conninfo without passfile (pgpassPath not set yet); standby cannot authenticate to primary until reconciled",
 			"host", host, "port", port)
 	}
+	connInfo := buildPrimaryConnInfo(expected)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -376,25 +389,32 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 // proceeds only if this pooler's current recorded rule matches the given
 // RuleNumber. If they differ (the caller's view is stale), the operation
 // fails — the caller should re-read state and retry.
-func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.RuleOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) (*clustermetadatapb.PoolerPosition, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Validate operation
-	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	if operation == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_UNSPECIFIED {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
 	if expectedOutgoingRule == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"expected_outgoing_rule is required (compare-and-swap guard)")
 	}
 
-	// Validate standby IDs using the shared validation function
-	requestedApplicationNames, err := consensus.ValidateStandbyIDs(standbyIDs)
-	if err != nil {
-		return err
+	// Validate standby IDs using the shared validation function. ADVANCE makes no
+	// cohort change and carries no standby IDs, so it skips this check.
+	var (
+		requestedApplicationNames []consensus.ReplicaID
+		err                       error
+	)
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE {
+		requestedApplicationNames, err = consensus.ValidateStandbyIDs(standbyIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Pre-compute history fields before acquiring the lock.
@@ -402,26 +422,37 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 
 	ctx, err = pm.actionLock.Acquire(ctx, "UpdateConsensusRule")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
 
 	// Check PRIMARY guardrails (non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
-		return err
+		return nil, err
+	}
+
+	// Defense in depth: a self-revoked primary should already have been demoted
+	// back into recovery by Recruit's own stopReplicationForRecruit step, so
+	// checkPrimaryGuardrails above should already have caught this. Check
+	// explicitly anyway rather than relying solely on that indirect side effect.
+	status, err := pm.consensusMgr.ConsensusStatus(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read consensus status")
+	}
+	if commonconsensus.IsSelfRevoked(status) {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"refusing UpdateConsensusRule: this pooler's own term has been revoked")
 	}
 
 	// === Parse Current Configuration ===
 
-	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
-	if err != nil {
-		return err
-	}
+	// Current cohort, from the rule position ConsensusStatus already read above
+	// (the rule store, authoritative source of truth).
+	pos := status.GetCurrentPosition()
 	// If an attempted rule change is already in progress, we need to wait
 	// for it to be decided before attempting additional rule changes.
 	if !commonconsensus.IsRuleDecided(pos.GetPosition()) {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"current rule has an undecided proposal")
 	}
 	currentCohort := pos.GetPosition().GetDecision().GetCohortMembers()
@@ -430,40 +461,48 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// has a cohort recorded from a previous Promote/promotion).
 	if len(currentCohort) == 0 {
 		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"empty cohort -- shard bootstrap needed")
 	}
 
 	// Convert current cohort IDs to pooler IDs for set operations.
 	currentApplicationNames, err := consensus.ToReplicaIDs(currentCohort)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// === Apply Operation ===
 
 	var updatedStandbys []consensus.ReplicaID
 	switch operation {
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD:
 		updatedStandbys = consensus.ApplyAddOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE:
 		updatedStandbys = consensus.ApplyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE:
+		// No cohort change: keep the current membership and let the rule store
+		// assign a fresh leader_subterm below. Any standby_ids passed are ignored.
+		updatedStandbys = currentApplicationNames
+
 	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported operation: "+operation.String())
 	}
 
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"resulting standby list cannot be empty after operation")
 	}
 
-	// Check if there are any changes (idempotent).
-	if poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
-		return nil
+	// Check if there are any changes (idempotent). ADVANCE is intentionally
+	// exempt: it re-writes the rule at a fresh subterm precisely because the
+	// cohort is unchanged, to move the committed decision forward.
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE &&
+		poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
+		return pos, nil
 	}
 
 	operationName := standbyUpdateOperationName(operation)
@@ -489,15 +528,18 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		coordID,
 		"replication_config",
 		"UpdateConsensusRule: "+operationName,
-		time.Now()).
+		time.Now(),
+	).
 		WithLeader(leaderID.ID()).
 		WithCohort(updatedStandbyIDs).
 		WithOperation(operationName).
 		WithPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
-			expectedOutgoingRule.GetLeaderSubterm())
-	if _, err := pm.DoUpdateRule(ctx, standbyUpdate); err != nil {
-		return mterrors.Wrap(err, "failed to record replication config history")
+			expectedOutgoingRule.GetLeaderSubterm(),
+		)
+	newPos, err := pm.DoUpdateRule(ctx, standbyUpdate)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to record replication config history")
 	}
 
 	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully", //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -522,7 +564,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.
 	pm.broadcastHealth()
-	return nil
+	return newPos, nil
 }
 
 // getPrimaryStatusInternal gets primary status without guardrail checks.
@@ -746,23 +788,15 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the monitor's demote path or its divergence-rewind
 	// path) must run pg_rewind before trusting local WAL.
-	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+	if err := pm.markSuspectedDivergence(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to set suspected divergence on emergency demote", "error", err)
 	}
 
-	// Re-enable serving now that we're back as a healthy standby: the drain
-	// existed only to gracefully restart, so there's no reason to make reads wait
-	// for the monitor. postgresPrimary=false keeps the heartbeat writer off (we're
-	// a standby); the role stays as the record holds it until the monitor
-	// reconciles it to the rule-derived role. Leaving DRAINING for the monitor is
-	// only the fallback for the error paths above that return before this point.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-		}
-	}); err != nil {
-		return mterrors.Wrap(err, "failed to re-enable serving after demote")
+	// Publish the physical standby role, but keep the node DRAINING while its WAL
+	// remains rewind-suspect. The rewind path re-enables reads after it clears the
+	// flag.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		return mterrors.Wrap(err, "failed to publish standby state after demote")
 	}
 
 	pm.logger.InfoContext(ctx, "demote completed successfully",
@@ -928,6 +962,24 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// Point of no return. The measurement above ran on the caller's ctx and is
+	// safe to abort — postgres is still up and the data directory is untouched.
+	// From here we stop postgres and (if diverged) pg_rewind it, which mutates the
+	// data directory in place and is not transactional: abandoning midway leaves a
+	// half-rewound, unstartable directory. This function is reached under an
+	// incoming SetPrimary RPC whose context carries multiorch's action budget (e.g.
+	// FixReplication's 45s), and a rewind can outlive that budget because its
+	// runtime scales with retained pg_wal. So detach the destructive sequence from
+	// the caller's cancellation — keeping the action lock (via CarryLock, since
+	// Detach drops context values) so the monitor still cannot start postgres
+	// underneath us, and preserving telemetry — under our own generous timeout. If
+	// the caller's deadline fires, its RPC returns while this sequence keeps running
+	// to a valid standby (or a definitive failure); the caller simply retries and
+	// finds the node already healed.
+	opCtx, cancel := pm.detachRewindOpContext(ctx)
+	defer cancel()
+	ctx = opCtx
+
 	pm.logger.InfoContext(ctx, "pausing manager and stopping Postgres to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	// Pause without stopping the monitor: every caller either runs inside the
@@ -988,6 +1040,41 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// Write primary_conninfo into postgresql.auto.conf now, while postgres is
+	// down, so the standby starts already able to stream from source. The SQL
+	// write below (setPrimaryConnInfoLocked) provides the same value but only
+	// once postgres accepts connections — and a standby that needs leader WAL
+	// to reach consistency never gets there: it comes up "held" (the monitor
+	// deliberately drops conninfo before a suspected-divergence start) yet can
+	// only be un-held by the WAL this conninfo would let it stream. That
+	// circular deadlock wedged a k3s shard for 25+ minutes on 2026-08-12 until
+	// the PVC was wiped. Best-effort like the auto.conf surgery above: on
+	// failure the SQL path below still covers nodes that can reach consistency.
+	//
+	// Skipped when replication is manually stopped — a file write here would
+	// bypass the admin pause that setPrimaryConnInfoLocked enforces (it is the
+	// single check keeping StopReplication honored; see its doc comment). The
+	// SQL path below then refuses loudly, preserving pre-file-write behavior.
+	if pm.walReceiverManuallyStopped.Load() {
+		pm.logger.InfoContext(ctx, "skipping pre-start primary_conninfo file write: replication manually stopped via StopReplication")
+	} else {
+		// Assembled and rendered through the same single source of truth as the
+		// SQL path (expectedPrimaryConnInfoAt / buildPrimaryConnInfo), so the
+		// drift check compares like against like no matter which path wrote it.
+		expected := pm.expectedPrimaryConnInfoAt(sourceHost, sourcePort)
+		if expected.GetPassfile() == "" {
+			// Same diagnosability warning as setPrimaryConnInfoLocked: without a
+			// passfile the walreceiver will fail SCRAM until the drift check
+			// self-heals the conninfo once pgpassPath is known.
+			pm.logger.WarnContext(ctx, "writing primary_conninfo without passfile (pgpassPath not set yet); standby cannot authenticate to primary until reconciled",
+				"host", sourceHost, "port", sourcePort)
+		}
+		if err := pm.setAutoConfSetting(ctx, "primary_conninfo", buildPrimaryConnInfo(expected)); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to write primary_conninfo to postgresql.auto.conf before standby start; a standby that cannot reach consistency will stay held until reconciled",
+				"error", err)
+		}
+	}
+
 	// Restart as standby. pgctld writes standby.signal before launching; this is
 	// redundant on the divergence path (runPgRewind passes -R, which already
 	// wrote it) but necessary on the no-divergence and no-rewind paths where
@@ -1041,6 +1128,16 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// The rewind (if any) completed and postgres is verified back up as a standby,
+	// so the data directory is no longer mid-rewind: clear the sentinel. Only
+	// meaningful when a rewind actually ran (runPgRewind writes it on the mutating
+	// path); Remove is idempotent otherwise. A failure here is not fatal — the node
+	// is healthy — but leaves a stale sentinel that the monitor's healthy path would
+	// otherwise re-arm into a benign no-op re-rewind, so surface it as a warning.
+	if err := pm.removeRewindSentinel(); err != nil {
+		pm.logger.WarnContext(ctx, "failed to remove rewind sentinel after successful restart as standby", "error", err)
+	}
+
 	return rewindPerformed, nil
 }
 
@@ -1064,10 +1161,13 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		DryRun:          true,
 		ApplicationName: pid.AppName(),
 	}
+	dryRunStart := time.Now()
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
+	dryRunDuration := time.Since(dryRunStart)
+	pm.metrics.recordRewindExecutionDuration(ctx, rewindPhaseDryRun, dryRunDuration)
 	if err != nil {
 		if dryRunResp != nil {
-			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "output", dryRunResp.Output)
+			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "duration", dryRunDuration.String(), "output", dryRunResp.Output)
 		}
 		return false, mterrors.Wrap(err, "pg_rewind dry-run failed")
 	}
@@ -1076,6 +1176,18 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
 
+		// Mark the data directory as being rewound before the mutating pg_rewind
+		// runs. pg_rewind is not transactional: an interruption here leaves a
+		// half-rewound, unstartable directory. The sentinel is the durable signal
+		// that lets the monitor detect that on the next tick (or after a pod
+		// restart) and repair-or-quarantine instead of starting postgres on it.
+		// restartAsStandbyLocked removes it once postgres is verified back as a
+		// standby. Fail-safe: if we cannot record the marker, do not mutate the
+		// directory.
+		if err := pm.writeRewindSentinel(); err != nil {
+			return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
+		}
+
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
@@ -1083,15 +1195,18 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			ApplicationName: pid.AppName(),
 			ExtraArgs:       []string{"-R"},
 		}
+		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
+		rewindDuration := time.Since(rewindStart)
+		pm.metrics.recordRewindExecutionDuration(ctx, rewindPhaseRewind, rewindDuration)
 		if err != nil {
 			if rewindResp != nil {
-				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "output", rewindResp.Output)
+				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "duration", rewindDuration.String(), "output", rewindResp.Output)
 			}
 			return false, mterrors.Wrap(err, "pg_rewind failed")
 		}
 
-		pm.logger.InfoContext(ctx, "pg_rewind completed")
+		pm.logger.InfoContext(ctx, "pg_rewind completed", "duration", rewindDuration.String(), "dry_run_duration", dryRunDuration.String())
 		return true, nil
 	}
 
@@ -1141,6 +1256,17 @@ func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(c
 	return nil
 }
 
+// autoConfLineSets reports whether an auto.conf line sets the named setting,
+// matching the name at a token boundary so e.g. "primary_conninfo" does not
+// also match "primary_conninfo_extra".
+func autoConfLineSets(line, name string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == name ||
+		strings.HasPrefix(trimmed, name+" ") ||
+		strings.HasPrefix(trimmed, name+"=") ||
+		strings.HasPrefix(trimmed, name+"\t")
+}
+
 // dropAutoConfSettings removes every postgresql.auto.conf line that sets one of
 // the named settings. postgresql.auto.conf holds one "name = 'value'" ALTER
 // SYSTEM entry per line, so a line-oriented filter is sufficient. No-op when none
@@ -1151,15 +1277,9 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 		kept := lines[:0]
 		dropped := false
 		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
 			match := false
 			for _, name := range names {
-				// Match the setting name at a token boundary so e.g.
-				// "primary_conninfo" does not also drop "primary_conninfo_extra".
-				if trimmed == name ||
-					strings.HasPrefix(trimmed, name+" ") ||
-					strings.HasPrefix(trimmed, name+"=") ||
-					strings.HasPrefix(trimmed, name+"\t") {
+				if autoConfLineSets(line, name) {
 					match = true
 					break
 				}
@@ -1171,6 +1291,67 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 			kept = append(kept, line)
 		}
 		return strings.Join(kept, "\n"), dropped
+	})
+}
+
+// autoConfNameRe matches a valid GUC name: an identifier, optionally qualified
+// with one dot (the extension/custom-GUC form). Anything else — spaces, '=',
+// quotes, line breaks — would corrupt the line-oriented auto.conf format.
+var autoConfNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
+// setAutoConfSetting writes a "name = 'value'" entry into postgresql.auto.conf,
+// replacing an existing entry for name in place (dropping any duplicates —
+// postgres reads the last occurrence, so stray duplicates must not survive a
+// set) or appending one when absent. Idempotent: no write when the entry
+// already matches. Like dropAutoConfSettings it edits the file directly, so it
+// is safe while postgres is stopped — which is its whole reason to exist:
+// ALTER SYSTEM needs a postgres that can accept connections, and the paths
+// that need this helper run exactly when postgres can't.
+//
+// An invalid name or an unquotable value (embedded line break) is rejected
+// rather than written: either would indicate a bug in the caller, and writing
+// it would corrupt the config file postgres reads at startup.
+func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, value string) error {
+	if !autoConfNameRe.MatchString(name) {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid configuration parameter name %q", name))
+	}
+	quoted, err := ast.QuoteConfValue(value)
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, err.Error())
+	}
+	entry := name + " = " + quoted
+	return pm.editAutoConf(ctx, func(content string) (string, bool) {
+		lines := strings.Split(content, "\n")
+		out := make([]string, 0, len(lines)+1)
+		replaced := false
+		changed := false
+		for _, line := range lines {
+			if !autoConfLineSets(line, name) {
+				out = append(out, line)
+				continue
+			}
+			if replaced {
+				// Duplicate entry: drop it (last-occurrence-wins would otherwise
+				// override the entry written above).
+				changed = true
+				continue
+			}
+			replaced = true
+			out = append(out, entry)
+			if strings.TrimSpace(line) != strings.TrimSpace(entry) {
+				changed = true
+			}
+		}
+		if !replaced {
+			// Append, keeping the file newline-terminated like ALTER SYSTEM does.
+			for len(out) > 0 && out[len(out)-1] == "" {
+				out = out[:len(out)-1]
+			}
+			out = append(out, entry, "")
+			changed = true
+		}
+		return strings.Join(out, "\n"), changed
 	})
 }
 

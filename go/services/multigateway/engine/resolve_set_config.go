@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -177,9 +178,15 @@ func (s *ResolveTrackSetConfig) execute(
 		return err
 	}
 
-	// Apply every resolved tuple with literals (is_local := true — see
-	// buildApplySQL) and forward PostgreSQL's authoritative result to the client.
-	applySQL, err := s.buildApplySQL(rows)
+	// Apply every resolved tuple with literals and forward PostgreSQL's
+	// authoritative result to the client. Pinned-ness is read here, at execute
+	// time, so the plan stays cacheable: an unpinned session reverts every call
+	// (is_local := true) while a pinned session persists the captured is_local on
+	// its reserved backend — see buildApplySQL. A statement that reserves its own
+	// backend (e.g. a pg_advisory_lock in the resolve projection) counts as
+	// pinned too, so its set_config persists on the backend it just pinned.
+	pinned := SessionPinned(conn, state, s.TableGroup, s.Shard) || StatementReservesBackend(info)
+	applySQL, err := s.buildApplySQL(rows, pinned)
 	if err != nil {
 		return err
 	}
@@ -240,18 +247,20 @@ func (s *ResolveTrackSetConfig) resolve(
 // its column names from the first leg — so aliases are emitted on the first row
 // only.
 //
-// Every call is applied with is_local := true regardless of the captured
-// is_local, because the multipooler is the sole authority on session GUC state
-// (see also ValidateSetting). A session-scoped (is_local=false) set_config that
-// persisted on the pooled backend would leak across clients when the backend is
-// reused — the multipooler doesn't track raw set_config mutations. So the apply
-// only needs to *return* the authoritative value (set_config returns the value
-// it set even under GUC_ACTION_LOCAL, which reverts at statement end), while
-// persistence for session-scoped settings is delivered by track() →
-// SessionSettings replay. A genuinely is_local=true call is correct as-is, and
-// a tracked is_local=false call is re-applied on every subsequent query by the
-// replay path.
-func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, error) {
+// is_local mirrors the direct SELECT set_config / SET model, per session state:
+//   - unpinned: every call is applied with is_local := true, so it reverts at
+//     statement end and leaves nothing on the pooled backend — the value lives
+//     only in the gateway map (track() records it) and is replayed at the next
+//     checkout.
+//   - pinned: each call keeps its captured is_local, so a captured false
+//     genuinely persists on the session's reserved backend (which has no
+//     pool-replay path and must carry it for real).
+//
+// A gateway-managed variable is always applied statement-locally (is_local :=
+// true) regardless: its value lives in gateway-local state (see
+// prepareTrackActions), so a backend must never carry it. set_config returns the
+// value under GUC_ACTION_LOCAL too, so the client result is identical.
+func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row, pinned bool) (string, error) {
 	numCalls := len(s.Aliases)
 	legs := make([]string, 0, len(rows))
 	for ri, row := range rows {
@@ -259,8 +268,15 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 		for ci := range numCalls {
 			name := row.Values[ci*3]
 			value := row.Values[ci*3+1]
-			call := fmt.Sprintf("set_config(%s, %s, true)",
-				name.SQLLiteral(), value.SQLLiteral())
+			gatewayManaged := !name.IsNull() && handler.IsGatewayManagedVariable(string(name))
+			// Default to reverting (is_local := true). Only a pinned, non
+			// gateway-managed call persists its captured is_local for real.
+			isLocal := "true"
+			if pinned && !gatewayManaged && !row.Values[ci*3+2].IsTrue() {
+				isLocal = "false"
+			}
+			call := fmt.Sprintf("set_config(%s, %s, %s)",
+				name.SQLLiteral(), value.SQLLiteral(), isLocal)
 			if ri == 0 && s.Aliases[ci] != "" {
 				call += " AS " + ast.QuoteIdentifier(s.Aliases[ci])
 			}
@@ -301,6 +317,14 @@ func (s *ResolveTrackSetConfig) prepareTrackActions(conn *server.Conn, state *ha
 			}
 
 			nameStr := string(name)
+			// The dynamic path resolves names at execute time, so this is the
+			// first point where a search_path assignment is recognizable; the
+			// error surfaces before the synthesized apply query runs.
+			if strings.EqualFold(nameStr, "search_path") && !value.IsNull() {
+				if err := pgsettings.RejectTempSchemaSearchPath(string(value)); err != nil {
+					return nil, err
+				}
+			}
 			local := isLocal.IsTrue()
 			if local && !handler.IsGatewayManagedVariable(nameStr) {
 				continue
@@ -325,26 +349,15 @@ func (s *ResolveTrackSetConfig) prepareTrackActions(conn *server.Conn, state *ha
 
 			valueStr := string(value)
 			if handler.IsGatewayManagedVariable(nameStr) {
-				switch strings.ToLower(nameStr) {
-				case "statement_timeout":
-					d, err := handler.ParsePostgresInterval("statement_timeout", valueStr)
-					if err != nil {
-						return nil, err
-					}
-					localCopy := local
-					dCopy := d
-					actions = append(actions, func() {
-						if localCopy {
-							state.SetLocalStatementTimeout(dCopy)
-						} else {
-							state.SetStatementTimeout(dCopy)
-						}
-					})
-				default:
-					return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
-						"internal error resolving set_config (please report this as a bug)",
-						fmt.Sprintf("unsupported gateway-managed variable %q", nameStr))
+				if _, err := handler.GatewayManagedCanonicalValue(nameStr, valueStr); err != nil {
+					return nil, err
 				}
+				nameCopy := nameStr
+				valueCopy := valueStr
+				localCopy := local
+				actions = append(actions, func() {
+					_, _ = state.ApplyGatewayManagedVariable(nameCopy, valueCopy, localCopy)
+				})
 				continue
 			}
 

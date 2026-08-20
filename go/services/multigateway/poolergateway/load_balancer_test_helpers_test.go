@@ -27,10 +27,10 @@ import (
 )
 
 // newTestLB constructs a loadBalancer wired to an in-memory pooler cache that
-// mirrors the production hook contract from multigateway init.go: OnLive
-// constructs a *poolerConnection (with insecure transport for tests) and
-// merges any topology self_leadership; OnUpdate refreshes pooler info and
-// re-merges; OnGone closes the connection. The cache uses no topology
+// mirrors the production hook contract from pooler_gateway.go: OnLive
+// constructs a *poolerConnection (with insecure transport for tests), OnUpdate
+// refreshes pooler info without consulting stale health, and OnGone closes the
+// connection. The cache uses no topology
 // Source, so it is driven by SeedForTest / DeleteForTest in tests.
 func newTestLB(t *testing.T, localCell string) *loadBalancer {
 	return newTestLBWithLeaderServing(t, localCell, nil)
@@ -62,7 +62,6 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil
 			}
-			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
 		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
@@ -70,7 +69,6 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.notifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {

@@ -58,7 +58,7 @@ and operators the tools to keep clusters healthy at scale.
 
 Get started with:
   multigres cluster init    # Create a local cluster configuration
-  multigres cluster up      # Start your local cluster
+  multigres cluster start   # Start your local cluster
 
 Configuration:
   Multigres automatically searches for configuration files in this order:

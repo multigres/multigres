@@ -188,6 +188,231 @@ func TestPool_GetWithSettings_ReconnectsSelectedIdleSlot(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	// Initial checkout settings, failed temp_buffers validation, settings replay
+	// on the fresh PostgreSQL session, then the successful validation retry.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_catalog.set_config*",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        mterrors.PgSSInvalidParameterValue,
+			Message:     `invalid value for parameter "temp_buffers": 100`,
+			Detail:      `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	oldPID := pooled.Conn.ProcessID()
+
+	err = pooled.Conn.QueryStreamingWithRetry(
+		t.Context(),
+		"SELECT pg_catalog.set_config('temp_buffers', '100', true)",
+		func(context.Context, *sqltypes.Result) error { return nil },
+	)
+	require.NoError(t, err)
+	assert.NotEqual(t, oldPID, pooled.Conn.ProcessID(), "contaminated backend must be replaced in the same pool slot")
+	assert.Equal(t, settings, pooled.Conn.Settings(), "reconnected backend must retain logical session settings")
+	server.VerifyAllExecutedOrFail()
+}
+
+// TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall pins the
+// replay-safety gate: a CALL can COMMIT mid-statement (procedure-level
+// transaction control) before hitting the freeze, so the recovery must NOT
+// reconnect-and-replay it — the error surfaces and the backend stays.
+func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "CALL p()",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        mterrors.PgSSInvalidParameterValue,
+			Message:     `invalid value for parameter "temp_buffers": 100`,
+			Detail:      `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	oldPID := pooled.Conn.ProcessID()
+
+	err = pooled.Conn.QueryStreamingWithRetry(
+		t.Context(),
+		"CALL p()",
+		func(context.Context, *sqltypes.Result) error { return nil },
+	)
+	require.Error(t, err, "freeze inside a CALL must surface, not be replayed")
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, mterrors.PgSSInvalidParameterValue, diag.Code)
+	assert.Equal(t, oldPID, pooled.Conn.ProcessID(), "backend must not be replaced for a non-replay-safe statement")
+	server.VerifyAllExecutedOrFail()
+}
+
+// TestTempBuffersRetrySafe pins the replay gate. The invariant is structural —
+// the statement's only effect must be a GUC assignment — NOT "a failed
+// statement rolls everything back", which is false: non-transactional effects
+// (nextval, advisory locks) materialize before the error and survive it, so
+// replaying a statement that carries one runs it twice.
+// TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplaySideEffects pins
+// the reason the gate is structural: a statement carrying a non-transactional
+// side effect must NOT be replayed. On PostgreSQL 17 a failed
+// `SELECT nextval('s'), set_config('temp_buffers',...)` still consumes the
+// sequence value, so a reconnect-and-replay would consume a second one and
+// hand the client a success it cannot distinguish from a single execution.
+// The freeze error must surface instead, leaving the backend in place.
+func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplaySideEffects(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	const sideEffectSQL = "SELECT nextval('s'), set_config('temp_buffers', '100', false)"
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	// Exactly ONE execution is expected: VerifyAllExecutedOrFail fails if the
+	// recovery replayed it.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: sideEffectSQL,
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        mterrors.PgSSInvalidParameterValue,
+			Message:     `invalid value for parameter "temp_buffers": 100`,
+			Detail:      `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	oldPID := pooled.Conn.ProcessID()
+
+	err = pooled.Conn.QueryStreamingWithRetry(
+		t.Context(),
+		sideEffectSQL,
+		func(context.Context, *sqltypes.Result) error { return nil },
+	)
+	require.Error(t, err, "a statement carrying a side effect must surface the freeze, not be replayed")
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, mterrors.PgSSInvalidParameterValue, diag.Code)
+	assert.Equal(t, oldPID, pooled.Conn.ProcessID(), "backend must not be replaced for a non-replay-safe statement")
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestTempBuffersRetrySafe(t *testing.T) {
+	// Safe: the statement assigns a GUC and does nothing else.
+	assert.True(t, tempBuffersRetrySafe("SET temp_buffers = '16MB'"))
+	assert.True(t, tempBuffersRetrySafe("SET LOCAL temp_buffers = '16MB'"))
+	assert.True(t, tempBuffersRetrySafe("RESET temp_buffers"))
+	// The shape the recovery actually exists for: a client's plain
+	// SET temp_buffers reaches the pooler as the gateway's validation probe.
+	assert.True(t, tempBuffersRetrySafe("SELECT pg_catalog.set_config('temp_buffers', '100', true)"))
+	assert.True(t, tempBuffersRetrySafe("  select set_config('temp_buffers', '100', false)"))
+	assert.True(t, tempBuffersRetrySafe("SELECT set_config('a','1',false), set_config('temp_buffers','100',false)"))
+
+	// Unsafe: a side effect hidden in the set_config ARGUMENTS. PostgreSQL
+	// evaluates arguments before the function runs, so the sequence is consumed
+	// and then the GUC assign hook raises the freeze — verified on PostgreSQL
+	// 17 (is_called flips to true on the failed statement, with the freeze's
+	// own 22023+DETAIL diagnostic, so the recovery would fire and replay).
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', nextval('s')::text, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT pg_catalog.set_config('temp_buffers', nextval('s')::text, false)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', (SELECT pg_advisory_lock(1))::text, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config(lower('temp_buffers'), '100', true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', col, true)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', $1, true)"))
+	// One effectful call among otherwise-constant ones still poisons the batch.
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('a','1',true), set_config('temp_buffers', nextval('s')::text, true)"))
+	// Casts over literals stay safe.
+	assert.True(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers', '100'::text, true)"))
+
+	// Unsafe: a non-transactional side effect would be replayed. Verified on
+	// PostgreSQL 17 that both of these survive the failed statement.
+	assert.False(t, tempBuffersRetrySafe("SELECT nextval('s'), set_config('temp_buffers','100',false)"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false), nextval('s')"))
+	assert.False(t, tempBuffersRetrySafe("SELECT pg_advisory_lock(1), set_config('temp_buffers','100',false)"))
+	// A clause other than the target list can evaluate an unrelated expression.
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false) WHERE nextval('s') > 0"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false) FROM t"))
+	assert.False(t, tempBuffersRetrySafe("SELECT set_config('temp_buffers','100',false) UNION SELECT set_config('x','1',false)"))
+
+	// Unsafe: mid-statement transaction control, batches, unparsable input.
+	assert.False(t, tempBuffersRetrySafe("CALL p()"))
+	assert.False(t, tempBuffersRetrySafe("DO $$ BEGIN NULL; END $$"))
+	assert.False(t, tempBuffersRetrySafe("SET a = 1; SET temp_buffers = '16MB'"))
+	assert.False(t, tempBuffersRetrySafe("WITH x AS (SELECT 1) SELECT set_config('temp_buffers','100',true) FROM x"))
+	assert.False(t, tempBuffersRetrySafe("SELECT 1"))
+	assert.False(t, tempBuffersRetrySafe("this is not sql"))
+	assert.False(t, tempBuffersRetrySafe(""))
+}
+
+func TestTempBuffersRequireFreshSession(t *testing.T) {
+	// The DETAIL sentence is localized under non-English lc_messages; the
+	// quoted GUC name in the primary message is not, so matching keys off
+	// Code + Message.
+	contaminated := &mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "temp_buffers": 100`,
+		Detail:  "localized detail text",
+	}
+	assert.True(t, tempBuffersRequireFreshSession(contaminated))
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "work_mem": "over 9000"`,
+	}))
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSSyntaxError,
+		Message: `mentions "temp_buffers" with the wrong SQLSTATE`,
+	}))
+	// A client-supplied bad value produces a bare message with no DETAIL —
+	// this path carries arbitrary client SQL, and a reconnect here would let
+	// clients churn pooled backends at will (and mask their own error).
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "temp_buffers": "abc"`,
+	}))
+	assert.False(t, tempBuffersRequireFreshSession(errors.New("ordinary SQL error")))
+}
+
 // TestPool_GetWithSettings_NonConnectionErrorNoRetry covers the
 // non-connection-error branch: the error propagates verbatim with no retry.
 func TestPool_GetWithSettings_NonConnectionErrorNoRetry(t *testing.T) {

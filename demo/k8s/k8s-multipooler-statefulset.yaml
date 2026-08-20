@@ -141,6 +141,18 @@ spec:
               port: 16000
             initialDelaySeconds: 10
             periodSeconds: 10
+          # Readiness reflects only whether the multipooler's own gRPC control
+          # plane is serving — NOT postgres. A pooler whose postgres is down
+          # stays Ready so it keeps its Service endpoint/DNS and remains
+          # reachable for control RPCs and its health stream while its monitor
+          # brings postgres back. postgres liveness is signalled via the health
+          # stream, not this probe.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 16000
+            initialDelaySeconds: 5
+            periodSeconds: 5
           volumeMounts:
             # We use the subPathExpr to ensure that each pod
             # gets its own subdirectory.

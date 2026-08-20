@@ -157,6 +157,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -226,8 +227,10 @@ func (f *fundamental) Error() string { return f.msg }
 func (f *fundamental) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
-		panicIfError(io.WriteString(s, "Code: "+f.code.String()+"\n"))
-		panicIfError(io.WriteString(s, f.msg+"\n"))
+		// Single line: log pipelines routinely index only the first line of a
+		// message, so a newline here would hide the actual cause (e.g. the
+		// transport detail behind an UNAVAILABLE) from most tooling.
+		panicIfError(io.WriteString(s, "Code: "+f.code.String()+": "+f.msg))
 		if getLogErrStacks() {
 			f.stack.Format(s, verb)
 		}
@@ -316,8 +319,9 @@ func (w *wrapping) Unwrap() error { return w.cause }
 
 func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
-		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
-		panicIfError(io.WriteString(s, w.msg))
+		// Single line, message-first — the same order as Error() — so the
+		// rendering never splits across log lines (see fundamental.Format).
+		panicIfError(fmt.Fprintf(s, "%s: %v", w.msg, w.Cause()))
 		if getLogErrStacks() {
 			w.stack.Format(s, verb)
 		}
@@ -463,6 +467,31 @@ func IsConnectionDead(err error) bool {
 	}
 	var diag *PgDiagnostic
 	return errors.As(err, &diag) && diag.IsFatal()
+}
+
+// IsTempBuffersFreeze recognizes the temporary-access freeze: PostgreSQL
+// rejects changing temp_buffers for the life of a backend once it has accessed
+// any temporary table — even when the accessing statement itself failed, since
+// the local-buffer latch is not transactional. Matched structurally so it
+// stays both locale-proof and client-proof:
+//
+//   - SQLSTATE 22023 plus the quoted GUC name in the primary message —
+//     parameter names are not localized, unlike the surrounding sentence.
+//   - A non-empty DETAIL. The freeze is the only temp_buffers 22023 that
+//     carries one; a client-supplied bad value ("abc", out of range) produces
+//     a bare message (at most a HINT) and must NOT match — the callers use
+//     this to decide a backend needs replacing, which client input must not
+//     be able to trigger. The DETAIL text itself is deliberately not matched
+//     (localized); presence alone discriminates.
+//
+// Unrecognized shapes fail closed to false: the error surfaces to the caller
+// as if no recovery existed.
+func IsTempBuffersFreeze(err error) bool {
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == PgSSInvalidParameterValue &&
+		strings.Contains(diag.Message, `"temp_buffers"`) &&
+		diag.Detail != ""
 }
 
 func isTransportConnectionError(err error) bool {

@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -237,31 +237,47 @@ proto3.util.setEnumType(SynchronousMethod, "multipoolermanagerdata.SynchronousMe
 ]);
 
 /**
- * Enum representing the type of cohort membership change
+ * RuleOperation is the kind of change UpdateConsensusRule applies to the
+ * leader's consensus rule.
  *
- * @generated from enum multipoolermanagerdata.CohortUpdateOperation
+ * @generated from enum multipoolermanagerdata.RuleOperation
  */
-export enum CohortUpdateOperation {
+export enum RuleOperation {
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+   * @generated from enum value: RULE_OPERATION_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_ADD = 1;
+   * Cohort-membership changes: add or remove a synchronous standby.
+   *
+   * @generated from enum value: RULE_OPERATION_COHORT_ADD = 1;
    */
-  ADD = 1,
+  COHORT_ADD = 1,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_REMOVE = 2;
+   * @generated from enum value: RULE_OPERATION_COHORT_REMOVE = 2;
    */
-  REMOVE = 2,
+  COHORT_REMOVE = 2,
+
+  /**
+   * ADVANCE makes no cohort change: it re-writes the current rule with the same
+   * leader and cohort at a fresh leader_subterm. Used to reconnect a follower
+   * stranded by an abandoned recruit — advancing the committed decision past the
+   * rule the stray revocation was authored to transition away from
+   * (outgoing_rule) defeats that revocation via the runaway-recruit override in
+   * IsRuleRevoked, without changing the coordinator term or any revocation.
+   *
+   * @generated from enum value: RULE_OPERATION_ADVANCE = 3;
+   */
+  ADVANCE = 3,
 }
-// Retrieve enum metadata with: proto3.getEnumType(CohortUpdateOperation)
-proto3.util.setEnumType(CohortUpdateOperation, "multipoolermanagerdata.CohortUpdateOperation", [
-  { no: 0, name: "COHORT_UPDATE_OPERATION_UNSPECIFIED" },
-  { no: 1, name: "COHORT_UPDATE_OPERATION_ADD" },
-  { no: 2, name: "COHORT_UPDATE_OPERATION_REMOVE" },
+// Retrieve enum metadata with: proto3.getEnumType(RuleOperation)
+proto3.util.setEnumType(RuleOperation, "multipoolermanagerdata.RuleOperation", [
+  { no: 0, name: "RULE_OPERATION_UNSPECIFIED" },
+  { no: 1, name: "RULE_OPERATION_COHORT_ADD" },
+  { no: 2, name: "RULE_OPERATION_COHORT_REMOVE" },
+  { no: 3, name: "RULE_OPERATION_ADVANCE" },
 ]);
 
 /**
@@ -1495,19 +1511,19 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
 }
 
 /**
- * UpdateConsensusRule applies a cohort-membership change on the primary.
- * Internally this updates synchronous_standby_names and records the cohort
- * change in rule_history.
+ * UpdateConsensusRule applies a rule change on the primary: a cohort-membership
+ * change (which also updates synchronous_standby_names) or a no-op ADVANCE.
+ * Either way it records a new rule in rule_history.
  *
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleRequest
  */
 export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleRequest> {
   /**
-   * Operation to perform (add, remove)
+   * Operation to perform (cohort add/remove, or advance).
    *
-   * @generated from field: multipoolermanagerdata.CohortUpdateOperation operation = 1;
+   * @generated from field: multipoolermanagerdata.RuleOperation operation = 1;
    */
-  operation = CohortUpdateOperation.UNSPECIFIED;
+  operation = RuleOperation.UNSPECIFIED;
 
   /**
    * List of multipooler IDs to add to or remove from the cohort.
@@ -1545,7 +1561,7 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(CohortUpdateOperation) },
+    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(RuleOperation) },
     { no: 2, name: "standby_ids", kind: "message", T: ID, repeated: true },
     { no: 4, name: "expected_outgoing_rule", kind: "message", T: RuleNumber },
     { no: 6, name: "coordinator_id", kind: "message", T: ID },
@@ -1572,6 +1588,15 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleResponse
  */
 export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResponse> {
+  /**
+   * current_position is the shard rule after the update. The write blocks
+   * until the change is quorum-acked before returning, so callers can act on
+   * it without re-reading Status.
+   *
+   * @generated from field: clustermetadata.PoolerPosition current_position = 1;
+   */
+  currentPosition?: PoolerPosition;
+
   constructor(data?: PartialMessage<UpdateConsensusRuleResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1580,6 +1605,7 @@ export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResp
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "current_position", kind: "message", T: PoolerPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateConsensusRuleResponse {
@@ -2207,6 +2233,82 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
 ]);
 
 /**
+ * ResignLeadershipRequest asks the primary pooler to gracefully resign from leadership.
+ *
+ * @generated from message multipoolermanagerdata.ResignLeadershipRequest
+ */
+export class ResignLeadershipRequest extends Message<ResignLeadershipRequest> {
+  constructor(data?: PartialMessage<ResignLeadershipRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined, b: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipRequest, a, b);
+  }
+}
+
+/**
+ * ResignLeadershipResponse returns the WAL flush LSN at the moment writes were quiesced.
+ *
+ * @generated from message multipoolermanagerdata.ResignLeadershipResponse
+ */
+export class ResignLeadershipResponse extends Message<ResignLeadershipResponse> {
+  /**
+   * flush_lsn is the WAL flush position at the moment postgres stopped accepting
+   * writes. Callers should wait for standbys to reach this LSN before triggering
+   * a new election, ensuring no data loss.
+   *
+   * @generated from field: string flush_lsn = 1;
+   */
+  flushLsn = "";
+
+  constructor(data?: PartialMessage<ResignLeadershipResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "flush_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined, b: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipResponse, a, b);
+  }
+}
+
+/**
  * SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
  * by the postgres monitor. When disabled, the monitor will still run and detect problems,
  * but will not automatically restart a stopped PostgreSQL instance.
@@ -2287,12 +2389,30 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
 
 /**
  * ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
- * configuration reload (SIGHUP) on its local PostgreSQL. It carries no
- * parameters: the caller writes the config file, then calls this to reload it.
+ * configuration reload (SIGHUP) on its local PostgreSQL. The caller writes the
+ * config file, then calls this to reload it.
  *
  * @generated from message multipoolermanagerdata.ReloadConfigRequest
  */
 export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
+  /**
+   * expected_settings is an optional map of reload-safe GUC name -> desired
+   * value that the caller wrote to the config file before calling. When it is
+   * non-empty, the multipooler first reads pg_file_settings and reloads ONLY if
+   * the file it would read already carries every one of these values and each is
+   * reload-applicable; otherwise it skips the reload and reports why (see
+   * ReloadConfigResponse). This ordering makes the result trustworthy despite an
+   * asynchronously written config file (e.g. a Kubernetes ConfigMap mount): a
+   * reload is never performed — and success is never reported — against a file
+   * that has not yet caught up. Values are compared verbatim against the raw file
+   * token, so pass exactly what was written to the file (e.g. "32MB", not
+   * "32768kB"). When empty, the multipooler just reloads unconditionally and
+   * leaves the verdict fields at their zero values.
+   *
+   * @generated from field: map<string, string> expected_settings = 1;
+   */
+  expectedSettings: { [key: string]: string } = {};
+
   constructor(data?: PartialMessage<ReloadConfigRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2301,6 +2421,7 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.ReloadConfigRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "expected_settings", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigRequest {
@@ -2327,16 +2448,43 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
  */
 export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   /**
-   * The pg_conf_load_time() observed after the reload, confirmed to have
-   * advanced past the moment the reload was triggered. A value newer than when
-   * the caller wrote its config change proves PostgreSQL re-read the file.
+   * config_load_time is the definitive success signal. When set, it is the
+   * pg_conf_load_time() observed after the reload, confirmed to have advanced
+   * past the moment the reload was triggered: the reload was performed because
+   * the file already carried every expected value (or there were none to check),
+   * so those reload-safe settings are now in effect.
    *
-   * Unset means PostgreSQL was not running, so no reload happened (pgctld could
-   * not deliver the signal); the caller should treat that as retryable.
+   * Unset means no reload was performed — either PostgreSQL was not running
+   * (pgctld could not deliver the signal), or expected_settings were supplied and
+   * the file did not yet satisfy them so the reload was intentionally skipped (see
+   * mismatches and needs_restart). The caller should treat an unset value as
+   * retryable.
    *
    * @generated from field: google.protobuf.Timestamp config_load_time = 1;
    */
   configLoadTime?: Timestamp;
+
+  /**
+   * mismatches has one entry for every expected setting that blocked the reload:
+   * absent from the file, a different value than desired, or present but not
+   * applicable by a reload (needs a restart or failed validation). Empty when
+   * config_load_time is set. It names which settings are unsatisfied without
+   * echoing their file values (see SettingMismatch).
+   *
+   * @generated from field: repeated multipoolermanagerdata.SettingMismatch mismatches = 2;
+   */
+  mismatches: SettingMismatch[] = [];
+
+  /**
+   * needs_restart is true when at least one expected setting is written correctly
+   * in the file but cannot take effect without a PostgreSQL restart (a
+   * postmaster-context GUC whose file value differs from the running value). A
+   * reload alone will never satisfy such a setting, so the caller should escalate
+   * to a restart rather than retry.
+   *
+   * @generated from field: bool needs_restart = 3;
+   */
+  needsRestart = false;
 
   constructor(data?: PartialMessage<ReloadConfigResponse>) {
     super();
@@ -2347,6 +2495,8 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
+    { no: 2, name: "mismatches", kind: "message", T: SettingMismatch, repeated: true },
+    { no: 3, name: "needs_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
@@ -2363,6 +2513,75 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
 
   static equals(a: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined, b: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined): boolean {
     return proto3.util.equals(ReloadConfigResponse, a, b);
+  }
+}
+
+/**
+ * SettingMismatch reports one expected GUC that the reload could not satisfy:
+ * its value is not yet present in the config file as written, or it cannot be
+ * applied by a reload. It deliberately does NOT echo the file's value — that is
+ * server-side state that may be sensitive (e.g. a password in primary_conninfo),
+ * and expected_settings is caller-controlled, so returning the file value would
+ * let a caller read back arbitrary GUC values. The caller already knows what it
+ * asked for (keyed by name), so name plus the two escalation signals below are
+ * enough to act on.
+ *
+ * @generated from message multipoolermanagerdata.SettingMismatch
+ */
+export class SettingMismatch extends Message<SettingMismatch> {
+  /**
+   * GUC name (matches a key in ReloadConfigRequest.expected_settings).
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * PostgreSQL's error for this setting's config-file entry, if any
+   * (pg_file_settings.error) — e.g. a value that fails validation, which a retry
+   * alone will not fix. Empty when the entry is valid but simply not yet the
+   * desired value (a stale/not-yet-synced file), in which case the caller retries.
+   *
+   * @generated from field: string error = 2;
+   */
+  error = "";
+
+  /**
+   * Whether this setting cannot be applied by a reload and needs a PostgreSQL
+   * restart: it is a postmaster-context GUC (pg_settings.context = 'postmaster')
+   * whose file value differs from the running value.
+   *
+   * @generated from field: bool requires_restart = 3;
+   */
+  requiresRestart = false;
+
+  constructor(data?: PartialMessage<SettingMismatch>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SettingMismatch";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "requires_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SettingMismatch | PlainMessage<SettingMismatch> | undefined, b: SettingMismatch | PlainMessage<SettingMismatch> | undefined): boolean {
+    return proto3.util.equals(SettingMismatch, a, b);
   }
 }
 

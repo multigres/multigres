@@ -70,6 +70,13 @@ type MockPgCtldService struct {
 	// calls, e.g. to simulate postgres transitioning from not-ready to ready
 	// during WAL replay. Called while the mutex is held.
 	StatusFunc func(*pb.StatusRequest) (*pb.StatusResponse, error)
+
+	// RestartFunc, if non-nil, is called on each Restart request before the
+	// configured response/error is returned. It lets tests observe external
+	// state at the moment postgres would restart, e.g. asserting that
+	// postgresql.auto.conf already carries primary_conninfo before the standby
+	// comes up. Called while the mutex is held.
+	RestartFunc func(*pb.RestartRequest)
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -102,6 +109,9 @@ func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.RestartCalls = append(m.RestartCalls, req)
+	if m.RestartFunc != nil {
+		m.RestartFunc(req)
+	}
 	if m.RestartError != nil {
 		return nil, m.RestartError
 	}

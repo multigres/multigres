@@ -47,20 +47,25 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	parsed, err := parser.ParseSQL("EXECUTE p('value')")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
-	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil), h
+	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil, nil), h
 }
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
 	portal := buildBoundPortalInfo(t, "SELECT $1", []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("bound")}, nil)
+	nullPortal := buildBoundPortalInfo(t, "SELECT $1", []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, nil)
 	tests := []struct {
-		name    string
-		arg     ast.Node
-		portal  *preparedstatement.PortalInfo
-		want    string
-		wantErr string
+		name     string
+		arg      ast.Node
+		portal   *preparedstatement.PortalInfo
+		want     string
+		wantNull bool
+		wantErr  string
 	}{
 		{name: "constant", arg: ast.NewA_Const(ast.NewString("literal"), 0), want: "literal"},
-		{name: "null", arg: ast.NewA_ConstNull(0), wantErr: "cannot be NULL"},
+		// NULL is reported, not rejected: set_config is not STRICT, so the
+		// caller maps it to PostgreSQL's reset-to-default semantics.
+		{name: "null", arg: ast.NewA_ConstNull(0), wantNull: true},
+		{name: "bound null", arg: ast.NewParamRef(1, 0), portal: nullPortal, wantNull: true},
 		{name: "string", arg: ast.NewString("literal"), want: "literal"},
 		{name: "integer", arg: ast.NewInteger(42), want: "42"},
 		{name: "cast", arg: ast.NewTypeCast(ast.NewInteger(7), nil, 0), want: "7"},
@@ -70,13 +75,16 @@ func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := executeArgAsText(tt.arg, tt.portal, "argument")
+			got, isNull, err := executeArgAsTextOrNull(tt.arg, tt.portal, "argument")
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantNull, isNull)
+			if !tt.wantNull {
+				assert.Equal(t, tt.want, got)
+			}
 		})
 	}
 }
@@ -98,6 +106,39 @@ func TestSQLPreparedSetConfigResolution(t *testing.T) {
 	_, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "application_name", ValueParam: ast.NewParamRef(2, 0)}, nil)
 	require.ErrorContains(t, err, "EXECUTE supplies 1 argument")
 
+	// search_path resolved from an EXECUTE argument must be vetted for pg_temp
+	// (the SQL PREPARE/EXECUTE half of the guard; the wire-protocol half lives
+	// in resolveSetConfig).
+	pgTemp := &PreparedStatementPrimitive{executeStmt: &ast.ExecuteStmt{
+		Name:   "p",
+		Params: ast.NewNodeList(ast.NewString("pg_temp, public")),
+	}}
+	_, err = pgTemp.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueParam: ast.NewParamRef(1, 0)}, nil)
+	require.ErrorContains(t, err, "pg_temp")
+
+	// The guard runs before the untracked is_local=true early return, so even
+	// that (planner-unreachable) shape cannot slip a pg_temp value through.
+	_, err = pgTemp.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", Value: "pg_temp", IsLocalLiteralTrue: true}, nil)
+	require.ErrorContains(t, err, "pg_temp")
+
+	// Benign search_path values resolve normally.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueParam: ast.NewParamRef(1, 0)}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "search_path", value: "value", shouldTrack: true}, resolved)
+
+	// A literal NULL in the PREPARE body resolves to a reset, exactly like a
+	// NULL EXECUTE argument. Without ValueIsNull the zero-valued Value ("")
+	// would be tracked as an explicit empty string the backend never had.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "work_mem", ValueIsNull: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "work_mem", shouldTrack: true, isReset: true}, resolved)
+
+	// Same for search_path: the reset restores the admin default, so the
+	// pg_temp vet has nothing to inspect and must not reject it.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueIsNull: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "search_path", shouldTrack: true, isReset: true}, resolved)
+
 	assert.Zero(t, executeArgCount(nil))
 	assert.Zero(t, executeArgCount(&ast.ExecuteStmt{}))
 	assert.Equal(t, 1, executeArgCount(p.executeStmt))
@@ -111,22 +152,31 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 		{Name: "work_mem", Value: "64MB", IsLocalLiteralTrue: true},
 		{Name: "application_name", Value: "prepared"},
 	}}
-	actions, info, err := p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	actions, _, err := p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
-	assert.True(t, info.HasPostQuerySessionSettings)
-	assert.Equal(t, "prepared", info.PostQuerySessionSettings["application_name"])
 	actions[0]()
 	got, ok := state.GetSessionVariable("application_name")
 	require.True(t, ok)
 	assert.Equal(t, "prepared", got)
 
-	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "1s", IsLocalLiteralTrue: true}}
-	actions, info, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	// A literal NULL in the PREPARE body must REMOVE the tracked entry, not
+	// write "". Tracking "" would replay as SET application_name = '' onto the
+	// next pooled backend — rejected by PostgreSQL for most GUCs, and silently
+	// wrong for search_path.
+	p.setConfigs = []SQLPreparedSetConfig{{Name: "application_name", ValueIsNull: true}}
+	actions, _, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
-	assert.False(t, info.HasPostQuerySessionSettings)
+	actions[0]()
+	_, ok = state.GetSessionVariable("application_name")
+	assert.False(t, ok, "a NULL value must drop the tracked entry, matching PostgreSQL's reset")
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "1s", IsLocalLiteralTrue: true}}
+	actions, _, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
 	actions[0]()
 
 	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "invalid"}}

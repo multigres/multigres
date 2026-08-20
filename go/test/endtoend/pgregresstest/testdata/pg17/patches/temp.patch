@@ -1,0 +1,137 @@
+# Accepted pooling divergence: multigateway rejects pg_temp in search_path and
+# schema-qualified creation into pg_temp (CREATE TABLE pg_temp.t) with
+# feature_not_supported — under connection pooling the temporary namespace
+# belongs to a pooled backend, not to the client session, and PostgreSQL
+# resolves both forms' temp persistence outside the raw grammar the gateway
+# can analyze. CREATE TEMP/TEMPORARY remains the supported spelling. The
+# rejected statements error deterministically at the gateway, so the knock-on
+# effects (current_schema() stays non-temp, whereami resolves to the temp
+# table, the two-phase pg_temp sections no-op) are stable across runs.
+--- a
++++ b
+@@ -172,6 +172,7 @@
+ as $$select 'public'::text$$ language sql;
+ create function pg_temp.whoami() returns text
+ as $$select 'temp'::text$$ language sql;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ -- default should have pg_temp implicitly first, but only for tables
+ select * from whereami;
+ f1
+@@ -187,6 +188,7 @@
+ 
+ -- can list temp first explicitly, but it still doesn't affect functions
+ set search_path = pg_temp, public;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ select * from whereami;
+ f1
+ ------
+@@ -201,10 +203,11 @@
+ 
+ -- or put it last for security
+ set search_path = public, pg_temp;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ select * from whereami;
+ f1
+---------
+-public
++------
++temp
+ (1 row)
+ 
+ select whoami();
+@@ -215,15 +218,16 @@
+ 
+ -- you can invoke a temp function explicitly, though
+ select pg_temp.whoami();
+-whoami
+---------
+-temp
+-(1 row)
+-
++ERROR: function pg_temp.whoami() does not exist
++LINE 1: select pg_temp.whoami();
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ drop table public.whereami;
+ -- types in temp schema
+ set search_path = pg_temp, public;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ create domain pg_temp.nonempty as text check (value <> '');
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ -- function-syntax invocation of types matches rules for functions
+ select nonempty('');
+ ERROR: function nonempty(unknown) does not exist
+@@ -231,10 +235,15 @@
+ ^
+ HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ select pg_temp.nonempty('');
+-ERROR: value for domain nonempty violates check constraint "nonempty_check"
++ERROR: function pg_temp.nonempty(unknown) does not exist
++LINE 1: select pg_temp.nonempty('');
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ -- other syntax matches rules for tables
+ select ''::nonempty;
+-ERROR: value for domain nonempty violates check constraint "nonempty_check"
++ERROR: type "nonempty" does not exist
++LINE 1: select ''::nonempty;
++^
+ reset search_path;
+ -- For partitioned temp tables, ON COMMIT actions ignore storage-less
+ -- partitioned tables.
+@@ -347,33 +356,34 @@
+ begin;
+ create function pg_temp.twophase_func() returns void as
+ $$ select '2pc_func'::text $$ language sql;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_func';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ -- Function drop
+ create function pg_temp.twophase_func() returns void as
+ $$ select '2pc_func'::text $$ language sql;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ begin;
+ drop function pg_temp.twophase_func();
++ERROR: function pg_temp.twophase_func() does not exist
+ prepare transaction 'twophase_func';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ -- Operator creation
+ begin;
+ create operator pg_temp.@@ (leftarg = int4, rightarg = int4, procedure = int4mi);
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_operator';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ -- These generate errors about temporary tables.
+ begin;
+ create type pg_temp.twophase_type as (a int);
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_type';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ begin;
+ create view pg_temp.twophase_view as select 1;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_view';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ begin;
+ create sequence pg_temp.twophase_seq;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_sequence';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ -- Temporary tables cannot be used with two-phase commit.
+ create temp table twophase_tab (a int);
+ begin;
+@@ -401,12 +411,12 @@
+ -- to remove the temporary namespace.
+ \c -
+ SET search_path TO 'pg_temp';
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ BEGIN;
+ SELECT current_schema() ~ 'pg_temp' AS is_temp_schema;
+ is_temp_schema
+ ----------------
+-t
++f
+ (1 row)
+ 
+ PREPARE TRANSACTION 'twophase_search';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects

@@ -35,6 +35,7 @@
 package ast
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -128,6 +129,40 @@ func QuoteFunctionName(name string) string {
 	return QuoteIdentifier(name)
 }
 
+// argLabelKeywordNeedsQuoting reports whether an identifier used as a named-
+// argument label (the `name` in `func(name => value)`) must be quoted because
+// it is a keyword. The grammar production for such a label is
+// `param_name: type_function_name`, which — unlike a column or type name —
+// excludes the col_name keyword category. So a col_name keyword (varchar,
+// boolean, integer, json, ...) is NOT valid bare here and must be quoted, on
+// top of the reserved and type_func_name keywords QuoteIdentifier already
+// quotes. This mirrors PostgreSQL's quote_identifier, which quotes every
+// keyword whose category is not UnreservedKeyword.
+func argLabelKeywordNeedsQuoting(name string) bool {
+	cat, ok := LookupKeywordCategory(strings.ToLower(name))
+	return ok && cat != UnreservedKeyword
+}
+
+// QuoteArgLabel quotes name for use as a named-argument label in deparsed SQL.
+// It applies the same special-character and case rules as QuoteIdentifier, but
+// quotes a broader set of keywords (see argLabelKeywordNeedsQuoting): the
+// col_name keywords, which are valid bare as a column name but not as an
+// argument label. Left unquoted, the backend rejects the call with
+// "syntax error at or near =>".
+func QuoteArgLabel(name string) string {
+	if name == "" {
+		return ""
+	}
+	needsQuoting := !sqlIdentifierRegex.MatchString(name) ||
+		argLabelKeywordNeedsQuoting(name) ||
+		strings.ToLower(name) != name
+	if needsQuoting {
+		escaped := strings.ReplaceAll(name, `"`, `""`)
+		return `"` + escaped + `"`
+	}
+	return name
+}
+
 // operatorNameChars are the characters a PostgreSQL operator name is built from
 // (see the "self"/"op_chars" sets in the scanner). An identifier never contains
 // any of these.
@@ -177,6 +212,31 @@ func QuoteStringLiteral(value string) string {
 	}
 	escaped := strings.ReplaceAll(value, `'`, `''`)
 	return `'` + escaped + `'`
+}
+
+// QuoteConfValue quotes a value as a postgresql.conf / postgresql.auto.conf
+// string literal: wrapped in single quotes with embedded single quotes AND
+// backslashes doubled. The GUC config-file lexer (guc-file.l) processes
+// backslash escapes (\n, \t, octal, ...) inside quoted values, so a lone
+// backslash would be reinterpreted; doubling matches ALTER SYSTEM's own writer
+// (write_auto_conf_file in guc.c).
+//
+// Values containing line breaks are rejected, mirroring ALTER SYSTEM
+// ("parameter value for ALTER SYSTEM must not contain a newline"): the
+// config-file lexer cannot lex a quoted string across lines, so an embedded
+// line break would corrupt the file rather than round-trip. \r is rejected
+// alongside \n because the lexer treats it as a line ending too.
+//
+// Not interchangeable with QuoteStringLiteral: that one produces SQL-lexer
+// syntax, whose escape-string form (E'...') a config file would read as a
+// literal E followed by a quoted string.
+func QuoteConfValue(value string) (string, error) {
+	if strings.ContainsAny(value, "\n\r") {
+		return "", fmt.Errorf("configuration value must not contain a line break: %q", value)
+	}
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `'`, `''`)
+	return `'` + escaped + `'`, nil
 }
 
 // FormatList formats a list of SQL elements with separators

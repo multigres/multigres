@@ -406,12 +406,9 @@ func TestStateManager_SetState_RequiresActionLock(t *testing.T) {
 // PostgresMode=Primary) so this isolates the recovery-flag / serving-status inputs,
 // matching the old determineRemedialAction primary-drift coverage that moved here.
 func TestStateManager_HasDrift(t *testing.T) {
-	// newFannedOut builds a manager whose last-fanned-out effective state is
-	// (PRIMARY, serving): the active writable leader currently in `serving`.
 	newFannedOut := func(t *testing.T, serving clustermetadatapb.PoolerServingStatus) *StateManager {
 		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, serving)
 		ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus)
-		// Establish lastFannedOut = (PRIMARY, serving) as the active writable leader.
 		require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 			s.PostgresMode = pgmode.Primary
 			s.ServingStatus = serving
@@ -420,37 +417,33 @@ func TestStateManager_HasDrift(t *testing.T) {
 	}
 
 	t.Run("primary drift reconciles", func(t *testing.T) {
-		// Last fanned out as the writable leader (PostgresMode primary), but postgres
-		// now reports recovery (PostgresMode=InRecovery): the routing role would flip,
-		// so this is drift.
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_SERVING)
-		assert.True(t, ssm.hasDrift(pgmode.InRecovery))
+		assert.True(t, ssm.hasDrift(pgmode.InRecovery, false))
 	})
 
-	t.Run("draining always reconciles", func(t *testing.T) {
-		// DRAINING is a transient drain the monitor owns; hasDrift always reports it
-		// so fixDrift completes DRAINING->SERVING once healthy and role-aligned.
+	t.Run("draining reconciles when WAL is trusted", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DRAINING)
-		assert.True(t, ssm.hasDrift(pgmode.Primary))
+		assert.True(t, ssm.hasDrift(pgmode.Primary, false))
+	})
+
+	t.Run("draining is stable while divergence is suspected", func(t *testing.T) {
+		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DRAINING)
+		assert.False(t, ssm.hasDrift(pgmode.Primary, true))
 	})
 
 	t.Run("disabled is left alone", func(t *testing.T) {
-		// DISABLED is a deliberate non-serving state; with the recovery flag and role
-		// unchanged there is no drift, so the monitor must not auto-reconcile it.
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DISABLED)
-		assert.False(t, ssm.hasDrift(pgmode.Primary))
+		assert.False(t, ssm.hasDrift(pgmode.Primary, false))
 	})
 
 	t.Run("no drift is a no-op", func(t *testing.T) {
-		// Recovery flag and serving status match what was last fanned out: no drift.
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_SERVING)
-		assert.False(t, ssm.hasDrift(pgmode.Primary))
+		assert.False(t, ssm.hasDrift(pgmode.Primary, false))
 	})
 }
 
-// TestStateManager_FixDrift verifies fixDrift re-derives and re-applies the
-// effective state: a recovery flip re-projects the record to REPLICA, and a
-// DRAINING status is completed to SERVING.
+// TestStateManager_FixDrift verifies recovery-role reconciliation and the
+// divergence-aware DRAINING/SERVING transition.
 func TestStateManager_FixDrift(t *testing.T) {
 	t.Run("recovery flip demotes to replica", func(t *testing.T) {
 		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
@@ -461,7 +454,7 @@ func TestStateManager_FixDrift(t *testing.T) {
 		}))
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
 
-		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, false))
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 	})
@@ -470,9 +463,18 @@ func TestStateManager_FixDrift(t *testing.T) {
 		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_DRAINING)
 		ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus)
 
-		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary, false))
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
+	})
+
+	t.Run("suspected divergence holds replica draining", func(t *testing.T) {
+		r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
+		ssm := NewStateManager(newTestLogger(), r, nilConsensusStatus)
+
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, true))
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, r.ServingStatus())
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
 	})
 }
 

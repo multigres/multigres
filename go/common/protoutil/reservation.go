@@ -73,6 +73,12 @@ const (
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
 )
 
+// StatementLocalReasons are the reasons a single statement adds for its own
+// execution and that must be unwound if PostgreSQL rejects that statement:
+// the reservation-side effects never materialized (temp table not created,
+// portal not opened — a failed statement aborts atomically).
+const StatementLocalReasons = ReasonTempTable | ReasonPortal
+
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
 func ValidateReasons(reasons uint32) error {
 	if reasons & ^validReasonsMask != 0 {

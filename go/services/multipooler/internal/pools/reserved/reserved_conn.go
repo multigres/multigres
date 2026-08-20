@@ -59,22 +59,6 @@ type Conn struct {
 	// reservedProps tracks why the connection is reserved.
 	reservedProps *ReservationProperties
 
-	// txnSnapshot captures the session state (GUCs, role) at the moment this
-	// connection opened its current transaction. PostgreSQL reverts session
-	// SET / SET ROLE issued inside a transaction on ROLLBACK; restoring this
-	// snapshot on rollback keeps the pool's cached connstate in lock-step with
-	// the backend, so a recycled connection is never reused with stale settings.
-	// nil when not in a transaction. Accessed only from the transaction-control
-	// methods, which the gateway serializes per reserved connection.
-	txnSnapshot *connstate.TxnSnapshot
-
-	// sessionStateUntrusted is set when PostgreSQL may have reverted backend
-	// session state without the pooler's connstate cache observing the exact new
-	// value (e.g. successful ROLLBACK TO SAVEPOINT). While set, release
-	// finalization syncs connstate to the gateway's authoritative session
-	// settings instead of trusting the stale cache.
-	sessionStateUntrusted bool
-
 	// releaseCleanups run before clean release recycles the backend.
 	releaseCleanups []ReleaseCleanup
 
@@ -87,6 +71,20 @@ type Conn struct {
 
 	// released indicates whether this connection has been released.
 	released atomic.Bool
+
+	// closeOnRelease marks this backend as no longer safe to hand to another
+	// logical session: at release it is closed rather than recycled into the
+	// pool. It is one-way — nothing clears it — because the conditions that
+	// set it are ones no cleanup statement can reliably undo.
+	//
+	// Temporary-object access is currently the only thing that sets it (via
+	// MarkTempTainted), and it is set only after a temp-reason statement
+	// SUCCEEDS: a rejected statement leaves no temp objects behind (an aborted
+	// creating transaction rolls back even the namespace instantiation), so it
+	// must not cost the backend its life. That case is also why the flag is
+	// one-way — DISCARD TEMP drops the objects but cannot unfreeze
+	// temp_buffers. Other reasons to retire a backend can set it the same way.
+	closeOnRelease atomic.Bool
 
 	// txnStartTime is when the current transaction began. Set by the begin
 	// paths (BeginWithQuery / SnapshotTxnState), cleared when the transaction is
@@ -130,6 +128,12 @@ func (c *Conn) Conn() *regular.Conn {
 	return c.pooled.Conn
 }
 
+// ResetAllSettings discards all session state on the underlying backend
+// (RESET ROLE / SESSION AUTHORIZATION / ALL), returning it to a clean state.
+func (c *Conn) ResetAllSettings(ctx context.Context) error {
+	return c.pooled.Conn.ResetAllSettings(ctx)
+}
+
 // TxnStatus returns the underlying PG protocol transaction status from the
 // most recent ReadyForQuery message.
 func (c *Conn) TxnStatus() protocol.TransactionStatus {
@@ -161,28 +165,20 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	// Snapshot the committed session-state baseline so a ROLLBACK can revert the
-	// pool's cached connstate in lock-step with PostgreSQL.
-	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.txnStartTime = time.Now()
 
 	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
-// SnapshotTxnState captures the current session-state baseline as the
-// transaction snapshot. Transaction-start paths that run BEGIN outside
-// BeginWithQuery must call this so a later ROLLBACK can still revert the pool's
-// cached connstate in lock-step with PostgreSQL. In particular, acquisition
-// paths that need the first backend write to be retryable (COPY initiation and
-// transaction starts on fresh reserved connections) run BEGIN on the raw
-// *regular.Conn inside a connection-acquisition validate callback (the
-// *reserved.Conn wrapper doesn't exist yet), then add the transaction reason
-// manually; they call this immediately afterwards, before any client statement
-// runs in the transaction, so the captured baseline is the pre-transaction
-// state.
+// SnapshotTxnState records the transaction start time. Transaction-start paths
+// that run BEGIN outside BeginWithQuery (COPY initiation and transaction starts
+// on fresh reserved connections run BEGIN on the raw *regular.Conn inside a
+// connection-acquisition validate callback, then add the transaction reason
+// manually) call this so mg.pooler.txn.duration is measured from the real
+// BEGIN. Session-state bookkeeping needs no snapshot: the gateway's map is
+// authoritative and is re-stamped onto the connection at release.
 func (c *Conn) SnapshotTxnState() {
-	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.txnStartTime = time.Now()
 }
 
@@ -207,20 +203,15 @@ func IsRecoverableSQLError(err error) bool {
 }
 
 // markTransactionRolledBack applies the bookkeeping PostgreSQL's ROLLBACK
-// semantics guarantee: mid-transaction session changes are undone, so the
-// pool's cached connstate must revert to the pre-transaction baseline, and
-// the transaction reservation reason no longer applies. Used both by
-// RollbackResult's success path and by the confirmed-clean failure paths of
-// CommitResult/CommitAndChainResult/RollbackResult/RollbackAndChainResult,
-// where PostgreSQL treats the failure (e.g. a COMMIT that hits a deferred
-// constraint, or a ROLLBACK that itself errors cleanly) exactly like a
-// successful ROLLBACK.
+// semantics guarantee: the transaction reservation reason no longer applies.
+// Session-state reversion needs no pooler-side action — the gateway's savepoint
+// frames revert its authoritative map, which is re-stamped onto the connection
+// at release. Used both by RollbackResult's success path and by the
+// confirmed-clean failure paths of CommitResult/CommitAndChainResult/
+// RollbackResult/RollbackAndChainResult, where PostgreSQL treats the failure
+// (e.g. a COMMIT that hits a deferred constraint, or a ROLLBACK that itself
+// errors cleanly) exactly like a successful ROLLBACK.
 func (c *Conn) markTransactionRolledBack(ctx context.Context) {
-	if c.txnSnapshot != nil {
-		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
-		c.txnSnapshot = nil
-	}
-	c.ClearSessionStateUntrusted()
 	c.recordTxnOutcome(ctx, txnOutcomeRollback)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
 }
@@ -256,10 +247,6 @@ func (c *Conn) CommitResult(ctx context.Context) (*sqltypes.Result, error) {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Committed: mid-transaction session changes are now durable and already
-	// reflected in connstate; drop the snapshot.
-	c.txnSnapshot = nil
-
 	c.recordTxnOutcome(ctx, txnOutcomeCommit)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return firstTxnResult(results, "COMMIT"), nil
@@ -293,10 +280,8 @@ func (c *Conn) CommitAndChainResult(ctx context.Context) (*sqltypes.Result, erro
 		return nil, fmt.Errorf("failed to commit transaction and chain: %w", err)
 	}
 
-	// The committed changes are durable. PostgreSQL is already inside the chained
-	// transaction; capture that transaction's rollback baseline from the current
-	// committed connstate.
-	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	// The committed changes are durable and PostgreSQL is already inside the
+	// chained transaction.
 	c.AddReservationReason(protoutil.ReasonTransaction)
 	return firstTxnResult(results, "COMMIT"), nil
 }
@@ -332,9 +317,6 @@ func (c *Conn) RollbackResult(ctx context.Context) (*sqltypes.Result, error) {
 		return nil, fmt.Errorf("failed to rollback transaction: %w", err)
 	}
 
-	// PostgreSQL just reverted any SET / SET ROLE issued inside this transaction
-	// to the pre-transaction baseline. Revert the pool's cached connstate to the
-	// same baseline so the recycled connection is bucketed and reused correctly.
 	c.markTransactionRolledBack(ctx)
 	return firstTxnResult(results, "ROLLBACK"), nil
 }
@@ -378,11 +360,6 @@ func (c *Conn) RollbackAndChainResult(ctx context.Context) (*sqltypes.Result, er
 		return nil, fmt.Errorf("failed to rollback transaction and chain: %w", err)
 	}
 
-	if c.txnSnapshot != nil {
-		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
-	}
-	c.ClearSessionStateUntrusted()
-	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.AddReservationReason(protoutil.ReasonTransaction)
 	return firstTxnResult(results, "ROLLBACK"), nil
 }
@@ -446,12 +423,36 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 
 // AddReservationReason adds a reason to the reservation bitmask.
 // Creates reservedProps if needed (sets StartTime to now).
+//
+// Deliberately does NOT set closeOnRelease for the temp reason: reasons are
+// applied before the statement runs and unwound by the executor when
+// PostgreSQL rejects it — the taint is applied separately by MarkTempTainted
+// on the success path.
 func (c *Conn) AddReservationReason(reason uint32) {
 	if c.reservedProps == nil {
 		c.reservedProps = NewReservationProperties(reason)
 	} else {
 		c.reservedProps.AddReason(reason)
 	}
+}
+
+// MarkTempTainted records that a temp-reason statement succeeded on this
+// backend, so it must be closed (not recycled) at release. Called by the
+// executor after PostgreSQL accepts the statement — never on the add-reasons
+// path, where a subsequent rejection would leave a needless taint. Idempotent
+// and one-way: a later failed temp statement (e.g. duplicate name, which
+// implies this backend already holds the temp table) must not clear it, and
+// neither does DISCARD TEMP, which cannot unfreeze temp_buffers.
+//
+// A FAILED temp statement can also freeze temp_buffers (the local-buffer
+// latch is not transactional), but that recycled residue is deliberately not
+// tainted here — it is repaired lazily, only when it actually bites, by the
+// pool's checkout-time recovery (connpool.applySettingsWithReconnect and the
+// regular pool's QueryStreamingWithRetry, both keyed on
+// mterrors.IsTempBuffersFreeze). Tainting on failure would instead close a
+// healthy backend for every rejected temp statement, mostly unfrozen ones.
+func (c *Conn) MarkTempTainted() {
+	c.closeOnRelease.Store(true)
 }
 
 // RemoveReservationReason removes a reason from the reservation bitmask.
@@ -506,31 +507,9 @@ func (c *Conn) InactivityTimeout() time.Duration {
 	return c.inactivityTimeout
 }
 
-// --- Session-state reconciliation metadata ---
-
-// MarkSessionStateUntrusted records that connstate may not match the backend's
-// real session state, so the next reconciliation must be forced.
-func (c *Conn) MarkSessionStateUntrusted() {
-	c.sessionStateUntrusted = true
-}
-
-// SessionStateUntrusted returns true if forced reconciliation is required.
-func (c *Conn) SessionStateUntrusted() bool {
-	return c.sessionStateUntrusted
-}
-
-// ClearSessionStateUntrusted marks connstate as trusted again after a full
-// rollback snapshot restore or successful forced reconciliation.
-func (c *Conn) ClearSessionStateUntrusted() {
-	c.sessionStateUntrusted = false
-}
-
 // --- Lifecycle ---
 
-// Release releases this connection back to the pool. gatewaySessionSettings is
-// the gateway's authoritative session settings at release time; it is used to
-// sync connstate in-memory when the connection is marked untrusted. Pass nil
-// for dirty releases or when gateway settings are unavailable.
+// Release releases this connection back to the pool.
 func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]string) {
 	if !c.released.CompareAndSwap(false, true) {
 		return // Already released.

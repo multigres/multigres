@@ -409,7 +409,6 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.LastCheckSuccessful = now
 			h.LastSeen = now
-			h.IsLastCheckValid = true
 			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 			if snapshot.Status.AvailabilityStatus != nil {
 				h.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
@@ -460,16 +459,13 @@ func (hs *HealthStream) markConnected() {
 	hs.cache.DoUpdate(hs.poolerID, cb)
 }
 
-// markDisconnected records that the stream is disconnected and the pooler
-// should be treated as unreachable.
+// markDisconnected records that the stream is disconnected. This doesn't mean
+// we should treat the pooler as unreachable or unhealthy, since it could be a momentary
+// network blip. A pooler will be considered unhealthy if enough time passes without
+// successfully reconnecting and getting fresh health.
 func (hs *HealthStream) markDisconnected() {
 	cb := func(existing *Pooler) *Pooler {
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.IsLastCheckValid = false
-			if h.Status != nil {
-				h.Status.PostgresReady = false
-				h.Status.PostgresRunning = false
-			}
 			h.StreamConnected = false
 		})
 		return existing

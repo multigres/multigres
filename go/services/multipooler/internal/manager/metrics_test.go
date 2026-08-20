@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,4 +121,38 @@ func TestRecordTransition_NilSafe(t *testing.T) {
 	nilM.recordTransition(t.Context(), from, to)
 
 	(&healthMetrics{}).recordTransition(t.Context(), from, to)
+}
+
+// TestRewindExecutionDurationMetric verifies pg_rewind runtime is recorded per
+// phase (dry_run vs the mutating rewind) with the durations converted to seconds.
+func TestRewindExecutionDurationMetric(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	m.recordRewindExecutionDuration(t.Context(), rewindPhaseRewind, 2500*time.Millisecond)
+	m.recordRewindExecutionDuration(t.Context(), rewindPhaseDryRun, 500*time.Millisecond)
+
+	hist := findMetric(t, setup.MetricReader, "multipooler.rewind.execution.duration")
+	h, ok := hist.Data.(metricdata.Histogram[float64])
+	require.True(t, ok)
+	require.Len(t, h.DataPoints, 2, "one data point per phase")
+
+	byPhase := map[string]float64{}
+	for _, dp := range h.DataPoints {
+		byPhase[attrValue(t, dp.Attributes, "phase")] = dp.Sum
+	}
+	assert.InDelta(t, 2.5, byPhase[string(rewindPhaseRewind)], 1e-9)
+	assert.InDelta(t, 0.5, byPhase[string(rewindPhaseDryRun)], 1e-9)
+}
+
+// TestRecordRewindExecutionDuration_NilSafe covers the guards: a nil receiver and
+// a zero-value managerMetrics (nil histogram) must both be no-ops.
+func TestRecordRewindExecutionDuration_NilSafe(t *testing.T) {
+	var nilM *managerMetrics
+	nilM.recordRewindExecutionDuration(t.Context(), rewindPhaseRewind, time.Second)
+
+	(&managerMetrics{}).recordRewindExecutionDuration(t.Context(), rewindPhaseDryRun, time.Second)
 }

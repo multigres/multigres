@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"sync/atomic"
 	"time"
 
@@ -41,7 +40,19 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
+
+// preExecutionUnavailableError marks connection failures that occurred while
+// acquiring a backend, before query execution or reservation state changed.
+// Other acquisition failures (pool exhaustion, invalid settings, cancellation)
+// retain their original classification.
+func preExecutionUnavailableError(err error) error {
+	if !mterrors.IsConnectionError(err) {
+		return err
+	}
+	return mterrors.MarkPreExecutionUnavailable(err)
+}
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
 // It uses the connpoolmanager for per-user connection pool management and consolidates
@@ -73,47 +84,18 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 	return options.SessionSettings
 }
 
-func (e *Executor) sessionSettingsForPool(settings map[string]string) map[string]string {
-	if len(settings) == 0 {
-		return nil
-	}
-	return maps.Clone(settings)
-}
-
-func (e *Executor) postQuerySessionSettingsFromOptions(options *query.ExecuteOptions) (map[string]string, bool) {
-	if options == nil || !options.GetHasPostQuerySessionSettings() {
-		return nil, false
-	}
-	return e.sessionSettingsForPool(options.PostQuerySessionSettings), true
-}
-
-func (e *Executor) successfulQueryReleaseSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
-	if settings, ok := e.postQuerySessionSettingsFromOptions(options); ok {
-		return settings
-	}
-	return e.sessionSettingsFromOptions(options)
-}
-
-func (e *Executor) recordPostQuerySessionSettings(conn *regular.Conn, options *query.ExecuteOptions) {
-	settings, ok := e.postQuerySessionSettingsFromOptions(options)
-	if !ok || e.poolManager == nil {
-		return
-	}
-	e.poolManager.RecordSettingsOnConn(conn, settings)
-}
-
-func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
-	if options == nil {
-		return nil
-	}
-	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
-}
+// vpidReleaseTimeout bounds the best-effort vpid mapping cleanup that runs at
+// reserved-connection release.
+const vpidReleaseTimeout = 5 * time.Second
 
 func (e *Executor) vpidReleaseCleanup() reserved.ReleaseCleanup {
 	return func(conn *regular.Conn) bool {
-		// Use a fresh bounded cleanup context instead of the client request context;
-		// release should still clear metadata after client cancellation.
-		return e.clearVpidOnRegular(context.TODO(), conn)
+		// Deliberately not the client request context: release must still
+		// clear the mapping after a client cancellation. Bounded so a hung
+		// backend cannot hold the release path open indefinitely.
+		ctx, cancel := context.WithTimeout(ctxutil.Detach(context.TODO()), vpidReleaseTimeout)
+		defer cancel()
+		return e.clearVpidOnRegular(ctx, conn)
 	}
 }
 
@@ -194,14 +176,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		// Existing reserved connections bypass the pool's normal settings checkout
-		// path. Apply deferred gateway session settings before user SQL when they
-		// differ from connstate.
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to apply session settings", err)
-			return nil, state, rerr
-		}
-
 		// No vpid tracking here: when tracking is enabled, the mapping row was
 		// written when this connection was reserved. The backend stays bound to
 		// the same gateway session for the life of the reservation, and the conn
@@ -213,7 +187,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			state, rerr := e.reservedConnError(reservedConn, "query execution failed", err)
 			return nil, state, rerr
 		}
-		e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
 
 		if len(results) == 0 {
 			return &sqltypes.Result{}, e.buildReservedState(reservedConn), nil
@@ -233,7 +206,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -248,7 +221,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
@@ -323,10 +295,6 @@ func (e *Executor) StreamExecute(
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-		}
-
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
@@ -366,7 +334,7 @@ func (e *Executor) StreamExecute(
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -400,7 +368,6 @@ func (e *Executor) StreamExecute(
 		if err := conn.Conn.QueryStreaming(ctx, querySQL, callback); err != nil {
 			return nil, wrapQueryError(err)
 		}
-		e.recordPostQuerySessionSettings(conn.Conn, options)
 		return nil, nil
 	}
 
@@ -408,7 +375,6 @@ func (e *Executor) StreamExecute(
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	return nil, nil
 }
@@ -488,7 +454,7 @@ func (e *Executor) reserveAndStreamExecute(
 	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reservedOpts...)...)
 	e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection: %w", err))
 	}
 
 	if beginTx {
@@ -570,11 +536,57 @@ func (e *Executor) reserveAndStreamExecute(
 			for _, name := range pinNames {
 				reservedConn.ReleasePortal(name)
 			}
-			if reasons&protoutil.ReasonTempTable != 0 {
-				reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+			// Unwind via the protoutil.StatementLocalReasons mask rather than a
+			// hardcoded list, so a reason added to that set is unwound here
+			// automatically instead of silently outliving the failed statement
+			// and pinning the backend past the eventual COMMIT/ROLLBACK.
+			// ReasonPortal is excluded when pins were registered: ReleasePortal
+			// above owns the portal bookkeeping then.
+			unwind := reasons & protoutil.StatementLocalReasons
+			if len(pinNames) > 0 {
+				unwind &^= protoutil.ReasonPortal
 			}
-			if len(pinNames) == 0 && reasons&protoutil.ReasonPortal != 0 {
-				reservedConn.RemoveReservationReason(protoutil.ReasonPortal)
+			if unwind != 0 {
+				reservedConn.RemoveReservationReason(unwind)
+			}
+			return e.buildReservedState(reservedConn), wrapQueryError(err)
+		}
+		// No transaction to preserve. A clean PostgreSQL statement error
+		// aborted atomically, so the statement-local reasons this call added
+		// never materialized (no temp table, no portal) and the backend is
+		// unchanged since acquisition: unwind them and release the connection
+		// for reuse rather than closing a healthy backend on every failing
+		// statement.
+		//
+		// Only those unwind, and the split is load-bearing: they are exactly
+		// the TRANSACTIONAL reasons, whose side effects a clean abort provably
+		// rolled back. Non-transactional reasons (session advisory locks,
+		// setseed) deliberately SURVIVE a clean failure — their side effects
+		// can materialize before the error and outlive it
+		// (SELECT pg_advisory_lock(1), 1/0 leaves the lock held on real
+		// PostgreSQL; PRNG state is backend-process state), so the pin is the
+		// only release disposition that preserves client-visible state.
+		// Worst case is a spurious pin when the side effect never ran:
+		// harmless (backend clean, label truthful), self-healing for
+		// advisory locks via the next recheck probe, and bounded by the
+		// inactivity killer when idle.
+		if !beginTx && reserved.IsRecoverableSQLError(err) {
+			for _, name := range pinNames {
+				reservedConn.ReleasePortal(name)
+			}
+			// ReasonPortal is excluded when pins were registered: ReleasePortal
+			// above owns the portal bookkeeping then, and a wholesale removal
+			// could clobber a pre-existing HOLD cursor's reservation.
+			unwind := reasons & protoutil.StatementLocalReasons
+			if len(pinNames) > 0 {
+				unwind &^= protoutil.ReasonPortal
+			}
+			if unwind != 0 {
+				reservedConn.RemoveReservationReason(unwind)
+			}
+			if reservedConn.RemainingReasons() == 0 {
+				reservedConn.Release(reserved.ReleaseStatementError, e.sessionSettingsFromOptions(options))
+				return nil, wrapQueryError(err)
 			}
 			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
@@ -585,19 +597,37 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
-	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
-
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		reservedConn.MarkSessionStateUntrusted()
+	// The temp statement succeeded, so the backend now (or may now) hold temp
+	// objects and frozen temp_buffers — taint it so release closes it. Done
+	// only on success: the failure branch above unwinds the statement-local
+	// temp reason instead. (A failed temp statement can still freeze
+	// temp_buffers — non-transactional local-buffer latch — but that residue
+	// is repaired at pool checkout via mterrors.IsTempBuffersFreeze recovery
+	// rather than by closing every failed statement's backend here.)
+	if reasons&protoutil.ReasonTempTable != 0 {
+		reservedConn.MarkTempTainted()
 	}
 
 	// If the gateway flagged this statement as touching an advisory lock,
-	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
-	// acquire, in which case unpin immediately so the gateway doesn't keep an
-	// empty reservation. Gated on the recheck signal so the probe stays off the
-	// per-statement hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
+	// re-probe pg_locks and drop the reason if none remain (e.g. a
+	// pg_try_advisory_lock that didn't acquire). Gated on the recheck signal so
+	// the probe stays off the per-statement hot path.
+	if reservationOptions.GetRecheckAdvisoryLocks() {
+		e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn)
+	}
+
+	// The gateway routed this statement down the reserved path because it planned
+	// it to reserve the backend — e.g. a statement touching an advisory lock is
+	// planned with its set_config kept as is_local=false (persisting), on the bet
+	// that the backend stays pinned to this session. But that reservation can fail
+	// to materialize at runtime: a pg_try_advisory_lock that returns false acquires
+	// no lock, so nothing keeps the backend reserved and it leaves here with no
+	// reservation reason. The bet was wrong, and the persisting set_config already
+	// ran, so the backend must not go back to the pool carrying that state under a
+	// label that doesn't describe it. Reset it clean and release it (as
+	// ReleaseUnreserved) instead of handing back a reason-less reservation.
+	if reservedConn.RemainingReasons() == 0 {
+		e.resetAndRelease(ctx, reservedConn)
 		return nil, nil
 	}
 
@@ -660,7 +690,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	gatewaySessionSettings map[string]string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, nil, false, false, callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, false, callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithOptions(
@@ -671,8 +701,7 @@ func (e *Executor) streamExecuteOnReservedConnWithOptions(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	postSettings, hasPostSettings := e.postQuerySessionSettingsFromOptions(options)
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, options.GetPassthroughRow(), callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), options.GetPassthroughRow(), callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithPostState(
@@ -681,8 +710,6 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	sql string,
 	reservationOptions *query.ReservationOptions,
 	gatewaySessionSettings map[string]string,
-	postQuerySessionSettings map[string]string,
-	hasPostQuerySessionSettings bool,
 	passthroughRow bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
@@ -711,7 +738,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		// such as advisory locks are deliberately not included here: if the lock
 		// was acquired before a later statement error, PostgreSQL can keep it.
 		if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
-			addedStatementLocalReasons = (nonBeginReasons &^ preQueryReasons) & (protoutil.ReasonTempTable | protoutil.ReasonPortal)
+			addedStatementLocalReasons = (nonBeginReasons &^ preQueryReasons) & protoutil.StatementLocalReasons
 			rc.AddReservationReason(nonBeginReasons)
 		}
 	}
@@ -768,24 +795,31 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 			}
 		}
 		if shouldRelease {
-			rc.Release(reserved.ReleaseError, nil)
+			// A clean PostgreSQL statement error aborted atomically: the
+			// backend's session state is unchanged since acquisition, so the
+			// label applied then is still truthful and the connection is
+			// reusable. Indeterminate failures (cancellation, deadline, dead
+			// socket) keep the tainting ReleaseError.
+			if reserved.IsRecoverableSQLError(err) {
+				rc.Release(reserved.ReleaseStatementError, gatewaySessionSettings)
+			} else {
+				rc.Release(reserved.ReleaseError, nil)
+			}
 			return nil, wrapQueryError(err)
 		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
 	}
 
-	releaseSettings := gatewaySessionSettings
-	if hasPostQuerySessionSettings {
-		releaseSettings = postQuerySessionSettings
-		e.recordPostQuerySessionSettings(rc.Conn(), &query.ExecuteOptions{
-			HasPostQuerySessionSettings: true,
-			PostQuerySessionSettings:    postQuerySessionSettings,
-		})
+	// The statement succeeded with a temp reason requested — taint the backend
+	// so release closes it (see MarkTempTainted; the failure branch above
+	// unwinds instead). Keyed on this statement's requested reasons, not the
+	// unwind-tracking addedStatementLocalReasons: a repeat temp statement on an
+	// already-reserved conn re-latches idempotently.
+	if reasons&protoutil.ReasonTempTable != 0 {
+		rc.MarkTempTainted()
 	}
 
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		rc.MarkSessionStateUntrusted()
-	}
+	releaseSettings := gatewaySessionSettings
 
 	// Apply portal releases after the query succeeds. CLOSE forwards the
 	// statement to PG first; only on success do we unpin so the
@@ -805,11 +839,18 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		return nil, nil
 	}
 
-	// If the gateway flagged this statement as touching an advisory lock (e.g.
-	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
-	// the recheck signal so the probe runs only on advisory-touching statements,
-	// not after every query on a pinned connection.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, releaseSettings) {
+	// This is the existing-reservation path (the caller holds a reservedId). If the
+	// gateway flagged this statement as touching an advisory lock (e.g.
+	// pg_advisory_unlock), re-probe pg_locks; when that releases the last
+	// session-level lock the backend was pinned for, the reservation is genuinely
+	// over. Unpin the backend and return it to the pool. This mirrors the
+	// ReleasePortalComplete unpin above — the reservation genuinely existed, so its
+	// session state is already tracked and releaseSettings describes it truthfully;
+	// no reset is needed (that is only for the fresh, never-actually-reserved
+	// paths). Gated on the recheck signal so the probe runs only on
+	// advisory-touching statements, not after every query on a pinned connection.
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc) {
+		rc.Release(reserved.ReleaseAdvisoryUnlock, releaseSettings)
 		return nil, nil
 	}
 
@@ -818,9 +859,12 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 
 // maybeUnpinSessionAdvisoryLock checks, after a statement on a connection
 // reserved for session-level advisory locks, whether the session still holds
-// any advisory lock. If none remain it clears ReasonSessionAdvisoryLock and,
-// when no other reason keeps the connection reserved, releases the backend to
-// the pool. Returns true if the connection was released.
+// any advisory lock. If none remain it clears ReasonSessionAdvisoryLock and
+// returns true iff that cleared the connection's last reservation reason — i.e.
+// the advisory lock was the only thing pinning it, so the caller should release
+// the now-unreserved connection. Returns false whenever the connection stays
+// pinned (a lock is still held, another reason remains, or the probe was skipped
+// or failed).
 //
 // PostgreSQL is the source of truth for the (reference-counted) lock state, so
 // this is robust against pg_try_advisory_lock calls that failed, keys locked
@@ -828,7 +872,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 // calls buried in functions or dynamic SQL — cases gateway-side counting could
 // never get right. The cost is one extra round trip per statement while the
 // session holds an advisory lock, which is a rare and already-pinned state.
-func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI, gatewaySessionSettings map[string]string) bool {
+func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI) bool {
 	// Only meaningful for advisory-lock reservations, and only outside a
 	// transaction: inside one ReasonTransaction keeps the backend pinned anyway,
 	// and transaction-level advisory locks would pollute the probe.
@@ -866,15 +910,36 @@ func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reserve
 		return false
 	}
 
-	// No advisory locks remain. Drop the reason; release the backend if nothing
-	// else keeps it reserved.
-	if rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock) {
-		rc.Release(reserved.ReleaseAdvisoryUnlock, gatewaySessionSettings)
-		e.logger.DebugContext(ctx, "released advisory-lock reservation; no locks remain",
-			"reserved_conn_id", rc.ConnID())
-		return true
+	// No advisory locks remain: drop the reason. RemoveReservationReason returns
+	// true iff that drained the last reservation reason, i.e. the advisory lock was
+	// the only thing keeping the connection reserved.
+	drained := rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock)
+	e.logger.DebugContext(ctx, "dropped advisory-lock reservation reason; no locks remain",
+		"reserved_conn_id", rc.ConnID())
+	return drained
+}
+
+// resetAndRelease returns a connection that took the reserved path but never
+// ultimately reserved a backend — a failed pg_try_advisory_lock, or a maxRows
+// portal that completed without suspending — to the pool as a CLEAN backend. The
+// gateway planned the statement as if it would reserve (keeping a pinned
+// set_config as is_local=false), so the statement may have left session state the
+// release label does not describe; RESET ALL discards it and the backend re-enters
+// the pool with an empty label under ReleaseUnreserved. If the reset fails the
+// backend cannot be trusted clean, so it is tainted rather than recycled.
+//
+// This is distinct from unpinning a reservation that genuinely existed (e.g. an
+// advisory unlock, a portal close), which releases with the truthful settings map
+// and does not reset — see the ReleaseAdvisoryUnlock / ReleasePortalComplete
+// releases on the existing-reservation path.
+func (e *Executor) resetAndRelease(ctx context.Context, rc reservedConnAPI) {
+	if err := rc.ResetAllSettings(ctx); err != nil {
+		e.logger.WarnContext(ctx, "failed to reset backend before release; tainting",
+			"reserved_conn_id", rc.ConnID(), "error", err)
+		rc.Release(reserved.ReleaseError, nil)
+		return
 	}
-	return false
+	rc.Release(reserved.ReleaseUnreserved, nil)
 }
 
 // Close closes the executor and releases resources.
@@ -1011,17 +1076,9 @@ func (e *Executor) portalExecuteWithReserved(
 			return err
 		}))...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for user %s: %w", user, err))
 		}
 		newlyReserved = true
-	}
-
-	if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-		if newlyReserved {
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, err
-		}
-		return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
 	}
 
 	// When tracking is enabled, record the vpid mapping only for a freshly
@@ -1037,7 +1094,9 @@ func (e *Executor) portalExecuteWithReserved(
 	// transaction reason is added (and the connection isn't already in one),
 	// then OR the remaining reasons onto the connection. Done before
 	// Bind/Execute so the portal runs inside the transaction.
-	if reasons := protoutil.GetReasons(reservationOptions); reasons != 0 {
+	reasons := protoutil.GetReasons(reservationOptions)
+	addedStatementLocal := uint32(0)
+	if reasons != 0 {
 		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
 			beginQuery := "BEGIN"
 			if reservationOptions.GetBeginQuery() != "" {
@@ -1051,6 +1110,10 @@ func (e *Executor) portalExecuteWithReserved(
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
 			}
 		}
+		// Track the statement-local bits not present before this portal so
+		// portalReservedError can unwind them if PostgreSQL rejects the
+		// statement, mirroring streamExecuteOnReservedConnWithPostState.
+		addedStatementLocal = (reasons &^ reservedConn.RemainingReasons()) & protoutil.StatementLocalReasons
 		// OR the requested reasons onto the connection. AddReservationReason is
 		// idempotent, so re-adding ReasonTransaction (already set by
 		// BeginWithQuery above) is harmless.
@@ -1062,7 +1125,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// already parsed it; for the existing-conn branch this is the only call.
 	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
 	if err != nil {
-		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
+		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, addedStatementLocal, err)
 	}
 
 	// Bind and execute using the portal's own name and the canonical statement name.
@@ -1081,14 +1144,15 @@ func (e *Executor) portalExecuteWithReserved(
 	}
 	reservedConn.Conn().SetPassthroughRow(false)
 	if err != nil {
-		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
+		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, addedStatementLocal, err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
-	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
+	releaseSettings := e.sessionSettingsFromOptions(options)
 
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		reservedConn.MarkSessionStateUntrusted()
+	// The portal executed successfully with a temp reason requested — taint
+	// the backend so release closes it (see MarkTempTainted).
+	if protoutil.GetReasons(reservationOptions)&protoutil.ReasonTempTable != 0 {
+		reservedConn.MarkTempTainted()
 	}
 
 	// If portal is suspended (not completed), keep the reserved connection for
@@ -1111,7 +1175,20 @@ func (e *Executor) portalExecuteWithReserved(
 	// this portal as touching an advisory lock (acquire that may have failed, or
 	// a release over the extended protocol), re-probe pg_locks and unpin if none
 	// remain. Gated on the recheck signal to keep the probe off the hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
+	if reservationOptions.GetRecheckAdvisoryLocks() {
+		e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn)
+	}
+
+	// A backend freshly reserved by this call that holds no reservation reason
+	// (e.g. a maxRows portal that completed on its first Execute without ever
+	// suspending, so ReserveForPortal was never called) must not be handed back
+	// as a reservation — nothing keeps it pinned. Reset it clean and release it to
+	// the pool instead of leaving a reason-less reservation dangling; the portal's
+	// set_config may have committed is_local=false state that must not ride back
+	// into the pool. Gate on newlyReserved so a caller-held reservation is left
+	// untouched (matching portalReservedError).
+	if newlyReserved && reservedConn.RemainingReasons() == 0 {
+		e.resetAndRelease(ctx, reservedConn)
 		return nil, nil
 	}
 
@@ -1121,18 +1198,34 @@ func (e *Executor) portalExecuteWithReserved(
 // portalReservedError reconciles reservation bookkeeping after a portal-path
 // error on a reserved backend. PostgreSQL-level errors leave the connection
 // protocol-synchronized (the client drains through ReadyForQuery), so an
-// explicit transaction/temp/advisory reservation must survive for the client to
+// explicit transaction/advisory reservation must survive for the client to
 // observe normal failed-transaction semantics and issue ROLLBACK. Only
 // connection-level failures taint the backend. If this call created the
 // reservation and no reason survived the failed statement, release the backend
 // and return a zero ReservedState.
-func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, err error) (*query.ReservedState, error) {
+//
+// addedStatementLocal carries the protoutil.StatementLocalReasons bits this
+// portal execute newly added: the failed statement aborted atomically, so the
+// state those reasons stand for (a temp table, a portal) never materialized
+// and they unwind here (ReasonPortal is owned by ReleasePortal below).
+// Without the unwind the portal path unwound nothing at all, so a reason added
+// by a failed Bind/Execute outlived it and pinned an otherwise healthy backend
+// until the inactivity timeout.
+func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, addedStatementLocal uint32, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionDead(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, wrapQueryError(err)
 	}
 
-	shouldRelease := reservedConn.ReleasePortal(portalName)
+	shouldRelease := false
+	if unwind := addedStatementLocal &^ protoutil.ReasonPortal; unwind != 0 {
+		if reservedConn.RemoveReservationReason(unwind) {
+			shouldRelease = true
+		}
+	}
+	if reservedConn.ReleasePortal(portalName) {
+		shouldRelease = true
+	}
 	if shouldRelease || (newlyReserved && reservedConn.RemainingReasons() == 0) {
 		reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
 		return nil, wrapQueryError(err)
@@ -1157,7 +1250,7 @@ func (e *Executor) portalExecuteWithRegular(
 ) (*query.ReservedState, error) {
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -1209,7 +1302,6 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// No reserved connection for regular execution
 	return nil, nil
@@ -1265,13 +1357,25 @@ func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error)
 // still holds the connection — and never taint a connection we've confirmed
 // is fine — otherwise return the authoritative surviving state so the
 // caller can propagate it.
-func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, releaseReason reserved.ReleaseReason, options *query.ExecuteOptions, err error) (*query.ReservedState, error) {
+func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, releaseReason reserved.ReleaseReason, options *query.ExecuteOptions, rollbackSessionSettings map[string]string, err error) (*query.ReservedState, error) {
 	if !reserved.IsRecoverableSQLError(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, err
 	}
 	if reservedConn.RemainingReasons() == 0 {
-		reservedConn.Release(releaseReason, e.sessionSettingsFromOptions(options))
+		// A recoverable conclusion failure means PostgreSQL resolved the
+		// transaction as a rollback (a COMMIT that fails cleanly — e.g. a
+		// deferred constraint — rolls back), so the backend's session state
+		// reverted to the pre-BEGIN map. Label it with that, never the
+		// in-transaction map the request options carry; a missing rollback map
+		// is an invariant violation (the gateway always sends it), so fail
+		// closed and replace the connection.
+		if rollbackSessionSettings == nil {
+			e.logger.Error("conclude missing rollback_session_settings on a rollback outcome; tainting the backend")
+			reservedConn.Release(reserved.ReleaseError, nil)
+			return nil, err
+		}
+		reservedConn.Release(releaseReason, rollbackSessionSettings)
 		return nil, err
 	}
 	return e.buildReservedState(reservedConn), err
@@ -1316,17 +1420,12 @@ func (e *Executor) Describe(
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			_, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return nil, rerr
-		}
-
 		conn = reservedConn.Conn()
 	} else {
 		clientKey, serverKey := scramKeysFromOptions(options)
 		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 		}
 		defer e.recycleTrackedRegularConn(pooled)
 
@@ -1340,7 +1439,7 @@ func (e *Executor) Describe(
 			_, rerr := e.reservedConnError(reservedConn, "failed to ensure prepared statement", err)
 			return nil, rerr
 		}
-		return nil, err
+		return nil, preExecutionUnavailableError(err)
 	}
 
 	if portal != nil {
@@ -1353,7 +1452,7 @@ func (e *Executor) Describe(
 				_, rerr := e.reservedConnError(reservedConn, "failed to describe portal", err)
 				return nil, rerr
 			}
-			return nil, fmt.Errorf("failed to describe portal: %w", err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to describe portal: %w", err))
 		}
 		return desc, nil
 	}
@@ -1365,7 +1464,7 @@ func (e *Executor) Describe(
 			_, rerr := e.reservedConnError(reservedConn, "failed to describe prepared statement", err)
 			return nil, rerr
 		}
-		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to describe prepared statement: %w", err))
 	}
 	return desc, nil
 }
@@ -1454,11 +1553,6 @@ func (e *Executor) CopyReady(
 			return 0, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return 0, nil, state, rerr
-		}
-
 		// Existing reserved conns are actively held (never idle in the
 		// regular pool), so PostgreSQL's idle timeout cannot have closed
 		// the socket between uses. InitiateCopyFromStdin runs directly
@@ -1522,7 +1616,7 @@ func (e *Executor) CopyReady(
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
 		if err != nil {
-			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+			return 0, nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY: %w", err))
 		}
 
 		// validate ran BEGIN via the raw *regular.Conn, which bypassed
@@ -1823,10 +1917,6 @@ func (e *Executor) CopyOutReady(
 		if reservedConn == nil {
 			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return 0, nil, nil, state, rerr
-		}
 		// When tracking is enabled, the vpid mapping row was written at reservation
 		// time; no re-tracking needed (and the conn may be mid-transaction).
 		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
@@ -1867,7 +1957,7 @@ func (e *Executor) CopyOutReady(
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
 		if err != nil {
-			return 0, nil, notices, nil, err
+			return 0, nil, notices, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY OUT: %w", err))
 		}
 
 		if requiresBegin {
@@ -2067,6 +2157,7 @@ func (e *Executor) ConcludeTransaction(
 	releasePortalNames []string,
 	releaseAllPortals bool,
 	chain bool,
+	rollbackSessionSettings map[string]string,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
@@ -2105,7 +2196,7 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.CommitResult(ctx)
 		}
 		if err != nil {
-			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, rollbackSessionSettings, err)
 			return nil, state, rerr
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
@@ -2118,7 +2209,7 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.RollbackResult(ctx)
 		}
 		if err != nil {
-			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, rollbackSessionSettings, err)
 			return nil, state, rerr
 		}
 		// PostgreSQL closes the cursors created inside this transaction
@@ -2151,7 +2242,24 @@ func (e *Executor) ConcludeTransaction(
 	shouldRelease := remainingReasons == 0
 
 	if shouldRelease {
-		reservedConn.Release(releaseReason, e.sessionSettingsFromOptions(options))
+		// Label the released backend by the OUTCOME: PostgreSQL reverted its
+		// session state on ROLLBACK, so the pre-BEGIN map — which the gateway
+		// always sends — is the truth there; the in-transaction map is the
+		// truth only on COMMIT success. A missing rollback map on a rollback
+		// outcome is an invariant violation: stamping the in-transaction map
+		// would label the backend with settings PostgreSQL just reverted, so
+		// fail closed and replace the connection instead.
+		releaseSettings := e.sessionSettingsFromOptions(options)
+		if releaseReason == reserved.ReleaseRollback {
+			if rollbackSessionSettings == nil {
+				e.logger.ErrorContext(ctx, "conclude missing rollback_session_settings on a rollback outcome; tainting the backend",
+					"reserved_conn_id", options.ReservedConnectionId)
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return result, nil, nil
+			}
+			releaseSettings = rollbackSessionSettings
+		}
+		reservedConn.Release(releaseReason, releaseSettings)
 		e.logger.DebugContext(ctx, "transaction concluded",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"command_tag", commandTag,
@@ -2333,11 +2441,10 @@ func (e *Executor) ReleaseReservedConnection(
 	}
 
 	// Step 5: Release or close the connection. The clean path forwards the
-	// gateway's authoritative session settings so an untrusted connstate cache
-	// (e.g. a ROLLBACK TO SAVEPOINT whose untrusted flag is still sticky under a
-	// surviving session reason at teardown) is synced to the truth rather than
-	// wrongly cleared — clearing it would leak the backend's real session GUCs to
-	// the next client that reuses this pooled backend.
+	// gateway's authoritative session settings so release can relabel the
+	// backend into its correct settings bucket — passing nil here would relabel
+	// it clean and leak the backend's real session GUCs to the next client that
+	// reuses this pooled backend.
 	if cleanupFailed {
 		reservedConn.Release(reserved.ReleaseError, nil)
 	} else {

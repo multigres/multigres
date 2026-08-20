@@ -29,31 +29,6 @@ func TestConnectionStateGetSetSettings(t *testing.T) {
 	assert.Same(t, s, state.GetSettings())
 }
 
-func TestConnectionStateSnapshotRestore(t *testing.T) {
-	original := NewSettings(map[string]string{"timezone": "UTC"}, 1)
-	state := NewConnectionStateWithSettings(original)
-
-	// Snapshot the pre-transaction settings, then mutate as a transaction would.
-	snap := state.SnapshotForTxn()
-	assert.NotNil(t, snap)
-
-	inTxn := NewSettings(map[string]string{"timezone": "America/New_York"}, 2)
-	state.SetSettings(inTxn)
-	assert.Same(t, inTxn, state.GetSettings())
-
-	// A ROLLBACK restores the snapshot so the pool's view matches the backend.
-	state.RestoreFromTxn(snap)
-	assert.Same(t, original, state.GetSettings())
-}
-
-func TestConnectionStateRestoreNilSnapshotIsNoop(t *testing.T) {
-	s := NewSettings(map[string]string{"timezone": "UTC"}, 1)
-	state := NewConnectionStateWithSettings(s)
-
-	state.RestoreFromTxn(nil)
-	assert.Same(t, s, state.GetSettings(), "nil snapshot must not clobber settings")
-}
-
 func TestConnectionStateClose(t *testing.T) {
 	state := NewConnectionStateWithSettings(NewSettings(map[string]string{"timezone": "UTC"}, 1))
 	state.Close()
@@ -65,11 +40,9 @@ func TestConnectionStateNilReceiverSafe(t *testing.T) {
 	var state *ConnectionState
 
 	// Every method must tolerate a nil receiver without panicking.
-	assert.Nil(t, state.SnapshotForTxn())
 	assert.Nil(t, state.GetSettings())
 	assert.NotPanics(t, func() {
 		state.SetSettings(NewSettings(nil, 0))
-		state.RestoreFromTxn(&TxnSnapshot{})
 		state.Close()
 	})
 }

@@ -105,6 +105,107 @@ func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 	}
 }
 
+// ResignLeadership gracefully resigns this pooler from leadership for use in a
+// planned failover. It quiesces writes, terminates remaining connections,
+// restarts PostgreSQL as a standby, then publishes REQUESTING_DEMOTION so
+// multiorch's LeaderResignedAnalyzer drives the election.
+//
+// By restarting postgres here, before Recruit runs on any node, we prevent the
+// "proposed leader not eligible" error: the Recruit fan-out disconnects the
+// standby's WAL receiver before the shutdown checkpoint WAL arrives. When this
+// node is already in standby mode at Recruit time, Recruit runs
+// pauseReplication instead (no new checkpoint), so all nodes end up at the same
+// post-shutdown LSN and the most-advanced standby is eligible.
+//
+// Multiorch's LeaderIsDeadAnalyzer is suppressed for the brief restart window
+// because postgres was ready very recently (within LeaderPostgresResponseThreshold).
+func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
+	defer span.End()
+
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Guard: only a PRIMARY may resign.
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	state, err := pm.checkDemotionState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: transition to DRAINING so new queries are rejected while we drain.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+		}
+	}); err != nil {
+		return nil, mterrors.Wrap(err, "failed to transition to DRAINING")
+	}
+
+	// Step 2: drain in-flight write connections.
+	if err := pm.drainWriteActivity(ctx, recruitDrainTimeout); err != nil {
+		return nil, mterrors.Wrap(err, "failed to drain write activity")
+	}
+
+	// Step 3: terminate any remaining write connections.
+	if _, err := pm.terminateWriteConnections(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "resign_leadership: failed to terminate write connections (non-fatal)", "error", err)
+	}
+
+	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
+	// drives the election. Best-effort: if this fails the caller can still poll
+	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
+	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
+			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
+		}
+	}
+
+	// Step 5: restart PostgreSQL as standby. This triggers a graceful shutdown
+	// (SIGTERM → smart shutdown → checkpoint → WAL sent to standbys → exit),
+	// so connected standbys receive the shutdown checkpoint WAL before postgres
+	// exits.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear restore_command before resign restart")
+	}
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+		return nil, mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	}
+
+	// Step 6: mark rewind as not needed — this is a planned failover so there is
+	// no WAL divergence between the old primary and the new timeline.
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		pm.logger.WarnContext(ctx, "resign_leadership: failed to clear suspected divergence (non-fatal)", "error", err)
+	}
+
+	// Re-enable serving now that we're back as a healthy standby.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.InRecovery
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}); err != nil {
+		return nil, mterrors.Wrap(err, "failed to re-enable serving after resign")
+	}
+
+	// Step 7: capture the post-shutdown WAL replay position. Callers can use
+	// this to poll for a new leader at or beyond this LSN.
+	flushLSN, err := pm.getStandbyReplayLSN(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to capture post-shutdown replay LSN")
+	}
+
+	pm.logger.InfoContext(ctx, "resign_leadership: complete", "flush_lsn", flushLSN)
+	return &multipoolermanagerdatapb.ResignLeadershipResponse{FlushLsn: flushLSN}, nil
+}
+
 // Recruit handles a coordinator's request to stop replication participation and
 // record a TermRevocation, returning the node's stable position afterward.
 //
@@ -748,7 +849,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 
 	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
 	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
 		}
 	}
@@ -762,10 +863,10 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
 		// as replication_primary.rewind_ready. Restarting before then would FATAL on
-		// this node's own un-replicated WAL and leave it stuck. Deferring leaves the
-		// node running as-is (queryable, no downtime); the record was already updated
-		// by RecordTermPrimary above, so orch's retry and the monitor's demote path
-		// both re-attempt once the leader advertises rewind_ready.
+		// this node's own un-replicated WAL and leave it stuck. The record was already
+		// updated by RecordTermPrimary above, so orch's retry and the monitor's demote
+		// path both re-attempt once the leader advertises rewind_ready. The node stays
+		// DRAINING while it waits so divergent WAL is not exposed through reads.
 		if !rp.GetRewindReady() {
 			pm.logger.InfoContext(ctx, "SetPrimary: leader not yet rewind-ready; deferring stale-primary demote", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"new_leader", leader.GetId().GetName(), "incoming_position", incomingPosition)
@@ -811,11 +912,9 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// no longer primary. That derives routing role REPLICA, clearing any stale
 	// PRIMARY label/self-leadership (so the stale-leader analyzer stops firing) and
 	// the published writable signal immediately rather than waiting a monitor
-	// cycle. Serving status is owned by the lifecycle and the monitor's reconcile,
-	// not by "here is your primary" bookkeeping.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-	}); err != nil {
+	// cycle. Re-enable reads only after the restart path has cleared suspected
+	// divergence.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
 		pm.logger.WarnContext(ctx, "failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 

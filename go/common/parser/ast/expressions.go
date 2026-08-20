@@ -1715,11 +1715,13 @@ func (n *NamedArgExpr) String() string {
 
 // SqlString returns the SQL representation of NamedArgExpr
 func (n *NamedArgExpr) SqlString() string {
-	// Format as: name => value
+	// Format as: name => value. The label is a param_name (type_function_name),
+	// which excludes col_name keywords, so it needs broader quoting than a plain
+	// identifier — see QuoteArgLabel.
 	if n.Arg != nil {
-		return fmt.Sprintf("%s => %s", QuoteIdentifier(n.Name), n.Arg.SqlString())
+		return fmt.Sprintf("%s => %s", QuoteArgLabel(n.Name), n.Arg.SqlString())
 	}
-	return QuoteIdentifier(n.Name) + " => NULL"
+	return QuoteArgLabel(n.Name) + " => NULL"
 }
 
 // CaseTestExpr represents a CASE test expression

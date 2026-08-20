@@ -16,11 +16,14 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
+
+var errFrontendMessageTooLarge = errors.New("frontend message too large")
 
 // ReadMessageType reads a single byte message type from the connection.
 // Returns 0 and io.EOF if the connection is closed gracefully.
@@ -54,7 +57,11 @@ func (c *Conn) ReadMessageLength() (int, error) {
 	if length < 4 {
 		return 0, fmt.Errorf("invalid message length: %d", length)
 	}
-	return int(length - 4), nil
+	bodyLength := length - 4
+	if bodyLength > protocol.MaxFrontendMessageBodyLength {
+		return 0, fmt.Errorf("%w: message body length %d exceeds maximum %d", errFrontendMessageTooLarge, bodyLength, protocol.MaxFrontendMessageBodyLength)
+	}
+	return int(bodyLength), nil
 }
 
 // readMessageBody reads the message body of the given length.

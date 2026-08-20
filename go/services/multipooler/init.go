@@ -41,6 +41,36 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// defaultPostgresUnrecoverableTimeout defaults the unrecoverable-postgres
+// classifier to OFF (0). Quarantining a pooler disables its restarts and marks
+// it cohort-INELIGIBLE, so it is only safe to enable once an actor exists to
+// replace the node (the operator-side Layer 2 remediation). Until then the
+// operator's manifests opt in explicitly (a good value is ~5m of continuous
+// FATAL-looping — long enough that transient faults self-heal first).
+const defaultPostgresUnrecoverableTimeout time.Duration = 0
+
+// Bounds for --postgres-unrecoverable-min-attempts: must be at least 2 (a floor
+// of 1 would defeat its purpose) and less than 10 (the timeout is the real gate;
+// a large floor would just delay a genuine quarantine).
+const (
+	// defaultPostgresUnrecoverableMinAttempts is the flag default; it shares the
+	// single source of truth in the constants package with the manager-side
+	// fallback used when the flag is unset (e.g. in tests).
+	defaultPostgresUnrecoverableMinAttempts = constants.DefaultUnrecoverableMinAttempts
+	minPostgresUnrecoverableMinAttempts     = 2
+	maxPostgresUnrecoverableMinAttempts     = 10 // exclusive upper bound
+)
+
+// validateUnrecoverableMinAttempts enforces the [min, max) bounds on the
+// --postgres-unrecoverable-min-attempts flag.
+func validateUnrecoverableMinAttempts(n int) error {
+	if n < minPostgresUnrecoverableMinAttempts || n >= maxPostgresUnrecoverableMinAttempts {
+		return fmt.Errorf("--postgres-unrecoverable-min-attempts must be >= %d and < %d, got %d",
+			minPostgresUnrecoverableMinAttempts, maxPostgresUnrecoverableMinAttempts, n)
+	}
+	return nil
+}
+
 // Multipooler represents the main multipooler instance with all configuration and state
 type Multipooler struct {
 	pgctldAddr          viperutil.Value[string]
@@ -59,12 +89,14 @@ type Multipooler struct {
 	// tests detect a frozen pooler quickly instead of waiting the full window.
 	healthStreamStalenessTimeout viperutil.Value[time.Duration]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
-	pgBackRestCertFile         viperutil.Value[string]
-	pgBackRestKeyFile          viperutil.Value[string]
-	pgBackRestCAFile           viperutil.Value[string]
-	pgBackRestPort             viperutil.Value[int]
-	pgBackRestCipherKeyFile    viperutil.Value[string]
-	backendVpidTrackingEnabled viperutil.Value[bool]
+	pgBackRestCertFile               viperutil.Value[string]
+	pgBackRestKeyFile                viperutil.Value[string]
+	pgBackRestCAFile                 viperutil.Value[string]
+	pgBackRestPort                   viperutil.Value[int]
+	pgBackRestCipherKeyFile          viperutil.Value[string]
+	backendVpidTrackingEnabled       viperutil.Value[bool]
+	postgresUnrecoverableTimeout     viperutil.Value[time.Duration]
+	postgresUnrecoverableMinAttempts viperutil.Value[int]
 	// flagSet is saved at RegisterFlags time so resolvers can distinguish an
 	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
 	// which viperutil.Get cannot.
@@ -181,6 +213,16 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "backend-vpid-tracking-enabled",
 			Dynamic:  false,
 		}),
+		postgresUnrecoverableTimeout: viperutil.Configure(reg, "postgres-unrecoverable-timeout", viperutil.Options[time.Duration]{
+			Default:  defaultPostgresUnrecoverableTimeout,
+			FlagName: "postgres-unrecoverable-timeout",
+			Dynamic:  false,
+		}),
+		postgresUnrecoverableMinAttempts: viperutil.Configure(reg, "postgres-unrecoverable-min-attempts", viperutil.Options[int]{
+			Default:  defaultPostgresUnrecoverableMinAttempts,
+			FlagName: "postgres-unrecoverable-min-attempts",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -191,6 +233,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
 	}
@@ -219,8 +262,11 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
+	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement (e.g. 5m). 0 (default) disables it; enable only where an actor replaces quarantined nodes.")
+	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
 
-	viperutil.BindFlags(flags,
+	viperutil.BindFlags(
+		flags,
 		mp.pgctldAddr,
 		mp.cell,
 		mp.database,
@@ -238,6 +284,8 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestPort,
 		mp.pgBackRestCipherKeyFile,
 		mp.backendVpidTrackingEnabled,
+		mp.postgresUnrecoverableTimeout,
+		mp.postgresUnrecoverableMinAttempts,
 	)
 	mp.flagSet = flags
 
@@ -319,7 +367,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return fmt.Errorf("topo open: %w", err)
 	}
 
-	logger.InfoContext(startCtx, "multipooler starting up",
+	logger.InfoContext(
+		startCtx, "multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
 		"cell", mp.cell.Get(),
 		"database", mp.database.Get(),
@@ -383,6 +432,11 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
 
+	minAttempts := mp.postgresUnrecoverableMinAttempts.Get()
+	if err := validateUnrecoverableMinAttempts(minAttempts); err != nil {
+		return err
+	}
+
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:               mp.socketFilePath.Get(),
@@ -398,6 +452,9 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
 		BackupCipherKeys:   cipherKeys,
+
+		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
+		PostgresUnrecoverableMinAttempts: minAttempts,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -413,6 +470,22 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+
+	// Register /ready probe: ready iff this pooler's own gRPC control plane is
+	// accepting connections. Postgres health is intentionally excluded — a
+	// pooler whose postgres is down must stay reachable (control RPCs, health
+	// stream) and must NOT be pulled from Service endpoints / DNS, so readiness
+	// reflects only whether the gRPC server is serving. Postgres liveness is
+	// signalled out-of-band via the health stream, not this probe.
+	grpcSocketPath := mp.grpcServer.SocketFile()
+	grpcBindAddress := mp.grpcServer.BindAddress()
+	grpcPort := mp.grpcServer.Port()
+	mp.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent

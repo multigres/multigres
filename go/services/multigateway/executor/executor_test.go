@@ -505,9 +505,12 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
-	// And the portal forward to the backend must still have happened.
+	// On this unpinned session the SessionStateBranch reissues the portal with
+	// the set_config rewritten to is_local := true, so nothing persists on the
+	// pooled backend; the value lives only in the gateway map (asserted above)
+	// and is replayed at the next checkout.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
-		"portal must still be forwarded to the backend before silent tracking")
+		"the portal must be forwarded to the backend before silent tracking")
 }
 
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol

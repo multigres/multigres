@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
@@ -467,6 +468,59 @@ func TestConn_PortalReservation(t *testing.T) {
 		assert.False(t, conn.IsReservedForPortal())
 		assert.False(t, conn.HasPortal("p1"))
 	})
+}
+
+func TestTempTableStateClosesConnectionOnRelease(t *testing.T) {
+	// Adding the temp reason alone (pre-execution) must NOT taint: the
+	// executor unwinds the reason when PostgreSQL rejects the statement, and a
+	// rejected statement leaves no temp state behind. Only MarkTempTainted —
+	// called on statement success — latches the close-on-release flag.
+	conn := &Conn{}
+	conn.AddReservationReason(protoutil.ReasonTempTable)
+	assert.False(t, conn.closeOnRelease.Load())
+	conn.MarkTempTainted()
+	assert.True(t, conn.closeOnRelease.Load())
+
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Clean releases need a SettingsCache to stamp the released backend's
+	// settings label, or the release itself would taint and mask the
+	// assertion below.
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(10),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     4,
+				MaxIdleCount: 4,
+			},
+		},
+	})
+	defer pool.Close()
+
+	// A clean release of a temp-tainted connection must close the backend but
+	// keep the caller's reason for metrics — the taint must not masquerade as
+	// an error release.
+	rc, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.MarkTempTainted()
+	rc.Release(ReleaseCommit, nil)
+
+	assert.True(t, rc.IsClosed(), "temp-tainted backend must be closed, not recycled")
+	assert.Equal(t, int64(1), pool.Stats().TxCommitCount, "commit metric must keep the true release reason")
+
+	// An untainted temp-reason connection (statement never succeeded) is
+	// recycled normally on a clean release.
+	rc, err = pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.RemoveReservationReason(protoutil.ReasonTempTable)
+	rc.Release(ReleaseCommit, nil)
+	assert.False(t, rc.IsClosed(), "untainted backend must be recycled, not closed")
 }
 
 func TestConn_MultipleReasons(t *testing.T) {
@@ -1012,4 +1066,41 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		assert.Greater(t, conn.ConnID(), maxPool1ID, "new pool IDs should be greater than old pool IDs")
 		conn.Release(ReleaseCommit, nil)
 	}
+}
+
+// TestPool_CleanReleaseWithoutSettingsCacheTaints pins the fail-closed
+// contract: a clean release REQUIRES the relabel, because recycling with the
+// stale acquisition-time label would hand the backend's real session state to
+// the next same-bucket borrower. A pool without a SettingsCache cannot
+// relabel, so it must replace the connection rather than recycle it.
+func TestPool_CleanReleaseWithoutSettingsCacheTaints(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+
+	cacheless := newTestPool(t, server)
+	defer cacheless.Close()
+	conn, err := cacheless.NewConn(ctx, nil)
+	require.NoError(t, err)
+	underlying := conn.Conn()
+	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
+	assert.True(t, underlying.IsClosed(),
+		"no cache means no relabel; the backend must be replaced, not recycled with a stale label")
+
+	cached := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(16),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 4, MaxIdleCount: 4},
+		},
+	})
+	defer cached.Close()
+	conn, err = cached.NewConn(ctx, nil)
+	require.NoError(t, err)
+	underlying = conn.Conn()
+	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
+	assert.False(t, underlying.IsClosed(), "with a cache the clean release relabels and recycles")
 }

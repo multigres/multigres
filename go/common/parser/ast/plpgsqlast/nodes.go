@@ -52,6 +52,9 @@ const (
 	T_PLpgSQL_expr                      // SQL fragment (verbatim text + parsed AST)
 	T_PLpgSQL_exception_block           // EXCEPTION section of a block
 	T_PLpgSQL_var                       // declared scalar variable
+	T_PLpgSQL_rec                       // record variable (RECORD / %ROWTYPE)
+	T_PLpgSQL_row                       // scalar list (comma-separated targetlist / INTO)
+	T_PLpgSQL_recfield                  // field reference into a record (rec.field)
 	T_PLpgSQL_type                      // declared type (captured as text)
 	T_PLpgSQL_stmt_assign               // assignment statement (target := expr)
 	T_PLpgSQL_stmt_if                   // IF … THEN … [ELSIF …] [ELSE …] END IF
@@ -100,6 +103,12 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_exception_block"
 	case T_PLpgSQL_var:
 		return "T_PLpgSQL_var"
+	case T_PLpgSQL_rec:
+		return "T_PLpgSQL_rec"
+	case T_PLpgSQL_row:
+		return "T_PLpgSQL_row"
+	case T_PLpgSQL_recfield:
+		return "T_PLpgSQL_recfield"
 	case T_PLpgSQL_type:
 		return "T_PLpgSQL_type"
 	case T_PLpgSQL_stmt_assign:

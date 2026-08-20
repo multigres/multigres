@@ -138,6 +138,22 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 	return true
 }
 
+// IsSelfRevoked reports whether a node's highest known rule — the max of its
+// own WAL position and the last rule delivered via SetPrimary/Promote — is
+// still revoked by the promise it accepted. Keying on the highest known rule
+// rather than raw WAL position matters: an accepted-but-not-yet-replayed rule
+// already means the node isn't stranded, while a rejected SetPrimary never
+// updates it, so a genuinely stranded node still reads as revoked.
+func IsSelfRevoked(status *clustermetadatapb.ConsensusStatus) bool {
+	current := status.GetCurrentPosition().GetPosition()
+	known := ReplicationPrimaryOrNil(status).GetPosition()
+	highest := current
+	if CompareRulePosition(known, current) > 0 {
+		highest = known
+	}
+	return IsRuleRevoked(highest, status.GetTermRevocation())
+}
+
 // ValidateRevocation reports whether the given revocation is safe for a node
 // with the provided status to honor. It returns nil if the revocation should be
 // accepted, or a descriptive error explaining why it was refused.

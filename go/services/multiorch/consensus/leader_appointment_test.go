@@ -73,9 +73,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		Multipooler:      pooler,
-		IsLastCheckValid: healthy,
-		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
+		Multipooler:     pooler,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized:   term > 0,
 			PostgresRunning: healthy,
@@ -349,4 +348,88 @@ func TestAppointInitialLeader(t *testing.T) {
 			"follower %s should be informed of mp1 as leader", id.Name)
 		require.Equal(t, int64(1), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
+}
+
+// TestAppointLeader_TiebreaksByResignation verifies that poolerHealthStateLess
+// deprioritises nodes signalling REQUESTING_DEMOTION when LSNs are tied.
+//
+// Under synchronous replication all standbys ACK every write, so they routinely
+// reach the same WAL position as the primary at shutdown. When SwitchPrimary
+// quiesces the primary and multiorch triggers a new election, the resigned
+// primary and each standby may be tied at the same flush LSN. Without the
+// tiebreaker the resigned primary could be re-elected immediately, defeating
+// the purpose of the switchover.
+func TestAppointLeader_TiebreaksByResignation(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "resigned"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "standby"},
+	}
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	// Both nodes share the same flush LSN — the common outcome after a clean
+	// switchover where the primary quiesced before the standby caught up.
+	const flushLSN = "0/2000000"
+
+	resigned := createMockNode(fakeClient, "resigned", 5, flushLSN, true, outgoingRule)
+	standby := createMockNode(fakeClient, "standby", 5, flushLSN, true, outgoingRule)
+
+	// Mark the resigned node as REQUESTING_DEMOTION in its AvailabilityStatus.
+	resigned.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+			LeaderTerm: 5,
+			Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+		},
+	}
+
+	for i, mp := range []*multiorchdatapb.PoolerHealthState{resigned, standby} {
+		id := cohortIDs[i]
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:      flushLSN,
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+		}
+		fakeClient.RecruitResponses[topoclient.ComponentIDString(id)] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:      flushLSN,
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+	}
+
+	cohort := []*multiorchdatapb.PoolerHealthState{resigned, standby}
+	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_resignation_tiebreak"))
+
+	// The standby (non-resigning) should have been promoted, not the resigned primary.
+	standbyKey := topoclient.ComponentIDString(cohortIDs[1])
+	_, promoted := fakeClient.PromoteRequests[standbyKey]
+	require.True(t, promoted, "standby should be elected, not the resigning primary")
+
+	resignedKey := topoclient.ComponentIDString(cohortIDs[0])
+	_, promotedResigned := fakeClient.PromoteRequests[resignedKey]
+	require.False(t, promotedResigned, "resigned primary should NOT be re-elected when a standby is available")
 }

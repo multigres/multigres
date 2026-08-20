@@ -65,6 +65,7 @@ var caseFiles = []string{
 	"exception_cases.json",
 	"getdiag_cases.json",
 	"transaction_cases.json",
+	"resolution_cases.json",
 }
 
 func TestParseCases(t *testing.T) {

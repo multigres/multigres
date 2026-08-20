@@ -29,27 +29,37 @@ import (
 // set_config(...) calls the walker accepted, the plan also tracks those in
 // SessionSettings so the change survives pool rotation.
 //
-// With set_configs present the plan is always
+// A session-persisting set_config mirrors an unpinned SET: it must never leave
+// state on a pooled backend, but a reserved (pinned) backend has no pool-replay
+// path and must carry it for real. Which shape is correct depends on live
+// session state, yet SELECT plans are cached (keyed on SQL only), so the
+// decision cannot be baked in. The plan therefore carries BOTH shapes under a
+// SessionStateBranch that picks at execute time:
 //
-//	Sequence[Route(rewritten SQL), ApplySessionState per call]
+//		Sequence[SessionStateBranch{pinnedRoute, unpinnedRoute}, ApplySessionState per call]
 //
-// The Route sends the query to PG and streams the result back, but any
-// gateway-managed set_config is rewritten out of that query first (it must not
-// run on the backend, or the real GUC leaks across pooled clients); ordinary
-// set_config calls still execute on PG normally. The Sequence precomputes the
-// backend's post-success session settings and attaches them to the Route for
-// multipooler recycle bookkeeping, but only after the Route succeeds do the
-// silent ApplySessionState primitives update the gateway tracker. This preserves
-// PostgreSQL semantics on statement errors: a rejected SELECT must not leave a
-// session GUC recorded in the gateway when the backend never applied it.
+//	  - pinnedRoute runs the tracked set_config calls verbatim (is_local as
+//	    written), so the reserved backend genuinely applies the change.
+//	  - unpinnedRoute flips each ordinary tracked set_config's is_local false→true,
+//	    so it reverts at statement end and leaves nothing on the pooled backend;
+//	    the value lives only in the gateway map and is replayed at the next
+//	    checkout.
 //
-// For literal-arg calls the primitive carries the value directly. For
-// calls with one or more bound-parameter args (extended-protocol shape
-// `SELECT set_config('search_path', $1, false)`) the primitive is built
-// via NewApplySessionStateFromBind, which defers per-slot resolution to
-// execute time when the portal's Bind values become available — keeping
-// the plan cache hit for repeated executions of the same prepared
-// statement regardless of bind values.
+// Both routes have gateway-managed set_config calls rewritten out (a
+// gateway-managed GUC must never persist on any backend) and share the trailing
+// silent ApplySessionState primitives, which record the value into the gateway
+// map only after the route succeeds — so a rejected SELECT never leaves a GUC
+// recorded when the backend never applied it. When there is no ordinary
+// persisting set_config to flip, the two shapes are identical and no branch is
+// built.
+//
+// For literal-arg calls the tracker carries the value directly. For calls with
+// one or more bound-parameter args (extended-protocol shape
+// `SELECT set_config('search_path', $1, false)`) it is built via
+// NewApplySessionStateFromBind, which defers per-slot resolution to execute time
+// when the portal's Bind values become available — keeping the plan cache hit
+// for repeated executions of the same prepared statement regardless of bind
+// values.
 func (p *Planner) planSelectStmt(
 	sql string,
 	stmt *ast.SelectStmt,
@@ -65,18 +75,12 @@ func (p *Planner) planSelectStmt(
 		return p.planDefault(sql, stmt, conn, opts)
 	}
 
-	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
-	// The leading route runs the SELECT itself — but with gateway-managed
-	// set_config calls rewritten out of the query sent to the backend. A
-	// gateway-managed set_config must NOT run on the backend: it would persist the
-	// real GUC on the pooled connection and leak it across clients. A literal value
+	// Rewrite gateway-managed set_config calls out of the query sent to the
+	// backend: a gateway-managed set_config must NOT run there, or the real GUC
+	// persists on the pooled connection and leaks across clients. A literal value
 	// becomes its canonical constant; a bound value ($N) becomes a bare `$N`
 	// projection canonicalized at execute time by a GatewayManagedValueRoute.
-	// Ordinary set_config calls stay in the routed query. Advisory-lock pinning
-	// rides on the plan's ExecInfo (set below); Sequence forwards it to this Route,
-	// so a `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend for
-	// the lock and, if the SELECT succeeds, tracks the session setting via the
-	// silent ApplySessionState primitives below.
+	// Ordinary set_config calls stay in the routed query.
 	rewritten, bound, err := rewriteGatewayManagedSetConfig(stmt)
 	if err != nil {
 		return nil, err
@@ -101,15 +105,34 @@ func (p *Planner) planSelectStmt(
 			reads = csReads
 		}
 	}
-	if rewritten != nil || len(reads) > 0 {
-		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeAST.SqlString(), routeAST)
+	// buildRoute wraps a route AST in a GatewayManagedValueRoute when there are
+	// gateway-managed bound values or current_setting reads to canonicalize at
+	// execute time; otherwise it is a plain Route. The routed SQL is the AST's own
+	// deparse — the original `sql` still contains any gateway-managed call that
+	// was rewritten out of the AST, so it must never reach the backend. Advisory-
+	// lock pinning rides on the plan's ExecInfo (set below); Sequence forwards it
+	// so a `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend
+	// for the lock and tracks the session setting on success.
+	buildRoute := func(routeStmt ast.Stmt) engine.Primitive {
+		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeStmt.SqlString(), routeStmt)
 		if len(bound) > 0 || len(reads) > 0 {
-			primitives = append(primitives, engine.NewGatewayManagedValueRoute(route, bound, reads))
-		} else {
-			primitives = append(primitives, route)
+			return engine.NewGatewayManagedValueRoute(route, bound, reads)
 		}
+		return route
+	}
+
+	// The pinned route runs the base AST verbatim (ordinary set_config keeps its
+	// is_local, persisting on the reserved backend). The unpinned route flips each
+	// ordinary tracked set_config's is_local false→true so it reverts on the
+	// pooled backend. When nothing is flipped (only gateway-managed calls, or
+	// only is_local-true calls), the two are identical and no branch is needed.
+	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
+	if revertedAST := rewriteSetConfigToRevert(routeAST); revertedAST == nil {
+		primitives = append(primitives, buildRoute(routeAST))
 	} else {
-		primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+		primitives = append(primitives, engine.NewSessionStateBranch(
+			p.defaultTableGroup, constants.DefaultShard, sql,
+			buildRoute(routeAST), buildRoute(revertedAST)))
 	}
 	for _, sc := range setConfigs {
 		base := syntheticSetStmt(sc)
@@ -127,6 +150,57 @@ func (p *Planner) planSelectStmt(
 	plan := engine.NewPlan(sql, engine.NewSequence(primitives))
 	plan.ExecInfo = execInfoFromOpts(opts)
 	return plan, nil
+}
+
+// rewriteSetConfigToRevert flips each ordinary (non-gateway-managed) tracked
+// set_config(name, value, false) call in stmt's target list to is_local := true,
+// so the call reverts at statement end and leaves no session state on the
+// backend it runs on. It is a pure AST transform — it does not observe session
+// state; the caller decides whether to use the reverting variant (a pooled
+// backend reverts; a reserved backend keeps the verbatim persisting form).
+// Gateway-managed calls are already removed from the routed query
+// (rewriteGatewayManagedSetConfig); a literal is_local true call already reverts
+// and is left untouched.
+//
+// Returns a rewritten clone when at least one call was flipped, else nil (the
+// caller then routes the base AST unchanged). It never mutates stmt: it clones
+// on the first flip, so a cached plan's shared tree is left intact.
+func rewriteSetConfigToRevert(stmt ast.Stmt) ast.Stmt {
+	ss, ok := stmt.(*ast.SelectStmt)
+	if !ok || ss.TargetList == nil {
+		return nil
+	}
+	var clone *ast.SelectStmt
+	for i, item := range ss.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			continue
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok || resolveFuncName(fc.Funcname) != "set_config" || fc.Args == nil || fc.Args.Len() != 3 {
+			continue
+		}
+		// Only a literal is_local false persists and needs flipping. A literal
+		// true already reverts; a bound is_local occurs only for gateway-managed
+		// calls, which are removed from the routed query upstream.
+		if isLocal, ok := constBoolArg(fc.Args.Items[2]); !ok || isLocal {
+			continue
+		}
+		// Defensive: gateway-managed calls are removed upstream, so a literal
+		// gateway-managed name should never remain here.
+		if name, ok := constStringArg(fc.Args.Items[0]); ok && handler.IsGatewayManagedVariable(name) {
+			continue
+		}
+		if clone == nil {
+			clone = ast.CloneRefOfSelectStmt(ss)
+		}
+		cfc := clone.TargetList.Items[i].(*ast.ResTarget).Val.(*ast.FuncCall)
+		cfc.Args.Items[2] = ast.NewA_Const(ast.NewBoolean(true), 0)
+	}
+	if clone == nil {
+		return nil
+	}
+	return clone
 }
 
 // planResolveSetConfig plans the narrow dynamic SELECT set_config shape the
@@ -286,7 +360,6 @@ func rewriteGatewayManagedSetConfig(stmt *ast.SelectStmt) (*ast.SelectStmt, []en
 	return clone, bound, nil
 }
 
-// countParamRefs returns how many times each $N appears in stmt.
 func countParamRefs(stmt *ast.SelectStmt) map[int]int {
 	counts := map[int]int{}
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
@@ -355,6 +428,18 @@ func syntheticSetStmt(sc setConfigCall) *ast.VariableSetStmt {
 	if sc.NameBind != nil {
 		name = fmt.Sprintf("__bind_$%d__", sc.NameBind.Number)
 	}
+	if sc.ValueIsNull {
+		// set_config(name, NULL, false) resets the parameter (PG is not STRICT
+		// here). Emitting VAR_RESET routes the tracking through the same
+		// removal path a real RESET uses, so SessionSettings stops asserting
+		// the stale value on pool replay. validateAcceptedSetConfig guarantees
+		// a literal name and literal-false is_local for this shape.
+		return &ast.VariableSetStmt{
+			BaseNode: ast.BaseNode{Tag: ast.T_VariableSetStmt},
+			Kind:     ast.VAR_RESET,
+			Name:     name,
+		}
+	}
 	value := sc.Value
 	if sc.ValueBind != nil {
 		value = fmt.Sprintf("__bind_$%d__", sc.ValueBind.Number)
@@ -363,9 +448,12 @@ func syntheticSetStmt(sc setConfigCall) *ast.VariableSetStmt {
 		BaseNode: ast.BaseNode{Tag: ast.T_VariableSetStmt},
 		Kind:     ast.VAR_SET_VALUE,
 		Name:     name,
-		// IsLocal is set only for a gateway-managed set_config(..., true), which
-		// the executor applies as a transaction-local override (parity with
-		// SET LOCAL <gmv>). Ordinary is_local=true calls never produce a
+		// IsLocal is set for a set_config(..., true) that produced a
+		// setConfigCall: a gateway-managed variable (tracked as a
+		// transaction-local override, parity with SET LOCAL <gmv>) or a
+		// vet-only entry with bound name/value (resolveSetConfig vets the
+		// resolved slots, sees isLocal=true here, and tracks nothing).
+		// Fully-vetted ordinary is_local=true calls never produce a
 		// setConfigCall, so this is false for them.
 		IsLocal: sc.IsLocalLiteralTrue,
 		Args: ast.NewNodeList(

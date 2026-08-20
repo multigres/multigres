@@ -458,6 +458,57 @@ func TestNormalizePoolerPreparedNames(t *testing.T) {
 	}
 }
 
+func TestNormalizePoolerPreparedStatementViews(t *testing.T) {
+	query := "SELECT name FROM pg_prepared_statements;\n"
+	want := query + poolerPreparedViewMarker + "\nSELECT 1;\n"
+	for _, in := range []string{
+		query + "name\n----\nppstmt1\nppstmt2\n(2 rows)\nSELECT 1;\n",
+		query + "name\n----\n(0 rows)\nSELECT 1;\n",
+	} {
+		if got := string(normalizeTestOutput("guc", "/patches", []byte(in))); got != want {
+			t.Fatalf("normalize guc prepared statements = %q, want %q", got, want)
+		}
+	}
+
+	in := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"name | statement\n-----+----------\n" +
+		"ppstmt42 | SELECT 1\n| UNION SELECT 2\n(1 row)\n"
+	want = "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" + poolerPreparedViewMarker + "\n"
+	if got := string(normalizeTestOutput("prepare", "/patches", []byte(in))); got != want {
+		t.Fatalf("normalize prepare statements = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizePreparedStatementCatalog(t *testing.T) {
+	in := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"name | statement\n" +
+		"-----+----------\n" +
+		"q1 | SELECT 1\n" +
+		"q2 | SELECT 2\n" +
+		"(2 rows)\n" +
+		"SELECT 1;\n"
+	want := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"<pg_prepared_statements result>\n" +
+		"SELECT 1;\n"
+	for _, name := range []string{"stats", "sysviews"} {
+		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != want {
+			t.Fatalf("normalize %s prepared statement catalog = %q, want %q", name, got, want)
+		}
+	}
+	// prepare/guc catalog blocks are collapsed by the pooler view masking
+	// instead (see TestNormalizePoolerPreparedStatementViews); tests outside
+	// both lists stay raw.
+	for _, name := range []string{"plancache", "boolean"} {
+		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != in {
+			t.Fatalf("%s catalog output changed: %q", name, got)
+		}
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"

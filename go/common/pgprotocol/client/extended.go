@@ -445,16 +445,13 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	flushBatch := func() {
-		if callback == nil {
-			return
-		}
-		if result := batcher.flush(); result != nil && firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 	}
 
 	for {
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -472,6 +469,9 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			}
 
 		case protocol.MsgDataRow:
+			if dataRowStreamed {
+				break
+			}
 			if err := batcher.addDataRow(body); err != nil {
 				if firstErr == nil {
 					firstErr = err
@@ -848,16 +848,13 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	flushBatch := func() {
-		if callback == nil {
-			return
-		}
-		if result := batcher.flush(); result != nil && firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 	}
 
 	for {
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -878,6 +875,9 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			}
 
 		case protocol.MsgDataRow:
+			if dataRowStreamed {
+				break
+			}
 			if err := batcher.addDataRow(body); err != nil {
 				if firstErr == nil {
 					firstErr = err
@@ -1058,16 +1058,13 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	flushBatch := func() {
-		if callback == nil {
-			return
-		}
-		if result := batcher.flush(); result != nil && firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 	}
 
 	for {
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return responseReadError(firstErr, err)
 		}
@@ -1091,6 +1088,9 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgDataRow:
+			if dataRowStreamed {
+				break
+			}
 			if err := batcher.addDataRow(body); err != nil {
 				if firstErr == nil {
 					firstErr = err
@@ -1179,16 +1179,13 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 	completed := false
 
 	flushBatch := func() {
-		if callback == nil {
-			return
-		}
-		if result := batcher.flush(); result != nil && firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 	}
 
 	for {
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return false, responseReadError(firstErr, err)
 		}
@@ -1211,6 +1208,9 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 			// No fields — batcher.fields stays nil.
 
 		case protocol.MsgDataRow:
+			if dataRowStreamed {
+				break
+			}
 			if err := batcher.addDataRow(body); err != nil {
 				if firstErr == nil {
 					firstErr = err
