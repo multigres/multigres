@@ -127,6 +127,45 @@ func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
 	}
 }
 
+func TestPutEphemeral_ForwardsToConnection(t *testing.T) {
+	factory := newMockFactory()
+	wrapper := NewWrapperConn(factory.newConn, nil)
+
+	ctx := context.Background()
+	require.NoError(t, wrapper.PutEphemeral(ctx, "gateways/gw-1/Gateway", []byte("reg")))
+
+	data, _, err := wrapper.Get(ctx, "gateways/gw-1/Gateway")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("reg"), data)
+}
+
+func TestPutEphemeral_NotRestoredByWrapperAfterReconnection(t *testing.T) {
+	// The wrapper deliberately keeps no record of ephemeral files. A
+	// replacement connection brings its own liveness binding, so anything
+	// written through the old one is gone until the owner re-asserts it
+	// (toporeg.WithReassert). This test pins that layering: if the wrapper
+	// ever starts restoring again, the owner-side loop is no longer the
+	// single source of recovery.
+	factory := newMockFactory()
+	wrapper := NewWrapperConn(factory.newConn, nil)
+
+	ctx := context.Background()
+	require.NoError(t, wrapper.PutEphemeral(ctx, "gateways/gw-1/Gateway", []byte("reg")))
+
+	conn, err := wrapper.getConnection()
+	require.NoError(t, err, "Expected initial connection")
+	initialCount := factory.getCreateCount()
+
+	wrapper.handleConnectionError(conn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "test error"))
+	factory.waitForNewConn(initialCount)
+
+	assert.Never(t, func() bool {
+		_, _, err := wrapper.Get(ctx, "gateways/gw-1/Gateway")
+		return err == nil
+	}, 200*time.Millisecond, 20*time.Millisecond,
+		"wrapper must not re-create ephemeral files; the owner re-asserts them")
+}
+
 func TestHandleConnectionError_DoesNotRetryOnOtherErrors(t *testing.T) {
 	factory := newMockFactory()
 	wrapper := NewWrapperConn(factory.newConn, nil)

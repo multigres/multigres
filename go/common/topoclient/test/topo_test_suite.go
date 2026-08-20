@@ -90,6 +90,11 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topoc
 	checkList(t, ctx, ts)
 	_ = ts.Close()
 
+	t.Log("=== (File) checkPutEphemeral")
+	ts = factory()
+	checkPutEphemeral(t, ctx, ts)
+	_ = ts.Close()
+
 	// ShardInitClaim is part of the shard initialization API.
 	t.Log("=== (ShardInitClaim) checkShardInitClaim")
 	ts = factory()

@@ -96,6 +96,24 @@ type ConnFile interface {
 	// Returns ErrNodeExists if the file doesn't exist.
 	// Returns ErrBadVersion if the provided version is not current.
 	Delete(ctx context.Context, filePath string, version Version) error
+
+	// PutEphemeral creates or updates the file, binding its lifetime to
+	// this connection's process. Backends with liveness support (etcd
+	// leases) delete the file automatically when the process dies without
+	// deleting it first. Backends without liveness support treat this as
+	// an unconditional update.
+	//
+	// The binding can also end while the process is alive — a backend
+	// expiring it after an outage, or a reconnection replacing the
+	// connection underneath. Nothing at this layer re-creates the file:
+	// only its owner knows it should exist, so owners keep it alive by
+	// writing it again periodically (see servenv/toporeg's WithReassert).
+	//
+	// Ephemeral files must only be written through PutEphemeral: a plain
+	// Update on the same path would sever the liveness binding, making
+	// the file permanent.
+	// filePath is a path relative to the root directory of the cell.
+	PutEphemeral(ctx context.Context, filePath string, contents []byte) error
 }
 
 type ConnLock interface {
@@ -300,8 +318,9 @@ type DirEntry struct {
 	Type DirEntryType
 
 	// Ephemeral is set if the directory / file only contains
-	// data that was not set by the file API, like lock files
-	// or primary-election related files.
+	// data whose lifetime is bound to a process: lock files,
+	// primary-election related files, or liveness-bound files
+	// written via PutEphemeral.
 	// Only filled in if full is true.
 	Ephemeral bool
 }

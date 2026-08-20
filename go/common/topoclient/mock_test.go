@@ -85,6 +85,11 @@ func (m *mockConn) Update(ctx context.Context, filePath string, contents []byte,
 	return &mockVersion{version: "2"}, nil
 }
 
+func (m *mockConn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	_, err := m.Update(ctx, filePath, contents, nil)
+	return err
+}
+
 func (m *mockConn) Get(ctx context.Context, filePath string) ([]byte, Version, error) {
 	if err := m.checkError(); err != nil {
 		return nil, nil, err
