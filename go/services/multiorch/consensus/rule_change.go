@@ -442,10 +442,24 @@ func poolerHealthStateLess(healthByID map[string]*multiorchdatapb.PoolerHealthSt
 		h := healthByID[topoclient.ClusterIDString(cs.GetId())]
 		return h.GetAvailabilityStatus().GetLeadershipStatus().GetSignal()
 	}
+	failoverSlotsReady := func(cs *clustermetadatapb.ConsensusStatus) int32 {
+		h := healthByID[topoclient.ClusterIDString(cs.GetId())]
+		return h.GetStatus().GetFailoverSlotsReady()
+	}
 	return func(a, b *clustermetadatapb.ConsensusStatus) bool {
 		sigA := leadershipSignal(a)
 		sigB := leadershipSignal(b)
-		return leadershipSignalPriority[sigA] < leadershipSignalPriority[sigB]
+		if leadershipSignalPriority[sigA] != leadershipSignalPriority[sigB] {
+			return leadershipSignalPriority[sigA] < leadershipSignalPriority[sigB]
+		}
+		// Slot-aware tiebreak among otherwise-equal candidates: prefer the one
+		// with more failover-ready logical slots so a promotion keeps the most
+		// subscribers resumable (see the durable slot-creation barrier). This
+		// only reorders candidates that already tied on WAL position (the
+		// EligibleLeaders set) and on leadership signal, so it never trades data
+		// safety or a resign intent for slot readiness. Zero when slot-based
+		// replication is off, leaving the ordering unchanged.
+		return failoverSlotsReady(a) > failoverSlotsReady(b)
 	}
 }
 

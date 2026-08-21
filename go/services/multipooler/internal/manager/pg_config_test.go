@@ -457,6 +457,7 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 				Port:            5432,
 				User:            "postgres",
 				ApplicationName: "",
+				Dbname:          "mydb",
 				Raw:             "host=localhost port=5432 dbname=mydb user=postgres",
 			},
 		},
@@ -614,6 +615,7 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 				assert.Equal(t, tt.expected.Port, result.Port, "Port should match")
 				assert.Equal(t, tt.expected.User, result.User, "User should match")
 				assert.Equal(t, tt.expected.ApplicationName, result.ApplicationName, "ApplicationName should match")
+				assert.Equal(t, tt.expected.Dbname, result.Dbname, "Dbname should match")
 				assert.Equal(t, tt.expected.Raw, result.Raw, "Raw should match")
 			}
 		})
@@ -621,7 +623,7 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 }
 
 // TestBuildPrimaryConnInfo covers the single conninfo-string builder: field
-// rendering and the passfile-omitted-when-empty rule.
+// rendering and the dbname/passfile clauses (each omitted when empty).
 func TestBuildPrimaryConnInfo(t *testing.T) {
 	tests := []struct {
 		name string
@@ -635,9 +637,10 @@ func TestBuildPrimaryConnInfo(t *testing.T) {
 				Port:            5432,
 				User:            "postgres",
 				ApplicationName: "zone1_standby1",
+				Dbname:          "postgres",
 				Passfile:        "/var/lib/pgpass",
 			},
-			want: "host=primary.example.com port=5432 user=postgres application_name=zone1_standby1 passfile=/var/lib/pgpass",
+			want: "host=primary.example.com port=5432 user=postgres application_name=zone1_standby1 dbname=postgres passfile=/var/lib/pgpass",
 		},
 		{
 			name: "PassfileOmittedWhenEmpty",

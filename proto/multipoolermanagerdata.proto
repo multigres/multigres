@@ -43,6 +43,12 @@ message PrimaryConnInfo {
   // authenticate to the primary. Empty when the conninfo carries no passfile
   // clause. Not a secret (it is a filesystem path, not the password itself).
   string passfile = 6;
+
+  // Database name for the replication connection (dbname=). Required by the
+  // PostgreSQL 17 slot-sync worker, which opens an ordinary SQL connection to
+  // the primary to synchronize failover slots; ignored by physical streaming
+  // replication.
+  string dbname = 7;
 }
 
 // StandbyReplicationStatus PostgreSQL replication status information
@@ -226,6 +232,16 @@ message Status {
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
   bool postgres_ready = 14;
+
+  // Failover logical replication slots on this node: failover_slots_ready is the
+  // number that are failover-ready (synced, not temporary, not invalidated) and
+  // failover_slots_total is how many exist. Populated only when slot-based
+  // replication is enabled; both zero otherwise. Multiorch uses
+  // failover_slots_ready as a tiebreaker among equally-WAL-advanced promotion
+  // candidates, so a failover prefers a node that keeps the most subscribers
+  // resumable.
+  int32 failover_slots_ready = 15;
+  int32 failover_slots_total = 16;
 }
 
 // PostgresStatus is the observed state of the PostgreSQL server process.
@@ -408,7 +424,7 @@ enum RuleOperation {
   RULE_OPERATION_UNSPECIFIED = 0;
 
   // Cohort-membership changes: add or remove a synchronous standby.
-  RULE_OPERATION_COHORT_ADD = 1;
+  RULE_OPERATION_COHORT_ADD    = 1;
   RULE_OPERATION_COHORT_REMOVE = 2;
 
   // ADVANCE makes no cohort change: it re-writes the current rule with the same
@@ -553,10 +569,10 @@ message VerifyBackupsResponse {
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
-  string shard = 2;
-  Status status = 3;
-  string backup_id = 4;
-  string stop_lsn = 5; // Stop (final checkpoint) LSN for this backup, from pgbackrest info backup[].lsn.stop
+  string shard       = 2;
+  Status status      = 3;
+  string backup_id   = 4;
+  string stop_lsn    = 5; // Stop (final checkpoint) LSN for this backup, from pgbackrest info backup[].lsn.stop
 
   // Job ID annotation if present (for cross-process tracking)
   string job_id = 6;
@@ -576,7 +592,7 @@ message BackupMetadata {
   // When the backup started/stopped, parsed from pgbackrest info's
   // backup[].timestamp.{start,stop}. Unset if unknown.
   google.protobuf.Timestamp start_timestamp = 11;
-  google.protobuf.Timestamp stop_timestamp = 12;
+  google.protobuf.Timestamp stop_timestamp  = 12;
 
   // Start LSN for this backup, from pgbackrest info backup[].lsn.start. Empty if unknown.
   string start_lsn = 13;
@@ -587,9 +603,9 @@ message BackupMetadata {
 
   // Status represents the state of a backup
   enum Status {
-    UNKNOWN = 0;
+    UNKNOWN    = 0;
     INCOMPLETE = 1;
-    COMPLETE = 2;
+    COMPLETE   = 2;
     // TODO: add VALID/INVALID states
   }
 }
@@ -608,6 +624,27 @@ message ResignLeadershipResponse {
   // writes. Callers should wait for standbys to reach this LSN before triggering
   // a new election, ensuring no data loss.
   string flush_lsn = 1;
+}
+
+// ReconcileFollowersRequest notifies the primary of the current set of
+// cohort-eligible follower members so it can pre-create their per-follower
+// physical replication slots ahead of streaming.
+//
+// This is NOT a consensus message. It does not change the consensus rule or
+// cohort membership and carries no term/quorum semantics; it is purely a
+// level-triggered notification, decoupled from the Recruit / Promote /
+// UpdateConsensusRule path, that lets the current primary hold a slot ready
+// before a follower's WAL receiver attaches. It is a declaration of intent, not
+// a guarantee: the primary ensures a physical slot for each listed member and
+// drops managed slots for members not listed, best-effort (e.g. it cannot
+// create more slots than max_replication_slots allows).
+message ReconcileFollowersRequest {
+  repeated clustermetadata.ID followers = 1;
+}
+
+// ReconcileFollowersResponse is returned once the primary's per-follower physical
+// slots have been reconciled to the requested set. It carries no fields.
+message ReconcileFollowersResponse {
 }
 
 // =============================================================================

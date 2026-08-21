@@ -118,6 +118,7 @@ type mockReservedConn struct {
 	pinnedPortals   []string
 	releasedPortals []string
 	releaseCalls    []reserved.ReleaseReason
+	tempTainted     bool
 	openHoldCursors map[string]bool
 
 	resetCalls int
@@ -198,6 +199,10 @@ func (m *mockReservedConn) ResetAllSettings(_ context.Context) error {
 	return m.resetErr
 }
 
+func (m *mockReservedConn) MarkTempTainted() {
+	m.tempTainted = true
+}
+
 // Compile-time check.
 var _ reservedConnAPI = (*mockReservedConn)(nil)
 
@@ -219,6 +224,7 @@ func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfi
 func (m *stubPoolManager) Close()                                                  {}
 func (m *stubPoolManager) CloseForReopen()                                         {}
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
+func (m *stubPoolManager) PgDatabase() string                                      { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
 func (m *stubPoolManager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 	if m.adminErr != nil {
@@ -455,6 +461,40 @@ func TestReserveAndStreamExecute_TempReservationRetriesStaleSocket(t *testing.T)
 	require.NotNil(t, state)
 	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
 	server.VerifyAllExecutedOrFail()
+}
+
+// TestStreamExecuteOnReservedConn_TempTaintOnlyOnSuccess pins the taint
+// semantics: a temp-reason statement taints the backend only when PostgreSQL
+// accepts it. A rejected statement is unwound (reason removed, no taint) so
+// the backend stays reusable — it created nothing.
+func TestStreamExecuteOnReservedConn_TempTaintOnlyOnSuccess(t *testing.T) {
+	e := newTestExecutor()
+	tempOpts := &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}
+
+	// Success with temp reason: tainted.
+	rc := &mockReservedConn{connID: 1, inTxn: true}
+	_, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE t (i int)", tempOpts, nil, noopCallback)
+	require.NoError(t, err)
+	assert.True(t, rc.tempTainted, "successful temp statement must taint the backend")
+
+	// PostgreSQL-level failure with temp reason: reason unwound, no taint.
+	rc = &mockReservedConn{
+		connID: 2, inTxn: true, remainingReasons: protoutil.ReasonTransaction,
+		streamingErr: errors.New(`ERROR: syntax error`),
+	}
+	_, err = e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE t (i int", tempOpts, nil, noopCallback)
+	require.Error(t, err)
+	assert.False(t, rc.tempTainted, "rejected temp statement must not taint the backend")
+	assert.NotZero(t, rc.removedReasons&protoutil.ReasonTempTable, "statement-local temp reason must be unwound")
+
+	// Success without temp reason: untouched.
+	rc = &mockReservedConn{connID: 3, inTxn: true, remainingReasons: protoutil.ReasonTransaction}
+	_, err = e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1", &query.ReservationOptions{}, nil, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, rc.tempTainted)
 }
 
 // TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld verifies that after a
@@ -963,7 +1003,7 @@ func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons
 		badDeclare,
 		&query.ExecuteOptions{User: "postgres"},
 		&query.ReservationOptions{
-			Reasons:        protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonPortal,
+			Reasons:        protoutil.ReasonTransaction | protoutil.StatementLocalReasons,
 			BeginQuery:     "BEGIN",
 			PinPortalNames: []string{"bad"},
 		},
@@ -973,12 +1013,66 @@ func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons
 	require.Error(t, err)
 	require.NotNil(t, state, "failed first statement should preserve the transaction reservation")
 	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons(),
-		"statement-local temp/portal reasons must be unwound before returning surviving state")
+		"every statement-local reason must be unwound before returning surviving state")
 
 	rconn, ok := pool.Get(int64(state.GetReservedConnectionId()))
 	require.True(t, ok, "surviving transaction should still be in the reserved pool")
 	assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons())
 	assert.False(t, rconn.HasPortal("bad"), "failed DECLARE must not leave a phantom portal pin")
+}
+
+// TestPortalReservedError_UnwindsAddedStatementLocalReasons verifies the
+// portal-path counterpart of the statement-local unwind: a clean SQL error on
+// Bind/Execute removes the statement-local reasons the portal newly added
+// (the statement aborted atomically, so they never materialized), leaving
+// only the surviving transaction reservation. Before this, the portal path
+// unwound nothing, so a reason added by the failed Bind/Execute outlived it
+// and pinned an otherwise healthy backend until the inactivity timeout.
+func TestPortalReservedError_UnwindsAddedStatementLocalReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	e := newTestExecutor()
+
+	t.Run("transaction survives, added reasons unwind", func(t *testing.T) {
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		rconn.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonTempTable)
+
+		state, rerr := e.portalReservedError(rconn, "p1", &query.ExecuteOptions{}, false,
+			protoutil.ReasonTempTable,
+			errors.New("ERROR: division by zero"))
+		require.Error(t, rerr)
+		require.NotNil(t, state, "transaction reservation must survive a clean SQL error")
+		assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons(),
+			"portal-added statement-local reasons must be unwound")
+		rconn.Release(reserved.ReleaseRollback, nil)
+	})
+
+	t.Run("sole added statement-local reason drains and releases", func(t *testing.T) {
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+		state, rerr := e.portalReservedError(rconn, "p1", &query.ExecuteOptions{}, true,
+			protoutil.ReasonTempTable,
+			errors.New("ERROR: invalid value for parameter"))
+		require.Error(t, rerr)
+		assert.Nil(t, state, "a drained reservation must release the backend and return a zero state")
+	})
 }
 
 func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
@@ -57,19 +58,28 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, sourceServer, 
 		cmd.AddEnv("PGPASSWORD=" + password)
 	}
 
-	// Capture both Stdout and Stderr
+	// Capture both Stdout and Stderr. Time the subprocess so the raw pg_rewind
+	// runtime is visible in pgctld logs (the multipooler records it as the
+	// multipooler.rewind.execution.duration metric); pg_rewind runtime scales with
+	// retained pg_wal and can run for minutes, so it is worth surfacing.
+	start := time.Now()
 	output, err := cmd.CombinedOutput()
+	duration := time.Since(start)
 	result.Output = string(output)
 	if err != nil {
 		result.Message = "Rewind failed"
 		logger.ErrorContext(ctx, "pg_rewind command failed",
 			"error", err,
+			"duration", duration.String(),
+			"dry_run", dryRun,
 			"output", string(output))
 		return result, fmt.Errorf("pg_rewind failed: %w", err)
 	}
 
 	result.Message = "Rewind completed successfully"
 	logger.InfoContext(ctx, "pg_rewind command completed successfully",
+		"duration", duration.String(),
+		"dry_run", dryRun,
 		"output", string(output))
 	return result, nil
 }

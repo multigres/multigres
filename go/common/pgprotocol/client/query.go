@@ -17,7 +17,9 @@ package client
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"strconv"
@@ -263,12 +265,13 @@ func appendRawDataRow(dst, body []byte) []byte {
 // It centralizes the batching that every response loop shares so opaque handling
 // lives in one place rather than being copied per loop.
 type resultBatcher struct {
-	c      *Conn
-	fields []*query.Field
-	rows   []*sqltypes.Row
-	raw    []byte
-	rawN   int
-	size   int
+	c                *Conn
+	fields           []*query.Field
+	rows             []*sqltypes.Row
+	raw              []byte
+	rawN             int
+	rawRowInProgress bool
+	size             int
 }
 
 // addDataRow accumulates one DataRow message body. Returns any parse error
@@ -288,6 +291,99 @@ func (b *resultBatcher) addDataRow(body []byte) error {
 	return nil
 }
 
+// streamPassthroughDataRow reads a DataRow body directly into bounded raw
+// batches. The original PostgreSQL frame header is included in the byte stream,
+// but an individual Result may begin or end in the middle of that frame. The
+// row is counted on the batch containing its final byte.
+func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) error {
+	if !b.c.passthroughRow.Load() {
+		return errors.New("streamPassthroughDataRow called with passthrough disabled")
+	}
+
+	frameLen := bodyLen + protocol.MessageHeaderSize
+	if frameLen <= DefaultStreamingBatchSize {
+		// Preserve complete small rows and the existing multi-row batching
+		// behavior. Flush first when this row would cross the boundary.
+		if b.size > 0 && b.size+frameLen > DefaultStreamingBatchSize {
+			flush()
+		}
+		b.raw = append(b.raw, protocol.MsgDataRow)
+		b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
+		start := len(b.raw)
+		b.raw = append(b.raw, make([]byte, bodyLen)...)
+		if _, err := io.ReadFull(b.c.bufferedReader, b.raw[start:]); err != nil {
+			return err
+		}
+		b.size += frameLen
+		b.rawN++
+		if b.size >= DefaultStreamingBatchSize {
+			flush()
+		}
+		return nil
+	}
+
+	// Keep complete rows already accumulated in their own block. All blocks
+	// below belong exclusively to this oversized row, which makes zero-count
+	// intermediate fragments unambiguous and preserves row boundaries for the
+	// ordinary batching path.
+	if b.size > 0 {
+		flush()
+	}
+
+	// Preserve the exact PostgreSQL DataRow frame header stripped by the normal
+	// message reader. A PostgreSQL message length includes its four-byte length
+	// field and excludes the one-byte message type.
+	b.raw = append(b.raw, protocol.MsgDataRow)
+	b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
+	b.rawRowInProgress = true
+	b.size += protocol.MessageHeaderSize
+
+	remaining := bodyLen
+	for remaining > 0 {
+		if b.size >= DefaultStreamingBatchSize {
+			flush()
+		}
+
+		chunkLen := min(remaining, DefaultStreamingBatchSize-b.size)
+		start := len(b.raw)
+		b.raw = append(b.raw, make([]byte, chunkLen)...)
+		if _, err := io.ReadFull(b.c.bufferedReader, b.raw[start:]); err != nil {
+			return err
+		}
+		b.size += chunkLen
+		remaining -= chunkLen
+
+		if remaining == 0 {
+			b.rawN++
+			b.rawRowInProgress = false
+		}
+		if b.size >= DefaultStreamingBatchSize || remaining == 0 {
+			flush()
+		}
+	}
+	return nil
+}
+
+// readQueryResponseMessage reads the next query response message. In opaque
+// passthrough mode DataRows are consumed incrementally and may invoke flush
+// multiple times; other message types retain the complete-body behavior
+// required by parsers. dataRowStreamed reports that the DataRow body was
+// already consumed and delivered, so callers must not pass body to addDataRow.
+func (c *Conn) readQueryResponseMessage(b *resultBatcher, flush func()) (msgType byte, body []byte, dataRowStreamed bool, err error) {
+	msgType, bodyLen, err := c.readMessageHeader()
+	if err != nil {
+		return 0, nil, false, err
+	}
+	if msgType == protocol.MsgDataRow && c.passthroughRow.Load() {
+		if err := b.streamPassthroughDataRow(bodyLen, flush); err != nil {
+			return 0, nil, false, err
+		}
+		return msgType, nil, true, nil
+	}
+	body, err = c.readMessageBody(bodyLen)
+	return msgType, body, false, err
+}
+
 // overThreshold reports whether the accumulated batch has reached the streaming
 // flush size.
 func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreamingBatchSize }
@@ -297,10 +393,15 @@ func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreaming
 func (b *resultBatcher) flush() *sqltypes.Result {
 	var r *sqltypes.Result
 	if b.c.passthroughRow.Load() {
-		if b.rawN == 0 {
+		// A fragmented DataRow may have bytes with rawN == 0, so check the
+		// byte buffer rather than the completed-row count.
+		if len(b.raw) == 0 {
 			return nil
 		}
-		r = &sqltypes.Result{Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN}
+		r = &sqltypes.Result{
+			Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN,
+			PassthroughRowInProgress: b.rawRowInProgress,
+		}
 		b.raw = nil
 		b.rawN = 0
 	} else {
@@ -321,6 +422,7 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 	if b.c.passthroughRow.Load() {
 		r.PassthroughBlock = b.raw
 		r.PassthroughRowCount = b.rawN
+		r.PassthroughRowInProgress = b.rawRowInProgress
 	} else {
 		r.Rows = b.rows
 	}
@@ -328,6 +430,7 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 	b.rows = nil
 	b.raw = nil
 	b.rawN = 0
+	b.rawRowInProgress = false
 	b.size = 0
 	return r
 }
@@ -353,17 +456,14 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	// Does not reset fields as they may be needed for subsequent batches.
 	flushBatch := func() {
-		if callback == nil {
-			return
-		}
-		if result := batcher.flush(); result != nil && firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 	}
 
 	for {
 		// Read message.
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
 			return responseReadError(firstErr, err)
 		}
@@ -381,6 +481,9 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			batcher.fields = fields
 
 		case protocol.MsgDataRow:
+			if dataRowStreamed {
+				break
+			}
 			// Accumulate via the shared batcher. A parse failure (structured
 			// mode only) means the stream is desynced; stop immediately.
 			if err := batcher.addDataRow(body); err != nil {

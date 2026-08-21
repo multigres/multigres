@@ -220,10 +220,26 @@ type GracePeriodConfig struct {
 	MaxJitter time.Duration
 }
 
+// RecheckedProblem pairs a Problem with the exact consensus rule the engine's
+// pre-execution recheck just re-verified it against (the same ShardAnalysis
+// that redetected the problem — see recovery_loop.go's recheckProblem). The
+// two are bundled deliberately: an action performing a CAS-anchored mutation
+// must judge safety and anchor its CAS on the same rule, or the two could
+// silently disagree. Passing them as independent parameters would let a
+// caller pass a mismatched pair and still compile; this makes that
+// structurally impossible — the only way to obtain one is from a successful
+// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck time; actions that don't mutate the consensus rule can ignore it.
+type RecheckedProblem struct {
+	Problem
+	HighestKnownRule *clustermetadatapb.RulePosition
+}
+
 // RecoveryAction is a function that fixes a problem.
 type RecoveryAction interface {
-	// Execute performs the recovery.
-	Execute(ctx context.Context, problem Problem) error
+	// Execute performs the recovery against the problem and rule the
+	// engine's pre-execution recheck just reconfirmed together.
+	Execute(ctx context.Context, rechecked RecheckedProblem) error
 
 	// Metadata returns info about this recovery.
 	Metadata() RecoveryMetadata
