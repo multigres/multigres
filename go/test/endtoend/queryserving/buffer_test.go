@@ -26,11 +26,12 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -42,7 +43,7 @@ import (
 // The test:
 //  1. Creates an isolated 3-node cluster with multiorch and multigateway (buffering enabled).
 //  2. Starts continuous writes through multigateway.
-//  3. Triggers a planned failover via Recruit (emergency demotion).
+//  3. Triggers a planned failover via multiadmin's SwitchPrimary.
 //  4. Waits for a new primary to be elected.
 //  5. Asserts zero failed writes — the buffer should have held all in-flight
 //     requests until the new primary appeared.
@@ -258,9 +259,10 @@ func TestBufferMultipleFailovers(t *testing.T) {
 	}
 
 	// Use longer buffer timeouts than the single-failover tests. Consecutive
-	// failovers are slower because multiorch must detect the dead primary,
-	// demote it via SetPrimary (pg_rewind), and restart it before the next
-	// failover can proceed. On CI this can exceed the default 10s window.
+	// failovers are slower because each SwitchPrimary must stop writes on the
+	// current primary, wait for a standby to catch up and promote, and
+	// reconfigure the old primary as a standby before the next round can
+	// proceed. On CI this can exceed the default 10s window.
 	setup, cleanup := newBufferTestClusterWithConfig(t,
 		"--buffer-enabled",
 		"--buffer-window", "30s",
@@ -339,12 +341,12 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
+		shardsetup.WithMultiadmin(),
 		func(c *shardsetup.SetupConfig) {
 			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
 		},
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
 	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
@@ -368,8 +370,15 @@ func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 	return db
 }
 
-// triggerFailover demotes the current primary via Recruit and waits for
-// a new primary to be elected.
+// triggerFailover performs a planned failover via multiadmin's SwitchPrimary
+// (stops writes on the current primary + REQUESTING_DEMOTION, the real
+// production path) and waits for a new primary to be elected.
+//
+// Deliberately not a raw Consensus.Recruit call: that would revoke the old
+// leader's term itself before multiorch's own attempt, which collective
+// recruitment backoff would then defer against as an already-outstanding
+// attempt — not the immediate response a real planned failover gets, since
+// SwitchPrimary's demotion signal creates no TermRevocation up front.
 func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
 
@@ -377,49 +386,26 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.NotNil(t, currentPrimary)
 	currentPrimaryName := currentPrimary.Name
 
-	primaryClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+	adminConn, err := grpc.NewClient(fmt.Sprintf("localhost:%d", setup.MultiadminGrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
+	defer adminConn.Close()
+	adminClient := multiadminpb.NewMultiadminServiceClient(adminConn)
 
-	statusResp, err := primaryClient.Manager.Status(
-		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-	require.NoError(t, err)
-	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
-	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
-
-	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
-
-	recruitResp, err := primaryClient.Consensus.Recruit(
-		utils.WithTimeout(t, 10*time.Second),
-		&consensusdatapb.RecruitRequest{
-			TermRevocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm: oldTerm + 1,
-				AcceptedCoordinatorId: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIORCH,
-					Cell:      setup.CellName,
-					Name:      "test-coordinator",
-				},
-				CoordinatorInitiatedAt: timestamppb.Now(),
-				OutgoingRule:           outgoingRule,
-			},
-		})
-	primaryClient.Close()
-
-	require.NoError(t, err, "Recruit should succeed")
-	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
-	t.Logf("Recruit accepted, emergency demotion triggered")
-
-	// This Recruit names a different coordinator, so multiorch must honor the
-	// four-second competing-coordinator backoff before starting its own round.
-	// TODO(dweitzman): Replace this synthetic Recruit with a complete planned-failover
-	// API so the test does not need to wait out coordinator contention.
-	acceptedAt := recruitResp.GetConsensusStatus().GetTermRevocation().GetCoordinatorInitiatedAt().AsTime()
-	if wait := time.Until(acceptedAt.Add(4 * time.Second)); wait > 0 {
-		time.Sleep(wait)
-	}
+	t.Logf("Triggering planned failover via SwitchPrimary on %s", currentPrimaryName)
+	_, err = adminClient.SwitchPrimary(utils.WithTimeout(t, 30*time.Second), &multiadminpb.SwitchPrimaryRequest{
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		Reason: "buffer test planned failover",
+	})
+	require.NoError(t, err, "SwitchPrimary should succeed")
+	t.Logf("SwitchPrimary stopped writes on and demoted %s", currentPrimaryName)
 
 	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
-	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioPlannedFailover)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary, "a primary should exist after recovery")

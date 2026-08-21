@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/ha"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -96,11 +97,18 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetada
 // that needs rewinding is not fatal — the SetPrimary path runs pg_rewind
 // before the node serves writes or replicates.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	// Drop INELIGIBLE members: today raised only on a deliberate exit (graceful
-	// shutdown / admin-stopped WAL receiver), so treat them as gone — not recruited,
-	// hence never re-elected leader nor counted for quorum. No fallback. A
+	// Drop INELIGIBLE members (raised only on a deliberate exit: graceful
+	// shutdown or admin-stopped WAL receiver) from both the recruit round and
+	// the outgoing-decision/term-safety-floor computation below — a position or
+	// term only an excluded member holds isn't achievable this round anyway
+	// (BuildSafeProposal's pre-vote check would refuse it). No fallback; a
 	// demote-but-still-ELIGIBLE node is a different signal and stays.
-	eligible, ineligible := filterFailoverEligible(cohort)
+	//
+	// TODO: ineligibility is a preference, not a trust judgment — consider
+	// falling back to recruiting an ineligible member (rather than leaving the
+	// shard unwritable) when it's the only way to reach quorum, then cleaning
+	// up cohort membership afterward.
+	eligible, ineligible := filterCohortIneligible(cohort)
 	if len(ineligible) > 0 {
 		c.logger.InfoContext(ctx, "excluding ineligible poolers from failover", "excluded", ineligible)
 	}
@@ -110,13 +118,7 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 			"no eligible cohort members for failover; all ineligible: %v", ineligible)
 	}
 
-	var cohortStatuses []*clustermetadatapb.ConsensusStatus
-	for _, p := range cohort {
-		if cs := p.GetConsensusStatus(); cs != nil {
-			cohortStatuses = append(cohortStatuses, cs)
-		}
-	}
-	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(consensusStatusesOf(cohort), c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
 	if err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
@@ -150,19 +152,6 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 		return err
 	}
 	return nil
-}
-
-// filterFailoverEligible splits a failover cohort into the members that may
-// participate and the names of those advertising INELIGIBLE (see runFailover).
-func filterFailoverEligible(cohort []*multiorchdatapb.PoolerHealthState) (eligible []*multiorchdatapb.PoolerHealthState, ineligible []string) {
-	for _, p := range cohort {
-		if p.GetAvailabilityStatus().GetCohortEligibilityStatus().GetSignal() == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
-			ineligible = append(ineligible, p.GetMultipooler().GetId().GetName())
-			continue
-		}
-		eligible = append(eligible, p)
-	}
-	return eligible, ineligible
 }
 
 // AppointInitialLeader orchestrates consensus leader election for a freshly
@@ -206,7 +195,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardKey.GetShard())
 	}
 
-	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
 	if err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
