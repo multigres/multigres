@@ -396,8 +396,6 @@ func (s *ShardSetup) CreateMultiorchInstance(t *testing.T, name string, watchTar
 		Environment:                        os.Environ(),
 		LeaderFailoverGracePeriodBase:      config.LeaderFailoverGracePeriodBase,
 		LeaderFailoverGracePeriodMaxJitter: config.LeaderFailoverGracePeriodMaxJitter,
-		ShardInitGracePeriodBase:           config.ShardInitGracePeriodBase,
-		ShardInitGracePeriodMaxJitter:      config.ShardInitGracePeriodMaxJitter,
 		AllowUnsafeInitialCohort:           !config.RequireFailureSafeInitialCohort,
 		LogLevel:                           config.LogLevel,
 	}
@@ -408,12 +406,6 @@ func (s *ShardSetup) CreateMultiorchInstance(t *testing.T, name string, watchTar
 	}
 	if instance.LeaderFailoverGracePeriodMaxJitter == "" {
 		instance.LeaderFailoverGracePeriodMaxJitter = "0s"
-	}
-	if instance.ShardInitGracePeriodBase == "" {
-		instance.ShardInitGracePeriodBase = "0s"
-	}
-	if instance.ShardInitGracePeriodMaxJitter == "" {
-		instance.ShardInitGracePeriodMaxJitter = "0s"
 	}
 
 	s.MultiorchInstances[name] = instance

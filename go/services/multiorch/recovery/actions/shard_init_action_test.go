@@ -114,7 +114,7 @@ func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.
 	if ts == nil {
 		ts = memorytopo.NewServer(t.Context(), "cell1")
 	}
-	return NewShardInitAction(nil, coord, poolerStore, ts, slog.Default())
+	return NewShardInitAction(config.NewTestConfig(), coord, poolerStore, ts, slog.Default())
 }
 
 func newPoolerStore(t *testing.T) *store.PoolerCache {
@@ -125,7 +125,7 @@ func newPoolerStore(t *testing.T) *store.PoolerCache {
 // --- Interface / metadata ---
 
 func TestShardInitAction_Metadata(t *testing.T) {
-	action := NewShardInitAction(nil, nil, nil, nil, slog.Default())
+	action := NewShardInitAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
 	m := action.Metadata()
 	assert.Equal(t, "ShardInit", m.Name)
 	assert.True(t, m.Retryable)
@@ -133,25 +133,12 @@ func TestShardInitAction_Metadata(t *testing.T) {
 }
 
 func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
-	assert.False(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).RequiresHealthyLeader())
+	assert.False(t, NewShardInitAction(config.NewTestConfig(), nil, nil, nil, slog.Default()).RequiresHealthyLeader())
 }
 
-func TestShardInitAction_GracePeriod_NilConfigUsesDefaults(t *testing.T) {
-	gp := NewShardInitAction(nil, nil, nil, nil, slog.Default()).GracePeriod()
-	require.NotNil(t, gp)
-	assert.Equal(t, defaultShardInitGracePeriodBase, gp.BaseDelay)
-	assert.Equal(t, defaultShardInitGracePeriodMaxJitter, gp.MaxJitter)
-}
-
-func TestShardInitAction_GracePeriod_ReadsFromConfig(t *testing.T) {
-	cfg := config.NewTestConfig(
-		config.WithShardInitGracePeriodBase(1*time.Second),
-		config.WithShardInitGracePeriodMaxJitter(2*time.Second),
-	)
-	gp := NewShardInitAction(cfg, nil, nil, nil, slog.Default()).GracePeriod()
-	require.NotNil(t, gp)
-	assert.Equal(t, 1*time.Second, gp.BaseDelay)
-	assert.Equal(t, 2*time.Second, gp.MaxJitter)
+func TestShardInitAction_GracePeriod(t *testing.T) {
+	action := NewShardInitAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	assert.Nil(t, action.GracePeriod(), "bootstrapping an uninitialized shard has nothing to defer for")
 }
 
 // --- getInitializedPoolers ---

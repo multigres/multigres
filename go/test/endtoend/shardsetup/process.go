@@ -62,8 +62,6 @@ type ProcessInstance struct {
 	ServiceID                          string   // Service ID (used by multipooler and multiorch)
 	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (e.g., "0s", "10s")
 	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
-	ShardInitGracePeriodBase           string   // Grace period base before committing the initial cohort (e.g., "0s", "10s")
-	ShardInitGracePeriodMaxJitter      string   // Max jitter for shard-init grace period (e.g., "0s", "5s")
 	AllowUnsafeInitialCohort           bool     // Allow bootstrapping a cohort that can't survive losing any member (test use only)
 
 	// Multigateway TLS fields
@@ -339,12 +337,6 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 	}
 	if p.LeaderFailoverGracePeriodMaxJitter != "" {
 		args = append(args, "--leader-failover-grace-period-max-jitter", p.LeaderFailoverGracePeriodMaxJitter)
-	}
-	if p.ShardInitGracePeriodBase != "" {
-		args = append(args, "--shard-init-grace-period-base", p.ShardInitGracePeriodBase)
-	}
-	if p.ShardInitGracePeriodMaxJitter != "" {
-		args = append(args, "--shard-init-grace-period-max-jitter", p.ShardInitGracePeriodMaxJitter)
 	}
 	if p.AllowUnsafeInitialCohort {
 		args = append(args, "--allow-unsafe-initial-cohort")
