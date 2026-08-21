@@ -51,6 +51,18 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 			sv.PopulateListeningURL(int32(actualPort))
 		}
 	}
+
+	// The HTTP-serving goroutine starts immediately, before Create() below -
+	// Create() resolves the configured auth plugin (see
+	// GrpcServer.resolveAuthPlugin), which for --grpc-auth-mode=jwt performs a
+	// JWKS fetch that can take up to its own timeout (or fail outright on an
+	// unreachable endpoint). Gating the HTTP listener on that would reintroduce
+	// the exact startup-probe deadlock the comment above exists to avoid.
+	// This is safe: GrpcServer.authPluginBox is read atomically, and
+	// GrpcServer.AuthPlugin() (which every HTTP/Connect auth check goes
+	// through) fails closed - not open - for the brief window where an auth
+	// mode is configured but resolution hasn't completed yet, so no request
+	// can slip through unauthenticated just because it raced startup.
 	go func() {
 		err := sv.HTTPServe(l)
 		if err != nil {
@@ -58,9 +70,16 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 		}
 	}()
 
+	// gRPC's own auth interceptor, by contrast, is attached once when
+	// grpc.NewServer is constructed below - unlike HTTP, it cannot re-check
+	// per request - so resolution must have already completed by then. That's
+	// fine to wait on here: gRPC doesn't actually start Serve()ing until after
+	// FireRunHooks below regardless, so this has no tighter deadline than it
+	// already did.
 	if err := grpcServer.Create(); err != nil {
 		return fmt.Errorf("grpc server create: %w", err)
 	}
+
 	if err := sv.FireRunHooks(); err != nil {
 		return fmt.Errorf("run hooks: %w", err)
 	}
