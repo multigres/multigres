@@ -1030,18 +1030,45 @@ func TestPromote(t *testing.T) {
 			// rather than mark the promotion successful — the rule write is
 			// the durability gate, and a failure here means the new primary
 			// hasn't satisfied sync replication.
+			//
+			// This also exercises the promotionHook clearing resignation
+			// before the failure: postCheck confirms resignation is
+			// re-established rather than lost (see rpc_consensus.go's defer
+			// in promoteLocked). Uses a custom revocation at outgoing term 3
+			// (rather than the shared recruitedTerm/makeLeaderReq, both fixed
+			// at outgoing term 0) so beforeStatus's decided position is
+			// non-zero: term 0 is indistinguishable from "not resigned" (see
+			// ConsensusManager.LeadershipStatus), so a term-0 baseline would
+			// pass this check without actually exercising it.
 			name:        "UpdateRuleFails",
 			initialTerm: recruitedTerm,
 			ruleStore: &fakeRuleStore{
-				pos:                makeRulePosition(0),
+				pos:                makeRulePosition(3),
 				updateErrAfterHook: errors.New("rule store offline"),
 			},
-			req: makeLeaderReq(),
+			req: &consensusdatapb.PromoteRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: &clustermetadatapb.TermRevocation{
+						RevokedBelowTerm:       7,
+						AcceptedCoordinatorId:  coordinatorA,
+						CoordinatorInitiatedAt: recruitTS,
+						OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+					},
+					ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
+				},
+			},
 			setupMocks: func(m *mock.QueryService) {
 				expectLeaderPromoteMocks(m)
 			},
 			expectError:       true,
 			expectErrContains: "promote failed: could not write rule",
+			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
+				status := pm.consensusMgr.LeadershipStatus()
+				require.NotNil(t, status, "resignation must be re-set after a failed promote")
+				assert.Equal(t, int64(3), status.LeaderTerm)
+				assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, status.Signal)
+			},
 		},
 	}
 
@@ -1074,9 +1101,9 @@ func TestPromote(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 				require.NotNil(t, resp.ConsensusStatus)
-				if tt.postCheck != nil {
-					tt.postCheck(t, pm, tt.ruleStore)
-				}
+			}
+			if tt.postCheck != nil {
+				tt.postCheck(t, pm, tt.ruleStore)
 			}
 
 			require.Eventually(t, func() bool {

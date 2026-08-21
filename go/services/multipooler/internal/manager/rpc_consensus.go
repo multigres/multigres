@@ -222,8 +222,11 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/recruit")
 	defer span.End()
 
+	// Urgent: Recruit drives failover, so it should preempt whatever
+	// currently holds the action lock (and take priority over queued
+	// ordinary work) rather than wait behind it — see actionlock.UrgentAcquire.
 	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "Recruit")
+	ctx, err = pm.actionLock.UrgentAcquire(ctx, "Recruit")
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +480,7 @@ func (pm *MultipoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	return resp, err
 }
 
-func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (resp *consensusdatapb.PromoteResponse, err error) {
 	proposal := req.GetProposal()
 	revocation := proposal.GetTermRevocation()
 	proposalLeader := proposal.GetProposalLeader()
@@ -591,6 +594,19 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		pm.logUnreadyFailoverSlots(hookCtx)
 		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
 	}
+
+	// The hook above clears resignation optimistically before promotion is
+	// confirmed, to shrink the window where other coordinators still see this
+	// node as needing replacement. If promotion then fails, re-establish it
+	// here — otherwise this node is stuck silently unpromoted and no longer
+	// signaling for replacement either.
+	defer func() {
+		if err != nil {
+			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {
+				pm.logger.ErrorContext(ctx, "failed to re-set resigned primary term after failed promote", "error", resignErr)
+			}
+		}
+	}()
 
 	ruleUpdate := consensus.NewRuleUpdate(
 		revokedBelowTerm,

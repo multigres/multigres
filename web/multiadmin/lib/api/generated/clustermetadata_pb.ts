@@ -2336,6 +2336,8 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
  * It lets the coordinator distinguish an actively healthy leader, a leader
  * requesting demotion, and a node that has never held leadership.
  *
+ * TODO: Deprecate this and let poolers self-revoke to indicate their term is over.
+ *
  * @generated from message clustermetadata.LeadershipStatus
  */
 export class LeadershipStatus extends Message<LeadershipStatus> {
