@@ -287,6 +287,36 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 	panic("unreachable")
 }
 
+// QueryNoRetry and QueryArgsNoRetry run a single query attempt with no retry
+// or reconnection on error. Use these instead of QueryWithRetry/
+// QueryArgsWithRetry once a transaction has begun (BEGIN already sent): those
+// retry by silently reconnecting on a connection error, which would start a
+// fresh session that never ran BEGIN, silently losing the transaction. An
+// ordinary SQL error (e.g. a NOWAIT lock conflict) leaves the now-aborted
+// transaction on this same connection for the caller's Rollback to clean up,
+// same as any transaction; only a genuine connection failure closes the
+// connection, so it's never returned to the pool in an unknown state.
+func (c *Conn) QueryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
+		return c.conn.Query(ctx, sql)
+	})
+	if err != nil && mterrors.IsConnectionDead(err) {
+		c.conn.Close()
+	}
+	return results, err
+}
+
+// QueryArgsNoRetry is QueryNoRetry for a parameterized query.
+func (c *Conn) QueryArgsNoRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
+		return c.conn.QueryArgs(ctx, sql, args...)
+	})
+	if err != nil && mterrors.IsConnectionDead(err) {
+		c.conn.Close()
+	}
+	return results, err
+}
+
 // execQueryWithContextCancel executes a query operation in a goroutine so that
 // context cancellation can interrupt a blocking network read.
 //

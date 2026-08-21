@@ -484,12 +484,12 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	var result *sqltypes.Result
 	var err error
 	if forUpdate {
-		// FOR UPDATE NOWAIT's only job here is to fail immediately if some
-		// other session is mid-write on the row (a tripwire against a
-		// concurrent writer bypassing the action lock, e.g. raw SQL); the
-		// lock doesn't need to persist past that check, so wrapInRollback
-		// keeps it from ever waiting on synchronous_commit the way the
-		// caller's actual rule write correctly does.
+		// FOR UPDATE NOWAIT is load-bearing, not just a raw-SQL tripwire: it's
+		// how callers prove a prior action-lock holder's write transaction has
+		// actually ended on postgres, even if that holder's own context timed
+		// out first (see WithPriorRuleWritesDrained). wrapInRollback keeps
+		// this check from paying for synchronous_commit it doesn't need — see
+		// its doc comment.
 		result, err = rs.wrapInRollback(ctx, query+" FOR UPDATE NOWAIT", []byte("0"))
 	} else {
 		result, err = rs.queryService.QueryAdminArgs(ctx, query, []byte("0"))
@@ -545,8 +545,20 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 // to persist or be replicated, such as SELECT ... FOR UPDATE NOWAIT: the row
 // lock it takes exists only to fail fast on a concurrent writer, not to
 // outlive this call.
+//
+// An explicit transaction was chosen over a single "BEGIN; ...; ROLLBACK;"
+// string: a NOWAIT lock conflict — the expected, common case here, not an
+// edge case — aborts the transaction and skips every remaining statement in
+// a multi-statement message, including its own trailing ROLLBACK, leaving
+// the connection idle-in-a-failed-transaction for whoever borrows it next.
+// The deferred Rollback below always runs regardless of how the query
+// failed. A stored procedure was also considered; it would need a
+// schema-migration mechanism this codebase doesn't otherwise have, to
+// deploy the same behavior.
+//
+// Uses BeginAdmin, not Begin: this touches the locked-down multigres schema.
 func (rs *ruleStore) wrapInRollback(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
-	tx, err := rs.queryService.Begin(ctx)
+	tx, err := rs.queryService.BeginAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

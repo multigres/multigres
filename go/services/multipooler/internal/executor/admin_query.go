@@ -16,8 +16,10 @@ package executor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 )
 
 // The QueryAdmin* methods are the InternalQueryService access path for the
@@ -52,4 +54,57 @@ func (e *Executor) QueryAdminArgs(ctx context.Context, sql string, args ...any) 
 // QueryAdminMultiStatement implements InternalQueryService on the admin pool.
 func (e *Executor) QueryAdminMultiStatement(ctx context.Context, queryStr string) error {
 	return runMultiStatement(ctx, e.borrowAdmin, queryStr)
+}
+
+// BeginAdmin implements InternalQueryService on the admin pool.
+func (e *Executor) BeginAdmin(ctx context.Context) (InternalTx, error) {
+	pooled, err := e.poolManager.GetAdminConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn := adminTxConn{conn: pooled.Conn}
+	if _, err := conn.Query(ctx, "BEGIN"); err != nil {
+		pooled.Recycle()
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	return &genericTx{
+		conn: conn,
+		// admin.Conn's own no-retry query methods already close the
+		// connection on a genuine connection failure (see QueryNoRetry's doc
+		// comment), so Recycle here always sees an accurate IsClosed() and
+		// does the right thing either way — no separate error-vs-clean
+		// release path is needed, unlike the reserved pool's ReleaseReason.
+		onRelease: func(_ txOutcome, _ error) {
+			pooled.Recycle()
+		},
+	}, nil
+}
+
+// adminTxConn adapts *admin.Conn to the txConn interface shared with the
+// regular pool's transactions (see genericTx). admin.Conn has no native
+// transaction-lifecycle methods, so Commit/Rollback are sent as literal
+// statements — always via the no-retry query path, never
+// QueryWithRetry/QueryArgsWithRetry, which are only safe for stateless calls
+// (see their doc comments for why: a silent reconnect mid-transaction would
+// lose it without any error to signal that).
+type adminTxConn struct {
+	conn *admin.Conn
+}
+
+func (c adminTxConn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	return c.conn.QueryNoRetry(ctx, sql)
+}
+
+func (c adminTxConn) QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	return c.conn.QueryArgsNoRetry(ctx, sql, args...)
+}
+
+func (c adminTxConn) Commit(ctx context.Context) error {
+	_, err := c.conn.QueryNoRetry(ctx, "COMMIT")
+	return err
+}
+
+func (c adminTxConn) Rollback(ctx context.Context) error {
+	_, err := c.conn.QueryNoRetry(ctx, "ROLLBACK")
+	return err
 }
