@@ -32,35 +32,51 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	mu            sync.Mutex
-	StartCalls    []*pb.StartRequest
-	StopCalls     []*pb.StopRequest
-	RestartCalls  []*pb.RestartRequest
-	ReloadCalls   []*pb.ReloadConfigRequest
-	StatusCalls   []*pb.StatusRequest
-	VersionCalls  []*pb.VersionRequest
-	InitDirCalls  []*pb.InitDataDirRequest
-	PgRewindCalls []*pb.PgRewindRequest
+	mu                      sync.Mutex
+	StartCalls              []*pb.StartRequest
+	StopCalls               []*pb.StopRequest
+	RestartCalls            []*pb.RestartRequest
+	ReloadCalls             []*pb.ReloadConfigRequest
+	StatusCalls             []*pb.StatusRequest
+	VersionCalls            []*pb.VersionRequest
+	InitDirCalls            []*pb.InitDataDirRequest
+	PgRewindCalls           []*pb.PgRewindRequest
+	StopRestoreCommandCalls []*pb.StopRestoreCommandRequest
 
 	// Response configurations
-	StartResponse    *pb.StartResponse
-	StopResponse     *pb.StopResponse
-	RestartResponse  *pb.RestartResponse
-	ReloadResponse   *pb.ReloadConfigResponse
-	StatusResponse   *pb.StatusResponse
-	VersionResponse  *pb.VersionResponse
-	InitDirResponse  *pb.InitDataDirResponse
-	PgRewindResponse *pb.PgRewindResponse
+	StartResponse              *pb.StartResponse
+	StopResponse               *pb.StopResponse
+	RestartResponse            *pb.RestartResponse
+	ReloadResponse             *pb.ReloadConfigResponse
+	StatusResponse             *pb.StatusResponse
+	VersionResponse            *pb.VersionResponse
+	InitDirResponse            *pb.InitDataDirResponse
+	PgRewindResponse           *pb.PgRewindResponse
+	StopRestoreCommandResponse *pb.StopRestoreCommandResponse
 
 	// Error configurations
-	StartError    error
-	StopError     error
-	RestartError  error
-	ReloadError   error
-	StatusError   error
-	VersionError  error
-	InitDirError  error
-	PgRewindError error
+	StartError              error
+	StopError               error
+	RestartError            error
+	ReloadError             error
+	StatusError             error
+	VersionError            error
+	InitDirError            error
+	PgRewindError           error
+	StopRestoreCommandError error
+
+	// StatusFunc, if non-nil, is called for each Status request instead of the
+	// default behaviour. It lets tests return different values on successive
+	// calls, e.g. to simulate postgres transitioning from not-ready to ready
+	// during WAL replay. Called while the mutex is held.
+	StatusFunc func(*pb.StatusRequest) (*pb.StatusResponse, error)
+
+	// RestartFunc, if non-nil, is called on each Restart request before the
+	// configured response/error is returned. It lets tests observe external
+	// state at the moment postgres would restart, e.g. asserting that
+	// postgresql.auto.conf already carries primary_conninfo before the standby
+	// comes up. Called while the mutex is held.
+	RestartFunc func(*pb.RestartRequest)
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -93,6 +109,9 @@ func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.RestartCalls = append(m.RestartCalls, req)
+	if m.RestartFunc != nil {
+		m.RestartFunc(req)
+	}
 	if m.RestartError != nil {
 		return nil, m.RestartError
 	}
@@ -115,12 +134,28 @@ func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConf
 	return &pb.ReloadConfigResponse{Message: "Mock config reloaded"}, nil
 }
 
+func (m *MockPgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRestoreCommandRequest) (*pb.StopRestoreCommandResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.StopRestoreCommandCalls = append(m.StopRestoreCommandCalls, req)
+	if m.StopRestoreCommandError != nil {
+		return nil, m.StopRestoreCommandError
+	}
+	if m.StopRestoreCommandResponse != nil {
+		return m.StopRestoreCommandResponse, nil
+	}
+	return &pb.StopRestoreCommandResponse{Message: "mock: nothing running"}, nil
+}
+
 func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
+	}
+	if m.StatusFunc != nil {
+		return m.StatusFunc(req)
 	}
 	if m.StatusResponse != nil {
 		return m.StatusResponse, nil
@@ -272,7 +307,7 @@ func StartTestServer(t *testing.T, service pb.PgCtldServer) (pb.PgCtldClient, fu
 	// Start server in background
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			slog.Error("Test gRPC server failed", "error", err)
+			slog.Error("test gRPC server failed", "error", err)
 		}
 	}()
 

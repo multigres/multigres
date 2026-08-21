@@ -71,9 +71,6 @@ const (
 	// MultiadminServiceBackupProcedure is the fully-qualified name of the MultiadminService's Backup
 	// RPC.
 	MultiadminServiceBackupProcedure = "/multiadmin.MultiadminService/Backup"
-	// MultiadminServiceRestoreFromBackupProcedure is the fully-qualified name of the
-	// MultiadminService's RestoreFromBackup RPC.
-	MultiadminServiceRestoreFromBackupProcedure = "/multiadmin.MultiadminService/RestoreFromBackup"
 	// MultiadminServiceGetBackupJobStatusProcedure is the fully-qualified name of the
 	// MultiadminService's GetBackupJobStatus RPC.
 	MultiadminServiceGetBackupJobStatusProcedure = "/multiadmin.MultiadminService/GetBackupJobStatus"
@@ -101,6 +98,9 @@ const (
 	// MultiadminServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
 	// MultiadminService's ApplyCertifiedRuleChange RPC.
 	MultiadminServiceApplyCertifiedRuleChangeProcedure = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
+	// MultiadminServiceSwitchPrimaryProcedure is the fully-qualified name of the MultiadminService's
+	// SwitchPrimary RPC.
+	MultiadminServiceSwitchPrimaryProcedure = "/multiadmin.MultiadminService/SwitchPrimary"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -121,8 +121,6 @@ type MultiadminServiceClient interface {
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -154,6 +152,13 @@ type MultiadminServiceClient interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -215,12 +220,6 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 			connect.WithClientOptions(opts...),
 		),
-		restoreFromBackup: connect.NewClient[multiadmin.RestoreFromBackupRequest, multiadmin.RestoreFromBackupResponse](
-			httpClient,
-			baseURL+MultiadminServiceRestoreFromBackupProcedure,
-			connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
-			connect.WithClientOptions(opts...),
-		),
 		getBackupJobStatus: connect.NewClient[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse](
 			httpClient,
 			baseURL+MultiadminServiceGetBackupJobStatusProcedure,
@@ -275,6 +274,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 			connect.WithClientOptions(opts...),
 		),
+		switchPrimary: connect.NewClient[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse](
+			httpClient,
+			baseURL+MultiadminServiceSwitchPrimaryProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -288,7 +293,6 @@ type multiadminServiceClient struct {
 	getPoolers                 *connect.Client[multiadmin.GetPoolersRequest, multiadmin.GetPoolersResponse]
 	getOrchs                   *connect.Client[multiadmin.GetOrchsRequest, multiadmin.GetOrchsResponse]
 	backup                     *connect.Client[multiadmin.BackupRequest, multiadmin.BackupResponse]
-	restoreFromBackup          *connect.Client[multiadmin.RestoreFromBackupRequest, multiadmin.RestoreFromBackupResponse]
 	getBackupJobStatus         *connect.Client[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse]
 	getBackups                 *connect.Client[multiadmin.GetBackupsRequest, multiadmin.GetBackupsResponse]
 	expireBackups              *connect.Client[multiadmin.ExpireBackupsRequest, multiadmin.ExpireBackupsResponse]
@@ -298,6 +302,7 @@ type multiadminServiceClient struct {
 	getGatewayQueries          *connect.Client[multiadmin.GetGatewayQueriesRequest, multiadmin.GetGatewayQueriesResponse]
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
+	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -338,11 +343,6 @@ func (c *multiadminServiceClient) GetOrchs(ctx context.Context, req *connect.Req
 // Backup calls multiadmin.MultiadminService.Backup.
 func (c *multiadminServiceClient) Backup(ctx context.Context, req *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
 	return c.backup.CallUnary(ctx, req)
-}
-
-// RestoreFromBackup calls multiadmin.MultiadminService.RestoreFromBackup.
-func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
-	return c.restoreFromBackup.CallUnary(ctx, req)
 }
 
 // GetBackupJobStatus calls multiadmin.MultiadminService.GetBackupJobStatus.
@@ -390,6 +390,11 @@ func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, 
 	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
+// SwitchPrimary calls multiadmin.MultiadminService.SwitchPrimary.
+func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
+	return c.switchPrimary.CallUnary(ctx, req)
+}
+
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
 	// GetCell retrieves information about a specific cell
@@ -408,8 +413,6 @@ type MultiadminServiceHandler interface {
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -441,6 +444,13 @@ type MultiadminServiceHandler interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -498,12 +508,6 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiadminServiceRestoreFromBackupHandler := connect.NewUnaryHandler(
-		MultiadminServiceRestoreFromBackupProcedure,
-		svc.RestoreFromBackup,
-		connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
-		connect.WithHandlerOptions(opts...),
-	)
 	multiadminServiceGetBackupJobStatusHandler := connect.NewUnaryHandler(
 		MultiadminServiceGetBackupJobStatusProcedure,
 		svc.GetBackupJobStatus,
@@ -558,6 +562,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceSwitchPrimaryHandler := connect.NewUnaryHandler(
+		MultiadminServiceSwitchPrimaryProcedure,
+		svc.SwitchPrimary,
+		connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -576,8 +586,6 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceGetOrchsHandler.ServeHTTP(w, r)
 		case MultiadminServiceBackupProcedure:
 			multiadminServiceBackupHandler.ServeHTTP(w, r)
-		case MultiadminServiceRestoreFromBackupProcedure:
-			multiadminServiceRestoreFromBackupHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetBackupJobStatusProcedure:
 			multiadminServiceGetBackupJobStatusHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetBackupsProcedure:
@@ -596,6 +604,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceGetGatewayConsolidatorHandler.ServeHTTP(w, r)
 		case MultiadminServiceApplyCertifiedRuleChangeProcedure:
 			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
+		case MultiadminServiceSwitchPrimaryProcedure:
+			multiadminServiceSwitchPrimaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -637,10 +647,6 @@ func (UnimplementedMultiadminServiceHandler) Backup(context.Context, *connect.Re
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.Backup is not implemented"))
 }
 
-func (UnimplementedMultiadminServiceHandler) RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.RestoreFromBackup is not implemented"))
-}
-
 func (UnimplementedMultiadminServiceHandler) GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetBackupJobStatus is not implemented"))
 }
@@ -675,4 +681,8 @@ func (UnimplementedMultiadminServiceHandler) GetGatewayConsolidator(context.Cont
 
 func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ApplyCertifiedRuleChange is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SwitchPrimary is not implemented"))
 }

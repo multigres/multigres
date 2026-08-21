@@ -174,7 +174,24 @@ linters:
             - pkg: "math/rand$"
               desc: "Please use math/rand/v2"
     sloglint:
+      # Require context-aware slog variants (InfoContext, ErrorContext, ...)
+      # whenever a context.Context is available in the enclosing scope, so trace
+      # correlation is never silently dropped.
       context: scope
+      # The canonical key for an error value is "error". Forbid the "err"
+      # shorthand so a single field name is used everywhere.
+      forbidden-keys:
+        - err
+      # Log messages start lowercased so they read uniformly in the message
+      # column. Messages intentionally prefixed with an operation name or proper
+      # noun (e.g. "MonitorPostgres: ...", "PostgreSQL is ready") carry an
+      # inline //nolint:sloglint.
+      msg-style: lowercased
+      # Attribute keys use snake_case. The one exception is the query log, which
+      # follows OpenTelemetry semantic conventions (dotted keys like
+      # db.namespace) shared with its trace and metric attributes; that file is
+      # excluded from this check below.
+      key-naming-case: snake
     govet:
       enable:
         # Check for missing values after append.
@@ -296,6 +313,14 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # The query log follows OpenTelemetry semantic conventions, whose
+      # attribute keys are dotted (db.namespace, db.operation.name, ...) and are
+      # shared verbatim with the corresponding trace and metric attributes.
+      # Keep them dotted here; only the snake_case check is waived.
+      - linters:
+          - sloglint
+        path: go/services/multigateway/handler/querylog\.go
+        text: "keys should be written in snake_case"
       - linters:
           - errcheck
         path: ^proto/
@@ -340,6 +365,11 @@ linters:
           - staticcheck
         path: ^go/common/topoclient/etcdtopo/store\.go$
         text: "SA1019: grpc.WithBlock"
+      # Test fixtures legitimately construct/read Multipooler.Type.
+      - linters:
+          - staticcheck
+        path: _test\.go$
+        text: "SA1019: .*Type is deprecated: Marked as deprecated in clustermetadata"
 formatters:
   enable:
     - gofumpt

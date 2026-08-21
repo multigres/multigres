@@ -112,7 +112,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	for i, p := range initializedPoolers {
 		initializedIDs[i] = p.Health().Multipooler.Id
 	}
-	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(initializedIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"insufficient initialized poolers for initial cohort (have %d): %v", len(initializedPoolers), err)
 	}
@@ -144,7 +144,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	for i, p := range committedCohort {
 		committedCohortIDs[i] = p.Multipooler.Id
 	}
-	if err := durabilityPolicy.CheckAchievable(committedCohortIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(committedCohortIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"insufficient committed cohort poolers reachable (have %d of %d): %v",
 			len(committedCohort), len(committedIDs), err)
@@ -164,7 +164,12 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // a bool indicating whether the cohort is already established or being established (any
 // pooler has cohort members, decided or an outstanding undecided proposal).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
+//
+// "Initialized" requires a fresh observation (store.DefaultObservationFreshness), not just
+// a durable IsInitialized flag from an arbitrarily old snapshot — a pooler that looked
+// initialized once but has since gone stale should not be trusted for the bootstrap cohort.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
+	now := time.Now()
 	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
 		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 			continue
@@ -173,7 +178,7 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.Shar
 		if len(commonconsensus.PossiblyUndecidedRule(position).GetCohortMembers()) > 0 {
 			return nil, true
 		}
-		if pooler.Health().GetStatus().GetIsInitialized() {
+		if hs, ok := pooler.HealthWithin(now, store.DefaultObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
 	}
@@ -207,17 +212,13 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "ShardInit",
 		Description: "Establish initial cohort and appoint first leader for a bootstrapped shard",
-		// Two sequential phases each bounded by RuleWriteTimeout
-		// (Recruit, then concurrent Promote/SetPrimary), plus margin so the
-		// action context does not race its own phases to the deadline.
+		// Two sequential phases (Recruit, then concurrent Promote/SetPrimary),
+		// each using the action context directly as their deadline, plus margin
+		// so the action context does not race its own phases to the deadline.
 		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ShardInitAction) Priority() types.Priority {
-	return types.PriorityShardBootstrap
 }
 
 func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {

@@ -33,7 +33,7 @@ import (
 
 // Backup starts an async backup of a specific shard
 func (s *MultiadminServer) Backup(ctx context.Context, req *multiadminpb.BackupRequest) (*multiadminpb.BackupResponse, error) {
-	s.logger.DebugContext(ctx, "Backup request received",
+	s.logger.DebugContext(ctx, "backup request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,
@@ -62,7 +62,7 @@ func (s *MultiadminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 
 		if err := s.executeBackup(bgCtx, jobID, pooler, req); err != nil {
 			span.RecordError(err)
-			s.logger.ErrorContext(bgCtx, "Backup failed", "job_id", jobID, "error", err)
+			s.logger.ErrorContext(bgCtx, "backup failed", "job_id", jobID, "error", err)
 			s.backupJobTracker.FailJob(jobID, err.Error())
 		}
 	}()
@@ -76,7 +76,7 @@ func (s *MultiadminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.Multipooler, req *multiadminpb.BackupRequest) error {
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
-	s.logger.InfoContext(ctx, "Starting backup",
+	s.logger.InfoContext(ctx, "starting backup",
 		"job_id", jobID,
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -97,7 +97,7 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 
 	// Mark job as completed
 	s.backupJobTracker.CompleteJob(jobID, resp.BackupId)
-	s.logger.InfoContext(ctx, "Backup completed",
+	s.logger.InfoContext(ctx, "backup completed",
 		"job_id", jobID,
 		"backup_id", resp.BackupId)
 
@@ -105,22 +105,23 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 }
 
 // findPoolerForBackup finds a pooler for backup operations. forceLeader=true
-// returns the consensus leader (highest-rule self_leadership wins if more than
-// one pooler self-claims, which can happen briefly during a rule change);
-// forceLeader=false returns a follower (any pooler with no self_leadership).
+// returns the serving consensus leader (highest-rule routing_state wins if more
+// than one pooler self-claims PRIMARY, which can happen briefly during a rule
+// change); forceLeader=false returns a serving follower (any serving pooler
+// whose routing_state role is not PRIMARY).
 //
-// Leader identity is read from each pooler's self_leadership topology field,
-// never from the Multipooler.Type label — the topology Type can lag the true
-// consensus state (e.g. a demoted-then-restarted pooler that re-asserts
-// Type=PRIMARY), and a backup taken from a stale leader on a divergent
-// timeline would be unrestorable.
+// Leader identity is read from each pooler's routing_state.role topology
+// field, never from the deprecated Multipooler.Type label — the topology Type
+// can lag the true consensus state (e.g. a demoted-then-restarted pooler that
+// re-asserts Type=PRIMARY), and a backup taken from a stale leader on a
+// divergent timeline would be unrestorable.
 func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
 	}
 
-	// Collect every pooler in the (database, tableGroup) so leader selection
+	// Collect every serving pooler in the (database, tableGroup) so leader selection
 	// can pick the highest-rule self_leadership across cells (a leader can be
 	// in any cell, and during a rule change two poolers may briefly both
 	// self-claim).
@@ -137,11 +138,13 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		}
 		poolerInfos, err := s.ts.GetMultipoolersByCell(ctx, cellName, opts)
 		if err != nil {
-			s.logger.DebugContext(ctx, "Failed to get poolers for cell", "cell", cellName, "error", err)
+			s.logger.DebugContext(ctx, "failed to get poolers for cell", "cell", cellName, "error", err)
 			continue
 		}
 		for _, info := range poolerInfos {
-			poolers = append(poolers, info.Multipooler)
+			if info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
+				poolers = append(poolers, info.Multipooler)
+			}
 		}
 	}
 
@@ -150,7 +153,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		var bestRule *clustermetadatapb.RuleNumber
 		for _, p := range poolers {
 			rs := p.GetRoutingState()
-			if rs == nil {
+			if rs.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 				continue
 			}
 			if bestLeader == nil || commonconsensus.CompareRuleNumbers(rs.GetRule(), bestRule) > 0 {
@@ -161,101 +164,20 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		if bestLeader != nil {
 			return bestLeader, nil
 		}
-		return nil, fmt.Errorf("leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
+		return nil, fmt.Errorf("serving leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 	}
 
 	for _, p := range poolers {
-		if p.GetRoutingState() == nil {
+		if p.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
-}
-
-// RestoreFromBackup starts an async restore of a specific shard from a backup
-func (s *MultiadminServer) RestoreFromBackup(ctx context.Context, req *multiadminpb.RestoreFromBackupRequest) (*multiadminpb.RestoreFromBackupResponse, error) {
-	s.logger.DebugContext(ctx, "RestoreFromBackup request received",
-		"database", req.Database,
-		"table_group", req.TableGroup,
-		"shard", req.Shard,
-		"backup_id", req.BackupId,
-		"pooler_id", req.PoolerId)
-
-	// Validate request
-	if req.Database == "" {
-		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
-	}
-	// Note: TableGroup and Shard validation ensures the restore target is fully specified.
-	// The CLI currently hardcodes these to defaults, but the API is designed to support
-	// the full use case when multi-shard support is implemented.
-	if req.TableGroup == "" {
-		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
-	}
-	if req.Shard == "" {
-		return nil, status.Error(codes.InvalidArgument, "shard cannot be empty")
-	}
-	if req.PoolerId == nil {
-		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
-	}
-
-	// Create job
-	jobID := s.backupJobTracker.CreateJob(multiadminpb.JobType_JOB_TYPE_RESTORE, req.Database, req.TableGroup, req.Shard)
-	// TODO: store job_id somewhere persistent, such as the PGDATA directory or topo,
-	// so that job state is not lost after multiadmin restart
-
-	// Start restore in background with a linked root span
-	go func() {
-		bgCtx := ctxutil.Detach(ctx)
-		bgCtx, span := ctxutil.StartLinkedSpan(bgCtx, telemetry.Tracer(), "Restore")
-		defer span.End()
-
-		if err := s.executeRestore(bgCtx, jobID, req); err != nil {
-			span.RecordError(err)
-			s.logger.ErrorContext(bgCtx, "Restore failed", "job_id", jobID, "error", err)
-			s.backupJobTracker.FailJob(jobID, err.Error())
-		}
-	}()
-
-	return &multiadminpb.RestoreFromBackupResponse{
-		JobId: jobID,
-	}, nil
-}
-
-// executeRestore performs the actual restore operation
-// TODO: Add job_id support for RestoreFromBackup similar to Backup():
-//  1. Add JobId field to RestoreFromBackupRequest proto
-//  2. Generate backupJobID = backup.GenerateJobID(pooler.Id.Name)
-//  3. Store job_id as pgbackrest annotation on restore
-//  4. Add GetRestoreByJobId RPC or extend GetBackupByJobId for restore tracking
-func (s *MultiadminServer) executeRestore(ctx context.Context, jobID string, req *multiadminpb.RestoreFromBackupRequest) error {
-	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
-
-	// Get pooler info from topology
-	poolerInfo, err := s.ts.GetMultipooler(ctx, req.PoolerId)
-	if err != nil {
-		return fmt.Errorf("failed to get pooler info: %w", err)
-	}
-
-	// Call restore on the pooler
-	restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
-		BackupId: req.BackupId,
-	}
-
-	_, err = s.rpcClient.RestoreFromBackup(ctx, poolerInfo.Multipooler, restoreReq)
-	if err != nil {
-		return fmt.Errorf("pooler restore failed: %w", err)
-	}
-
-	// Mark job as completed
-	s.backupJobTracker.CompleteJob(jobID, req.BackupId)
-	s.logger.InfoContext(ctx, "Restore completed", "job_id", jobID, "backup_id", req.BackupId)
-
-	return nil
+	return nil, fmt.Errorf("serving follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 }
 
 // GetBackupJobStatus checks the status of a backup or restore job
 func (s *MultiadminServer) GetBackupJobStatus(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
-	s.logger.DebugContext(ctx, "GetBackupJobStatus request received", "job_id", req.JobId)
+	s.logger.DebugContext(ctx, "GetBackupJobStatus request received", "job_id", req.JobId) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	// Validate request
 	if req.JobId == "" {
@@ -265,7 +187,7 @@ func (s *MultiadminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 	// Try the in-memory job tracker first
 	jobStatus, err := s.backupJobTracker.GetJobStatus(req.JobId)
 	if err == nil {
-		s.logger.DebugContext(ctx, "GetBackupJobStatus completed from tracker",
+		s.logger.DebugContext(ctx, "GetBackupJobStatus completed from tracker", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"job_id", req.JobId,
 			"status", jobStatus.Status,
 			"job_type", jobStatus.JobType)
@@ -275,7 +197,7 @@ func (s *MultiadminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 	// Job not in tracker - try fallback to Multipooler if shard context provided.
 	// This handles the case where the multiadmin process restarted and lost in-memory job state.
 	if req.Database == "" || req.TableGroup == "" {
-		s.logger.DebugContext(ctx, "Job not found and no shard context for fallback", "job_id", req.JobId)
+		s.logger.DebugContext(ctx, "job not found and no shard context for fallback", "job_id", req.JobId)
 		return nil, status.Errorf(codes.NotFound, "job not found: %s", req.JobId)
 	}
 
@@ -284,7 +206,7 @@ func (s *MultiadminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 
 // getBackupJobStatusFromPooler queries a Multipooler for backup status when job is not in memory.
 func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
-	s.logger.DebugContext(ctx, "Falling back to pooler for job status",
+	s.logger.DebugContext(ctx, "falling back to pooler for job status",
 		"job_id", req.JobId,
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -293,7 +215,7 @@ func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 	// Find a replica pooler - all poolers for a shard share the same pgbackrest repo
 	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
 	if err != nil {
-		s.logger.DebugContext(ctx, "Failed to find pooler for fallback", "error", err)
+		s.logger.DebugContext(ctx, "failed to find pooler for fallback", "error", err)
 		return nil, status.Errorf(codes.NotFound, "job not found and unable to query pooler: %s", req.JobId)
 	}
 
@@ -302,13 +224,13 @@ func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 		JobId: req.JobId,
 	})
 	if err != nil {
-		s.logger.DebugContext(ctx, "Pooler GetBackupByJobId failed", "job_id", req.JobId, "error", err)
+		s.logger.DebugContext(ctx, "pooler GetBackupByJobId failed", "job_id", req.JobId, "error", err)
 		return nil, status.Errorf(codes.NotFound, "job not found: %s", req.JobId)
 	}
 
 	// No backup found with this job_id
 	if backupResp.Backup == nil {
-		s.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", req.JobId)
+		s.logger.DebugContext(ctx, "backup not found by job_id", "job_id", req.JobId)
 		return nil, status.Errorf(codes.NotFound, "job not found: %s", req.JobId)
 	}
 
@@ -323,7 +245,7 @@ func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 		jobStatus = multiadminpb.JobStatus_JOB_STATUS_UNKNOWN
 	}
 
-	s.logger.DebugContext(ctx, "GetBackupJobStatus completed from pooler fallback",
+	s.logger.DebugContext(ctx, "GetBackupJobStatus completed from pooler fallback", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"job_id", req.JobId,
 		"backup_id", backupResp.Backup.BackupId,
 		"status", jobStatus)
@@ -341,7 +263,7 @@ func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 
 // GetBackups lists backup artifacts with optional filtering
 func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.GetBackupsRequest) (*multiadminpb.GetBackupsResponse, error) {
-	s.logger.DebugContext(ctx, "GetBackups request received",
+	s.logger.DebugContext(ctx, "GetBackups request received", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,
@@ -393,14 +315,17 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 			Status:               backupStatus,
 			BackupSizeBytes:      b.BackupSizeBytes,
 			MultipoolerServiceId: b.MultipoolerId,
-			PoolerType:           b.PoolerType,
+			RoutingRole:          b.RoutingRole,
 			StartLsn:             b.StartLsn,
 			StopLsn:              b.StopLsn,
 			PgVersion:            b.PgVersion,
+			StartTimestamp:       b.StartTimestamp,
+			StopTimestamp:        b.StopTimestamp,
+			JobId:                b.JobId,
 		}
 	}
 
-	s.logger.DebugContext(ctx, "GetBackups completed", "backup_count", len(backups))
+	s.logger.DebugContext(ctx, "GetBackups completed", "backup_count", len(backups)) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	return &multiadminpb.GetBackupsResponse{
 		Backups: backups,
@@ -410,7 +335,7 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 // ExpireBackups removes old backups according to retention policy.
 // It finds a replica pooler and proxies the request to it.
 func (s *MultiadminServer) ExpireBackups(ctx context.Context, req *multiadminpb.ExpireBackupsRequest) (*multiadminpb.ExpireBackupsResponse, error) {
-	s.logger.DebugContext(ctx, "ExpireBackups request received",
+	s.logger.DebugContext(ctx, "ExpireBackups request received", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard)
@@ -435,7 +360,7 @@ func (s *MultiadminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 		return nil, status.Errorf(codes.Internal, "failed to expire backups: %v", err)
 	}
 
-	s.logger.InfoContext(ctx, "ExpireBackups completed",
+	s.logger.InfoContext(ctx, "ExpireBackups completed", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,
@@ -450,7 +375,7 @@ func (s *MultiadminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 // Synchronous: blocks until pgbackrest verify completes, then returns
 // duration + raw output. No job state to track.
 func (s *MultiadminServer) VerifyBackups(ctx context.Context, req *multiadminpb.VerifyBackupsRequest) (*multiadminpb.VerifyBackupsResponse, error) {
-	s.logger.DebugContext(ctx, "VerifyBackups request received",
+	s.logger.DebugContext(ctx, "VerifyBackups request received", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,
@@ -476,7 +401,7 @@ func (s *MultiadminServer) VerifyBackups(ctx context.Context, req *multiadminpb.
 		return nil, status.Errorf(codes.Internal, "verify failed: %v", err)
 	}
 
-	s.logger.InfoContext(ctx, "VerifyBackups completed",
+	s.logger.InfoContext(ctx, "VerifyBackups completed", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,

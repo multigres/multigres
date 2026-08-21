@@ -53,9 +53,11 @@ func InitAndStartPostgreSQL(t *testing.T, grpcAddr string) error {
 	}
 	t.Logf("Init response: %s", initResp.Message)
 
-	// Start PostgreSQL
+	// Start PostgreSQL as a writable primary: these standalone pgctld tests have
+	// no consensus layer to promote a node, so they need a usable read-write
+	// server. (The Start default is standby, for the consensus-managed path.)
 	t.Logf("Starting PostgreSQL via gRPC at %s", grpcAddr)
-	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	startResp, err := client.Start(ctx, &pb.StartRequest{AsPrimary: true})
 	if err != nil {
 		return fmt.Errorf("call to Start RPC failed: %w", err)
 	}
@@ -110,9 +112,11 @@ func StartPostgreSQL(t *testing.T, grpcAddr string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Start PostgreSQL
+	// Start PostgreSQL as a writable primary: these standalone pgctld tests have
+	// no consensus layer to promote a node, so they need a usable read-write
+	// server. (The Start default is standby, for the consensus-managed path.)
 	t.Logf("Starting PostgreSQL via gRPC at %s", grpcAddr)
-	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	startResp, err := client.Start(ctx, &pb.StartRequest{AsPrimary: true})
 	if err != nil {
 		return fmt.Errorf("call to Start RPC failed: %w", err)
 	}

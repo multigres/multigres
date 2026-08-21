@@ -32,7 +32,7 @@
   {
     "comment": "rowtypes - Statement 7",
     "query": "select '(Joe,\"von\"\"Blow\")'::fullname, E'(Joe,d\\\\\\\\Blow)'::fullname",
-    "expected": "SELECT CAST('(Joe,\"von\"\"Blow\")' AS fullname), CAST('(Joe,d\\\\Blow)' AS fullname)"
+    "expected": "SELECT CAST('(Joe,\"von\"\"Blow\")' AS fullname), CAST(E'(Joe,d\\\\\\\\Blow)' AS fullname)"
   },
   {
     "comment": "rowtypes - Statement 8",

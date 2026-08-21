@@ -145,6 +145,55 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 	assert.Equal(t, body, readBody)
 }
 
+// TestReadMessageBody verifies the generic cross-package message-body reader:
+// a known-length body reads back exactly, a zero length reads nothing, a
+// negative length is rejected, and EOF mid-read is surfaced.
+func TestReadMessageBody(t *testing.T) {
+	t.Run("reads a known-length body", func(t *testing.T) {
+		conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader([]byte("hello world")))}
+		body, err := conn.ReadMessageBody(11)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("hello world"), body)
+	})
+
+	t.Run("zero length returns nil", func(t *testing.T) {
+		conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(nil))}
+		body, err := conn.ReadMessageBody(0)
+		require.NoError(t, err)
+		assert.Nil(t, body)
+	})
+
+	t.Run("negative length is rejected", func(t *testing.T) {
+		conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(nil))}
+		_, err := conn.ReadMessageBody(-1)
+		assert.ErrorContains(t, err, "invalid message length")
+	})
+
+	t.Run("EOF mid-read is surfaced", func(t *testing.T) {
+		conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader([]byte("short")))}
+		_, err := conn.ReadMessageBody(10)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "failed to read message body")
+	})
+}
+
+func TestReadMessageLengthRejectsOversizedFrameBeforeAllocation(t *testing.T) {
+	var maximum [4]byte
+	binary.BigEndian.PutUint32(maximum[:], protocol.MaxFrontendMessageBodyLength+4)
+	conn := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(maximum[:]))}
+	bodyLength, err := conn.ReadMessageLength()
+	require.NoError(t, err)
+	assert.Equal(t, int(protocol.MaxFrontendMessageBodyLength), bodyLength)
+
+	var oversized [4]byte
+	binary.BigEndian.PutUint32(oversized[:], protocol.MaxFrontendMessageBodyLength+4+1)
+	conn = &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(oversized[:]))}
+	_, err = conn.ReadMessageLength()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errFrontendMessageTooLarge)
+	assert.ErrorContains(t, err, "exceeds maximum")
+}
+
 // TestWritePacketSizeMismatchPanics verifies that writePacket panics
 // when the encoded byte count doesn't match the bodyLen passed to
 // startPacket — the safety net that catches sizing-arithmetic bugs in

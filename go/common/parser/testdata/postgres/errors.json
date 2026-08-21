@@ -242,7 +242,7 @@
   {
     "comment": "errors - Statement 49",
     "query": "drop operator === (int4)",
-    "error": "Use NONE to denote the missing argument of a unary operator."
+    "error": "missing argument"
   },
   {
     "comment": "errors - Statement 50",
@@ -252,7 +252,7 @@
   {
     "comment": "errors - Statement 51",
     "query": "drop operator = (nonesuch)",
-    "error": "Use NONE to denote the missing argument of a unary operator."
+    "error": "missing argument"
   },
   {
     "comment": "errors - Statement 52",

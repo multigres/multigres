@@ -51,8 +51,9 @@ type PoolConfig struct {
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
 
-	// SettingsCache interns gateway session settings for release-boundary
-	// connstate sync when a connection is marked untrusted.
+	// SettingsCache interns the gateway's authoritative session settings at
+	// clean release so the backend re-enters the pool in the right settings
+	// bucket.
 	SettingsCache *connstate.SettingsCache
 }
 
@@ -345,11 +346,13 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	return nil
 }
 
-// release is called when a reserved connection is released. Clean releases run
-// the release-boundary finalizer before the backend can re-enter the regular
-// pool; reasons that prevent reuse taint/close instead. OnRelease is
-// intentionally invoked after finalization/recycle so finalizing backends
-// remain counted as lent.
+// release is called when a reserved connection is released. Clean releases
+// stamp the gateway's authoritative session settings onto the connection's
+// state before the backend re-enters the regular pool — the gateway tracks
+// every session mutation, so at release the backend's real session state
+// equals that map and no reconciliation SQL is needed; reasons that prevent
+// reuse taint/close instead. OnRelease is intentionally invoked after
+// relabel/recycle so finalizing backends remain counted as lent.
 func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string, cleanups []ReleaseCleanup) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
@@ -383,17 +386,25 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 		p.killCount.Add(1)
 	}
 
-	// Uncertain-state releases must never be reused.
-	if reason.preventsReuse() {
+	// Uncertain-state releases must never be reused. closeOnRelease is checked
+	// here rather than by rewriting the caller's reason so the metrics switch
+	// and the debug log keep the true release reason.
+	if reason.preventsReuse() || rc.closeOnRelease.Load() {
 		rc.pooled.Taint()
 	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
 		rc.pooled.Taint()
-	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
-		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
-			"conn_id", rc.ConnID(),
-			"reason", reason.String(),
-			"error", err)
+	} else if p.config.SettingsCache == nil {
+		// A clean release REQUIRES the relabel below: recycling with the stale
+		// acquisition-time label would hand the backend's real session state
+		// to the next same-bucket borrower. No cache means no relabel, so fail
+		// closed and replace the connection — production wiring always
+		// supplies the cache; only hand-built pools can reach this.
 		rc.pooled.Taint()
+	} else {
+		// Clean release: the gateway's map is the truth of this backend's session
+		// state. Intern it and relabel the connection so it re-enters the pool in
+		// the right settings bucket with zero SQL. An empty map relabels to clean.
+		rc.pooled.Conn.State().SetSettings(p.config.SettingsCache.GetOrCreate(gatewaySessionSettings))
 	}
 
 	// Return the underlying connection to the pool, or close/free capacity if it
@@ -422,25 +433,6 @@ func (p *Pool) runReleaseCleanups(rc *Conn, reason ReleaseReason, cleanups []Rel
 		}
 	}
 	return true
-}
-
-// finalizeCleanRelease syncs connstate to the gateway's authoritative session
-// settings when the connection was marked untrusted (e.g. after ROLLBACK TO
-// SAVEPOINT). Gateway and backend are already aligned; only the pooler's cache
-// may lie. A trusted connection needs no work.
-func (p *Pool) finalizeCleanRelease(rc *Conn, gatewaySessionSettings map[string]string) error {
-	if !rc.SessionStateUntrusted() {
-		return nil
-	}
-
-	if p.config.SettingsCache == nil {
-		return errors.New("settings cache is required for untrusted release finalization")
-	}
-
-	desired := p.config.SettingsCache.GetOrCreate(gatewaySessionSettings)
-	rc.Conn().State().SetSettings(desired)
-	rc.ClearSessionStateUntrusted()
-	return nil
 }
 
 // Close closes all reserved connections, the underlying regular pool, and the pool itself.

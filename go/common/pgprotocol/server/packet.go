@@ -16,11 +16,14 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
+
+var errFrontendMessageTooLarge = errors.New("frontend message too large")
 
 // ReadMessageType reads a single byte message type from the connection.
 // Returns 0 and io.EOF if the connection is closed gracefully.
@@ -54,7 +57,11 @@ func (c *Conn) ReadMessageLength() (int, error) {
 	if length < 4 {
 		return 0, fmt.Errorf("invalid message length: %d", length)
 	}
-	return int(length - 4), nil
+	bodyLength := length - 4
+	if bodyLength > protocol.MaxFrontendMessageBodyLength {
+		return 0, fmt.Errorf("%w: message body length %d exceeds maximum %d", errFrontendMessageTooLarge, bodyLength, protocol.MaxFrontendMessageBodyLength)
+	}
+	return int(bodyLength), nil
 }
 
 // readMessageBody reads the message body of the given length.
@@ -318,6 +325,26 @@ func (c *Conn) writeRawByte(b byte) error {
 		return c.bufferedWriter.WriteByte(b)
 	}
 	_, err := c.conn.Write([]byte{b})
+	return err
+}
+
+// WriteRawMessage writes pre-framed PostgreSQL wire bytes to the client byte
+// for byte, with no re-serialization. Used both for opaque row passthrough
+// (the block is the concatenated DataRow frames the multipooler captured
+// from the backend) and for relaying replication-protocol messages verbatim
+// (see the multigateway replication preamble). Goes through the
+// bufferedWriter if one is attached, otherwise straight to the conn. Mirrors
+// writePacket's write step but skips the startPacket sizing pass, since the
+// bytes are already framed.
+func (c *Conn) WriteRawMessage(raw []byte) error {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if c.bufferedWriter != nil {
+		_, err := c.bufferedWriter.Write(raw)
+		return err
+	}
+	_, err := c.conn.Write(raw)
 	return err
 }
 

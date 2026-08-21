@@ -1,0 +1,20 @@
+# Known pooled-backend divergences: LOAD remains blocked, LISTEN is gateway-
+# managed, and function execution can observe backend-local work_mem.
+# pg_prepared_statements result tables are normalized separately because they
+# expose scheduling-dependent internal ppstmt caches.
+--- a
++++ b
+@@ -553,0 +554,2 @@
++ERROR: invalid configuration parameter name "plpgsql.extra_foo_warnings"
++DETAIL: "plpgsql" is a reserved prefix.
+@@ -555,2 +557 @@
+-WARNING: invalid configuration parameter name "plpgsql.extra_foo_warnings", removing it
+-DETAIL: "plpgsql" is now a reserved prefix.
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+@@ -593,2 +594 @@
+-foo_event
+-(1 row)
++(0 rows)
+@@ -762 +762 @@
+-3MB
++2MB

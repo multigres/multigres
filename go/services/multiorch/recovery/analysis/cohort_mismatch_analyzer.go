@@ -195,8 +195,19 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 }
 
 // isAdditionCandidate reports whether a non-cohort pooler is healthy enough to
-// be added: it must be a non-leader REPLICA, initialized, replicating, and not
-// signaling INELIGIBLE.
+// be added: it must be a non-leader REPLICA, initialized, actively streaming
+// from the leader, and not signaling INELIGIBLE.
+//
+// The "actively streaming" requirement (walReceiverStreaming, not merely
+// primary_conninfo set + replay unpaused) is load-bearing for restore_command
+// safety: admission clears the joining member's restore_command (ReconcileCohort
+// re-issues SetPrimary, which clears it once the node is named in the rule). A
+// node still catching up from the archive (receiver not yet streaming) would be
+// stranded if we admitted it and stripped the archive out from under it. Gating
+// on an active receiver here makes "a cohort member is, by construction,
+// streaming and archive-independent" a local property of admission rather than
+// something that only holds because ReplicaNotReplicating (higher priority)
+// happens to preempt this analyzer until the receiver comes up.
 //
 // TODO: long-term, most of these checks should fold into the pooler's
 // self-reported cohort eligibility signal. The pooler is in the best position
@@ -209,14 +220,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *store.Pooler) bool {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *store.Pooler) bool {
 	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if !pa.Health().IsLastCheckValid {
-		return false
-	}
-	if !pa.IsInitialized() {
+	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby
@@ -224,8 +232,9 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *store
 	if primaryConnInfoHost(pa) == "" || !walReplayNotPaused(pa) {
 		return false
 	}
-	if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
-		return false
-	}
-	return true
+	// The WAL receiver must actually be streaming from the leader — configured
+	// + replaying also matches a node still catching up from the archive, and
+	// admitting such a node would clear its restore_command mid-catch-up. See
+	// the doc comment above.
+	return walReceiverStreaming(pa)
 }

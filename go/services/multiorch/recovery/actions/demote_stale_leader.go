@@ -88,10 +88,6 @@ func (a *DemoteStaleLeaderAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (a *DemoteStaleLeaderAction) Priority() types.Priority {
-	return types.PriorityHigh
-}
-
 func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 	// We're demoting a stale leader, so we can't require a healthy leader
 	return false

@@ -1,0 +1,218 @@
+# Known divergence (by design): the libpq fast-path FunctionCall protocol is
+# explicitly rejected by the multigateway (ErrorResponse 0A000 + ReadyForQuery,
+# session kept alive) — see go/common/pgprotocol/server/conn.go and the pgproto
+# function_call patch. psql's \lo_unlink / \lo_import / \lo_export use libpq's
+# large-object API, which drives fast-path, so those commands error here; the
+# SQL that depended on their side effects then sees empty results. lo_import /
+# lo_export additionally hit the pooler's server-filesystem-access rejection.
+# Everything else in the test (SQL-level lo_* functions) works and the session
+# survives each rejection. Fast-path passthrough is tracked as future work
+# (pg_dump with blobs / JDBC LargeObjectManager would revive it).
+--- a
++++ b
+@@ -37,11 +37,13 @@
+ (1 row)
+ 
+ \lo_unlink 42
++ERROR: fast-path function call protocol is not supported
+ \dl
+ Large objects
+ ID | Owner | Description
+-----+-------+-------------
+-(0 rows)
++----+-----------------+---------------------
++42 | regress_lo_user | the ultimate answer
++(1 row)
+ 
+ -- Load a file
+ CREATE TABLE lotest_stash_values (loid oid, fd integer);
+@@ -347,80 +349,70 @@
+ TRUNCATE lotest_stash_values;
+ \set filename :abs_srcdir '/data/tenk.data'
+ INSERT INTO lotest_stash_values (loid) SELECT lo_import(:'filename');
++ERROR: lo_import is not supported: server filesystem access is not permitted through the connection pooler
+ BEGIN;
+ UPDATE lotest_stash_values SET fd=lo_open(loid, CAST(x'20000' | x'40000' AS integer));
+ -- verify length of large object
+ SELECT lo_lseek(fd, 0, 2) FROM lotest_stash_values;
+ lo_lseek
+ ----------
+-670800
+-(1 row)
++(0 rows)
+ 
+ -- with the default BLCKSZ, LOBLKSIZE = 2048, so this positions us for a block
+ -- edge case
+ SELECT lo_lseek(fd, 2030, 0) FROM lotest_stash_values;
+ lo_lseek
+ ----------
+-2030
+-(1 row)
++(0 rows)
+ 
+ -- this should get half of the value from page 0 and half from page 1 of the
+ -- large object
+ SELECT loread(fd, 36) FROM lotest_stash_values;
+ loread
+------------------------------------------------------------------
+-AAA\011FBAAAA\011VVVVxx\0122513\01132\0111\0111\0113\01113\0111
+-(1 row)
++--------
++(0 rows)
+ 
+ SELECT lo_tell(fd) FROM lotest_stash_values;
+ lo_tell
+ ---------
+-2066
+-(1 row)
++(0 rows)
+ 
+ SELECT lo_lseek(fd, -26, 1) FROM lotest_stash_values;
+ lo_lseek
+ ----------
+-2040
+-(1 row)
++(0 rows)
+ 
+ SELECT lowrite(fd, 'abcdefghijklmnop') FROM lotest_stash_values;
+ lowrite
+ ---------
+-16
+-(1 row)
++(0 rows)
+ 
+ SELECT lo_lseek(fd, 2030, 0) FROM lotest_stash_values;
+ lo_lseek
+ ----------
+-2030
+-(1 row)
++(0 rows)
+ 
+ SELECT loread(fd, 36) FROM lotest_stash_values;
+ loread
+------------------------------------------------------
+-AAA\011FBAAAAabcdefghijklmnop1\0111\0113\01113\0111
+-(1 row)
++--------
++(0 rows)
+ 
+ SELECT lo_close(fd) FROM lotest_stash_values;
+ lo_close
+ ----------
+-0
+-(1 row)
++(0 rows)
+ 
+ END;
+ \set filename :abs_builddir '/results/lotest.txt'
+ SELECT lo_export(loid, :'filename') FROM lotest_stash_values;
+-lo_export
+------------
+-1
+-(1 row)
+-
++ERROR: lo_export is not supported: server filesystem access is not permitted through the connection pooler
+ \lo_import :filename
++could not open file "/tmp/multigres_pg_cache/builds/[RUN]/build/src/test/regress/results/lotest.txt": No such file or directory
+ \set newloid :LASTOID
+ -- just make sure \lo_export does not barf
+ \set filename :abs_builddir '/results/lotest2.txt'
+ \lo_export :newloid :filename
++ERROR: fast-path function call protocol is not supported
+ -- This is a hack to test that export/import are reversible
+ -- This uses knowledge about the inner workings of large object mechanism
+ -- which should not be used outside it. This makes it a HACK
+@@ -434,62 +426,40 @@
+ SELECT lo_unlink(loid) FROM lotest_stash_values;
+ lo_unlink
+ -----------
+-1
+-(1 row)
++(0 rows)
+ 
+ TRUNCATE lotest_stash_values;
+ \lo_unlink :newloid
++ERROR: fast-path function call protocol is not supported
+ \set filename :abs_builddir '/results/lotest.txt'
+ \lo_import :filename
++could not open file "/tmp/multigres_pg_cache/builds/[RUN]/build/src/test/regress/results/lotest.txt": No such file or directory
+ \set newloid_1 :LASTOID
+ SELECT lo_from_bytea(0, lo_get(:newloid_1)) AS newloid_2
+ \gset
++ERROR: large object 0 does not exist
+ SELECT fipshash(lo_get(:newloid_1)) = fipshash(lo_get(:newloid_2));
+-?column?
+-----------
+-t
+-(1 row)
+-
++ERROR: syntax error at or near ":"
++LINE 1: SELECT fipshash(lo_get(0)) = fipshash(lo_get(:newloid_2));
++^
+ SELECT lo_get(:newloid_1, 0, 20);
+-lo_get
+--------------------------------------------
+-8800\0110\0110\0110\0110\0110\0110\011800
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ SELECT lo_get(:newloid_1, 10, 20);
+-lo_get
+--------------------------------------------
+-\0110\0110\0110\011800\011800\0113800\011
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ SELECT lo_put(:newloid_1, 5, decode('afafafaf', 'hex'));
+-lo_put
+---------
+-
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ SELECT lo_get(:newloid_1, 0, 20);
+-lo_get
+--------------------------------------------------
+-8800\011\257\257\257\2570\0110\0110\0110\011800
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ SELECT lo_put(:newloid_1, 4294967310, 'foo');
+-lo_put
+---------
+-
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ SELECT lo_get(:newloid_1);
+-ERROR: large object read request is too large
++ERROR: large object 0 does not exist
+ SELECT lo_get(:newloid_1, 4294967294, 100);
+-lo_get
+----------------------------------------------------------------------
+-\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000foo
+-(1 row)
+-
++ERROR: large object 0 does not exist
+ \lo_unlink :newloid_1
++ERROR: fast-path function call protocol is not supported
+ \lo_unlink :newloid_2
++ERROR: fast-path function call protocol is not supported
+ -- This object is left in the database for pg_dump test purposes
+ SELECT lo_from_bytea(0, E'\\xdeadbeef') AS newloid
+ \gset
+@@ -540,7 +510,7 @@
+ ROLLBACK;
+ START TRANSACTION READ ONLY;
+ SELECT lo_import(:'filename');
+-ERROR: cannot execute lo_import() in a read-only transaction
++ERROR: lo_import is not supported: server filesystem access is not permitted through the connection pooler
+ ROLLBACK;
+ START TRANSACTION READ ONLY;
+ SELECT lo_truncate(42, 0);
+@@ -561,3 +531,5 @@
+ -- Clean up
+ DROP TABLE lotest_stash_values;
+ DROP ROLE regress_lo_user;
++ERROR: role "regress_lo_user" cannot be dropped because some objects depend on it
++DETAIL: owner of large object 42

@@ -105,18 +105,15 @@
   },
   {
     "comment": "updatable_views - Statement 25",
-    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name",
-    "expected": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name"
+    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name"
   },
   {
     "comment": "updatable_views - Statement 26",
-    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name",
-    "expected": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name"
+    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name"
   },
   {
     "comment": "updatable_views - Statement 27",
-    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name, ordinal_position",
-    "expected": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name, ordinal_position"
+    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name, ordinal_position"
   },
   {
     "comment": "updatable_views - Statement 28",

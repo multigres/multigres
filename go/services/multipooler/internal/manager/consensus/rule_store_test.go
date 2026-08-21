@@ -480,22 +480,22 @@ func mockDecidedReadResult() *sqltypes.Result {
 	)
 }
 
-// readPattern matches readCurrentRule's SELECT; casOnProposalPattern and
-// expectedTermPattern match phase 1's and phase 2's queries respectively —
+// readPattern matches readCurrentRule's SELECT; proposeWritePattern and
+// expectedTermPattern match the propose and finalize queries respectively —
 // each names a params column unique to that query, so tests can target one
 // write phase without accidentally matching another.
 const (
-	readPattern          = "SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members"
-	casOnProposalPattern = "cas_on_proposal"
-	expectedTermPattern  = "AS expected_term"
+	readPattern         = "SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members"
+	proposeWritePattern = "AS new_subterm"
+	expectedTermPattern = "AS expected_term"
 )
 
-func TestUpdateRule_Phase1WriteErrorPropagated(t *testing.T) {
+func TestUpdateRule_ProposeWriteErrorPropagated(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	rs := newMockRuleStore(mockQueryService)
 
 	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
-	mockQueryService.AddQueryPatternOnceWithError(casOnProposalPattern, errors.New("connection reset"))
+	mockQueryService.AddQueryPatternOnceWithError(proposeWritePattern, errors.New("connection reset"))
 
 	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
 	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
@@ -505,14 +505,14 @@ func TestUpdateRule_Phase1WriteErrorPropagated(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-func TestUpdateRule_Phase1ScanErrorPropagated(t *testing.T) {
+func TestUpdateRule_ProposeScanErrorPropagated(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	rs := newMockRuleStore(mockQueryService)
 
 	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
-	// Phase 1's query succeeds but returns far fewer columns than UpdateRule
+	// The propose query succeeds but returns far fewer columns than UpdateRule
 	// scans for — a malformed response, not a query error.
-	mockQueryService.AddQueryPatternOnce(casOnProposalPattern,
+	mockQueryService.AddQueryPatternOnce(proposeWritePattern,
 		mock.MakeQueryResult([]string{"decision_coordinator_term"}, [][]any{{int64(1)}}))
 
 	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
@@ -522,15 +522,15 @@ func TestUpdateRule_Phase1ScanErrorPropagated(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-func TestUpdateRule_Phase1ParseErrorPropagated(t *testing.T) {
+func TestUpdateRule_ProposeParseErrorPropagated(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	rs := newMockRuleStore(mockQueryService)
 
 	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
-	// Phase 1's query succeeds and scans cleanly, but the decision it
+	// The propose query succeeds and scans cleanly, but the decision it
 	// returns carries a durability_quorum_type buildShardRule can't parse —
 	// malformed content, not a malformed row shape.
-	mockQueryService.AddQueryPatternOnce(casOnProposalPattern, mock.MakeQueryResult(
+	mockQueryService.AddQueryPatternOnce(proposeWritePattern, mock.MakeQueryResult(
 		[]string{
 			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
@@ -555,12 +555,12 @@ func TestUpdateRule_Phase1ParseErrorPropagated(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-func TestUpdateRule_Phase2ErrorPropagated(t *testing.T) {
+func TestUpdateRule_FinalizeErrorPropagated(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	rs := newMockRuleStore(mockQueryService)
 
 	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
-	mockQueryService.AddQueryPatternOnce(casOnProposalPattern, mock.MakeQueryResult(
+	mockQueryService.AddQueryPatternOnce(proposeWritePattern, mock.MakeQueryResult(
 		[]string{
 			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",

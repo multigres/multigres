@@ -45,6 +45,14 @@ const (
 	VARCHAROID Oid = 1043 // varchar
 )
 
+// Pseudo-types
+const (
+	// UNKNOWNOID is the type PostgreSQL assigns a parameter or literal whose
+	// type it has not resolved — what a client sends for an untyped bind. Its
+	// wire representation is the plain text form, so it decodes like TEXTOID.
+	UNKNOWNOID Oid = 705 // unknown
+)
+
 // Binary types
 const (
 	BYTEAOID Oid = 17 // bytea
@@ -169,6 +177,7 @@ const (
 // Array type OIDs (arrays of the basic types)
 const (
 	BOOLARRAYOID        Oid = 1000 // boolean[]
+	BPCHARARRAYOID      Oid = 1014 // character[]
 	BYTEAARRAYOID       Oid = 1001 // bytea[]
 	CHARARRAYOID        Oid = 1002 // "char"[]
 	NAMEARRAYOID        Oid = 1003 // name[]
@@ -283,6 +292,50 @@ func TypeNameToOid(name string) Oid {
 	case "oid":
 		return OIDOID
 
+	default:
+		return InvalidOid
+	}
+}
+
+// ArrayTypeOid returns the built-in array OID for an element OID.
+func ArrayTypeOid(oid Oid) Oid {
+	switch oid {
+	case BOOLOID:
+		return BOOLARRAYOID
+	case BPCHAROID:
+		return BPCHARARRAYOID
+	case BYTEAOID:
+		return BYTEAARRAYOID
+	case CHAROID:
+		return CHARARRAYOID
+	case DATEOID:
+		return DATEARRAYOID
+	case FLOAT4OID:
+		return FLOAT4ARRAYOID
+	case FLOAT8OID:
+		return FLOAT8ARRAYOID
+	case INT2OID:
+		return INT2ARRAYOID
+	case INT4OID:
+		return INT4ARRAYOID
+	case INT8OID:
+		return INT8ARRAYOID
+	case JSONBOID:
+		return JSONBARRAYOID
+	case JSONOID:
+		return JSONARRAYOID
+	case NAMEOID:
+		return NAMEARRAYOID
+	case TEXTOID:
+		return TEXTARRAYOID
+	case TIMEOID:
+		return TIMEARRAYOID
+	case TIMESTAMPOID:
+		return TIMESTAMPARRAYOID
+	case TIMESTAMPTZOID:
+		return TIMESTAMPTZARRAYOID
+	case VARCHAROID:
+		return VARCHARARRAYOID
 	default:
 		return InvalidOid
 	}

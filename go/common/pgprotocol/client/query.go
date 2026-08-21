@@ -16,8 +16,12 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"maps"
 	"strconv"
 
 	"go.opentelemetry.io/otel/codes"
@@ -97,6 +101,26 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, 
 	var currentResult *sqltypes.Result
 
 	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+		// Handle ParameterStatus-only results (a GUC_REPORT value changed). These
+		// carry no rows/tag; a routed SET/RESET emits one, and a ROLLBACK emits the
+		// reverted values *after* CommandComplete, so attach a post-tag update to
+		// the already-finalized result rather than orphaning it.
+		if len(result.ParameterStatus) > 0 && len(result.Rows) == 0 && result.CommandTag == "" && len(result.Notices) == 0 {
+			target := currentResult
+			if target == nil && len(results) > 0 {
+				target = results[len(results)-1]
+			}
+			if target == nil {
+				currentResult = &sqltypes.Result{}
+				target = currentResult
+			}
+			if target.ParameterStatus == nil {
+				target.ParameterStatus = make(map[string]string, len(result.ParameterStatus))
+			}
+			maps.Copy(target.ParameterStatus, result.ParameterStatus)
+			return nil
+		}
+
 		// Handle notice-only results (zero-buffering notice delivery).
 		if len(result.Notices) > 0 && len(result.Rows) == 0 && result.CommandTag == "" {
 			// Accumulate notices into current result.
@@ -198,6 +222,219 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 	return c.flush()
 }
 
+// responseReadError shapes the fallback error returned when a response read
+// loop dies before ReadyForQuery. If PostgreSQL already sent a diagnostic,
+// return it unchanged so clients see PostgreSQL-compatible output; otherwise
+// surface the transport failure.
+func responseReadError(captured, readErr error) error {
+	if captured != nil {
+		return captured
+	}
+	return mterrors.Wrapf(readErr, "failed to read message")
+}
+
+// handleErrorResponse records an ErrorResponse and stops immediately for
+// FATAL/PANIC because PostgreSQL closes the session without ReadyForQuery.
+func (c *Conn) handleErrorResponse(body []byte, firstErr *error) error {
+	diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+	if *firstErr == nil {
+		*firstErr = diag
+	}
+	if !diag.IsFatal() {
+		return nil
+	}
+	_ = c.ForceClose()
+	return diag
+}
+
+// appendRawDataRow reconstructs the full PostgreSQL DataRow ('D') wire frame
+// for body and appends it to dst: the 'D' type byte, an int32 length of
+// len(body)+4 (the PostgreSQL length prefix counts itself but not the type
+// byte), then the message body. readMessage strips the 5-byte header, so this
+// rebuilds the exact bytes the backend sent, which the multigateway can write
+// to the client verbatim. Used for opaque row passthrough.
+func appendRawDataRow(dst, body []byte) []byte {
+	dst = append(dst, 'D')
+	dst = binary.BigEndian.AppendUint32(dst, uint32(len(body)+4))
+	return append(dst, body...)
+}
+
+// resultBatcher accumulates DataRow messages for streaming delivery in either
+// structured mode (parse each row into sqltypes.Row) or opaque passthrough mode
+// (keep the raw DataRow frames in one block), chosen by conn.passthroughRow.
+// It centralizes the batching that every response loop shares so opaque handling
+// lives in one place rather than being copied per loop.
+type resultBatcher struct {
+	c                *Conn
+	fields           []*query.Field
+	rows             []*sqltypes.Row
+	raw              []byte
+	rawN             int
+	rawRowInProgress bool
+	size             int
+}
+
+// addDataRow accumulates one DataRow message body. Returns any parse error
+// (only possible in structured mode).
+func (b *resultBatcher) addDataRow(body []byte) error {
+	if b.c.passthroughRow.Load() {
+		b.raw = appendRawDataRow(b.raw, body)
+		b.rawN++
+	} else {
+		row, err := b.c.parseDataRow(body)
+		if err != nil {
+			return err
+		}
+		b.rows = append(b.rows, row)
+	}
+	b.size += len(body)
+	return nil
+}
+
+// streamPassthroughDataRow reads a DataRow body directly into bounded raw
+// batches. The original PostgreSQL frame header is included in the byte stream,
+// but an individual Result may begin or end in the middle of that frame. The
+// row is counted on the batch containing its final byte.
+func (b *resultBatcher) streamPassthroughDataRow(bodyLen int, flush func()) error {
+	if !b.c.passthroughRow.Load() {
+		return errors.New("streamPassthroughDataRow called with passthrough disabled")
+	}
+
+	frameLen := bodyLen + protocol.MessageHeaderSize
+	if frameLen <= DefaultStreamingBatchSize {
+		// Preserve complete small rows and the existing multi-row batching
+		// behavior. Flush first when this row would cross the boundary.
+		if b.size > 0 && b.size+frameLen > DefaultStreamingBatchSize {
+			flush()
+		}
+		b.raw = append(b.raw, protocol.MsgDataRow)
+		b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
+		start := len(b.raw)
+		b.raw = append(b.raw, make([]byte, bodyLen)...)
+		if _, err := io.ReadFull(b.c.bufferedReader, b.raw[start:]); err != nil {
+			return err
+		}
+		b.size += frameLen
+		b.rawN++
+		if b.size >= DefaultStreamingBatchSize {
+			flush()
+		}
+		return nil
+	}
+
+	// Keep complete rows already accumulated in their own block. All blocks
+	// below belong exclusively to this oversized row, which makes zero-count
+	// intermediate fragments unambiguous and preserves row boundaries for the
+	// ordinary batching path.
+	if b.size > 0 {
+		flush()
+	}
+
+	// Preserve the exact PostgreSQL DataRow frame header stripped by the normal
+	// message reader. A PostgreSQL message length includes its four-byte length
+	// field and excludes the one-byte message type.
+	b.raw = append(b.raw, protocol.MsgDataRow)
+	b.raw = binary.BigEndian.AppendUint32(b.raw, uint32(bodyLen+4))
+	b.rawRowInProgress = true
+	b.size += protocol.MessageHeaderSize
+
+	remaining := bodyLen
+	for remaining > 0 {
+		if b.size >= DefaultStreamingBatchSize {
+			flush()
+		}
+
+		chunkLen := min(remaining, DefaultStreamingBatchSize-b.size)
+		start := len(b.raw)
+		b.raw = append(b.raw, make([]byte, chunkLen)...)
+		if _, err := io.ReadFull(b.c.bufferedReader, b.raw[start:]); err != nil {
+			return err
+		}
+		b.size += chunkLen
+		remaining -= chunkLen
+
+		if remaining == 0 {
+			b.rawN++
+			b.rawRowInProgress = false
+		}
+		if b.size >= DefaultStreamingBatchSize || remaining == 0 {
+			flush()
+		}
+	}
+	return nil
+}
+
+// readQueryResponseMessage reads the next query response message. In opaque
+// passthrough mode DataRows are consumed incrementally and may invoke flush
+// multiple times; other message types retain the complete-body behavior
+// required by parsers. dataRowStreamed reports that the DataRow body was
+// already consumed and delivered, so callers must not pass body to addDataRow.
+func (c *Conn) readQueryResponseMessage(b *resultBatcher, flush func()) (msgType byte, body []byte, dataRowStreamed bool, err error) {
+	msgType, bodyLen, err := c.readMessageHeader()
+	if err != nil {
+		return 0, nil, false, err
+	}
+	if msgType == protocol.MsgDataRow && c.passthroughRow.Load() {
+		if err := b.streamPassthroughDataRow(bodyLen, flush); err != nil {
+			return 0, nil, false, err
+		}
+		return msgType, nil, true, nil
+	}
+	body, err = c.readMessageBody(bodyLen)
+	return msgType, body, false, err
+}
+
+// overThreshold reports whether the accumulated batch has reached the streaming
+// flush size.
+func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreamingBatchSize }
+
+// flush returns a Result for the accumulated rows and resets the batch, or nil
+// if nothing is accumulated. Fields are kept for subsequent batches.
+func (b *resultBatcher) flush() *sqltypes.Result {
+	var r *sqltypes.Result
+	if b.c.passthroughRow.Load() {
+		// A fragmented DataRow may have bytes with rawN == 0, so check the
+		// byte buffer rather than the completed-row count.
+		if len(b.raw) == 0 {
+			return nil
+		}
+		r = &sqltypes.Result{
+			Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN,
+			PassthroughRowInProgress: b.rawRowInProgress,
+		}
+		b.raw = nil
+		b.rawN = 0
+	} else {
+		if len(b.rows) == 0 {
+			return nil
+		}
+		r = &sqltypes.Result{Fields: b.fields, Rows: b.rows}
+		b.rows = nil
+	}
+	b.size = 0
+	return r
+}
+
+// final returns the last Result of a result set, carrying the command tag plus
+// any remaining accumulated rows, and resets the batch (including fields).
+func (b *resultBatcher) final(tag string) *sqltypes.Result {
+	r := &sqltypes.Result{Fields: b.fields, CommandTag: tag, RowsAffected: parseRowsAffected(tag)}
+	if b.c.passthroughRow.Load() {
+		r.PassthroughBlock = b.raw
+		r.PassthroughRowCount = b.rawN
+		r.PassthroughRowInProgress = b.rawRowInProgress
+	} else {
+		r.Rows = b.rows
+	}
+	b.fields = nil
+	b.rows = nil
+	b.raw = nil
+	b.rawN = 0
+	b.rawRowInProgress = false
+	b.size = 0
+	return r
+}
+
 // processQueryResponses processes all responses to a query until ReadyForQuery.
 // The callback is invoked in a streaming fashion with batched rows:
 // - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
@@ -210,61 +447,49 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 // Context cancellation should be handled by the caller (e.g., by killing the query
 // on the server side) rather than here, to avoid leaving unread messages on the wire.
 func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
-	// Track state for current result set.
-	var currentFields []*query.Field
-	var batchedRows []*sqltypes.Row
-	var batchedSize int
+	batcher := &resultBatcher{c: c}
 
 	// Track the first error encountered. We continue processing messages to drain
 	// the connection, then return this error after ReadyForQuery.
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
-	// Does not reset currentFields as they may be needed for subsequent batches.
-	// Captures errors but does not return them - we continue draining.
+	// Does not reset fields as they may be needed for subsequent batches.
 	flushBatch := func() {
-		if len(batchedRows) == 0 || callback == nil {
-			return
-		}
-		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
-		}
-		if firstErr == nil {
+		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
-		batchedRows = nil
-		batchedSize = 0
 	}
 
 	for {
 		// Read message.
-		msgType, body, err := c.readMessage()
+		msgType, body, dataRowStreamed, err := c.readQueryResponseMessage(batcher, flushBatch)
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
-			// Fields will be included in the first batch callback.
-			currentFields, err = c.parseRowDescription(body)
+			// Fields will be included in the first batch callback. A parse
+			// failure here means the stream is desynced, so stop immediately
+			// rather than reading further from a corrupt stream.
+			fields, err := c.parseRowDescription(body)
 			if err != nil {
 				return err
 			}
+			batcher.fields = fields
 
 		case protocol.MsgDataRow:
-			row, err := c.parseDataRow(body)
-			if err != nil {
+			if dataRowStreamed {
+				break
+			}
+			// Accumulate via the shared batcher. A parse failure (structured
+			// mode only) means the stream is desynced; stop immediately.
+			if err := batcher.addDataRow(body); err != nil {
 				return err
 			}
-
-			// Add row to batch and track size.
-			batchedRows = append(batchedRows, row)
-			batchedSize += len(body)
-
-			// Flush batch if size threshold exceeded.
-			if batchedSize >= DefaultStreamingBatchSize {
+			if batcher.overThreshold() {
 				flushBatch()
 			}
 
@@ -273,23 +498,11 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			if err != nil {
 				return err
 			}
-
-			// Send final batch with CommandTag (signals end of result set).
-			// This combines any remaining rows with the command completion.
+			// Send the final batch with CommandTag (signals end of result set).
+			result := batcher.final(tag)
 			if callback != nil && firstErr == nil {
-				result := &sqltypes.Result{
-					Fields:       currentFields,
-					Rows:         batchedRows,
-					CommandTag:   tag,
-					RowsAffected: parseRowsAffected(tag),
-				}
 				firstErr = callback(ctx, result)
 			}
-
-			// Reset for next result set.
-			currentFields = nil
-			batchedRows = nil
-			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.
@@ -303,9 +516,16 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return firstErr
 
 		case protocol.MsgErrorResponse:
-			// Capture the error but continue draining until ReadyForQuery.
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			// PostgreSQL can stream DataRows and then fail partway through the
+			// statement (e.g. a division by zero on the third row), sending
+			// ErrorResponse with no CommandComplete. Those rows precede the error
+			// on the wire and must reach the client. Flush before recording the
+			// error: flushBatch is gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
+
+			// Capture nonfatal errors and drain; FATAL/PANIC ends the session.
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -335,9 +555,23 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			}
 
 		case protocol.MsgParameterStatus:
-			// Handle parameter status updates. Capture error but continue draining.
-			if firstErr == nil {
-				firstErr = c.handleParameterStatus(body)
+			// Record the update on the connection, and also stream it to the caller
+			// as a standalone Result so a routed statement that changes a
+			// GUC_REPORT parameter (SET/RESET inside a transaction, the revert on
+			// ROLLBACK) reaches the client. On the wire ParameterStatus follows
+			// CommandComplete, whose Result was already flushed, so this is emitted
+			// as its own Result — like a notice. Capture error but continue draining.
+			name, value, perr := c.recordParameterStatus(body)
+			if perr != nil {
+				if firstErr == nil {
+					firstErr = perr
+				}
+				break
+			}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &sqltypes.Result{
+					ParameterStatus: map[string]string{name: value},
+				})
 			}
 
 		default:
@@ -569,7 +803,7 @@ func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 	// Validate the parsed diagnostic. Log a warning if validation fails,
 	// but still return the diagnostic to allow lenient handling.
 	if err := diag.Validate(); err != nil {
-		slog.Warn("parsed PostgreSQL diagnostic with missing required fields",
+		slog.Warn("parsed Postgres diagnostic with missing required fields",
 			"error", err,
 			// Convert single byte to string directly (msgType is 'E' or 'N')
 			"message_type", string([]byte{msgType}),
@@ -632,6 +866,14 @@ func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
 	return c.parseNotificationResponse(body)
 }
 
+// ParseErrorResponse parses an ErrorResponse ('E') message body into a
+// *mterrors.PgDiagnostic, enabling callers that read raw messages to parse
+// error responses themselves and preserve the full diagnostic (SQLSTATE,
+// message, detail, hint, etc.) rather than discarding it.
+func (c *Conn) ParseErrorResponse(body []byte) error {
+	return c.parseError(body)
+}
+
 // WaitForNotification blocks until a NotificationResponse message is received
 // from PostgreSQL. This is used by the shared PubSubListener to read async
 // notifications on a dedicated listener connection.
@@ -661,6 +903,12 @@ func (c *Conn) WaitForNotification(ctx context.Context) (*sqltypes.Notification,
 		case protocol.MsgNoticeResponse:
 			// Ignore notices
 			continue
+		case protocol.MsgErrorResponse:
+			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+			if diag.IsFatal() {
+				_ = c.ForceClose()
+			}
+			return nil, diag
 		default:
 			return nil, fmt.Errorf("unexpected message type %c while waiting for notification", msgType)
 		}

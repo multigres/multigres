@@ -1,0 +1,40 @@
+# Known isolation-harness introspection divergence: Multigres clears per-session
+# application_name in isolationtester to avoid high-cardinality backend session
+# state. This spec's lock queries filter pg_stat_activity.application_name, so
+# they return no diagnostic rows even though the blocking behavior is verified by
+# the VPID-based wait shim.
+--- a
++++ b
+@@ -493,13 +493,9 @@
+ AND pa.application_name LIKE 'isolation/insert-conflict-specconflict/s%'
+ ORDER BY 1, 2, 3, 4;
+ 
+-application_name |locktype |mode |granted
+------------------------------------------+-------------+-------------+-------
+-isolation/insert-conflict-specconflict/s1|spectoken |ShareLock |f
+-isolation/insert-conflict-specconflict/s1|transactionid|ExclusiveLock|t
+-isolation/insert-conflict-specconflict/s2|spectoken |ExclusiveLock|t
+-isolation/insert-conflict-specconflict/s2|transactionid|ExclusiveLock|t
+-(4 rows)
++application_name|locktype|mode|granted
++----------------+--------+----+-------
++(0 rows)
+ 
+ step controller_unlock_2_4: SELECT pg_advisory_unlock(2, 4);
+ pg_advisory_unlock
+@@ -520,12 +516,9 @@
+ AND pa.application_name LIKE 'isolation/insert-conflict-specconflict/s%'
+ ORDER BY 1, 2, 3, 4;
+ 
+-application_name |locktype |mode |granted
+------------------------------------------+-------------+-------------+-------
+-isolation/insert-conflict-specconflict/s1|transactionid|ExclusiveLock|t
+-isolation/insert-conflict-specconflict/s1|transactionid|ShareLock |f
+-isolation/insert-conflict-specconflict/s2|transactionid|ExclusiveLock|t
+-(3 rows)
++application_name|locktype|mode|granted
++----------------+--------+----+-------
++(0 rows)
+ 
+ step s2_commit: COMMIT;
+ s1: NOTICE: blurt_and_lock_123() called for k1 in session 1

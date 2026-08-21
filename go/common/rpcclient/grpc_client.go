@@ -121,19 +121,6 @@ func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.consensusClient.SetPrimary(ctx, request)
 }
 
-// RewindToSource performs pg_rewind to synchronize a replica with its source.
-func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.RewindToSource(ctx, request)
-}
-
 //
 // Manager Service Methods - Status and Monitoring
 //
@@ -211,19 +198,6 @@ func (c *Client) Backup(ctx context.Context, pooler *clustermetadatapb.Multipool
 	return conn.managerClient.Backup(ctx, request)
 }
 
-// RestoreFromBackup restores from a backup.
-func (c *Client) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.RestoreFromBackup(ctx, request)
-}
-
 // GetBackups retrieves backup information.
 func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
@@ -280,6 +254,33 @@ func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.Mu
 // Manager Service Methods - PostgreSQL Restart Control
 //
 
+// ResignLeadership gracefully resigns the pooler from leadership for a planned failover.
+func (c *Client) ResignLeadership(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ResignLeadership(ctx, request)
+}
+
+// ReconcileFollowers declares the full set of cohort-eligible follower members
+// the primary should hold per-follower physical replication slots for.
+func (c *Client) ReconcileFollowers(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ReconcileFollowers(ctx, request)
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
@@ -291,6 +292,23 @@ func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *cluster
 	}()
 
 	return conn.managerClient.SetPostgresRestartsEnabled(ctx, request)
+}
+
+//
+// Manager Service Methods - PostgreSQL Configuration Reload
+//
+
+// ReloadConfig triggers a PostgreSQL configuration reload on a pooler and verifies the result.
+func (c *Client) ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ReloadConfig(ctx, request)
 }
 
 //

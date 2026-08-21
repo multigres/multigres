@@ -166,6 +166,11 @@ type QueryService interface {
 	// Returns ReservedState with the authoritative reservation state from the multipooler.
 	// If ReservedConnectionId is zero, the COPY connection was released (no other reasons remain).
 	//
+	// On a PG-level error, a notices-only *sqltypes.Result may accompany the
+	// non-nil error: notices PostgreSQL delivered before the ErrorResponse
+	// (e.g. trigger RAISE NOTICE on the failing row). Callers should emit
+	// them before surfacing the error to preserve NOTICE-then-ERROR order.
+	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   target: Target specifying tablegroup, shard, and pooler type
@@ -245,6 +250,11 @@ type QueryService interface {
 	//     transaction reservation active on the same backend.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
+	//   rollbackSessionSettings: the settings map that is true if the
+	//     transaction ends in a rollback (the gateway's pre-BEGIN snapshot);
+	//     nil when the caller has no transaction frame. The multipooler labels
+	//     the released backend with this map on any rollback outcome —
+	//     including a COMMIT request PostgreSQL concluded as a rollback.
 	ConcludeTransaction(
 		ctx context.Context,
 		target *query.Target,
@@ -253,6 +263,7 @@ type QueryService interface {
 		releasePortalNames []string,
 		releaseAllPortals bool,
 		chain bool,
+		rollbackSessionSettings map[string]string,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes
@@ -274,18 +285,38 @@ type QueryService interface {
 		options *query.ExecuteOptions,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
-	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
-	// Used during client disconnect cleanup. The multipooler handles all cleanup internally:
-	// transaction rollback, COPY abort, portal release. If any cleanup step fails,
-	// the connection is tainted and closed so the pool creates a fresh one.
+	// ReleaseReservedConnection releases a reserved connection. The multipooler
+	// handles all cleanup internally: transaction rollback, COPY abort, temp
+	// table discard, advisory unlock, portal release. If any cleanup step
+	// fails, the connection is tainted and closed so the pool creates a fresh one.
+	//
+	// keepStickyReservations, when true, leaves the connection reserved
+	// instead of returning it to the pool if a sticky reason (no PostgreSQL
+	// command undoes it, currently only setseed's ReasonSetSeed) remains
+	// after cleanup. Real client-disconnect cleanup always passes false.
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   target: Target specifying tablegroup, shard, and pooler type
 	//   options: Execute options including reserved connection ID
+	//   keepStickyReservations: preserve the reservation if only a sticky reason remains
+	//
+	// Returns the still-reserved state if a sticky reason kept the connection
+	// reserved, nil otherwise.
 	ReleaseReservedConnection(
 		ctx context.Context,
 		target *query.Target,
 		options *query.ExecuteOptions,
-	) error
+		keepStickyReservations bool,
+	) (*query.ReservedState, error)
+
+	// StreamReplication opens a replication tunnel to the pooler, sends the init
+	// message, waits for the backend to be opened (Ready), and returns the live
+	// bidi stream for the caller to pump opaque bytes through. Routing the init
+	// to the correct pooler and pumping the byte stream are the caller's
+	// responsibility.
+	StreamReplication(
+		ctx context.Context,
+		init *multipoolerpb.StreamReplicationInit,
+	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
 }

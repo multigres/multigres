@@ -20,6 +20,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -73,9 +74,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		Multipooler:      pooler,
-		IsLastCheckValid: healthy,
-		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
+		Multipooler:     pooler,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized:   term > 0,
 			PostgresRunning: healthy,
@@ -175,10 +175,16 @@ func TestAppointLeader(t *testing.T) {
 	}
 }
 
-// TestAppointLeader_RejectsUndecidedMostAdvancedPosition confirms that
-// normal failover (requireOutgoingQuorum) refuses to proceed when the
-// cohort's most-advanced position is an undecided proposal.
-func TestAppointLeader_RejectsUndecidedMostAdvancedPosition(t *testing.T) {
+// TestAppointLeader_PropagatesUndecidedMostAdvancedPosition confirms that
+// normal failover (requireOutgoingQuorum) trusts the cohort's most-advanced
+// position as the outgoing baseline even when it's an undecided proposal —
+// no separate quorum-verification step is needed, since the fresh write
+// this promotion performs can't get its own synchronous ack unless the
+// position it supersedes was already durable. mp1 is both the only cohort
+// member and the only node reporting the undecided proposal, so recruitment
+// trivially succeeds; the resulting rule keeps mp1 as leader (propagation
+// never changes cohort or durability policy — see validateProposal).
+func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	coordID := &clustermetadatapb.ID{
@@ -215,14 +221,31 @@ func TestAppointLeader_RejectsUndecidedMostAdvancedPosition(t *testing.T) {
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	err := c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "propagation is not yet supported")
+	fakeClient.RecruitResponses[topoclient.ComponentIDString(mpID)] = &consensusdatapb.RecruitResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mpID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Lsn:      "0/1000000",
+				Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+			},
+		},
+	}
 
-	// No RPCs should have gone out — the rejection happens before recruitment.
-	require.Empty(t, fakeClient.PromoteRequests)
-	require.Empty(t, fakeClient.SetPrimaryRequests)
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover"))
+
+	leaderKey := topoclient.ComponentIDString(mpID)
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "Promote should be sent to mp1")
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName())
+	require.Equal(t, int64(5), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should exceed the undecided proposal's term (4) by one")
+	proposedTransition := propReq.GetProposal().GetProposedTransition()
+	require.Equal(t, int64(4), proposedTransition.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
+		"the undecided proposal is trusted as the outgoing decision")
+	require.ElementsMatch(t, []*clustermetadatapb.ID{mpID}, proposedTransition.GetProposal().GetCohortMembers(),
+		"propagation preserves the outgoing cohort — only the leader is re-proposed")
 }
 
 func TestAppointInitialLeader(t *testing.T) {
@@ -326,4 +349,220 @@ func TestAppointInitialLeader(t *testing.T) {
 			"follower %s should be informed of mp1 as leader", id.Name)
 		require.Equal(t, int64(1), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
+}
+
+// TestAppointLeader_TiebreaksByResignation verifies that poolerHealthStateLess
+// deprioritises nodes signalling REQUESTING_DEMOTION when LSNs are tied.
+//
+// Under synchronous replication all standbys ACK every write, so they routinely
+// reach the same WAL position as the primary at shutdown. When SwitchPrimary
+// quiesces the primary and multiorch triggers a new election, the resigned
+// primary and each standby may be tied at the same flush LSN. Without the
+// tiebreaker the resigned primary could be re-elected immediately, defeating
+// the purpose of the switchover.
+func TestAppointLeader_TiebreaksByResignation(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "resigned"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "standby"},
+	}
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	// Both nodes share the same flush LSN — the common outcome after a clean
+	// switchover where the primary quiesced before the standby caught up.
+	const flushLSN = "0/2000000"
+
+	resigned := createMockNode(fakeClient, "resigned", 5, flushLSN, true, outgoingRule)
+	standby := createMockNode(fakeClient, "standby", 5, flushLSN, true, outgoingRule)
+
+	// Mark the resigned node as REQUESTING_DEMOTION in its AvailabilityStatus.
+	resigned.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+		LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+			LeaderTerm: 5,
+			Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+		},
+	}
+
+	for i, mp := range []*multiorchdatapb.PoolerHealthState{resigned, standby} {
+		id := cohortIDs[i]
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:      flushLSN,
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+		}
+		fakeClient.RecruitResponses[topoclient.ComponentIDString(id)] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:      flushLSN,
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+	}
+
+	cohort := []*multiorchdatapb.PoolerHealthState{resigned, standby}
+	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_resignation_tiebreak"))
+
+	// The standby (non-resigning) should have been promoted, not the resigned primary.
+	standbyKey := topoclient.ComponentIDString(cohortIDs[1])
+	_, promoted := fakeClient.PromoteRequests[standbyKey]
+	require.True(t, promoted, "standby should be elected, not the resigning primary")
+
+	resignedKey := topoclient.ComponentIDString(cohortIDs[0])
+	_, promotedResigned := fakeClient.PromoteRequests[resignedKey]
+	require.False(t, promotedResigned, "resigned primary should NOT be re-elected when a standby is available")
+}
+
+// TestAppointLeader_TiebreaksBySlotReadiness verifies that poolerHealthStateLess
+// prefers the candidate with more failover-ready logical slots when candidates
+// are otherwise tied (same WAL position, neither resigning). Promoting the
+// slot-ready node keeps subscribers resumable across the failover instead of
+// forcing a re-seed.
+func TestAppointLeader_TiebreaksBySlotReadiness(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "slot_empty"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "slot_ready"},
+	}
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	const flushLSN = "0/2000000"
+	slotEmpty := createMockNode(fakeClient, "slot_empty", 5, flushLSN, true, outgoingRule)
+	slotReady := createMockNode(fakeClient, "slot_ready", 5, flushLSN, true, outgoingRule)
+
+	// Neither node is resigning and both are at the same WAL position — the only
+	// difference is failover-slot readiness. slot_empty is listed first, so
+	// without the slot tiebreak it would win on stable ordering.
+	slotEmpty.Status.FailoverSlotsReady = 0
+	slotReady.Status.FailoverSlotsReady = 2
+
+	for i, mp := range []*multiorchdatapb.PoolerHealthState{slotEmpty, slotReady} {
+		id := cohortIDs[i]
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:      flushLSN,
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+		}
+		fakeClient.RecruitResponses[topoclient.ComponentIDString(id)] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:      flushLSN,
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+	}
+
+	cohort := []*multiorchdatapb.PoolerHealthState{slotEmpty, slotReady}
+	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_slot_readiness_tiebreak"))
+
+	readyKey := topoclient.ComponentIDString(cohortIDs[1])
+	_, promoted := fakeClient.PromoteRequests[readyKey]
+	require.True(t, promoted, "the slot-ready node should be elected")
+
+	emptyKey := topoclient.ComponentIDString(cohortIDs[0])
+	_, promotedEmpty := fakeClient.PromoteRequests[emptyKey]
+	require.False(t, promotedEmpty, "the slot-empty node should NOT be elected when a slot-ready peer is available")
+}
+
+// TestPoolerHealthStateLess pins the comparator's ordering contract directly:
+// the leadership signal is the primary key (non-resigning before resigning) and
+// failover-slot readiness only breaks a tie between equal signals. The
+// end-to-end TiebreaksBy* tests each pin one dimension; this covers the
+// precedence between them and the fully-tied case.
+func TestPoolerHealthStateLess(t *testing.T) {
+	const (
+		active = clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE
+		resign = clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION
+	)
+
+	// node builds a ConsensusStatus and its matching PoolerHealthState carrying
+	// the given leadership signal and failover-slot-ready count.
+	node := func(name string, signal clustermetadatapb.LeadershipSignal, slotsReady int32) (*clustermetadatapb.ConsensusStatus, *multiorchdatapb.PoolerHealthState) {
+		id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
+		cs := &clustermetadatapb.ConsensusStatus{Id: id}
+		h := &multiorchdatapb.PoolerHealthState{
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{Signal: signal},
+			},
+			Status: &multipoolermanagerdatapb.Status{FailoverSlotsReady: slotsReady},
+		}
+		return cs, h
+	}
+	lessFor := func(aCS, bCS *clustermetadatapb.ConsensusStatus, aH, bH *multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		return poolerHealthStateLess(map[string]*multiorchdatapb.PoolerHealthState{
+			topoclient.ClusterIDString(aCS.GetId()): aH,
+			topoclient.ClusterIDString(bCS.GetId()): bH,
+		})
+	}
+
+	t.Run("non-resigning sorts before resigning regardless of slot readiness", func(t *testing.T) {
+		// The resigning node is slot-ready and the active node is slot-empty:
+		// the signal must still dominate so the resign intent is honored.
+		a, aH := node("active_empty", active, 0)
+		b, bH := node("resign_ready", resign, 5)
+		less := lessFor(a, b, aH, bH)
+		assert.True(t, less(a, b), "active (slot-empty) must sort before resigning (slot-ready)")
+		assert.False(t, less(b, a))
+	})
+
+	t.Run("same signal: more failover-ready slots sorts first", func(t *testing.T) {
+		a, aH := node("ready2", active, 2)
+		b, bH := node("ready0", active, 0)
+		less := lessFor(a, b, aH, bH)
+		assert.True(t, less(a, b))
+		assert.False(t, less(b, a))
+	})
+
+	t.Run("fully tied is not less in either direction", func(t *testing.T) {
+		a, aH := node("t1", active, 1)
+		b, bH := node("t2", active, 1)
+		less := lessFor(a, b, aH, bH)
+		assert.False(t, less(a, b))
+		assert.False(t, less(b, a))
+	})
 }

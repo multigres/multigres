@@ -206,6 +206,34 @@ work_mem = {{.WorkMem}}
 		assert.NotEqual(t, originalTemplate, config.PostgresConfigDefaultTmpl)
 	})
 
+	t.Run("env var sets template path", func(t *testing.T) {
+		// A base image (e.g. one bundling supautils/pgaudit/pg_cron) has no way
+		// to pass pgctld a CLI flag, only to set env vars or drop files at a
+		// known path. PgConfigTemplateEnvVar lets it opt in to a custom
+		// template without a wrapper script that injects --postgres-config-template.
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
+
+		customTemplate := "max_connections = {{.MaxConnections}}\nshared_preload_libraries = 'supautils'\n"
+		templatePath := filepath.Join(baseDir, "custom_postgresql.conf")
+		require.NoError(t, os.WriteFile(templatePath, []byte(customTemplate), 0o644))
+		t.Setenv(constants.PgConfigTemplateEnvVar, templatePath)
+
+		// Reset template before test
+		config.PostgresConfigDefaultTmpl = originalTemplate
+
+		// Create command and test validateGlobalFlags directly, without
+		// setting the --postgres-config-template flag.
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+
+		err := pc.validateGlobalFlags(nil, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, customTemplate, config.PostgresConfigDefaultTmpl)
+	})
+
 	t.Run("non-existent template file returns error", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
 		defer cleanup()

@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // ExpandToAbsolutePath converts a relative path to an absolute path.
@@ -49,7 +50,8 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 }
 
 // GeneratePostgresServerConfig writes postgresql.conf from the embedded template,
-// appends extraConfFiles verbatim (postgres last-write-wins), then reads it back.
+// appends include_if_exists directives for extraConfFiles (postgres
+// last-write-wins), then reads it back.
 func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFiles []string) (*PostgresServerConfig, error) {
 	// Create minimal config for template generation
 	if poolerDir == "" {
@@ -75,7 +77,7 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 
 	// Set Multigres default values tuned for a small instance.
 	// These can be changed in the future based on instance size/requirements
-	cnf.MaxConnections = 60
+	cnf.MaxConnections = 110
 	cnf.SharedBuffers = "64MB"
 	cnf.MaintenanceWorkMem = "16MB"
 	cnf.WorkMem = "1092kB"
@@ -87,8 +89,26 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.MaxParallelWorkersPerGather = 1
 	cnf.MaxParallelMaintenanceWorkers = 1
 	cnf.WalBuffers = "1920kB"
-	cnf.MinWalSize = "1GB"
-	cnf.MaxWalSize = "4GB"
+
+	// WAL disk-usage settings scale with the volume backing the data
+	// directory; fixed defaults let WAL alone fill small volumes (MUL-1021).
+	volBytes, err := volumeTotalBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to size WAL settings for data volume: %w", err)
+	}
+	segmentBytes, err := walSegmentSizeBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL segment size: %w", err)
+	}
+	ws, err := deriveWalSettings(volBytes, segmentBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive WAL settings: %w", err)
+	}
+	cnf.MinWalSize = fmt.Sprintf("%dMB", ws.minWalSizeMB)
+	cnf.MaxWalSize = fmt.Sprintf("%dMB", ws.maxWalSizeMB)
+	cnf.WalKeepSize = fmt.Sprintf("%dMB", ws.walKeepSizeMB)
+	cnf.MaxSlotWalKeepSize = fmt.Sprintf("%dMB", ws.maxSlotWalKeepSizeMB)
+
 	cnf.CheckpointCompletionTarget = 0.9
 	cnf.MaxWalSenders = 25
 	cnf.MaxReplicationSlots = 25
@@ -114,9 +134,18 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	return ReadPostgresServerConfig(cnf, 0)
 }
 
-// appendExtraConfFiles concatenates each path onto postgresql.conf. The
-// "## <path>" header before each block lets readers attribute lines back to
-// their source file.
+// appendExtraConfFiles appends an `include_if_exists '<absolute path>'`
+// directive for each path to the END of postgresql.conf, in order. Postgres
+// re-reads the referenced files on every server start and every
+// pg_reload_conf() SIGHUP, so a file that changes on disk (e.g. an operator
+// ConfigMap remounted read-only into the pod) takes effect on the next restart
+// or reload — unlike copying the bytes at init time, which baked a stale
+// snapshot into PGDATA/postgresql.conf.
+//
+// Emitting these after the generated template preserves postgres' last-write-
+// wins precedence, so the extra conf still overrides the template. include_if_exists
+// (not include) means a missing/unmounted file is silently skipped instead of
+// failing startup.
 func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	if len(paths) == 0 {
 		return nil
@@ -128,21 +157,20 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	}
 	defer f.Close()
 
+	if _, err := f.WriteString("\n# Live-included extra config (edit the referenced file and reload/restart to apply).\n"); err != nil {
+		return fmt.Errorf("appending extra config header: %w", err)
+	}
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		abs, err := ExpandToAbsolutePath(p)
 		if err != nil {
-			return fmt.Errorf("reading extra postgres config %q: %w", p, err)
+			return fmt.Errorf("failed when resolving extra postgres config %q: %w", p, err)
 		}
-		if _, err := fmt.Fprintf(f, "\n## %s\n", p); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
+		quoted, err := ast.QuoteConfValue(abs)
+		if err != nil {
+			return fmt.Errorf("failed to quote extra postgres config path %q: %w", p, err)
 		}
-		if _, err := f.Write(data); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
-		}
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			if _, err := f.WriteString("\n"); err != nil {
-				return fmt.Errorf("appending %q: %w", p, err)
-			}
+		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoted); err != nil {
+			return fmt.Errorf("failed to append include for %q: %w", p, err)
 		}
 	}
 	return nil
@@ -185,6 +213,14 @@ func PostgresDataDir() string {
 // PostgresSocketDir returns the default location of the PostgreSQL Unix sockets.
 func PostgresSocketDir(poolerDir string) string {
 	return path.Join(poolerDir, "pg_sockets")
+}
+
+// RestoreCommandPIDFile returns the path the restore_command wrapper (see
+// `pgctld restore-wrapper`) writes its own PID to. See
+// constants.RestoreCommandPIDFile for why the filename lives there instead of
+// here: go/services/multipooler needs it too, and can't import this package.
+func RestoreCommandPIDFile(poolerDir string) string {
+	return path.Join(poolerDir, constants.RestoreCommandPIDFile)
 }
 
 // PostgresConfigFile returns the location of the postgresql.conf file within PGDATA.

@@ -54,6 +54,38 @@ func TestValueIsNull(t *testing.T) {
 	}
 }
 
+func TestParseBool(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+		ok   bool
+	}{
+		{"true prefix t", "t", true, true},
+		{"true prefix tr", "tr", true, true},
+		{"true full", "true", true, true},
+		{"yes prefix ye", "ye", true, true},
+		{"on", "on", true, true},
+		{"one", "1", true, true},
+		{"false prefix fa", "fa", false, true},
+		{"false full", "false", false, true},
+		{"no", "no", false, true},
+		{"off prefix of", "of", false, true},
+		{"zero", "0", false, true},
+		{"padded uppercase", "  TRUE  ", true, true},
+		{"ambiguous o", "o", false, false},
+		{"invalid", "maybe", false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ParseBool(tc.in)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestValueIsTrue(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -63,6 +95,7 @@ func TestValueIsTrue(t *testing.T) {
 		{"nil is false", nil, false},
 		{"empty is false", Value{}, false},
 		{"t is true", Value("t"), true},
+		{"tr is true", Value("tr"), true},
 		{"true is true", Value("true"), true},
 		{"uppercase TRUE is true", Value("TRUE"), true},
 		{"on is true", Value("on"), true},
@@ -72,6 +105,7 @@ func TestValueIsTrue(t *testing.T) {
 		{"f is false", Value("f"), false},
 		{"false is false", Value("false"), false},
 		{"0 is false", Value("0"), false},
+		{"ambiguous o is false", Value("o"), false},
 		{"unrecognized is false", Value("maybe"), false},
 	}
 

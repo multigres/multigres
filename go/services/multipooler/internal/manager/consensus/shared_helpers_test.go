@@ -82,22 +82,23 @@ func (f *failingSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsen
 }
 
 // expectReloadConfig sets up the mock query expectations for one successful call
-// to MultipoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
-// pg_reload_conf, then read pg_conf_load_time (post) returning a different value
-// so the wait loop exits on the first poll.
+// to MultipoolerManager.reloadPostgresConfig: read the config load time (pre),
+// run pg_reload_conf, then read it (post) returning a different value so the
+// wait loop exits on the first poll. The load time is read as a Unix epoch
+// (see readConfLoadTime), so the mock returns epoch-second values.
 func expectReloadConfig(m *mock.QueryService) {
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1767225600"}}))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01+00"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1767225601"}}))
 }
 
 // expectReloadConfigFailure sets up the mock query expectations for a call to
 // MultipoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
 // The wait loop is never entered.
 func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1767225600"}}))
 	m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", reloadErr)
 }

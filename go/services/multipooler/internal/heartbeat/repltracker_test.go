@@ -25,9 +25,10 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestReplTrackerMakePrimary(t *testing.T) {
+func TestReplTrackerStartWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
@@ -39,11 +40,11 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	assert.False(t, rt.IsPrimary())
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
 	// Wait for some heartbeats to be written
@@ -53,13 +54,13 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	assert.EqualValues(t, 0, rt.WriteErrors())
 }
 
-func TestReplTrackerMakeNonPrimary(t *testing.T) {
+func TestReplTrackerStopWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-		[]string{"ts"},
-		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 	))
 
 	logger := slog.Default()
@@ -69,16 +70,16 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
 	// Wait for some heartbeats
 	time.Sleep(1 * time.Second)
 	assert.Greater(t, rt.Writes(), int64(0))
 
-	rt.makeNonPrimary()
-	assert.False(t, rt.IsPrimary())
+	rt.stopWriting()
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
 	// Capture writes count immediately after stopping to avoid race
@@ -129,41 +130,43 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	assert.Greater(t, rt.Writes(), lastWrites)
 }
 
-// TestReplTrackerOnStateChangeGating verifies the writer (primary mode) runs only
-// when this pooler is the writable leader (RoutingRolePrimary) AND serving. The
-// routing role folds in both the consensus-leader and out-of-recovery facts: a
-// pooler that is not the writable leader must NOT run the heartbeat writer, since
-// every write would fail against a read-only standby.
+// TestReplTrackerOnStateChangeGating verifies the writer runs exactly when this
+// pooler is the writable leader (RoutingRolePrimary) — independent of serving
+// status. The routing role folds in both the consensus-leader and out-of-recovery
+// facts, so a non-writable pooler must NOT run the writer (writes would fail on a
+// read-only standby). Serving status is deliberately ignored: heartbeats are an
+// internal signal (write-path proof + replica lag), so they keep flowing on a
+// writable primary even while user serving is paused (DRAINING/DISABLED).
 func TestReplTrackerOnStateChangeGating(t *testing.T) {
 	tests := []struct {
 		name          string
 		routingRole   servingstate.RoutingRole
 		servingStatus clustermetadatapb.PoolerServingStatus
-		wantPrimary   bool
+		wantWriting   bool
 	}{
 		{
 			name:          "writable leader, serving -> writer runs",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			wantPrimary:   true,
+			wantWriting:   true,
 		},
 		{
 			name:          "not the writable leader, serving -> writer stays off",
 			routingRole:   servingstate.RoutingRoleReplica,
 			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			wantPrimary:   false,
+			wantWriting:   false,
 		},
 		{
-			name:          "writable leader but draining -> writer stays off",
+			name:          "writable leader but draining -> writer still runs (heartbeats are serving-independent)",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_DRAINING,
-			wantPrimary:   false,
+			wantWriting:   true,
 		},
 		{
-			name:          "writable leader but disabled -> writer stays off",
+			name:          "writable leader but disabled -> writer still runs (heartbeats are serving-independent)",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
-			wantPrimary:   false,
+			wantWriting:   true,
 		},
 	}
 
@@ -171,9 +174,9 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			queryService := mock.NewQueryService()
 			queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-			queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-				[]string{"ts"},
-				[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+			queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+				[]string{"ts", "receive_lsn"},
+				[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 			))
 
 			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
@@ -181,21 +184,59 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 
 			err := rt.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantPrimary, rt.IsPrimary())
-			assert.Equal(t, tt.wantPrimary, rt.hw.IsOpen(), "writer open state must match primary mode")
-			assert.Equal(t, !tt.wantPrimary, rt.hr.IsOpen(), "reader runs whenever the writer does not")
+			assert.Equal(t, tt.wantWriting, rt.isWritingHeartbeats())
+			assert.Equal(t, tt.wantWriting, rt.hw.IsOpen(), "writer is open iff this tracker is writing heartbeats")
+			assert.Equal(t, !tt.wantWriting, rt.hr.IsOpen(), "reader runs whenever the writer does not")
 		})
 	}
 }
 
-func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
+// TestReplTrackerOnStateChangeIdempotent verifies repeated OnStateChange
+// notifications with the same writability don't needlessly close and reopen
+// the running component. The state manager re-notifies on every fanout
+// (including rule-only bumps that don't change writability), so without this
+// the reader/writer would flap on every reconciliation tick.
+func TestReplTrackerOnStateChangeIdempotent(t *testing.T) {
+	queryService := mock.NewQueryService()
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
+	))
+
+	rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
+	defer rt.Close()
+
+	replicaState := servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}
+	primaryState := servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}
+
+	require.NoError(t, rt.OnStateChange(context.Background(), replicaState))
+	assert.True(t, rt.hr.IsOpen())
+	reader := rt.hr
+
+	// Repeating the same (non-writable) state should not tear down and
+	// recreate the reader's running state.
+	require.NoError(t, rt.OnStateChange(context.Background(), replicaState))
+	assert.True(t, rt.hr.IsOpen())
+	assert.Same(t, reader, rt.hr, "reader instance is not replaced")
+
+	require.NoError(t, rt.OnStateChange(context.Background(), primaryState))
+	assert.True(t, rt.hw.IsOpen())
+	assert.False(t, rt.hr.IsOpen())
+
+	// Repeating the same (writable) state should not flap the writer either.
+	require.NoError(t, rt.OnStateChange(context.Background(), primaryState))
+	assert.True(t, rt.hw.IsOpen())
+}
+
+func TestReplTrackerStartAndStopWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	// Setup queries for both writer and reader
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-		[]string{"ts"},
-		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 	))
 
 	logger := slog.Default()
@@ -205,9 +246,9 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	rt := newReplTrackerWithReaderInterval(queryService, logger, shardID, poolerID, 250, 250*time.Millisecond)
 	defer rt.Close()
 
-	// Start as primary
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	// Start writing (writable leader + serving)
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 	assert.False(t, rt.hr.IsOpen())
 
@@ -216,9 +257,9 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	assert.Greater(t, rt.Writes(), int64(0))
 	assert.EqualValues(t, 0, rt.hr.Reads())
 
-	// Switch to non-primary
-	rt.makeNonPrimary()
-	assert.False(t, rt.IsPrimary())
+	// Switch to reader mode
+	rt.stopWriting()
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 	assert.True(t, rt.hr.IsOpen())
 

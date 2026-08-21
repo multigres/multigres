@@ -28,6 +28,8 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgsettings"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 // StartupMessage represents a parsed startup message from the client.
@@ -62,27 +64,30 @@ const (
 
 // parseReplicationMode interprets the `replication` startup parameter using
 // PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
-// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
-// single-character abbreviations t/f/y/n, plus the literal "database" for
-// logical-replication connections.
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, and unique
+// boolean prefixes, plus the literal "database" for logical-replication
+// connections.
 //
 // Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
 // the gateway can reject them at the same protocol stage PostgreSQL would.
 func parseReplicationMode(value string) (ReplicationMode, error) {
-	switch strings.ToLower(value) {
-	case "", "false", "off", "no", "0", "f", "n":
+	if value == "" {
 		return ReplicationOff, nil
-	case "true", "on", "yes", "1", "t", "y":
-		return ReplicationPhysical, nil
-	case "database":
-		return ReplicationLogical, nil
-	default:
-		return ReplicationOff, mterrors.NewPgError(
-			"FATAL", mterrors.PgSSInvalidParameterValue,
-			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
-			"Valid values are: \"false\", \"true\", \"database\".",
-		)
 	}
+	if strings.EqualFold(value, "database") {
+		return ReplicationLogical, nil
+	}
+	if b, ok := sqltypes.ParseBool(value); ok {
+		if b {
+			return ReplicationPhysical, nil
+		}
+		return ReplicationOff, nil
+	}
+	return ReplicationOff, mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+		"Valid values are: \"false\", \"true\", \"database\".",
+	)
 }
 
 // handleStartup handles the initial connection startup phase.
@@ -282,7 +287,7 @@ func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, neg
 			if parsed, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
 				c.tlsServerCert = parsed
 			} else {
-				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "err", err)
+				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "error", err)
 			}
 		}
 	}
@@ -502,6 +507,31 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
+	// A GUC supplied at connect time (directly or via options=-c ...) flows
+	// through GetStartupParams into the session settings applied to pooled
+	// backends, bypassing the planner's SET guard — so every guard the SET
+	// path enforces has to be enforced here too, or the connect path is a way
+	// around it. FATAL pre-auth, matching the replication parameter handling
+	// above.
+	//
+	// Two guards apply:
+	//   - cluster-managed GUCs may not be assigned at all (see
+	//     pgsettings.RestrictedGUCStartupError). Checked by NAME against every
+	//     parameter rather than a hardcoded list, so a new entry in
+	//     restrictedGUCs is covered here automatically.
+	//   - search_path is value-restricted: pg_temp in it would make a pooled
+	//     backend's temporary namespace the creation target (see
+	//     pgsettings.RejectTempSchemaSearchPath).
+	for key, value := range c.params {
+		if err := startupParamError(key, value); err != nil {
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				return mterrors.NewPgError("FATAL", diag.Code, diag.Message, "")
+			}
+			return err
+		}
+	}
+
 	c.logger.Info("startup message parsed",
 		"user", c.user,
 		"database", c.database,
@@ -509,6 +539,19 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 
 	// Now perform authentication.
 	return c.authenticate()
+}
+
+// startupParamError vets one startup parameter against the guards that also
+// apply to a SET of the same GUC, returning nil when it is acceptable. Split
+// out so the checks read as a list and a new one has an obvious home.
+func startupParamError(key, value string) error {
+	if err := pgsettings.RestrictedGUCStartupError(key); err != nil {
+		return err
+	}
+	if strings.EqualFold(key, "search_path") {
+		return pgsettings.RejectTempSchemaSearchPath(value)
+	}
+	return nil
 }
 
 // errAuthRejected signals that the auth flow rejected the client and a FATAL
@@ -770,13 +813,9 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		// Generic credential-lookup failure. If the upstream returned a
-		// PgDiagnostic (e.g. "planned failover in progress" from the
-		// pooler), forward it so the client can distinguish a transient
-		// cluster condition from a wrong password and act accordingly
-		// (retry, alert, etc.). For all other errors (transport, parse,
-		// pooler unreachable) fail closed with the opaque password-auth
-		// message so the client does not learn whether the user exists.
+		// Forward structured lookup errors, such as 57P03 when no primary is
+		// available. Other failures use the opaque auth error so clients cannot
+		// tell whether the role exists.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -822,7 +861,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			// algorithms) still permit auth, matching PG's permissive
 			// behavior. The downgrade-detection gate on overTLS still
 			// fires here.
-			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "err", hashErr)
+			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "error", hashErr)
 		} else {
 			auth.SetChannelBinding(&scram.ChannelBinding{TLSServerEndPointHash: cbHash})
 		}
@@ -853,7 +892,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 	serverFirstMessage, err := auth.HandleClientFirst(selectedMechanism, clientFirstMessage, c.user)
 	if err != nil {
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
-			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "err", err)
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "error", err)
 			return AuthOutcomeProtocolError, ferr
 		}
 		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-first-message: %w", err)
@@ -881,7 +920,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			return AuthOutcomeBadPassword, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
-			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "err", err)
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "error", err)
 			return AuthOutcomeProtocolError, ferr
 		}
 		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-final-message: %w", err)
@@ -1143,13 +1182,46 @@ func (c *Conn) sendParameterStatuses() error {
 	return nil
 }
 
-// sendParameterStatus sends a single ParameterStatus message.
+// sendParameterStatus sends a single ParameterStatus message and records the
+// value as the one the client now holds, so reportParameterStatus can tell a
+// real change from a no-op.
 func (c *Conn) sendParameterStatus(name, value string) error {
 	bodyLen := len(name) + 1 + len(value) + 1
 	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
-	return c.writePacket(buf, pos)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	if c.reportedParams == nil {
+		c.reportedParams = make(map[string]string)
+	}
+	c.reportedParams[name] = value
+	return nil
+}
+
+// reportParameterStatus sends a ParameterStatus only when value differs from
+// what this connection last told the client, mirroring PostgreSQL: a GUC_REPORT
+// parameter is re-reported on change, not on every SET that names it. A
+// parameter with no recorded value (never sent at startup, e.g. application_name)
+// is always reported the first time.
+func (c *Conn) reportParameterStatus(name, value string) error {
+	if prev, ok := c.reportedParams[name]; ok && prev == value {
+		return nil
+	}
+	return c.sendParameterStatus(name, value)
+}
+
+// reportParameterStatuses reports every changed GUC_REPORT parameter in params
+// (a no-op for an empty map), each subject to the same change-detection as
+// reportParameterStatus.
+func (c *Conn) reportParameterStatuses(params map[string]string) error {
+	for name, value := range params {
+		if err := c.reportParameterStatus(name, value); err != nil {
+			return fmt.Errorf("writing parameter status: %w", err)
+		}
+	}
+	return nil
 }
 
 // isClientAbortError reports whether a TLS handshake error looks like the

@@ -17,13 +17,17 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -36,6 +40,30 @@ const (
 	preparedStmtDeallocate                            // DEALLOCATE name
 	preparedStmtDeallocateAll                         // DEALLOCATE ALL
 )
+
+// SQLPreparedSetConfig describes a top-level set_config(...) call inside a
+// SQL-level PREPARE body. SQL EXECUTE resolves prepared-body $N references from
+// the EXECUTE argument list, then tracks the resulting session state after the
+// backend accepts the EXECUTE.
+type SQLPreparedSetConfig struct {
+	Name  string
+	Value string
+
+	ValueParam *ast.ParamRef
+
+	IsLocalLiteralTrue bool
+
+	// ValueIsNull marks a literal NULL value in the PREPARE body. set_config is
+	// not STRICT, so PostgreSQL resets the parameter and the gateway must track
+	// a REMOVAL — without this flag the zero-valued Value ("") is
+	// indistinguishable from set_config(name, '', false) and the tracker writes
+	// an empty string the backend never had, which the next pool replay pushes
+	// back as SET name = '' (rejected for most GUCs, silently empty for
+	// search_path). Mirrors planner.setConfigCall.ValueIsNull; the direct
+	// SELECT set_config(...) path carries the same information as a VAR_RESET
+	// synthetic instead.
+	ValueIsNull bool
+}
 
 // PreparedStatementPrimitive handles SQL PREPARE, EXECUTE, and DEALLOCATE
 // through gateway-managed prepared-statement consolidation.
@@ -65,6 +93,22 @@ type PreparedStatementPrimitive struct {
 	// name to the gateway canonical name, then let PostgreSQL evaluate/cast the
 	// argument expressions itself.
 	executeStmt *ast.ExecuteStmt
+
+	// setConfigs are visible top-level set_config(...) calls found in the
+	// prepared statement body. They are applied by PostgreSQL as part of EXECUTE;
+	// the gateway mirrors session-scoped effects only after EXECUTE succeeds.
+	setConfigs []SQLPreparedSetConfig
+
+	// bodyOverride, when set, replaces the prepared statement's registered body
+	// for the query sent to the backend. The planner sets it for an EXECUTE on an
+	// UNPINNED session whose body carries a session-persisting set_config(...,
+	// false): the override is the same body with each such call's is_local flipped
+	// to true, so the pooled backend reverts it instead of persisting it (the
+	// gateway map + pool-rotation replay carry the value, mirroring an unpinned
+	// SET). On a pinned session the override is nil and the body runs verbatim, so
+	// the reserved backend genuinely carries the change. setConfigs (tracking) is
+	// unaffected — the value is still recorded either way.
+	bodyOverride *query.PreparedStatement
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
@@ -79,12 +123,16 @@ func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []u
 }
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
-func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt) *PreparedStatementPrimitive {
+// bodyOverride is nil for the verbatim (pinned) case; the planner passes a
+// rewritten body for the unpinned persisting-set_config case (see bodyOverride).
+func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig, bodyOverride *query.PreparedStatement) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
-		kind:        preparedStmtExecute,
-		tableGroup:  tableGroup,
-		stmtName:    stmt.Name,
-		executeStmt: stmt,
+		kind:         preparedStmtExecute,
+		tableGroup:   tableGroup,
+		stmtName:     stmt.Name,
+		executeStmt:  stmt,
+		setConfigs:   setConfigs,
+		bodyOverride: bodyOverride,
 	}
 }
 
@@ -111,14 +159,14 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch p.kind {
 	case preparedStmtPrepare:
 		return p.executePrepare(ctx, conn, callback)
 	case preparedStmtExecute:
-		return p.executeExecute(ctx, exec, conn, state, callback)
+		return p.executeExecute(ctx, exec, conn, state, nil, info, callback)
 	case preparedStmtDeallocate:
 		return p.executeDeallocate(ctx, conn, callback)
 	case preparedStmtDeallocateAll:
@@ -158,6 +206,8 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName)
@@ -168,11 +218,171 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return fmt.Errorf("internal error: execute statement AST missing for statement \"%s\"", p.stmtName)
 	}
 
-	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, psi.PreparedStatement)
+	// On an unpinned session with a persisting set_config in the body, the
+	// planner supplies a rewritten body (is_local flipped to true) so the pooled
+	// backend reverts it; otherwise the registered body runs verbatim.
+	body := psi.PreparedStatement
+	if p.bodyOverride != nil {
+		body = p.bodyOverride
+	}
+	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, body)
 	if err != nil {
 		return err
 	}
-	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, PlanExecInfo{}, callback)
+
+	trackActions, callInfo, err := p.prepareSetConfigTracking(conn, state, portalInfo, info)
+	if err != nil {
+		return err
+	}
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
+		return err
+	}
+	for _, action := range trackActions {
+		action()
+	}
+	return nil
+}
+
+func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
+) ([]func(), PlanExecInfo, error) {
+	if len(p.setConfigs) == 0 {
+		return nil, info, nil
+	}
+
+	var actions []func()
+	for _, sc := range p.setConfigs {
+		resolved, err := p.resolvePreparedSetConfig(sc, portalInfo)
+		if err != nil {
+			return nil, info, err
+		}
+		if !resolved.shouldTrack {
+			continue
+		}
+		if resolved.isReset {
+			// EXECUTE arg was NULL: PostgreSQL cleared the parameter, so drop
+			// the tracked entry rather than writing a value.
+			name := resolved.name
+			actions = append(actions, func() { resetTrackedSessionVariable(state, name) })
+			continue
+		}
+		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		if err != nil {
+			return nil, info, err
+		}
+		actions = append(actions, action)
+	}
+	return actions, info, nil
+}
+
+func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
+	isLocal := sc.IsLocalLiteralTrue
+
+	// Resolve the value once, from whichever source carries it: a literal NULL
+	// the planner recorded at PREPARE time, an EXECUTE argument (which may
+	// itself be NULL), or a plain literal. Both NULL sources must converge here
+	// — gating only on ValueParam would leave a literal NULL looking like an
+	// explicit empty string and track a value PostgreSQL never set.
+	value := sc.Value
+	valueIsNull := sc.ValueIsNull
+	if sc.ValueParam != nil {
+		v, isNull, err := p.resolveExecuteArgAsTextOrNull(sc.ValueParam, portalInfo, "set_config value argument")
+		if err != nil {
+			return resolvedSetConfig{}, err
+		}
+		value, valueIsNull = v, isNull
+	}
+
+	// search_path is value-restricted (see pgsettings.RejectTempSchemaSearchPath):
+	// the EXECUTE argument is the one place a prepared set_config value first
+	// becomes known, so it is vetted here — before the untracked early return
+	// below, mirroring resolveSetConfig on the wire-protocol path. The name is
+	// always a literal in a PREPARE body (bound names are rejected at PREPARE
+	// time by validateSQLPreparedSetConfigs). A NULL value resets search_path to
+	// its server/admin-configured default, which can never carry a
+	// client-injected pg_temp — nothing to vet.
+	if strings.EqualFold(sc.Name, "search_path") && !valueIsNull {
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return resolvedSetConfig{}, err
+		}
+	}
+
+	if isLocal && !handler.IsGatewayManagedVariable(sc.Name) {
+		return resolvedSetConfig{shouldTrack: false}, nil
+	}
+
+	if valueIsNull {
+		// set_config(name, NULL, false) resets the parameter (it is not STRICT),
+		// so track a removal. Gateway-managed variables stay fail-closed — no
+		// per-variable reset primitive exists for them. (Unreachable in practice:
+		// validateSQLPreparedSetConfigs rejects a GMV in a PREPARE body outright.)
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", sc.Name, sc.Name))
+		}
+		return resolvedSetConfig{name: sc.Name, isLocal: isLocal, shouldTrack: true, isReset: true}, nil
+	}
+
+	return resolvedSetConfig{name: sc.Name, value: value, isLocal: isLocal, shouldTrack: true}, nil
+}
+
+func (p *PreparedStatementPrimitive) resolveExecuteArgAsTextOrNull(pr *ast.ParamRef, portalInfo *preparedstatement.PortalInfo, callSite string) (string, bool, error) {
+	arg, err := p.executeArg(pr, callSite)
+	if err != nil {
+		return "", false, err
+	}
+	return executeArgAsTextOrNull(arg, portalInfo, callSite)
+}
+
+func (p *PreparedStatementPrimitive) executeArg(pr *ast.ParamRef, callSite string) (ast.Node, error) {
+	if p.executeStmt == nil || p.executeStmt.Params == nil || pr.Number <= 0 || pr.Number > p.executeStmt.Params.Len() {
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s references prepared parameter $%d but EXECUTE supplies %d argument(s)", callSite, pr.Number, executeArgCount(p.executeStmt)))
+	}
+	return p.executeStmt.Params.Items[pr.Number-1], nil
+}
+
+func executeArgCount(stmt *ast.ExecuteStmt) int {
+	if stmt == nil || stmt.Params == nil {
+		return 0
+	}
+	return stmt.Params.Len()
+}
+
+// executeArgAsTextOrNull renders a SQL EXECUTE argument as text, reporting a
+// NULL argument via the flag rather than an error so callers can mirror
+// PostgreSQL's NULL semantics (for set_config, a reset to the default).
+func executeArgAsTextOrNull(arg ast.Node, portalInfo *preparedstatement.PortalInfo, callSite string) (string, bool, error) {
+	switch v := unwrapTypeCastNode(arg).(type) {
+	case *ast.ParamRef:
+		if portalInfo == nil {
+			return "", false, mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+		}
+		return preparedstatement.DecodeBindAsTextOrNull(portalInfo, v, callSite)
+	case *ast.A_Const:
+		if v.Isnull {
+			return "", true, nil
+		}
+		return extractConstValue(v), false, nil
+	case *ast.String:
+		return v.SVal, false, nil
+	case *ast.Integer:
+		return strconv.Itoa(v.IVal), false, nil
+	default:
+		return "", false, mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+	}
+}
+
+func unwrapTypeCastNode(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok {
+			return n
+		}
+		n = tc.Arg
+	}
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
@@ -209,13 +419,18 @@ func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
-	_ *preparedstatement.PortalInfo,
+	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	switch p.kind {
+	case preparedStmtExecute:
+		return p.executeExecute(ctx, exec, conn, state, portalInfo, info, callback)
+	default:
+		return p.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+	}
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }
@@ -257,7 +472,11 @@ func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
 		if s, ok := lastItem.(*ast.String); ok {
 			name = s.SVal
 		}
-		oids = append(oids, uint32(ast.TypeNameToOid(name)))
+		oid := ast.TypeNameToOid(name)
+		if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+			oid = ast.ArrayTypeOid(oid)
+		}
+		oids = append(oids, uint32(oid))
 	}
 	return oids
 }

@@ -334,3 +334,22 @@ func AssertActionLockHeld(ctx context.Context) error {
 
 	return nil
 }
+
+// CarryLock copies the action-lock ownership marker from src onto dst (if src
+// holds one) and returns the augmented context; it is a no-op returning dst when
+// src holds no lock.
+//
+// It exists so a context detached from the caller's cancellation (e.g. one built
+// with ctxutil.Detach, which drops all context values) can keep proving ownership
+// of a lock that was acquired on the request context. This lets a long-running,
+// must-complete operation — such as a pg_rewind that has to outlive the caller's
+// RPC deadline — continue to hold the action lock (so the monitor cannot act
+// underneath it) while running deadline-immune. The same *actionLockValue is
+// shared between the two contexts, so the caller's Release still releases the one
+// lock and AssertActionLockHeld observes the release on both.
+func CarryLock(dst, src context.Context) context.Context {
+	if val, ok := src.Value(actionLockKey{}).(*actionLockValue); ok {
+		return context.WithValue(dst, actionLockKey{}, val)
+	}
+	return dst
+}

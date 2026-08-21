@@ -71,11 +71,12 @@ type FakeClient struct {
 	// request payload for tests that need to assert on operation/IDs.
 	LastUpdateConsensusRuleRequest      *multipoolermanagerdatapb.UpdateConsensusRuleRequest
 	BackupResponses                     map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse
-	RestoreFromBackupResponses          map[topoclient.ComponentID]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                 map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse
-	RewindToSourceResponses             map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse
+	ResignLeadershipResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse
+	ReconcileFollowersResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
+	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[topoclient.ComponentID]error
@@ -115,11 +116,12 @@ func NewFakeClient() *FakeClient {
 		StatusResponses:                     make(map[topoclient.ComponentID]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
 		UpdateConsensusRuleResponses:        make(map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse),
 		BackupResponses:                     make(map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse),
-		RestoreFromBackupResponses:          make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                 make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
-		RewindToSourceResponses:             make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse),
+		ResignLeadershipResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse),
+		ReconcileFollowersResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
+		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
 		RecruitDelays:                       make(map[topoclient.ComponentID]time.Duration),
 		RecruitGates:                        make(map[topoclient.ComponentID]chan struct{}),
@@ -188,6 +190,20 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID topoclient.ComponentID,
 		Response: resp,
 		Delay:    delay,
 	}
+}
+
+// SetResignLeadershipResponse sets a ResignLeadership response for a pooler.
+func (f *FakeClient) SetResignLeadershipResponse(poolerID topoclient.ComponentID, resp *multipoolermanagerdatapb.ResignLeadershipResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResignLeadershipResponses[poolerID] = resp
+}
+
+// SetReconcileFollowersResponse sets a ReconcileFollowers response for a pooler.
+func (f *FakeClient) SetReconcileFollowersResponse(poolerID topoclient.ComponentID, resp *multipoolermanagerdatapb.ReconcileFollowersResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ReconcileFollowersResponses[poolerID] = resp
 }
 
 // SetPostgresRestartsEnabledResponse sets a SetPostgresRestartsEnabled response for a pooler.
@@ -413,22 +429,6 @@ func (f *FakeClient) Backup(ctx context.Context, pooler *clustermetadatapb.Multi
 	return &multipoolermanagerdatapb.BackupResponse{}, nil
 }
 
-func (f *FakeClient) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("RestoreFromBackup", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.RestoreFromBackupResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.RestoreFromBackupResponse{}, nil
-}
-
 func (f *FakeClient) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("GetBackups", poolerID)
@@ -484,12 +484,12 @@ func (f *FakeClient) VerifyBackups(ctx context.Context, pooler *clustermetadatap
 }
 
 //
-// Manager Service Methods - Timeline Repair
+// Manager Service Methods - SwitchPrimary
 //
 
-func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+func (f *FakeClient) ResignLeadership(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("RewindToSource", poolerID)
+	f.logCall("ResignLeadership", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
@@ -497,10 +497,27 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.RewindToSourceResponses[poolerID]; ok {
+	if resp, ok := f.ResignLeadershipResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
+	return &multipoolermanagerdatapb.ResignLeadershipResponse{}, nil
+}
+
+// ReconcileFollowers records the call and returns a scripted or empty response.
+func (f *FakeClient) ReconcileFollowers(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ReconcileFollowers", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ReconcileFollowersResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ReconcileFollowersResponse{}, nil
 }
 
 //
@@ -521,6 +538,26 @@ func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clu
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+//
+// Manager Service Methods - PostgreSQL Configuration Reload
+//
+
+func (f *FakeClient) ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ReloadConfig", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ReloadConfigResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ReloadConfigResponse{}, nil
 }
 
 //

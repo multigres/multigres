@@ -35,8 +35,15 @@ type ConsensusPromises struct {
 	serviceID *clustermetadatapb.ID
 
 	mu sync.Mutex
-	// revocation is persisted to disk; see term_storage.go.
+	// revocation is persisted to disk; see promise_storage.go.
 	revocation *clustermetadatapb.TermRevocation
+	// recruitBlockedUntil, if non-nil, is the minimum position this pooler
+	// must reach before Recruit() may succeed — set before an operation
+	// (restore-from-backup, pg_rewind) that can silently break WAL
+	// continuity. Persisted alongside revocation; see promise_storage.go. See
+	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement; no
+	// explicit clearing here.
+	recruitBlockedUntil *clustermetadatapb.LsnPosition
 }
 
 // NewConsensusPromises creates a new ConsensusPromises manager.
@@ -53,16 +60,74 @@ func NewConsensusPromises(poolerDir string, serviceID *clustermetadatapb.ID) *Co
 // If the file doesn't exist, initializes with default values (term 0, no accepted coordinator).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusPromises) Load() (int64, error) {
-	revocation, err := cs.getRevocation()
+	file, err := cs.readPromisesFromDisk()
 	if err != nil {
-		return 0, fmt.Errorf("failed to load consensus term: %w", err)
+		return 0, fmt.Errorf("failed to load consensus promises: %w", err)
+	}
+	revocation := file.GetTermRevocation()
+	if revocation == nil {
+		revocation = &clustermetadatapb.TermRevocation{}
 	}
 
 	cs.mu.Lock()
 	cs.revocation = revocation
+	cs.recruitBlockedUntil = file.GetRecruitBlockedUntil()
 	cs.mu.Unlock()
 
 	return revocation.RevokedBelowTerm, nil
+}
+
+// GetRecruitBlockedUntil returns the minimum position this pooler must reach
+// before Recruit() may succeed, or nil if no floor is set. No action lock
+// required: a plain mu-guarded read, safe from lock-free paths (e.g.
+// building a cached ConsensusStatus), mirroring GetReplicationPrimary.
+func (cs *ConsensusPromises) GetRecruitBlockedUntil() *clustermetadatapb.LsnPosition {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cloneRecruitBlockedUntil(cs.recruitBlockedUntil)
+}
+
+// SetRecruitBlockedUntil records the minimum position this pooler must reach
+// before Recruit() may succeed. Requires the action lock (ctx must be an
+// action-lock context).
+func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *clustermetadatapb.LsnPosition) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if err := cs.persistLocked(nil, pos); err != nil {
+		return fmt.Errorf("failed to save recruit position floor: %w", err)
+	}
+	cs.recruitBlockedUntil = cloneRecruitBlockedUntil(pos)
+	return nil
+}
+
+// persistLocked writes both promises to disk in one file. Pass nil for
+// whichever field isn't changing to preserve its current in-memory value —
+// safe because neither promise is ever meant to be explicitly cleared back
+// to nil (revocation only grows; recruitBlockedUntil's "no explicit
+// clearing" is documented on the struct field). Must be called with cs.mu
+// held; does not itself update in-memory state.
+func (cs *ConsensusPromises) persistLocked(revocation *clustermetadatapb.TermRevocation, floor *clustermetadatapb.LsnPosition) error {
+	if revocation == nil {
+		revocation = cs.revocation
+	}
+	if floor == nil {
+		floor = cs.recruitBlockedUntil
+	}
+	return cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
+		TermRevocation:      revocation,
+		RecruitBlockedUntil: floor,
+	})
+}
+
+// cloneRecruitBlockedUntil creates a deep copy of an LsnPosition.
+func cloneRecruitBlockedUntil(pos *clustermetadatapb.LsnPosition) *clustermetadatapb.LsnPosition {
+	if pos == nil {
+		return nil
+	}
+	return proto.Clone(pos).(*clustermetadatapb.LsnPosition)
 }
 
 // GetInconsistentRevocation returns a copy of the current term revocation for monitoring.
@@ -127,7 +192,7 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
-	if err := cs.setRevocation(newRevocation); err != nil {
+	if err := cs.persistLocked(newRevocation, nil); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}

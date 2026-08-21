@@ -229,6 +229,72 @@ func TestAsyncNotificationRace(t *testing.T) {
 	}
 }
 
+func TestAsyncNotificationFlushPreservesFIFO(t *testing.T) {
+	c, netConn := newRaceTestConn()
+	asyncCh := c.EnableAsyncNotifications(c.ctx)
+	defer func() {
+		c.StopAsyncNotifications()
+		c.cancel()
+	}()
+
+	// Hold the packet lock until the worker has dequeued the first notification.
+	// The remaining notifications and a synchronous flush then queue behind that
+	// in-flight write. A second channel consumer could write 2,3,4 before 1.
+	c.bufMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			c.bufMu.Unlock()
+		}
+	}()
+	asyncCh <- &sqltypes.Notification{PID: 1, Channel: "fifo"}
+	require.Eventually(t, func() bool { return len(asyncCh) == 0 }, time.Second, time.Millisecond)
+	for pid := int32(2); pid <= 4; pid++ {
+		asyncCh <- &sqltypes.Notification{PID: pid, Channel: "fifo"}
+	}
+
+	flushDone := make(chan error, 1)
+	go func() { flushDone <- c.FlushPendingNotifications() }()
+	select {
+	case err := <-flushDone:
+		require.NoError(t, err)
+		t.Fatal("flush completed while the first notification write was blocked")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	c.bufMu.Unlock()
+	locked = false
+	require.NoError(t, <-flushDone)
+
+	require.Equal(t, []int32{1, 2, 3, 4}, notificationPIDs(netConn.Bytes()))
+}
+
+func TestStopAsyncNotificationsDrainsAndWaits(t *testing.T) {
+	c, netConn := newRaceTestConn()
+	asyncCh := c.EnableAsyncNotifications(c.ctx)
+	defer c.cancel()
+
+	for pid := int32(1); pid <= 4; pid++ {
+		asyncCh <- &sqltypes.Notification{PID: pid, Channel: "stop"}
+	}
+	c.StopAsyncNotifications()
+
+	wire := netConn.Bytes()
+	require.Equal(t, []int32{1, 2, 3, 4}, notificationPIDs(wire))
+	time.Sleep(10 * time.Millisecond)
+	require.Equal(t, wire, netConn.Bytes(), "notification write continued after StopAsyncNotifications returned")
+}
+
+func notificationPIDs(buf []byte) []int32 {
+	var pids []int32
+	for i := 0; i < len(buf); i += 1 + int(binary.BigEndian.Uint32(buf[i+1:i+5])) {
+		if buf[i] == protocol.MsgNotificationResponse {
+			pids = append(pids, int32(binary.BigEndian.Uint32(buf[i+5:i+9])))
+		}
+	}
+	return pids
+}
+
 // walkPackets parses a stream of pgwire backend packets (1-byte type +
 // 4-byte length-including-self + body). Returns a count of each type
 // byte seen. Errors on truncation, overrun, or any unrecognised type

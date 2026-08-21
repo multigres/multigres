@@ -20,7 +20,10 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -32,7 +35,9 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -165,6 +170,149 @@ func TestPgCtldServiceStart(t *testing.T) {
 					tt.checkResponse(t, resp)
 				}
 			}
+		})
+	}
+}
+
+// TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix covers all four
+// combinations of the two StartRequest controls on an already-initialized data
+// directory that was NOT cleanly shut down (so allow_crash_recovery has an
+// effect):
+//   - as_primary selects the start mode: false (default) writes standby.signal
+//     (recovery/standby mode); true removes it (writable primary).
+//   - allow_crash_recovery selects whether an unclean node is crash-recovered
+//     before the start; the response reports it via CrashRecoveryRan.
+func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
+	cases := []struct {
+		name                    string
+		asPrimary               bool
+		allowCrashRecovery      bool
+		suspectedDivergence     bool
+		singleUserRecoveryFails bool
+		wantStandbySignal       bool
+		wantCrashRecoveryRan    bool
+	}{
+		{
+			name:      "standby, no crash recovery",
+			asPrimary: false, allowCrashRecovery: false, suspectedDivergence: false, wantStandbySignal: true, wantCrashRecoveryRan: false,
+		},
+		// Standby, crash recovery allowed but no suspected divergence: a clean
+		// follower is recovered by the postmaster in standby mode (which follows
+		// timeline switches), not by single-user recovery, so crash_recovery_ran
+		// stays false.
+		{name: "standby, allow crash recovery, not diverged", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: false, wantStandbySignal: true, wantCrashRecoveryRan: false},
+		// Standby, crash recovery allowed and divergence suspected: single-user
+		// recovery runs (removing and recreating standby.signal) to reach the
+		// clean-shutdown state pg_rewind needs.
+		{name: "standby, allow crash recovery, suspected divergence", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
+		// Single-user recovery itself fails: Start logs the failure and proceeds
+		// best-effort (the normal start below can still bring postgres up), and the
+		// defer restores standby.signal. crashRecoveryRan is still reported true
+		// because the single-user step ran. Exercises the runCrashRecovery error branch.
+		{name: "standby, suspected divergence, single-user recovery fails", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: true, singleUserRecoveryFails: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
+		{name: "primary, no crash recovery", asPrimary: true, allowCrashRecovery: false, suspectedDivergence: false, wantStandbySignal: false, wantCrashRecoveryRan: false},
+		// Primary target: standby.signal is removed and single-user recovery never
+		// runs, even with suspected_divergence set (single-user is a standby-only
+		// concern); the postmaster crash-recovers on the normal start.
+		{name: "primary, allow crash recovery", asPrimary: true, allowCrashRecovery: true, suspectedDivergence: true, wantStandbySignal: false, wantCrashRecoveryRan: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			// Report an UNCLEAN shutdown so allow_crash_recovery actually triggers
+			// recovery (the default mock reports "shut down").
+			testutil.MockBinary(t, binDir, "pg_controldata",
+				`echo "Database cluster state:               in production"`)
+			// Optionally make single-user (`postgres --single`) crash recovery fail,
+			// to exercise Start's best-effort error path. pg_ctl start is a separate
+			// mock binary, so the normal start below still succeeds.
+			if tc.singleUserRecoveryFails {
+				testutil.MockBinary(t, binDir, "postgres",
+					`if [[ "$*" == *"--single"* ]]; then echo "mock single-user recovery failure" >&2; exit 1; fi; exit 0`)
+			}
+			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+			// Initialized data dir, plus a pre-existing standby.signal so we can
+			// observe as_primary=true removing it and as_primary=false keeping it.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, constants.StandbySignalFile), []byte(""), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			ctx := context.Background()
+			resp, err := service.Start(ctx, &pb.StartRequest{
+				AsPrimary:           tc.asPrimary,
+				AllowCrashRecovery:  tc.allowCrashRecovery,
+				SuspectedDivergence: tc.suspectedDivergence,
+			})
+			// Stop the mock postgres (pg_ctl start backgrounds a sleep) on cleanup.
+			defer func() { _, _ = service.Stop(ctx, &pb.StopRequest{Mode: "fast"}) }()
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			_, statErr := os.Stat(filepath.Join(dataDir, constants.StandbySignalFile))
+			if tc.wantStandbySignal {
+				assert.NoError(t, statErr, "standby.signal must be present for as_primary=%v", tc.asPrimary)
+			} else {
+				assert.True(t, os.IsNotExist(statErr), "standby.signal must be absent for as_primary=%v", tc.asPrimary)
+			}
+			assert.Equal(t, tc.wantCrashRecoveryRan, resp.GetCrashRecoveryRan(),
+				"CrashRecoveryRan for allow_crash_recovery=%v on an unclean node", tc.allowCrashRecovery)
+		})
+	}
+}
+
+// TestPgCtldServiceStart_StandbySignalError exercises the two error-return
+// branches of the Start handler's standby.signal step: as_primary=false must
+// surface a createStandbySignal failure and as_primary=true a removeStandbySignal
+// failure, in both cases returning an error instead of starting postgres. A
+// standby.signal path that is a NON-EMPTY directory triggers both: os.WriteFile
+// fails (the path is a directory) and os.Remove fails (directory not empty), and
+// neither error is IsNotExist.
+func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
+	cases := []struct {
+		name      string
+		asPrimary bool
+	}{
+		{name: "standby start, createStandbySignal fails", asPrimary: false},
+		{name: "primary start, removeStandbySignal fails", asPrimary: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			// Initialized data dir (PG_VERSION present) so Start proceeds past the
+			// not-initialized guard to the standby.signal step.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+			// Make standby.signal a non-empty directory so the file operation
+			// as_primary selects fails before postgres is ever started.
+			signalDir := filepath.Join(dataDir, constants.StandbySignalFile)
+			require.NoError(t, os.MkdirAll(signalDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(signalDir, "child"), []byte(""), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			resp, err := service.Start(context.Background(), &pb.StartRequest{AsPrimary: tc.asPrimary})
+			require.Error(t, err, "Start must fail when the standby.signal operation fails")
+			assert.Nil(t, resp)
+			assert.Contains(t, err.Error(), "standby.signal")
 		})
 	}
 }
@@ -711,4 +859,74 @@ func TestPgCtldService_StopRewindStart(t *testing.T) {
 // testLogger returns a no-op logger for testing
 func testLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
+	t.Run("no pidfile", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_no_pidfile")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+	})
+
+	t.Run("stale pidfile referencing an already-exited process", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_stale_pidfile")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// Spawn and fully wait on a short-lived process so its PID is guaranteed
+		// to no longer be running by the time we reference it.
+		cmd := exec.Command("true")
+		require.NoError(t, cmd.Run())
+		stalePID := cmd.Process.Pid
+
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(stalePID)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+	})
+
+	t.Run("live process gets terminated", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_live")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// A process that ignores SIGTERM, to exercise the SIGKILL escalation path.
+		cmd := exec.Command("sh", "-c", "trap '' TERM; sleep 30")
+		require.NoError(t, cmd.Start())
+		t.Cleanup(func() { _, _ = executil.KillProcess(context.Background(), cmd.Process) })
+		// Reap it once killed. Our own exec.Cmd is this process's real OS-level
+		// parent (unlike production, where pgctld signals a process it did not
+		// start), so without a Wait() call here it becomes a zombie that still
+		// answers Signal(0) as "alive" forever, and StopRestoreCommand's wait
+		// loop below would never see it as gone.
+		go func() { _ = cmd.Wait() }()
+
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.True(t, resp.Found)
+		assert.True(t, resp.Killed)
+
+		// Process must actually be gone (SIGTERM was ignored, so this only
+		// passes if the SIGKILL escalation ran).
+		err = cmd.Process.Signal(syscall.Signal(0))
+		assert.Error(t, err, "process should no longer exist after StopRestoreCommand")
+	})
 }

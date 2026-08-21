@@ -125,19 +125,12 @@ table falls back to the silent-empty behaviour.
 
 ## Code Map
 
-- **Create-time warning** — `UnloggedWarning` primitive (table/sequence/
-  materialized-view variants) in
-  `go/services/multigateway/engine/unlogged_warning.go`, attached ahead of the
-  CREATE route by `maybeWrapUnloggedWarning` in
-  `go/services/multigateway/planner/planner.go`.
-- **Sweep logic** — `dropUnloggedTablesAfterPromotion` in
-  `go/services/multipooler/internal/manager/manager.go`, invoked from
-  `promoteStandbyToPrimary` after the node becomes a writable primary and before
-  the topology transitions to PRIMARY/SERVING.
-- **Unit tests** — `TestPromoteDropsUnloggedTables` in
-  `go/services/multipooler/internal/manager/rpc_consensus_test.go` (verifies the
-  sweep issues the drops and that a dependency-blocked drop does not fail the
-  promotion).
-- **End-to-end test** — `TestUnloggedTablesAfterFailover` in
-  `go/test/endtoend/queryserving/unlogged_test.go` (real cluster: kills
-  the primary, waits for a new one, and asserts the dropped/empty outcomes).
+- **Create-time warning**: `engine/unlogged_warning.go`, attached ahead of
+  the CREATE route by `planner/planner.go`.
+- **Sweep logic**: `manager/manager.go`, invoked after the node becomes a
+  writable primary and before the topology transitions to PRIMARY/SERVING.
+- **Unit tests**: `manager/rpc_consensus_test.go` (verifies the sweep issues
+  the drops and that a dependency-blocked drop does not fail the promotion).
+- **End-to-end test**: `test/endtoend/queryserving/unlogged_test.go` (real
+  cluster: kills the primary, waits for a new one, and asserts the
+  dropped/empty outcomes).

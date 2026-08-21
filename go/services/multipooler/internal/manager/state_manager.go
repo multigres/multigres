@@ -65,6 +65,13 @@ type StateManager struct {
 
 	// Current state lives in record.Type() / .ServingStatus(). The StateManager
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
+	//
+	// TODO: move serving status (and lifecycle status) ownership into the
+	// StateManager so the poolerRecord becomes a pure reflection of effective
+	// state rather than its source of truth — the record would register as a
+	// StateAware sink and republish in the background, and nothing in multipooler
+	// would read pm.record.* for a decision. Routing role already works this way
+	// (derived here, not stored); serving/lifecycle are the remaining SoT to flip.
 	record *poolerRecord
 
 	// pgMode is the physical postgres recovery mode (see PostgresMode), fed by the
@@ -114,6 +121,17 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 		Role: servingstate.RoutingRoleReplica,
 		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
+}
+
+// RoutingRole returns this pooler's current routing role, derived live from the
+// physical postgres mode and the consensus snapshot. This derivation is the
+// source of truth for the routing role; the record's routing_state is a
+// projection of it. Internal decisions should read the role here rather than
+// through the derived PoolerType label.
+func (ssm *StateManager) RoutingRole() clustermetadatapb.RoutingRole {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	return deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
 }
 
 // NewStateManager creates a new StateManager. consensusStatus returns the live
@@ -276,10 +294,10 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	if ssm.lastFannedOut != nil {
 		prevRoutingRole = ssm.lastFannedOut.Routing.Role
 	}
-	ssm.logger.InfoContext(ctx, "Serving state changed",
-		"routing_role", target.Routing.Role, "prev_routing_role", prevRoutingRole,
-		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
-		"postgres_mode", next.PostgresMode, "prev_postgres_mode", cur.PostgresMode)
+	ssm.logger.InfoContext(ctx, "serving state changed",
+		"routing_role", target.Routing.Role.String(), "prev_routing_role", prevRoutingRole.String(),
+		"status", target.ServingStatus.String(), "prev_status", cur.ServingStatus.String(),
+		"postgres_mode", next.PostgresMode.String(), "prev_postgres_mode", cur.PostgresMode.String())
 
 	// Fan out first so a failed transition leaves the record untouched.
 	if err := ssm.fanOutLocked(ctx, target); err != nil {
@@ -319,18 +337,19 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // or serving change. hasDrift (detect) and fixDrift (correct) derive the routing
 // role from the same inputs, so a drift can never be detected but not corrected.
 //
-// A never-fanned state and DRAINING both always report drift: DRAINING is a
-// transient drain this loop owns, and reconciling re-verifies it (completing the
-// DRAINING->SERVING transition once the node is healthy and role-aligned).
-func (ssm *StateManager) hasDrift(pgMode pgmode.Mode) bool {
+// DRAINING normally reports drift so reconciliation completes it to SERVING.
+// While divergence is suspected, DRAINING is the desired state and only role
+// drift is reconciled; this lets the monitor proceed to rewind on the next step
+// instead of repeatedly trying to serve the suspect node.
+func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) bool {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
-	if ssm.lastFannedOut == nil || ssm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_DRAINING {
+	if ssm.lastFannedOut == nil {
 		return true
 	}
 	observed := servingstate.State{
 		Routing:       deriveRoutingState(pgMode, ssm.consensusStatus()),
-		ServingStatus: ssm.record.ServingStatus(),
+		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence),
 	}
 	// Compare with sameFanout (proto-aware), not raw struct equality: the routing
 	// state carries a *RuleNumber pointer that == would compare by identity, so a
@@ -338,18 +357,24 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode) bool {
 	return !sameFanout(*ssm.lastFannedOut, observed)
 }
 
+func reconciledServingStatus(status clustermetadatapb.PoolerServingStatus, suspectedDivergence bool) clustermetadatapb.PoolerServingStatus {
+	if suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_SERVING {
+		return clustermetadatapb.PoolerServingStatus_DRAINING
+	}
+	if !suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_DRAINING {
+		return clustermetadatapb.PoolerServingStatus_SERVING
+	}
+	return status
+}
+
 // fixDrift re-applies the effective state from a freshly-observed recovery flag
-// (and the live consensus snapshot, read inside Mutate): it re-fans-out to
-// components and re-projects the record. It is the correction paired with
-// hasDrift's detection. A DRAINING status is completed to SERVING (the transient
-// drain the monitor owns); any other status is preserved (DISABLED stays
-// not-serving). Requires the action lock (asserted by Mutate).
-func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode) error {
+// and live consensus snapshot. A divergence hold forces SERVING to DRAINING;
+// otherwise a transient DRAINING state completes to SERVING. DISABLED remains
+// unchanged. Requires the action lock (asserted by Mutate).
+func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspectedDivergence bool) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgMode
-		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-		}
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, suspectedDivergence)
 	})
 }
 

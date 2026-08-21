@@ -1,0 +1,22 @@
+[
+  {
+    "comment": "ASSERT condition only",
+    "body": "BEGIN ASSERT x > 0; END",
+    "deparse": "BEGIN\nASSERT x > 0;\nEND"
+  },
+  {
+    "comment": "ASSERT with message",
+    "body": "BEGIN ASSERT x > 0, 'must be positive'; END",
+    "deparse": "BEGIN\nASSERT x > 0, 'must be positive';\nEND"
+  },
+  {
+    "comment": "ASSERT with boolean variable",
+    "body": "BEGIN ASSERT done; END",
+    "deparse": "BEGIN\nASSERT done;\nEND"
+  },
+  {
+    "comment": "ASSERT with expression message",
+    "body": "BEGIN ASSERT count(*) = 1, 'expected one row, got ' || count(*); END",
+    "deparse": "BEGIN\nASSERT count(*) = 1, 'expected one row, got ' || count(*);\nEND"
+  }
+]

@@ -41,6 +41,10 @@ type ScenarioConfig struct {
 	Duration  int    // -T flag (seconds)
 	Protocol  string // "simple" or "extended" (-M flag)
 	ConnChurn bool   // -C flag (new connection per transaction)
+	// Script, when non-empty, is custom SQL run via pgbench -f instead of the
+	// default tpcb-like workload. Used for large-result scenarios that exercise
+	// the result-row path (fetching many wide rows) rather than small-row OLTP.
+	Script string
 }
 
 // ScenarioResult holds computed metrics from a pgbench or sysbench run.
@@ -155,17 +159,36 @@ func (r *PgBenchRunner) RunScenario(ctx context.Context, t *testing.T, target su
 	}
 	logPrefix := filepath.Join(logDir, "pgbench_log")
 
+	// Spread clients across worker threads so a single pgbench thread does not
+	// become the drain bottleneck at high client counts (a slow client drain
+	// backs result data up into the gateway and pooler). pgbench requires
+	// threads <= clients; cap at NumCPU.
+	threads := scenario.Clients
+	if n := runtime.NumCPU(); threads > n {
+		threads = n
+	}
+
 	args := []string{
 		"-h", target.Host,
 		"-p", strconv.Itoa(target.Port),
 		"-U", target.User,
 		"-c", strconv.Itoa(scenario.Clients),
+		"-j", strconv.Itoa(threads),
 		"-T", strconv.Itoa(scenario.Duration),
 		"-M", scenario.Protocol,
 		"--log", "--log-prefix", logPrefix,
 	}
 	if scenario.ConnChurn {
 		args = append(args, "-C")
+	}
+	// A custom script replaces the default tpcb-like workload. Write it next to
+	// the logs so it survives for debugging, then point pgbench at it with -f.
+	if scenario.Script != "" {
+		scriptPath := filepath.Join(logDir, "script.sql")
+		if err := os.WriteFile(scriptPath, []byte(scenario.Script), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to write pgbench script: %w", err)
+		}
+		args = append(args, "-f", scriptPath)
 	}
 	args = append(args, target.DB)
 
@@ -348,6 +371,46 @@ func DefaultScenarios(duration int, clientCounts []int) []ScenarioConfig {
 		}
 	}
 
+	return scenarios
+}
+
+// LargeResultScenarios generates result-row-heavy scenarios, each a single
+// SELECT that returns many wide rows from the already-seeded pgbench_accounts
+// table (its char(84) filler column makes rows about 100 bytes on the wire).
+// These stress the gateway<->pooler result-row path (ToProto, marshal, DataRow
+// re-framing) that the default tiny-row tpcb workload never exercises.
+//
+// Enabled by PGBENCH_LARGE_RESULT_ROWS, a comma-separated list of row counts
+// (for example "1000,10000,100000"). Returns nil when unset, so it is additive
+// and off by default. Extended protocol only, since that is the client path the
+// row-path optimizations target.
+func LargeResultScenarios(duration int, clientCounts []int) []ScenarioConfig {
+	raw := strings.TrimSpace(os.Getenv("PGBENCH_LARGE_RESULT_ROWS"))
+	if raw == "" {
+		return nil
+	}
+
+	var rowCounts []int
+	for s := range strings.SplitSeq(raw, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			rowCounts = append(rowCounts, n)
+		}
+	}
+
+	var scenarios []ScenarioConfig
+	for _, rows := range rowCounts {
+		for _, clients := range clientCounts {
+			scenarios = append(scenarios, ScenarioConfig{
+				Name:     fmt.Sprintf("largeresult_%drows_%dc_extended", rows, clients),
+				Clients:  clients,
+				Duration: duration,
+				Protocol: "extended",
+				Script: fmt.Sprintf(
+					"SELECT aid, bid, abalance, filler FROM pgbench_accounts LIMIT %d;\n",
+					rows),
+			})
+		}
+	}
 	return scenarios
 }
 

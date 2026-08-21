@@ -178,12 +178,12 @@
   {
     "comment": "btree_index - Statement 37",
     "query": "explain (costs off) select proname from pg_proc where proname like E'RI\\\\_FKey%del' order by 1",
-    "expected": "EXPLAIN (COSTS false) SELECT proname FROM pg_proc WHERE proname LIKE 'RI\\_FKey%del' ORDER BY 1"
+    "expected": "EXPLAIN (COSTS false) SELECT proname FROM pg_proc WHERE proname LIKE E'RI\\\\_FKey%del' ORDER BY 1"
   },
   {
     "comment": "btree_index - Statement 38",
     "query": "select proname from pg_proc where proname like E'RI\\\\_FKey%del' order by 1",
-    "expected": "SELECT proname FROM pg_proc WHERE proname LIKE 'RI\\_FKey%del' ORDER BY 1"
+    "expected": "SELECT proname FROM pg_proc WHERE proname LIKE E'RI\\\\_FKey%del' ORDER BY 1"
   },
   {
     "comment": "btree_index - Statement 39",

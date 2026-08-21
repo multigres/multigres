@@ -50,6 +50,16 @@ type Route struct {
 	// through pooler-level consolidation before Query runs. Used for wrapped
 	// EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE).
 	ExecuteSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+
+	// KeepStructured opts this route out of opaque row passthrough, forcing the
+	// multipooler to return structured Rows even when passthrough is enabled.
+	// It is a static plan-build-time property (set at construction, no runtime
+	// input), so it lives on the primitive and is folded into the multipooler's
+	// ExecuteOptions by StreamExecute — not carried on the per-call PlanExecInfo.
+	// Set by routes whose caller reads the result rows itself rather than
+	// streaming them to the client (for example ResolveTrackSetConfig's
+	// resolve projection).
+	KeepStructured bool
 }
 
 // NewRoute creates a new Route primitive.
@@ -110,8 +120,31 @@ func (r *Route) StreamExecute(
 		r.ExecuteSQLPreparedStatement,
 		state,
 		info,
-		callback,
+		r.KeepStructured,
+		captureReportedSettings(info, callback),
 	)
+}
+
+// captureReportedSettings wraps callback so GUC_REPORT values PostgreSQL
+// attached to the routed result are also recorded onto the Sequence exchange
+// (keyed by ParameterStatus display name) for a trailing silent tracker.
+// PostgreSQL's report carries the CANONICAL value — SET datestyle = 'dmy' on
+// a backend at 'German, YMD' reports 'German, DMY' — which is what must be
+// tracked into the replayable session map; the client's partial literal
+// under-describes the composite state and would drop the style component on
+// pool rotation. The result itself is forwarded unchanged, so the
+// client-facing ParameterStatus relay is unaffected. No-op outside a
+// Sequence (nil exchange).
+func captureReportedSettings(info PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) func(context.Context, *sqltypes.Result) error {
+	if info.Exchange == nil {
+		return callback
+	}
+	return func(ctx context.Context, result *sqltypes.Result) error {
+		for name, value := range result.ParameterStatus {
+			info.Exchange.AddReportedSetting(name, value)
+		}
+		return callback(ctx, result)
+	}
 }
 
 // PortalStreamExecute reissues the portal against the route's tablegroup/shard
@@ -129,7 +162,103 @@ func (r *Route) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, callback)
+	// The portal path normally reissues the client's original prepared statement.
+	// But when this route carries a REWRITTEN query — e.g. a SessionStateBranch's
+	// unpinned is_local:=true revert — reissuing the original portal would drop
+	// the rewrite (the set_config would run is_local=false and persist on the
+	// pooled backend, leaking across clients). r.Query holds the rewritten SQL
+	// (== r.Query on a plain route, or the normalized/reverted form here); when it
+	// differs from the portal's prepared statement, run the rewritten query with
+	// the client's bind values instead. The rewrite keeps every $N in place, so
+	// the portal's binds still apply.
+	pi := portalInfo
+	if psi := portalInfo.PreparedStatementInfo; psi != nil && r.Query != "" && r.Query != psi.GetQuery() {
+		rewrittenPSI, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{
+			Name:       psi.GetName(),
+			Query:      r.Query,
+			ParamTypes: psi.GetParamTypes(),
+		})
+		if err != nil {
+			return err
+		}
+		pi = preparedstatement.NewPortalInfo(rewrittenPSI, portalInfo.Portal)
+	}
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, pi, maxRows, includeDescribe, info, r.KeepStructured, captureReportedSettings(info, callback))
+}
+
+// SilentRoute executes a gateway-synthesized statement on the target shard
+// and swallows its result rows and command tag. It exists for reconciliation
+// statements (for example the startup-parameter restore a pinned RESET
+// routes) whose response must never reach the client: the client-visible
+// response comes from a sibling primitive in the same Sequence, exactly as
+// on the unpinned probe-then-track paths. Errors still propagate, so a
+// failed reconciliation aborts the statement before any tracking runs.
+//
+// ParameterStatus is NOT swallowed: when the synthesized statement changes a
+// GUC_REPORT variable (application_name, DateStyle, TimeZone, ...),
+// PostgreSQL's report must still reach the client or its driver keeps a
+// stale — after RESET ALL restores, actively wrong — cached value. The
+// backend-canonicalized values are forwarded as their own tag-less result,
+// which the wire server turns into bare ParameterStatus messages (dropping
+// any whose value did not actually change).
+type SilentRoute struct {
+	route *Route
+}
+
+// NewSilentRoute creates a swallowed-output route for gateway-synthesized SQL.
+func NewSilentRoute(tableGroup, shard, query string) *SilentRoute {
+	return &SilentRoute{route: NewRoute(tableGroup, shard, query, nil)}
+}
+
+func (r *SilentRoute) StreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	_ []*ast.A_Const,
+	info PlanExecInfo,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return r.route.StreamExecute(ctx, exec, conn, state, nil, info,
+		func(cbCtx context.Context, result *sqltypes.Result) error {
+			if callback == nil || len(result.ParameterStatus) == 0 {
+				return nil
+			}
+			return callback(cbCtx, &sqltypes.Result{ParameterStatus: result.ParameterStatus})
+		})
+}
+
+// PortalStreamExecute runs the synthesized SQL exactly as on the simple path.
+// The client's portal carries the ORIGINAL statement, so reissuing it here
+// would execute the wrong query; the synthesized statement is gateway-built
+// with no binds and needs none of the portal machinery.
+func (r *SilentRoute) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	_ bool,
+	info PlanExecInfo,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	return r.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+}
+
+// GetQuery returns the synthesized SQL (used by tests and plan debugging).
+func (r *SilentRoute) GetQuery() string {
+	return r.route.Query
+}
+
+// GetTableGroup returns the target tablegroup.
+func (r *SilentRoute) GetTableGroup() string {
+	return r.route.TableGroup
+}
+
+// String returns a description of the silent route for debugging.
+func (r *SilentRoute) String() string {
+	return fmt.Sprintf("SilentRoute(tablegroup=%s, query=%s)", r.route.TableGroup, r.route.Query)
 }
 
 // GetTableGroup returns the target tablegroup.

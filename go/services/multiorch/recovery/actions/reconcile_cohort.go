@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -81,12 +82,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	var op multipoolermanagerdatapb.CohortUpdateOperation
+	var op multipoolermanagerdatapb.RuleOperation
 	switch problem.Code {
 	case types.ProblemPoolerNotInCohort:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD
 	case types.ProblemCohortMemberIneligible:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE
 	default:
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
@@ -97,11 +98,13 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// be gone from the cache (the whole point of "cohort member is no longer
 	// tracked"), so we operate on the problem's raw ID directly.
 	var targetID *clustermetadatapb.ID
-	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD {
-		target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
+	var target *store.Pooler
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD {
+		t, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
 		}
+		target = t
 		targetID = target.Health().Multipooler.Id
 	} else {
 		targetID = problem.PoolerID
@@ -113,13 +116,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
 	}
-	// Propagation is not yet supported — wait rather than dispatch a cohort
-	// change against an outgoing rule that isn't decided yet.
-	// TODO: once propagation lands, this should be able to proceed using a
-	// quorum-verified proposal as the outgoing rule.
-	if !commonconsensus.IsRuleDecided(members.HighestKnownPosition) {
+	// TODO: allow non-promotion rule changes to do propagation. Until then,
+	// LeaderWritesProgressing's decided-rule check below is what keeps this
+	// from firing against an outstanding proposal.
+	if !store.LeaderWritesProgressing(leader, members.HighestKnownPosition, time.Now(), store.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"shard %s cannot update its cohort while it has an undecided proposal", problem.ShardKey)
+			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
@@ -139,11 +141,64 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		return mterrors.Wrap(err, "UpdateConsensusRule failed")
 	}
 
+	// A member that joins an already-established cohort out-of-band (provisioned
+	// after a failover, added here rather than through the promotion-time Recruit
+	// wave) never received Recruit's synchronous restore_command clear. The ADD
+	// above only amends the leader's rule + synchronous_standby_names; it runs on
+	// the leader and cannot touch the joining member's restore_command. Left set,
+	// a restart-as-standby can resolve recovery_target_timeline=latest through the
+	// archive to a divergent timeline and FATAL at startup. Drive the member-side
+	// clear synchronously by re-issuing SetPrimary carrying the post-ADD rule: the
+	// member now sees itself named in that rule and clears restore_command before
+	// the monitor's ~one-tick backstop would. Best-effort — the ADD (the action's
+	// contract) already succeeded, and the monitor backstop still covers a failure
+	// here — so a member-side hiccup does not fail cohort reconciliation.
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD && target != nil {
+		a.clearJoiningMemberArchive(ctx, leader, target)
+	}
+
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
 		"target", targetID.Name,
 		"primary", leader.Health().Multipooler.Id.Name,
 		"operation", op.String())
 	return nil
+}
+
+// clearJoiningMemberArchive re-issues SetPrimary to a pooler just added to the
+// cohort so it clears restore_command synchronously (see the caller for why).
+//
+// It re-reads the leader's status to obtain the post-ADD rule — the rule that
+// now names the member — because the member-side clear keys off cohort
+// membership as asserted by the rule this SetPrimary delivers. The cached
+// pre-ADD rule would not name the member, so relaying it would not trigger the
+// clear. Failures are logged and swallowed: this is a best-effort hardening step
+// layered on top of the pooler's own monitor backstop.
+func (a *ReconcileCohortAction) clearJoiningMemberArchive(ctx context.Context, leader, target *store.Pooler) {
+	statusResp, err := a.rpcClient.Status(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: could not read leader status to clear joining member's archive; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name, "error", err)
+		return
+	}
+	// The leader's own rule store reflects the ADD synchronously (UpdateConsensusRule
+	// commits before returning), so HighestKnownRule here is the post-ADD rule.
+	postAddRule := commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()})
+	if postAddRule == nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: leader reported no rule after ADD; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name)
+		return
+	}
+	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    postAddRule,
+			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
+			RewindReady: commonconsensus.ReplicationPrimaryOrNil(statusResp.GetConsensusStatus()).GetRewindReady(),
+		},
+	}
+	if _, err := a.rpcClient.SetPrimary(ctx, target.Health().Multipooler, setPrimaryReq); err != nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: SetPrimary to clear joining member's archive failed; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name, "error", err)
+	}
 }
 
 // RecoveryAction interface implementation
@@ -160,13 +215,6 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconcileCohortAction) Priority() types.Priority {
-	// Cohort drift is not service-impacting until durability is at risk;
-	// run after replication repair (PriorityHigh) so a new pooler is fully
-	// streaming before we promote adding it.
-	return types.PriorityNormal
 }
 
 func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {

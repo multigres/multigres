@@ -1,8 +1,54 @@
-# Known divergence (by design): CREATE UNLOGGED SEQUENCE emits an extra WARNING
-# + HINT because unlogged sequence state is not replicated and is reset on
-# failover. See docs/query_serving/unlogged_tables.md.
+# Two known divergences, both by design:
+#  1. Single-database model: multigres runs everything in the `postgres`
+#     database, so the sequence catalog listing shows `postgres` rather than the
+#     stock `regression` database name.
+#  2. CREATE UNLOGGED SEQUENCE emits an extra WARNING + HINT (unlogged sequence
+#     state is reset on failover; see docs/query_serving/unlogged_tables.md).
 --- a
 +++ b
+@@ -481,23 +481,23 @@
+ ORDER BY sequence_name ASC;
+ sequence_catalog | sequence_schema | sequence_name | data_type | numeric_precision | numeric_precision_radix | numeric_scale | start_value | minimum_value | maximum_value | increment | cycle_option
+ ------------------+-----------------+--------------------+-----------+-------------------+-------------------------+---------------+-------------+----------------------+---------------------+-----------+--------------
+-regression | public | sequence_test10 | smallint | 16 | 2 | 0 | 1 | -20000 | 32767 | 1 | NO
+-regression | public | sequence_test11 | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
+-regression | public | sequence_test12 | integer | 32 | 2 | 0 | -1 | -2147483648 | -1 | -1 | NO
+-regression | public | sequence_test13 | integer | 32 | 2 | 0 | -32768 | -2147483648 | 2147483647 | 1 | NO
+-regression | public | sequence_test14 | integer | 32 | 2 | 0 | 32767 | -2147483648 | 2147483647 | -1 | NO
+-regression | public | sequence_test2 | bigint | 64 | 2 | 0 | 32 | 5 | 36 | 4 | YES
+-regression | public | sequence_test3 | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
+-regression | public | sequence_test4 | bigint | 64 | 2 | 0 | -1 | -9223372036854775808 | -1 | -1 | NO
+-regression | public | sequence_test5 | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
+-regression | public | sequence_test6 | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
+-regression | public | sequence_test7 | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
+-regression | public | sequence_test8 | smallint | 16 | 2 | 0 | 1 | 1 | 20000 | 1 | NO
+-regression | public | sequence_test9 | smallint | 16 | 2 | 0 | -1 | -32768 | -1 | -1 | NO
+-regression | public | serialtest1_f2_foo | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
+-regression | public | serialtest2_f2_seq | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
+-regression | public | serialtest2_f3_seq | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
+-regression | public | serialtest2_f4_seq | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
+-regression | public | serialtest2_f5_seq | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
+-regression | public | serialtest2_f6_seq | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
++postgres | public | sequence_test10 | smallint | 16 | 2 | 0 | 1 | -20000 | 32767 | 1 | NO
++postgres | public | sequence_test11 | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
++postgres | public | sequence_test12 | integer | 32 | 2 | 0 | -1 | -2147483648 | -1 | -1 | NO
++postgres | public | sequence_test13 | integer | 32 | 2 | 0 | -32768 | -2147483648 | 2147483647 | 1 | NO
++postgres | public | sequence_test14 | integer | 32 | 2 | 0 | 32767 | -2147483648 | 2147483647 | -1 | NO
++postgres | public | sequence_test2 | bigint | 64 | 2 | 0 | 32 | 5 | 36 | 4 | YES
++postgres | public | sequence_test3 | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
++postgres | public | sequence_test4 | bigint | 64 | 2 | 0 | -1 | -9223372036854775808 | -1 | -1 | NO
++postgres | public | sequence_test5 | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
++postgres | public | sequence_test6 | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
++postgres | public | sequence_test7 | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
++postgres | public | sequence_test8 | smallint | 16 | 2 | 0 | 1 | 1 | 20000 | 1 | NO
++postgres | public | sequence_test9 | smallint | 16 | 2 | 0 | -1 | -32768 | -1 | -1 | NO
++postgres | public | serialtest1_f2_foo | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
++postgres | public | serialtest2_f2_seq | integer | 32 | 2 | 0 | 1 | 1 | 2147483647 | 1 | NO
++postgres | public | serialtest2_f3_seq | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
++postgres | public | serialtest2_f4_seq | smallint | 16 | 2 | 0 | 1 | 1 | 32767 | 1 | NO
++postgres | public | serialtest2_f5_seq | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
++postgres | public | serialtest2_f6_seq | bigint | 64 | 2 | 0 | 1 | 1 | 9223372036854775807 | 1 | NO
+ (19 rows)
 @@ -602,6 +602,8 @@
  -- unlogged sequences
  -- (more tests in src/test/recovery/)
@@ -12,3 +58,10 @@
  ALTER SEQUENCE sequence_test_unlogged SET LOGGED;
  \d sequence_test_unlogged
  Sequence "public.sequence_test_unlogged"
+@@ -814,5 +816,5 @@
+ ORDER BY sequence_name ASC;
+ sequence_catalog | sequence_schema | sequence_name | data_type | numeric_precision | numeric_precision_radix | numeric_scale | start_value | minimum_value | maximum_value | increment | cycle_option
+ ------------------+-----------------+----------------+-----------+-------------------+-------------------------+---------------+-------------+---------------+---------------+-----------+--------------
+-regression | public | sequence_test2 | bigint | 64 | 2 | 0 | 32 | 5 | 36 | 4 | YES
++postgres | public | sequence_test2 | bigint | 64 | 2 | 0 | 32 | 5 | 36 | 4 | YES
+ (1 row)

@@ -185,6 +185,24 @@ func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...a
 	return m.Query(ctx, queryStr)
 }
 
+// QueryAdmin implements executor.InternalQueryService.
+// The mock records admin-pool queries through the same pattern matcher as Query;
+// tests assert on the query string regardless of which pool it targets.
+func (m *QueryService) QueryAdmin(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	return m.Query(ctx, queryStr)
+}
+
+// QueryAdminArgs implements executor.InternalQueryService (delegates to Query).
+func (m *QueryService) QueryAdminArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
+	return m.Query(ctx, queryStr)
+}
+
+// QueryAdminMultiStatement implements executor.InternalQueryService (delegates to Query).
+func (m *QueryService) QueryAdminMultiStatement(ctx context.Context, queryStr string) error {
+	_, err := m.Query(ctx, queryStr)
+	return err
+}
+
 // SetBeginError configures Begin to fail with the given error. Pass nil to clear.
 // Useful for exercising transaction-start failure paths.
 func (m *QueryService) SetBeginError(err error) {
@@ -210,6 +228,12 @@ func (m *QueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
 		return nil, err
 	}
 	return &mockTx{m: m}, nil
+}
+
+// BeginAdmin implements executor.InternalQueryService. The mock has no
+// separate admin pool, so this behaves identically to Begin.
+func (m *QueryService) BeginAdmin(ctx context.Context) (executor.InternalTx, error) {
+	return m.Begin(ctx)
 }
 
 // queryIfMatched runs queryStr through the matcher only if a pattern matches it,

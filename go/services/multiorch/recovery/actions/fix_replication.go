@@ -143,7 +143,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
 	case types.ProblemReplicaNotReplicating:
-		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownPosition)
+		return a.fixNotReplicating(ctx, replica, leader, members)
 
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
@@ -167,7 +167,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *store.Pooler,
 	leader *store.Pooler,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	members store.ShardMembers,
 ) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.Health().Multipooler.Id.Name,
@@ -187,6 +187,22 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
+	// Backstop for the discovery-driven reconcile (§2.6): ensure the primary
+	// holds a physical replication slot for this replica before we point the
+	// replica at it, so the replica's WAL receiver START_REPLICATION SLOT
+	// mg_<self> cannot fail with "slot does not exist" and strand it (the very
+	// deadlock this reactive step exists to break if the proactive reconcile was
+	// missed). Declarative: we send the full cohort-eligible set, so no peer's
+	// slot is dropped. Best-effort — on error we log and proceed; SetPrimary and
+	// the pooler's own repair still run, and the proactive loop retries.
+	if _, err := a.rpcClient.ReconcileFollowers(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.ReconcileFollowersRequest{
+		Followers: store.CohortEligibleFollowerIDs(members),
+	}); err != nil {
+		a.logger.WarnContext(ctx, "fix replication: ensuring follower physical slot on primary failed; proceeding",
+			"replica", replica.Health().Multipooler.Id.Name,
+			"primary", leader.Health().Multipooler.Id.Name, "error", err)
+	}
+
 	// Configure primary_conninfo on the replica via SetPrimary. The rule is the
 	// shard's highest-known rule (authoritative — the leader may not yet know it
 	// holds that rule), the contact is the leader's topology address, and we
@@ -194,7 +210,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    highestKnownPosition,
+			Position:    members.HighestKnownPosition,
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
@@ -204,46 +220,18 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 
 	// Verify replication started
-	err := a.verifyReplicationStarted(ctx, replica)
-	if err != nil {
-		a.logger.WarnContext(ctx, "replication did not start after configuration",
-			"replica", replica.Health().Multipooler.Id.Name,
-			"primary", leader.Health().Multipooler.Id.Name)
-
-		// Re-check the primary's latest health-stream state before running pg_rewind.
-		// pg_rewind stops the replica's postgres before contacting the source; if the
-		// primary postgres is no longer running the stop will leave two nodes down.
-		// Return an error for retry — the next cycle will detect PrimaryIsDead.
-		primaryKey := topoclient.ComponentIDString(leader.Health().Multipooler.Id)
-		latest, ok := a.poolerStore.GetRider(primaryKey)
-		if !ok || !latest.Health().GetStatus().GetPostgresReady() {
-			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"primary postgres not running, skipping pg_rewind to avoid leaving two nodes down")
-		}
-
-		// Defer pg_rewind until the leader has checkpointed onto its current
-		// timeline. Rewinding from a leader whose control file still advertises a
-		// stale checkpoint timeline stamps that stale timeline into this replica's
-		// minRecoveryPoint and FATALs on startup. The leader self-reports readiness
-		// in its published ReplicationPrimary (auto-cleared on any new term, so a
-		// true value is current). Return for retry; the next cycle re-checks once
-		// the leader's post-promotion checkpoint completes.
-		if !commonconsensus.ReplicationPrimaryOrNil(latest.Health().GetConsensusStatus()).GetRewindReady() {
-			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"leader %s not yet rewind-ready (checkpoint pending on its current timeline); deferring pg_rewind",
-				leader.Health().Multipooler.Id.Name)
-		}
-
-		if rewindErr := a.tryPgRewind(ctx, leader, replica); rewindErr != nil {
-			return mterrors.Wrap(rewindErr, "pg_rewind failed")
-		}
-		// Re-verify replication after rewind. RewindToSource restarts
-		// PostgreSQL as a standby and re-establishes primary_conninfo,
-		// which pg_rewind may have cleared by syncing postgresql.auto.conf
-		// from the source.
-		if verifyErr := a.verifyReplicationStarted(ctx, replica); verifyErr != nil {
-			return mterrors.Wrap(verifyErr, "replication did not start after pg_rewind")
-		}
+	if err := a.verifyReplicationStarted(ctx, replica); err != nil {
+		// primary_conninfo is now recorded on the replica, but it is not yet
+		// streaming. The most common cause is timeline divergence: the WAL
+		// receiver connects, gets FATAL, and exits. Healing that is the pooler's
+		// own responsibility now — its monitor detects a stuck standby whose WAL
+		// diverged, sets suspectedDivergence, and re-runs pg_rewind against the
+		// recorded leader (gated on the leader being rewind-ready, rate-limited
+		// with backoff) until the standby rejoins. Orch's job is done once the
+		// leader identity has been delivered via SetPrimary above; return an
+		// error so this problem is re-checked next cycle and clears once the
+		// replica is streaming.
+		return mterrors.Wrap(err, "replication did not start after configuration; pooler will self-heal via pg_rewind if diverged")
 	}
 
 	// Cohort membership (adding the replica to synchronous_standby_names) is
@@ -254,62 +242,6 @@ func (a *FixReplicationAction) fixNotReplicating(
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
 		"replica", replica.Health().Multipooler.Id.Name,
 		"primary", leader.Health().Multipooler.Id.Name)
-
-	return nil
-}
-
-// tryPgRewind attempts to repair a replica using pg_rewind.
-// RewindToSource will:
-// 1. Stop postgres
-// 2. Check if rewind is needed (dry-run)
-// 3. Run actual rewind if needed
-// 4. Start postgres
-// If pg_rewind is not feasible (missing WAL), it marks the pooler as DRAINED.
-func (a *FixReplicationAction) tryPgRewind(
-	ctx context.Context,
-	primary *store.Pooler,
-	replica *store.Pooler,
-) error {
-	a.logger.InfoContext(ctx, "attempting pg_rewind",
-		"replica", replica.Health().Multipooler.Id.Name,
-		"primary", primary.Health().Multipooler.Id.Name)
-
-	// Call RewindToSource - it handles the entire flow atomically
-	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		Source: primary.Health().Multipooler,
-	}
-	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.Health().Multipooler, rewindReq)
-	if err != nil {
-		// RPC failure (e.g. primary postgres unreachable) is transient — do not
-		// drain the pooler. Return an error so the next recovery cycle retries.
-		a.logger.WarnContext(ctx, "pg_rewind RPC failed, will retry next cycle",
-			"replica", replica.Health().Multipooler.Id.Name,
-			"error", err)
-		return mterrors.Wrap(err, "pg_rewind RPC failed")
-	}
-	if !rewindResp.Success {
-		// pg_rewind is not feasible (e.g. the required WAL has been recycled): the
-		// replica cannot rejoin and needs replacement.
-		//
-		// TODO: signal this durably via the pooler's lifecycle stage so the
-		// provisioner and orch treat the pooler as broken/needs-replacement. Orch
-		// must not write the pooler's topology Type — the pooler owns its own record
-		// and would clobber an external write. For now we surface an error so the
-		// failure is visible; the next recovery cycle will retry.
-		a.logger.WarnContext(ctx, "pg_rewind not feasible; pooler needs replacement",
-			"replica", replica.Health().Multipooler.Id.Name,
-			"error", rewindResp.ErrorMessage)
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"pg_rewind not feasible for %s: %s", replica.Health().Multipooler.Id.Name, rewindResp.ErrorMessage)
-	}
-
-	if rewindResp.RewindPerformed {
-		a.logger.InfoContext(ctx, "pg_rewind completed successfully - servers were diverged",
-			"replica", replica.Health().Multipooler.Id.Name)
-	} else {
-		a.logger.InfoContext(ctx, "pg_rewind not needed - timelines are compatible",
-			"replica", replica.Health().Multipooler.Id.Name)
-	}
 
 	return nil
 }
@@ -343,8 +275,8 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 		return false, nil, err
 	}
 	if status == nil {
-		// No status means we can't determine state, assume problem exists
-		return true, nil, nil
+		return false, nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"replication status unavailable for replica %s", replica.Health().GetMultipooler().GetId().GetName())
 	}
 
 	// Check if primary_conninfo is configured
@@ -374,6 +306,31 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 	// Check if WAL replay is paused (might need to resume)
 	if status.IsWalReplayPaused {
 		a.logger.InfoContext(ctx, "replica has WAL replay paused",
+			"replica", replica.Health().Multipooler.Id.Name)
+		return true, status, nil
+	}
+
+	// Check that the WAL receiver is active. primary_conninfo being set is not
+	// sufficient — the WAL receiver may have failed to start (e.g. timeline
+	// divergence) or a previous pg_rewind attempt may have left conninfo on disk
+	// while the receiver is not running. Without this check orch would consider the
+	// problem resolved and never retry.
+	// "waiting" is also healthy: the receiver is connected but the primary has no
+	// new WAL to send (idle primary).
+	if status.WalReceiverStatus != "streaming" && status.WalReceiverStatus != "waiting" {
+		a.logger.InfoContext(ctx, "replica has primary_conninfo configured but WAL receiver is not active",
+			"replica", replica.Health().Multipooler.Id.Name,
+			"wal_receiver_status", status.WalReceiverStatus)
+		return true, status, nil
+	}
+
+	// Guard against false-positives during WAL receiver retry attempts. After a
+	// FATAL (e.g. timeline conflict), PostgreSQL briefly shows "streaming" in
+	// pg_stat_wal_receiver between reconnects, but pg_last_wal_receive_lsn()
+	// remains NULL until WAL is actually written. Without this check, a poll that
+	// lands in that window would incorrectly declare the problem resolved.
+	if status.WalReceiverStatus == "streaming" && status.LastReceiveLsn == "" {
+		a.logger.InfoContext(ctx, "WAL receiver shows streaming but no WAL received yet, treating as not active",
 			"replica", replica.Health().Multipooler.Id.Name)
 		return true, status, nil
 	}
@@ -470,10 +427,6 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *FixReplicationAction) Priority() types.Priority {
-	return types.PriorityHigh
 }
 
 func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {

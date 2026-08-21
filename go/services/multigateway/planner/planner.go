@@ -18,11 +18,14 @@ package planner
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // Planner is responsible for creating query execution plans.
@@ -77,6 +80,17 @@ type PlanOptions struct {
 	// lifetime (AdvisoryLockRoute rather than a plain Route). Derived by Plan.
 	PinForAdvisoryLock bool
 
+	// PinForLogicalReplicationSlot indicates the statement creates a logical
+	// replication slot via pg_create_logical_replication_slot(...), so its
+	// route must keep the backend pinned for the session's lifetime. Derived
+	// by Plan.
+	PinForLogicalReplicationSlot bool
+
+	// PinForSetSeed indicates the statement calls setseed(...), so its route
+	// must keep the backend pinned for the session's lifetime (see
+	// protoutil.ReasonSetSeed). Derived by Plan.
+	PinForSetSeed bool
+
 	// RecheckForAdvisoryLock indicates the statement touches session-level
 	// advisory locks (an acquire or a release), so the multipooler should
 	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
@@ -84,6 +98,26 @@ type PlanOptions struct {
 	// pg_try_advisory_lock), and a bare release wants only the recheck. Derived
 	// by Plan.
 	RecheckForAdvisoryLock bool
+
+	// RewriteCurrentSetting indicates the statement has a gateway-managed
+	// current_setting call that must be rewritten to return the gateway value.
+	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
+	// builders can gate the rewrite without re-walking the tree.
+	RewriteCurrentSetting bool
+
+	// State is the connection's session state. It exists for planning
+	// functions whose plan shape depends on per-connection runtime state
+	// rather than the statement's own AST, currently only
+	// planVariableSetStmt's in-transaction SET gate, which reads
+	// State.PendingBeginQuery to tell whether an earlier statement in the same
+	// transaction has already run. nil is safe: it behaves like the signal is
+	// unavailable.
+	//
+	// Only the non-cacheable VariableSetStmt dispatch reads State, so it never
+	// needs populating on the cacheable path. The same reasoning as the
+	// IsPortal invariant above applies: State-conditional planning must stay
+	// off any plan that can be served from the cache to a different connection.
+	State *handler.MultigatewayConnectionState
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -152,7 +186,7 @@ func (p *Planner) Plan(
 		} else if unwrappedPlan != nil {
 			// A wrapped CREATE UNLOGGED TABLE ... AS EXECUTE returns here before the
 			// main dispatch, so attach the failover warning on this path too.
-			p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
+			p.maybeWrapStatementWarning(sql, stmt, unwrappedPlan)
 			unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
 			unwrappedPlan.Type = planType(unwrappedPlan.Primitive, unwrappedPlan.ExecInfo)
 			return unwrappedPlan, nil
@@ -167,6 +201,9 @@ func (p *Planner) Plan(
 	// whatever plan they would otherwise produce.
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
+	opts.PinForSetSeed = analysis.CallsSetSeed
+	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -174,7 +211,7 @@ func (p *Planner) Plan(
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
-		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
+		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn, opts.State)
 
 	case ast.T_CopyStmt:
 		plan, err = p.planCopyStmt(sql, stmt.(*ast.CopyStmt))
@@ -189,7 +226,7 @@ func (p *Planner) Plan(
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
 	case ast.T_ExecuteStmt:
-		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt))
+		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt), conn, opts.State)
 
 	case ast.T_DeallocateStmt:
 		plan, err = p.planDeallocateStmt(sql, stmt.(*ast.DeallocateStmt))
@@ -228,7 +265,7 @@ func (p *Planner) Plan(
 
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
-		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
@@ -258,7 +295,7 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
-	p.maybeWrapUnloggedWarning(sql, stmt, plan)
+	p.maybeWrapStatementWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = planType(plan.Primitive, plan.ExecInfo)
@@ -266,22 +303,33 @@ func (p *Planner) Plan(
 	return plan, nil
 }
 
-// maybeWrapUnloggedWarning prepends a WARNING notice to plan when stmt creates an
-// UNLOGGED relation. Such statements route normally, but unlogged contents are
-// never replicated and are lost on failover, so the warning points the user at the
-// failover-behaviour doc. Tables and sequences get distinct messages. The caller
+// maybeWrapStatementWarning prepends a WARNING notice to plan when stmt has
+// pooling/replication semantics the user should know about at CREATE time:
+// UNLOGGED relations (contents lost on failover) and ON login event triggers
+// (fire per pooled backend, not per client session). Such statements route
+// normally; the warning points the user at the relevant doc. The caller
 // recomputes plan.Type afterwards.
-func (p *Planner) maybeWrapUnloggedWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
+func (p *Planner) maybeWrapStatementWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
 	var warning engine.Primitive
 	switch {
 	case isUnloggedCreate(stmt):
 		warning = engine.NewUnloggedTableWarning(sql)
 	case isUnloggedSequenceCreate(stmt):
 		warning = engine.NewUnloggedSequenceWarning(sql)
+	case isLoginEventTriggerCreate(stmt):
+		warning = engine.NewLoginEventTriggerWarning(sql)
 	default:
 		return
 	}
 	plan.Primitive = engine.NewSequence([]engine.Primitive{warning, plan.Primitive})
+}
+
+// isLoginEventTriggerCreate reports whether stmt is CREATE EVENT TRIGGER ... ON
+// login. The parser lowercases the unquoted event name; EqualFold also covers
+// the quoted "LOGIN" spelling.
+func isLoginEventTriggerCreate(stmt ast.Stmt) bool {
+	s, ok := stmt.(*ast.CreateEventTrigStmt)
+	return ok && strings.EqualFold(s.EventName, "login")
 }
 
 // isUnloggedCreate reports whether stmt creates an UNLOGGED table, across the
@@ -293,7 +341,8 @@ func isUnloggedCreate(stmt ast.Stmt) bool {
 	case *ast.CreateTableAsStmt:
 		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	case *ast.SelectStmt:
-		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+		into := s.LeafIntoClause()
+		return into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	}
 	return false
 }
@@ -302,6 +351,95 @@ func isUnloggedCreate(stmt ast.Stmt) bool {
 func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
 	s, ok := stmt.(*ast.CreateSeqStmt)
 	return ok && s.Sequence != nil && s.Sequence.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+}
+
+// checkTempSchemaQualifiedCreate rejects CREATE-type statements whose target is
+// schema-qualified into the temporary namespace without the TEMP keyword
+// (CREATE TABLE pg_temp.t, CREATE FUNCTION/DOMAIN/TYPE pg_temp.x ...).
+// PostgreSQL resolves the persistence of such
+// objects during parse analysis, not in the raw grammar this AST mirrors, so
+// keyword-based temp detection (RELPERSISTENCE_TEMP) never sees them — the
+// object would be created as a genuine temp table on an arbitrary pooled
+// backend and be invisible to the session's next statement. CREATE TEMP TABLE
+// pg_temp.t stays allowed: the keyword routes it through planTempTableCreation.
+// pg_temp_N (a concrete backend namespace, meaningless to a pooled client) is
+// covered by the prefix match. Runs pre-dispatch via analyzeStatement, wrapped
+// EXPLAIN [ANALYZE] forms included.
+func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
+	if es, ok := stmt.(*ast.ExplainStmt); ok {
+		if inner, ok := es.Query.(ast.Stmt); ok {
+			stmt = inner
+		}
+	}
+	// Relations carry a RangeVar (whose TEMP keyword exempts them); functions,
+	// domains, and types carry a qualified-name NodeList and have no TEMP
+	// spelling at all — pg_temp qualification is their only temp-creating form.
+	var rel *ast.RangeVar
+	var qualified *ast.NodeList
+	switch s := stmt.(type) {
+	case *ast.CreateStmt:
+		rel = s.Relation
+	case *ast.CreateTableAsStmt:
+		if s.Into != nil {
+			rel = s.Into.Rel
+		}
+	case *ast.CreateSeqStmt:
+		rel = s.Sequence
+	case *ast.ViewStmt:
+		rel = s.View
+	case *ast.SelectStmt:
+		if into := s.LeafIntoClause(); into != nil {
+			rel = into.Rel
+		}
+	case *ast.CreateForeignTableStmt:
+		// A distinct type wrapping CreateStmt — the exact-type case above
+		// never matches it. pg_temp qualification is its only temp form.
+		if s.Base != nil {
+			rel = s.Base.Relation
+		}
+	case *ast.CreateFunctionStmt:
+		qualified = s.FuncName
+	case *ast.CreateDomainStmt:
+		qualified = s.Domainname
+	case *ast.CompositeTypeStmt:
+		rel = s.Typevar
+	case *ast.CreateEnumStmt:
+		qualified = s.TypeName
+	case *ast.CreateRangeStmt:
+		qualified = s.TypeName
+	case *ast.CreateStatsStmt:
+		qualified = s.DefNames
+	case *ast.CreateOpClassStmt:
+		qualified = s.OpClassName
+	case *ast.CreateOpFamilyStmt:
+		qualified = s.OpFamilyName
+	case *ast.CreateConversionStmt:
+		qualified = s.ConversionName
+	case *ast.DefineStmt:
+		// Covers CREATE OPERATOR / AGGREGATE / COLLATION / base TYPE and the
+		// text-search object family in one case.
+		qualified = s.DefNames
+	default:
+		return nil
+	}
+
+	schema := ""
+	switch {
+	case rel != nil:
+		if rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return nil
+		}
+		schema = rel.SchemaName
+	case qualified != nil && qualified.Len() >= 2:
+		if s, ok := qualified.Items[qualified.Len()-2].(*ast.String); ok {
+			schema = s.SVal
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(schema), "pg_temp") {
+		return mterrors.NewFeatureNotSupported(
+			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead")
+	}
+	return nil
 }
 
 // planTempTableCreation creates a plan that routes through a reserved
@@ -354,12 +492,17 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 }
 
 // planDefault creates a simple route plan for queries without special handling.
-// This is the fallback for most SQL statements. Advisory-lock pinning, when the
-// statement touches a session-level advisory lock, rides on the plan's ExecInfo
-// (see advisoryExecInfo) rather than a dedicated routing primitive.
+// This is the fallback for most SQL statements. Advisory-lock pinning and
+// logical-replication-slot pinning, when the statement touches either, ride on
+// the plan's ExecInfo (see execInfoFromOpts) rather than a dedicated routing
+// primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
-	plan.ExecInfo = advisoryExecInfo(opts)
+	prim, err := p.routePrimitive(sql, stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	plan := engine.NewPlan(sql, prim)
+	plan.ExecInfo = execInfoFromOpts(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
@@ -367,15 +510,47 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	return plan, nil
 }
 
-// advisoryExecInfo derives the plan-level reservation directives for a statement
-// that touches session-level advisory locks. We track on RecheckForAdvisoryLock
-// (the superset): an acquire wants both a pin and a recheck, a bare release
-// wants only the recheck — so the pin is carried separately and a release does
-// not reserve a connection. The zero value (no advisory) is the common case.
-func advisoryExecInfo(opts PlanOptions) engine.PlanExecInfo {
+// routePrimitive builds the leading Route for a query. When analysis flagged a
+// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
+// rewritten out so it returns the gateway-owned value and the Route is wrapped in
+// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
+// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
+// a plain Route over the original statement. The flag is set only when a rewrite is
+// actually required, so the common case never walks the tree here.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	if opts.RewriteCurrentSetting {
+		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		if err != nil {
+			return nil, err
+		}
+		if rewritten != nil {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
+			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+		}
+	}
+	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+}
+
+// execInfoFromOpts derives the plan-level reservation directives for a
+// statement from the per-call PlanOptions the analysis pass already computed.
+//
+// Advisory locks: tracked on RecheckForAdvisoryLock (the superset): an
+// acquire wants both a pin and a recheck, a bare release wants only the
+// recheck — so the pin is carried separately and a release does not reserve a
+// connection.
+//
+// Logical replication slot creation and setseed(...): acquire-only, no
+// recheck; they mirror TempTable rather than the advisory-lock pattern (see
+// PlanExecInfo.LogicalReplicationSlot's and PlanExecInfo.SetSeed's doc
+// comments for why).
+//
+// The zero value (no advisory, no slot creation, no setseed) is the common case.
+func execInfoFromOpts(opts PlanOptions) engine.PlanExecInfo {
 	return engine.PlanExecInfo{
-		AdvisoryLock:         opts.PinForAdvisoryLock,
-		RecheckAdvisoryLocks: opts.RecheckForAdvisoryLock,
+		AdvisoryLock:           opts.PinForAdvisoryLock,
+		RecheckAdvisoryLocks:   opts.RecheckForAdvisoryLock,
+		LogicalReplicationSlot: opts.PinForLogicalReplicationSlot,
+		SetSeed:                opts.PinForSetSeed,
 	}
 }
 
@@ -401,6 +576,10 @@ func planType(p engine.Primitive, info engine.PlanExecInfo) string {
 		switch {
 		case info.TempTable:
 			return engine.PlanTypeTempTableRoute
+		case info.LogicalReplicationSlot:
+			return engine.PlanTypeLogicalReplicationSlotRoute
+		case info.SetSeed:
+			return engine.PlanTypeSetSeedRoute
 		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
 			return engine.PlanTypeAdvisoryLockRoute
 		}

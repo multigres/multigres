@@ -2,8 +2,11 @@
 
 This directory holds **per-test patches** that describe known-acceptable
 differences between PostgreSQL 17's upstream expected output and multigres's
-actual output. The regress runner applies the patch to the upstream
-`expected/<name>.out` before comparing against the actual `results/<name>.out`.
+actual output. The regress and isolation runners apply these patches to the
+upstream `expected/<name>.out` before comparing against the actual
+`results/<name>.out`. PostgreSQL's stock numbered alternatives are checked
+first, so a matching `_0.out` through `_9.out` is a compatible pass
+and needs no patch.
 
 ## Layout
 
@@ -11,16 +14,40 @@ actual output. The regress runner applies the patch to the upstream
 pg17/
   README.md            # you are here
   patches/
-    <testname>.patch   # unified diff, one per test that needs it
+    <testname>.patch             # regression-suite patch
+    isolation/<testname>.patch   # isolation-suite patch
 ```
 
 ## What belongs here
 
 A patch describes a **deviation that we accept** — typically because multigres
 produces a differently-worded error message, or emits fewer error-context
-lines than Postgres. Patches must not absorb real regressions (wrong result
-rows, flipped success/error, changed column types). The reviewer's job is to
-inspect each patch like any other diff.
+lines than Postgres. Core pg_regress intentionally keeps every connection on
+the freshly initialized `postgres` database; stable output differences caused
+by upstream fixtures hard-coding their default `regression` database belong
+here too. Input SQL is never patched. Stable transaction-pooling differences
+may be accepted only after identical normalized output is observed across at
+least three consecutive runs.
+
+Patches must not absorb unrelated regressions (wrong result rows, flipped
+success/error, changed column types). Direct deterministic fallout from an
+accepted blocked operation or missing `regression` database must be called out
+in the patch preamble. The reviewer's job is to inspect each patch like any
+other diff.
+
+Every intentional security/safety divergence must have a comment preamble that
+names the blocked capability and explains any directly dependent output. When
+a patch is based on a non-canonical upstream file, declare it explicitly:
+
+```text
+# pgregress-expected-file: xml_1.out
+```
+
+Verification fails if that file is missing or the directive is malformed. This
+keeps patch generation deterministic instead of choosing whichever expected
+file happens to produce the shortest diff. Core `xml` and `xmlmap` also have
+explicit no-libxml preferences in the verifier so residual diffs use `_1.out`
+even when no patch exists.
 
 ## Workflow
 
@@ -53,6 +80,12 @@ Each test gets three columns in `results.json`:
 | `status`        | `pass` or `fail`                                  |
 | `patch_applied` | `true` if a patch was used to make expected match |
 | `patch_path`    | relative path to the patch file (empty if none)   |
+
+Together these fields classify every result:
+
+- `pass` without a patch: compatible.
+- `pass` with a patch: accepted divergence (also shown as passed).
+- `fail`: genuine residual failure (possibly after an accepted narrow patch).
 
 ## When to delete a patch
 

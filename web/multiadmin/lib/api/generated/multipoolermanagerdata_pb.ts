@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -237,31 +237,47 @@ proto3.util.setEnumType(SynchronousMethod, "multipoolermanagerdata.SynchronousMe
 ]);
 
 /**
- * Enum representing the type of cohort membership change
+ * RuleOperation is the kind of change UpdateConsensusRule applies to the
+ * leader's consensus rule.
  *
- * @generated from enum multipoolermanagerdata.CohortUpdateOperation
+ * @generated from enum multipoolermanagerdata.RuleOperation
  */
-export enum CohortUpdateOperation {
+export enum RuleOperation {
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+   * @generated from enum value: RULE_OPERATION_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_ADD = 1;
+   * Cohort-membership changes: add or remove a synchronous standby.
+   *
+   * @generated from enum value: RULE_OPERATION_COHORT_ADD = 1;
    */
-  ADD = 1,
+  COHORT_ADD = 1,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_REMOVE = 2;
+   * @generated from enum value: RULE_OPERATION_COHORT_REMOVE = 2;
    */
-  REMOVE = 2,
+  COHORT_REMOVE = 2,
+
+  /**
+   * ADVANCE makes no cohort change: it re-writes the current rule with the same
+   * leader and cohort at a fresh leader_subterm. Used to reconnect a follower
+   * stranded by an abandoned recruit — advancing the committed decision past the
+   * rule the stray revocation was authored to transition away from
+   * (outgoing_rule) defeats that revocation via the runaway-recruit override in
+   * IsRuleRevoked, without changing the coordinator term or any revocation.
+   *
+   * @generated from enum value: RULE_OPERATION_ADVANCE = 3;
+   */
+  ADVANCE = 3,
 }
-// Retrieve enum metadata with: proto3.getEnumType(CohortUpdateOperation)
-proto3.util.setEnumType(CohortUpdateOperation, "multipoolermanagerdata.CohortUpdateOperation", [
-  { no: 0, name: "COHORT_UPDATE_OPERATION_UNSPECIFIED" },
-  { no: 1, name: "COHORT_UPDATE_OPERATION_ADD" },
-  { no: 2, name: "COHORT_UPDATE_OPERATION_REMOVE" },
+// Retrieve enum metadata with: proto3.getEnumType(RuleOperation)
+proto3.util.setEnumType(RuleOperation, "multipoolermanagerdata.RuleOperation", [
+  { no: 0, name: "RULE_OPERATION_UNSPECIFIED" },
+  { no: 1, name: "RULE_OPERATION_COHORT_ADD" },
+  { no: 2, name: "RULE_OPERATION_COHORT_REMOVE" },
+  { no: 3, name: "RULE_OPERATION_ADVANCE" },
 ]);
 
 /**
@@ -355,6 +371,25 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
    */
   raw = "";
 
+  /**
+   * Path to the libpq password file (passfile=) the standby uses to
+   * authenticate to the primary. Empty when the conninfo carries no passfile
+   * clause. Not a secret (it is a filesystem path, not the password itself).
+   *
+   * @generated from field: string passfile = 6;
+   */
+  passfile = "";
+
+  /**
+   * Database name for the replication connection (dbname=). Required by the
+   * PostgreSQL 17 slot-sync worker, which opens an ordinary SQL connection to
+   * the primary to synchronize failover slots; ignored by physical streaming
+   * replication.
+   *
+   * @generated from field: string dbname = 7;
+   */
+  dbname = "";
+
   constructor(data?: PartialMessage<PrimaryConnInfo>) {
     super();
     proto3.util.initPartial(data, this);
@@ -368,6 +403,8 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
     { no: 3, name: "user", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "application_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "raw", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "passfile", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "dbname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrimaryConnInfo {
@@ -480,6 +517,19 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
    */
   walReceiverTimeout?: Duration;
 
+  /**
+   * When last_receive_lsn (pg_last_wal_receive_lsn — WAL streamed from the
+   * primary) last increased, as observed by the standby's heartbeat reader on
+   * its regular tick. This is a WAL-*progress* signal, distinct from
+   * last_msg_receive_time (which advances on keepalives with no new WAL). It is
+   * unaffected by restore_command/archive replay, which advances replay_lsn but
+   * not receive_lsn — so a fresh value means the leader is actively streaming new
+   * WAL to this standby. Null if the reader has not yet observed a value.
+   *
+   * @generated from field: google.protobuf.Timestamp last_receive_lsn_advance_time = 12;
+   */
+  lastReceiveLsnAdvanceTime?: Timestamp;
+
   constructor(data?: PartialMessage<StandbyReplicationStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -499,6 +549,7 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
     { no: 9, name: "last_msg_receive_time", kind: "message", T: Timestamp },
     { no: 10, name: "wal_receiver_status_interval", kind: "message", T: Duration },
     { no: 11, name: "wal_receiver_timeout", kind: "message", T: Duration },
+    { no: 12, name: "last_receive_lsn_advance_time", kind: "message", T: Timestamp },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StandbyReplicationStatus {
@@ -1004,6 +1055,24 @@ export class Status extends Message<Status> {
    */
   postgresReady = false;
 
+  /**
+   * Failover logical replication slots on this node: failover_slots_ready is the
+   * number that are failover-ready (synced, not temporary, not invalidated) and
+   * failover_slots_total is how many exist. Populated only when slot-based
+   * replication is enabled; both zero otherwise. Multiorch uses
+   * failover_slots_ready as a tiebreaker among equally-WAL-advanced promotion
+   * candidates, so a failover prefers a node that keeps the most subscribers
+   * resumable.
+   *
+   * @generated from field: int32 failover_slots_ready = 15;
+   */
+  failoverSlotsReady = 0;
+
+  /**
+   * @generated from field: int32 failover_slots_total = 16;
+   */
+  failoverSlotsTotal = 0;
+
   constructor(data?: PartialMessage<Status>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1024,6 +1093,8 @@ export class Status extends Message<Status> {
     { no: 11, name: "postgres_action", kind: "enum", T: proto3.getEnumType(PostgresAction) },
     { no: 12, name: "postgres_action_duration", kind: "message", T: Duration },
     { no: 14, name: "postgres_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 15, name: "failover_slots_ready", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 16, name: "failover_slots_total", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Status {
@@ -1471,19 +1542,19 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
 }
 
 /**
- * UpdateConsensusRule applies a cohort-membership change on the primary.
- * Internally this updates synchronous_standby_names and records the cohort
- * change in rule_history.
+ * UpdateConsensusRule applies a rule change on the primary: a cohort-membership
+ * change (which also updates synchronous_standby_names) or a no-op ADVANCE.
+ * Either way it records a new rule in rule_history.
  *
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleRequest
  */
 export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleRequest> {
   /**
-   * Operation to perform (add, remove)
+   * Operation to perform (cohort add/remove, or advance).
    *
-   * @generated from field: multipoolermanagerdata.CohortUpdateOperation operation = 1;
+   * @generated from field: multipoolermanagerdata.RuleOperation operation = 1;
    */
-  operation = CohortUpdateOperation.UNSPECIFIED;
+  operation = RuleOperation.UNSPECIFIED;
 
   /**
    * List of multipooler IDs to add to or remove from the cohort.
@@ -1521,7 +1592,7 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(CohortUpdateOperation) },
+    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(RuleOperation) },
     { no: 2, name: "standby_ids", kind: "message", T: ID, repeated: true },
     { no: 4, name: "expected_outgoing_rule", kind: "message", T: RuleNumber },
     { no: 6, name: "coordinator_id", kind: "message", T: ID },
@@ -1548,6 +1619,15 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleResponse
  */
 export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResponse> {
+  /**
+   * current_position is the shard rule after the update. The write blocks
+   * until the change is quorum-acked before returning, so callers can act on
+   * it without re-reading Status.
+   *
+   * @generated from field: clustermetadata.PoolerPosition current_position = 1;
+   */
+  currentPosition?: PoolerPosition;
+
   constructor(data?: PartialMessage<UpdateConsensusRuleResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1556,6 +1636,7 @@ export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResp
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "current_position", kind: "message", T: PoolerPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateConsensusRuleResponse {
@@ -1685,81 +1766,6 @@ export class BackupResponse extends Message<BackupResponse> {
 
   static equals(a: BackupResponse | PlainMessage<BackupResponse> | undefined, b: BackupResponse | PlainMessage<BackupResponse> | undefined): boolean {
     return proto3.util.equals(BackupResponse, a, b);
-  }
-}
-
-/**
- * RestoreFromBackupRequest requests a restore from a backup
- *
- * @generated from message multipoolermanagerdata.RestoreFromBackupRequest
- */
-export class RestoreFromBackupRequest extends Message<RestoreFromBackupRequest> {
-  /**
-   * Backup to restore from. If this is empty, we restore from the latest
-   * backup.
-   *
-   * @generated from field: string backup_id = 1;
-   */
-  backupId = "";
-
-  constructor(data?: PartialMessage<RestoreFromBackupRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RestoreFromBackupRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "backup_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined, b: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupRequest, a, b);
-  }
-}
-
-/**
- * RestoreFromBackupResponse contains the result of a restore operation
- *
- * @generated from message multipoolermanagerdata.RestoreFromBackupResponse
- */
-export class RestoreFromBackupResponse extends Message<RestoreFromBackupResponse> {
-  constructor(data?: PartialMessage<RestoreFromBackupResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RestoreFromBackupResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined, b: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupResponse, a, b);
   }
 }
 
@@ -2152,11 +2158,11 @@ export class BackupMetadata extends Message<BackupMetadata> {
   multipoolerId = "";
 
   /**
-   * Pooler type that created this backup (from pgbackrest annotation)
+   * Routing role of the pooler that created this backup (from pgbackrest annotation)
    *
-   * @generated from field: clustermetadata.PoolerType pooler_type = 10;
+   * @generated from field: clustermetadata.RoutingRole routing_role = 10;
    */
-  poolerType = PoolerType.UNKNOWN;
+  routingRole = RoutingRole.UNKNOWN;
 
   /**
    * When the backup started/stopped, parsed from pgbackrest info's
@@ -2203,7 +2209,7 @@ export class BackupMetadata extends Message<BackupMetadata> {
     { no: 7, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
     { no: 8, name: "type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "multipooler_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "pooler_type", kind: "enum", T: proto3.getEnumType(PoolerType) },
+    { no: 10, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
     { no: 11, name: "start_timestamp", kind: "message", T: Timestamp },
     { no: 12, name: "stop_timestamp", kind: "message", T: Timestamp },
     { no: 13, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
@@ -2258,104 +2264,162 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
 ]);
 
 /**
- * RewindToSourceRequest requests pg_rewind to synchronize with a source server.
- * This operation:
- * 1. Stops PostgreSQL
- * 2. Runs pg_rewind --dry-run to check if rewind is needed
- * 3. If needed, runs actual pg_rewind
- * 4. Starts PostgreSQL
+ * ResignLeadershipRequest asks the primary pooler to gracefully resign from leadership.
  *
- * @generated from message multipoolermanagerdata.RewindToSourceRequest
+ * @generated from message multipoolermanagerdata.ResignLeadershipRequest
  */
-export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
-  /**
-   * Source multipooler (the primary) to rewind to
-   *
-   * @generated from field: clustermetadata.Multipooler source = 1;
-   */
-  source?: Multipooler;
-
-  constructor(data?: PartialMessage<RewindToSourceRequest>) {
+export class ResignLeadershipRequest extends Message<ResignLeadershipRequest> {
+  constructor(data?: PartialMessage<ResignLeadershipRequest>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: Multipooler },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipRequest {
+    return new ResignLeadershipRequest().fromJsonString(jsonString, options);
   }
 
-  static equals(a: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined, b: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceRequest, a, b);
+  static equals(a: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined, b: ResignLeadershipRequest | PlainMessage<ResignLeadershipRequest> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipRequest, a, b);
   }
 }
 
 /**
- * @generated from message multipoolermanagerdata.RewindToSourceResponse
+ * ResignLeadershipResponse returns the WAL flush LSN at the moment writes were quiesced.
+ *
+ * @generated from message multipoolermanagerdata.ResignLeadershipResponse
  */
-export class RewindToSourceResponse extends Message<RewindToSourceResponse> {
+export class ResignLeadershipResponse extends Message<ResignLeadershipResponse> {
   /**
-   * True if the operation completed successfully
+   * flush_lsn is the WAL flush position at the moment postgres stopped accepting
+   * writes. Callers should wait for standbys to reach this LSN before triggering
+   * a new election, ensuring no data loss.
    *
-   * @generated from field: bool success = 1;
+   * @generated from field: string flush_lsn = 1;
    */
-  success = false;
+  flushLsn = "";
 
-  /**
-   * Error message if operation failed
-   *
-   * @generated from field: string error_message = 2;
-   */
-  errorMessage = "";
-
-  /**
-   * True if servers had diverged and pg_rewind was performed
-   * False if timelines were compatible and no rewind was needed
-   *
-   * @generated from field: bool rewind_performed = 3;
-   */
-  rewindPerformed = false;
-
-  constructor(data?: PartialMessage<RewindToSourceResponse>) {
+  constructor(data?: PartialMessage<ResignLeadershipResponse>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceResponse";
+  static readonly typeName = "multipoolermanagerdata.ResignLeadershipResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 2, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "rewind_performed", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 1, name: "flush_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ResignLeadershipResponse {
+    return new ResignLeadershipResponse().fromJsonString(jsonString, options);
   }
 
-  static equals(a: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined, b: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceResponse, a, b);
+  static equals(a: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined, b: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined): boolean {
+    return proto3.util.equals(ResignLeadershipResponse, a, b);
+  }
+}
+
+/**
+ * ReconcileFollowersRequest notifies the primary of the current set of
+ * cohort-eligible follower members so it can pre-create their per-follower
+ * physical replication slots ahead of streaming.
+ *
+ * This is NOT a consensus message. It does not change the consensus rule or
+ * cohort membership and carries no term/quorum semantics; it is purely a
+ * level-triggered notification, decoupled from the Recruit / Promote /
+ * UpdateConsensusRule path, that lets the current primary hold a slot ready
+ * before a follower's WAL receiver attaches. It is a declaration of intent, not
+ * a guarantee: the primary ensures a physical slot for each listed member and
+ * drops managed slots for members not listed, best-effort (e.g. it cannot
+ * create more slots than max_replication_slots allows).
+ *
+ * @generated from message multipoolermanagerdata.ReconcileFollowersRequest
+ */
+export class ReconcileFollowersRequest extends Message<ReconcileFollowersRequest> {
+  /**
+   * @generated from field: repeated clustermetadata.ID followers = 1;
+   */
+  followers: ID[] = [];
+
+  constructor(data?: PartialMessage<ReconcileFollowersRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReconcileFollowersRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "followers", kind: "message", T: ID, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileFollowersRequest | PlainMessage<ReconcileFollowersRequest> | undefined, b: ReconcileFollowersRequest | PlainMessage<ReconcileFollowersRequest> | undefined): boolean {
+    return proto3.util.equals(ReconcileFollowersRequest, a, b);
+  }
+}
+
+/**
+ * ReconcileFollowersResponse is returned once the primary's per-follower physical
+ * slots have been reconciled to the requested set. It carries no fields.
+ *
+ * @generated from message multipoolermanagerdata.ReconcileFollowersResponse
+ */
+export class ReconcileFollowersResponse extends Message<ReconcileFollowersResponse> {
+  constructor(data?: PartialMessage<ReconcileFollowersResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReconcileFollowersResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileFollowersResponse | PlainMessage<ReconcileFollowersResponse> | undefined, b: ReconcileFollowersResponse | PlainMessage<ReconcileFollowersResponse> | undefined): boolean {
+    return proto3.util.equals(ReconcileFollowersResponse, a, b);
   }
 }
 
@@ -2435,6 +2499,204 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
 
   static equals(a: SetPostgresRestartsEnabledResponse | PlainMessage<SetPostgresRestartsEnabledResponse> | undefined, b: SetPostgresRestartsEnabledResponse | PlainMessage<SetPostgresRestartsEnabledResponse> | undefined): boolean {
     return proto3.util.equals(SetPostgresRestartsEnabledResponse, a, b);
+  }
+}
+
+/**
+ * ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
+ * configuration reload (SIGHUP) on its local PostgreSQL. The caller writes the
+ * config file, then calls this to reload it.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigRequest
+ */
+export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
+  /**
+   * expected_settings is an optional map of reload-safe GUC name -> desired
+   * value that the caller wrote to the config file before calling. When it is
+   * non-empty, the multipooler first reads pg_file_settings and reloads ONLY if
+   * the file it would read already carries every one of these values and each is
+   * reload-applicable; otherwise it skips the reload and reports why (see
+   * ReloadConfigResponse). This ordering makes the result trustworthy despite an
+   * asynchronously written config file (e.g. a Kubernetes ConfigMap mount): a
+   * reload is never performed — and success is never reported — against a file
+   * that has not yet caught up. Values are compared verbatim against the raw file
+   * token, so pass exactly what was written to the file (e.g. "32MB", not
+   * "32768kB"). When empty, the multipooler just reloads unconditionally and
+   * leaves the verdict fields at their zero values.
+   *
+   * @generated from field: map<string, string> expected_settings = 1;
+   */
+  expectedSettings: { [key: string]: string } = {};
+
+  constructor(data?: PartialMessage<ReloadConfigRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "expected_settings", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined, b: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigRequest, a, b);
+  }
+}
+
+/**
+ * ReloadConfigResponse reports the outcome of a configuration reload.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigResponse
+ */
+export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
+  /**
+   * config_load_time is the definitive success signal. When set, it is the
+   * pg_conf_load_time() observed after the reload, confirmed to have advanced
+   * past the moment the reload was triggered: the reload was performed because
+   * the file already carried every expected value (or there were none to check),
+   * so those reload-safe settings are now in effect.
+   *
+   * Unset means no reload was performed — either PostgreSQL was not running
+   * (pgctld could not deliver the signal), or expected_settings were supplied and
+   * the file did not yet satisfy them so the reload was intentionally skipped (see
+   * mismatches and needs_restart). The caller should treat an unset value as
+   * retryable.
+   *
+   * @generated from field: google.protobuf.Timestamp config_load_time = 1;
+   */
+  configLoadTime?: Timestamp;
+
+  /**
+   * mismatches has one entry for every expected setting that blocked the reload:
+   * absent from the file, a different value than desired, or present but not
+   * applicable by a reload (needs a restart or failed validation). Empty when
+   * config_load_time is set. It names which settings are unsatisfied without
+   * echoing their file values (see SettingMismatch).
+   *
+   * @generated from field: repeated multipoolermanagerdata.SettingMismatch mismatches = 2;
+   */
+  mismatches: SettingMismatch[] = [];
+
+  /**
+   * needs_restart is true when at least one expected setting is written correctly
+   * in the file but cannot take effect without a PostgreSQL restart (a
+   * postmaster-context GUC whose file value differs from the running value). A
+   * reload alone will never satisfy such a setting, so the caller should escalate
+   * to a restart rather than retry.
+   *
+   * @generated from field: bool needs_restart = 3;
+   */
+  needsRestart = false;
+
+  constructor(data?: PartialMessage<ReloadConfigResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
+    { no: 2, name: "mismatches", kind: "message", T: SettingMismatch, repeated: true },
+    { no: 3, name: "needs_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined, b: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigResponse, a, b);
+  }
+}
+
+/**
+ * SettingMismatch reports one expected GUC that the reload could not satisfy:
+ * its value is not yet present in the config file as written, or it cannot be
+ * applied by a reload. It deliberately does NOT echo the file's value — that is
+ * server-side state that may be sensitive (e.g. a password in primary_conninfo),
+ * and expected_settings is caller-controlled, so returning the file value would
+ * let a caller read back arbitrary GUC values. The caller already knows what it
+ * asked for (keyed by name), so name plus the two escalation signals below are
+ * enough to act on.
+ *
+ * @generated from message multipoolermanagerdata.SettingMismatch
+ */
+export class SettingMismatch extends Message<SettingMismatch> {
+  /**
+   * GUC name (matches a key in ReloadConfigRequest.expected_settings).
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * PostgreSQL's error for this setting's config-file entry, if any
+   * (pg_file_settings.error) — e.g. a value that fails validation, which a retry
+   * alone will not fix. Empty when the entry is valid but simply not yet the
+   * desired value (a stale/not-yet-synced file), in which case the caller retries.
+   *
+   * @generated from field: string error = 2;
+   */
+  error = "";
+
+  /**
+   * Whether this setting cannot be applied by a reload and needs a PostgreSQL
+   * restart: it is a postmaster-context GUC (pg_settings.context = 'postmaster')
+   * whose file value differs from the running value.
+   *
+   * @generated from field: bool requires_restart = 3;
+   */
+  requiresRestart = false;
+
+  constructor(data?: PartialMessage<SettingMismatch>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SettingMismatch";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "requires_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SettingMismatch | PlainMessage<SettingMismatch> | undefined, b: SettingMismatch | PlainMessage<SettingMismatch> | undefined): boolean {
+    return proto3.util.equals(SettingMismatch, a, b);
   }
 }
 

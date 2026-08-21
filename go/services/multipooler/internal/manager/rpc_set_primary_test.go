@@ -21,11 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // newLeaderAddress builds a PoolerAddress suitable for use as the leader in a
@@ -381,6 +383,12 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
+	// Registered first so its one-shot reload pattern is consumed by the
+	// pre-pg_rewind position-measurement reload, not step 4's
+	// setPrimaryConnInfoLocked reload below — see
+	// expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
+
 	// 1. SetPrimary's own isPrimary check: not in recovery -> take the demote branch.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
@@ -464,6 +472,59 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	healthState := pm.healthStreamer.getState()
 	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
 		"a demoted pooler must not advertise itself as the routing primary")
+}
+
+// TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence verifies the rule-store /
+// WAL leadership trigger: even when postgres reports standby (pg_is_in_recovery=t,
+// so pgMode is NOT out of recovery), if this pooler's own committed rule still
+// names IT as the leader, SetPrimary treats it as a possibly-diverged stale leader
+// — it sets suspected divergence and enters the demote-via-rewind path (deferring
+// here with UNAVAILABLE because the incoming leader is not yet rewind-ready).
+//
+// This catches a stale primary whose postgres was demoted but whose WAL/rule store
+// still asserts leadership — a case that pgMode alone, and a highest-known-rule
+// role check (which would see the newer leader this node has already been told
+// about), would both miss.
+func TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	// setPrimaryLocked's postgresMode: in recovery (standby), so only the
+	// rule-store leadership check can trip divergence — not pgMode.
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// setupManagerWithMockDB's pooler is zone1/test-pooler; our own committed rule
+	// still names us the leader at term 2, even though postgres reports standby.
+	selfID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler",
+	}
+	selfPos := &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			LeaderId:   selfID,
+		}},
+		Lsn: "16/B374D848",
+	}
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: selfPos})
+
+	require.False(t, pm.consensusMgr.SuspectedDivergence(), "precondition: divergence not yet suspected")
+
+	// A higher rule naming a different new leader that is NOT yet rewind-ready.
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 10)},
+			Primary:     leader,
+			RewindReady: false,
+		},
+	}
+	_, err := pm.SetPrimary(t.Context(), req)
+
+	// The demote defers (leader not rewind-ready) — but only AFTER the rule-store
+	// leadership check flagged suspected divergence.
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.True(t, pm.consensusMgr.SuspectedDivergence(),
+		"a standby whose own committed rule still names it leader must be flagged as a possibly-diverged stale leader")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is
@@ -670,4 +731,122 @@ func TestSetPrimary_ApplyPathErrors(t *testing.T) {
 			assert.Nil(t, resp)
 		})
 	}
+}
+
+// TestSetPrimary_ClearsRestoreCommandForCohortMember verifies that when the
+// incoming rule names this pooler as a cohort member, SetPrimary clears
+// restore_command (and asks pgctld to confirm/stop any in-flight invocation)
+// as a backstop — a cohort member must only ever advance via streaming, never
+// the archive, regardless of what it was doing as an observer beforehand.
+func TestSetPrimary_ClearsRestoreCommandForCohortMember(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
+		mock.MakeQueryResult(nil, nil))
+
+	// SetPrimary reads restore_command first and only clears it when set, so
+	// return a non-empty value to drive the clear.
+	mockQueryService.AddQueryPattern("current_setting\\('restore_command'",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"pgbackrest archive-get %f %p"}}))
+
+	// The restore_command clear-and-confirm this test exists to check.
+	var resetCalled bool
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM RESET restore_command",
+		mock.MakeQueryResult(nil, nil),
+		func(string) { resetCalled = true },
+	)
+	expectReloadConfig(mockQueryService)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	rule := ruleAtTermForLeader(leader, 10)
+	rule.CohortMembers = []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		leader.GetId(),
+	}
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:  leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.True(t, resetCalled, "restore_command should be cleared when the incoming rule names this pooler a cohort member")
+}
+
+// TestSetPrimary_ClearsRestoreCommandForCohortMemberOnNoOp verifies the clear
+// still fires when SetPrimary is a position no-op (the incoming rule ties the
+// pooler's already-observed rule). This is the case a member hits once it has
+// streamed the cohort rule that names it: a re-issued SetPrimary from
+// ReconcileCohort no longer advances the position, but the invariant must still
+// be enforced. The clear runs before the no-op gate, keyed on cohort membership
+// (here established by the pooler's own current rule), not on the change being
+// applied. See setPrimaryLocked — the apply-path clear moved into SetPrimary so
+// it also covers this no-op path.
+func TestSetPrimary_ClearsRestoreCommandForCohortMemberOnNoOp(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// Out of recovery so the no-op path's drift reconcile is skipped; the only
+	// recovery-mode read on this path is the single pg_is_in_recovery below.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	// restore_command is set, so the clear proceeds even though the position is
+	// a no-op.
+	mockQueryService.AddQueryPattern("current_setting\\('restore_command'",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"pgbackrest archive-get %f %p"}}))
+	var resetCalled bool
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM RESET restore_command",
+		mock.MakeQueryResult(nil, nil),
+		func(string) { resetCalled = true },
+	)
+	expectReloadConfig(mockQueryService)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	// The pooler's own current rule (term 7) already names it as a cohort member
+	// — i.e. it has streamed the rule that added it. The incoming SetPrimary
+	// carries the same rule, so it is a position no-op.
+	cohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		leader.GetId(),
+	}
+	selfPos := makeRulePosition(7)
+	selfPos.GetPosition().GetDecision().LeaderId = leader.GetId()
+	selfPos.GetPosition().GetDecision().CohortMembers = cohort
+
+	incomingRule := ruleAtTermForLeader(leader, 7)
+	incomingRule.CohortMembers = cohort
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: selfPos})
+
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: incomingRule},
+			Primary:  leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.True(t, resetCalled, "restore_command should be cleared on the no-op path when this pooler is a cohort member")
 }

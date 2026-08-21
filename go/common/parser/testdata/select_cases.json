@@ -2393,6 +2393,28 @@
     "query": "SELECT f(\"weird arg\" => 1)"
   },
   {
+    "comment": "Named argument label that is a col_name keyword keeps its quotes (param_name is type_function_name, which excludes col_name keywords)",
+    "query": "SELECT f(\"varchar\" => 1)"
+  },
+  {
+    "comment": "PostgREST-shaped call: multiple col_name-keyword argument labels stay quoted",
+    "query": "SELECT test.varied_arguments(\"boolean\" => a, \"integer\" => b, \"json\" => c)"
+  },
+  {
+    "comment": "Unquoted col_name keyword as a named-argument label is a syntax error, matching PostgreSQL",
+    "query": "SELECT f(varchar => 1)",
+    "error": "syntax error at or near \"=>\""
+  },
+  {
+    "comment": "Capitalized unreserved keyword label folds to lowercase (unquoted), so it is NOT quoted on deparse",
+    "query": "SELECT f(Abort => 1)",
+    "expected": "SELECT f(abort => 1)"
+  },
+  {
+    "comment": "Explicitly quoted mixed-case label keeps its quotes to preserve case-sensitive matching",
+    "query": "SELECT f(\"Abort\" => 1)"
+  },
+  {
     "comment": "WINDOW clause quotes window name",
     "query": "SELECT x FROM t WINDOW \"weird w\" AS ()"
   },

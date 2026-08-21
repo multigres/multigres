@@ -56,9 +56,11 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	// If another pooler holds the lease, revoke it and acquire a new one.
 	// This ensures the most recent backup request always wins.
 	var backupID string
+	var fnStarted bool
 	health := pm.backup.Health()
 	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
 		// The lease is held for the duration of this function.
+		fnStarted = true
 		health.SetLeaseHeld(true)
 		defer health.SetLeaseHeld(false)
 
@@ -70,7 +72,18 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return backupErr
 	})
 	if err != nil {
-		return "", mterrors.Wrap(err, "failed to acquire backup lease")
+		if !fnStarted {
+			// WithStolenBackupLease returns exactly whatever fn returns once
+			// the lease is held, so an error here with fnStarted still false
+			// means fn was never invoked — the failure really is in lease
+			// acquisition (e.g. steal/revoke failed, or the post-steal
+			// grace-period wait was aborted by context cancellation).
+			return "", mterrors.Wrap(err, "failed to acquire backup lease")
+		}
+		// fn ran and failed on its own; that error (e.g. a pgbackrest
+		// failure) is already descriptive — don't relabel it as a lease
+		// problem the lease was never the issue.
+		return "", err
 	}
 	return backupID, nil
 }
@@ -133,7 +146,7 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
-		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.getPoolerType())
+		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.stateManager.RoutingRole())
 		return err
 	})
 	return retBackupID, retErr
@@ -141,11 +154,10 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.getPoolerType()
-	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
 	if isPrimary && !forcePrimary {
-		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
+		slog.WarnContext(ctx, "backup requested on primary database without ForcePrimary flag")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"backups from primary databases are not allowed unless ForcePrimary is set")
 	}
@@ -165,11 +177,9 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	overrides map[string]string,
 	forcePrimary bool,
 ) ([]string, error) {
-	poolerType := pm.getPoolerType()
-
 	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
 	// backup locally from pg1 — no pg2 needed.
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 
@@ -254,7 +264,8 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	return args, nil
 }
 
-// RestoreFromBackup restores from a backup to a standby without a data directory.
+// restoreFromBackupLocked restores from a backup to a standby without a data
+// directory. Caller must hold the action lock.
 //
 // Requirements:
 // - The pooler must be a standby (not a primary)
@@ -264,28 +275,12 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 // 1. Execute pgbackrest restore to recreate PGDATA
 // 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
 // 3. Reopen the pooler manager to establish fresh connections
-func (pm *MultipoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
-	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
-
-	// We can't proceed without the topo, which is loaded asynchronously at startup
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "RestoreFromBackup")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		return pm.restoreFromBackupLocked(ctx, backupID)
-	})
-}
-
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+//
+// Only called from the postgres monitor's autonomous self-heal
+// (restoreAndStartPostgres) when it observes no data directory and backups
+// available — there is no externally-callable RPC for this; an explicit,
+// caller-driven restore path was found to be unusable (it would race the
+// monitor's own restore the instant PGDATA goes missing) and was removed.
 func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -303,7 +298,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		}
 	}()
 
-	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_id", backupID)
+	pm.logger.InfoContext(ctx, "starting restore operation", "backup_id", backupID)
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.RestoreAttempt{BackupName: backupID})
 	defer func() {
@@ -315,11 +310,14 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	}()
 
 	// Check that this is a standby, not a primary
-	poolerType := pm.getPoolerType()
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
+
+	// TODO: restore is archive-based catch-up, which only an observer should
+	// do — a cohort member should only ever advance via streaming from the
+	// current leader. Might be good to add a best-effort check of this.
 
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
@@ -329,7 +327,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
-		return pm.backup.Restore(ctx, backupID)
+		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
 		return err
 	}
@@ -337,7 +335,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
 	// After restore, postgresql.auto.conf contains archive_command pointing to the
 	// primary's pgbackrest.conf path. Each pooler needs its own config path.
-	pm.logger.InfoContext(ctx, "Reconfiguring archive_command for local pgbackrest.conf")
+	pm.logger.InfoContext(ctx, "reconfiguring archive_command for local pgbackrest.conf")
 	if err := telemetry.WithSpan(ctx, "restore/reconfigure-archive", func(ctx context.Context) error {
 		if err := pm.backup.RemoveArchiveConfig(); err != nil {
 			return mterrors.Wrap(err, "failed to remove old archive configuration")
@@ -365,7 +363,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// rather than leaving the cache stale until the next monitor tick. A failure
 	// here is non-fatal — the next ObservePosition will refresh it.
 	if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
+		pm.logger.WarnContext(ctx, "could not refresh rule observation after restore", "error", err)
 	}
 
 	// Mark as initialized after successful restore
@@ -389,7 +387,7 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
+	slog.InfoContext(ctx, "starting Postgres after restore",
 		"backup_id", backupID)
 
 	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
@@ -400,17 +398,17 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))
 	}
 
-	slog.InfoContext(ctx, "PostgreSQL started successfully after restore")
+	slog.InfoContext(ctx, "Postgres started successfully after restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return nil
 }
 
 func (pm *MultipoolerManager) reopenPoolerManager(ctx context.Context) error {
-	slog.InfoContext(ctx, "Reopening pooler manager after restore")
+	slog.InfoContext(ctx, "reopening pooler manager after restore")
 	// Use reopenConnections instead of Pause/Open to avoid canceling pm.ctx.
 	// This is important during auto-restore at startup where the startup flow
 	// is waiting on contexts derived from pm.ctx.
 	pm.reopenConnections(ctx)
-	slog.InfoContext(ctx, "Pooler manager reopened successfully after restore")
+	slog.InfoContext(ctx, "pooler manager reopened successfully after restore")
 	return nil
 }
 
@@ -442,7 +440,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "job_id is required")
 	}
 
-	pm.logger.DebugContext(ctx, "Searching for backup by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "searching for backup by job_id", "job_id", jobID)
 
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
@@ -465,15 +463,15 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 	for _, backup := range backups {
 		if backup.JobId == jobID {
-			pm.logger.DebugContext(ctx, "Found backup by job_id",
+			pm.logger.DebugContext(ctx, "found backup by job_id",
 				"job_id", jobID,
 				"backup_id", backup.BackupId,
-				"status", backup.Status)
+				"status", backup.Status.String())
 			return backup, nil
 		}
 	}
 
-	pm.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "backup not found by job_id", "job_id", jobID)
 	return nil, nil
 }
 
@@ -481,7 +479,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
 func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
-	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
+	pm.logger.InfoContext(ctx, "starting command", "operation", operationName)
 
 	startTime := time.Now()
 
@@ -499,7 +497,7 @@ func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 				return
 			case <-ticker.C:
 				elapsed := time.Since(startTime)
-				pm.logger.InfoContext(ctx, "Command still in progress",
+				pm.logger.InfoContext(ctx, "command still in progress",
 					"operation", operationName,
 					"elapsed_seconds", int(elapsed.Seconds()))
 			}
@@ -513,12 +511,12 @@ func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 	// Log completion
 	elapsed := time.Since(startTime)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Command failed",
+		pm.logger.ErrorContext(ctx, "command failed",
 			"operation", operationName,
 			"elapsed_seconds", int(elapsed.Seconds()),
 			"error", err)
 	} else {
-		pm.logger.InfoContext(ctx, "Command completed",
+		pm.logger.InfoContext(ctx, "command completed",
 			"operation", operationName,
 			"elapsed_seconds", int(elapsed.Seconds()))
 	}

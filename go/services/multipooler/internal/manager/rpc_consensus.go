@@ -105,6 +105,107 @@ func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 	}
 }
 
+// ResignLeadership gracefully resigns this pooler from leadership for use in a
+// planned failover. It quiesces writes, terminates remaining connections,
+// restarts PostgreSQL as a standby, then publishes REQUESTING_DEMOTION so
+// multiorch's LeaderResignedAnalyzer drives the election.
+//
+// By restarting postgres here, before Recruit runs on any node, we prevent the
+// "proposed leader not eligible" error: the Recruit fan-out disconnects the
+// standby's WAL receiver before the shutdown checkpoint WAL arrives. When this
+// node is already in standby mode at Recruit time, Recruit runs
+// pauseReplication instead (no new checkpoint), so all nodes end up at the same
+// post-shutdown LSN and the most-advanced standby is eligible.
+//
+// Multiorch's LeaderIsDeadAnalyzer is suppressed for the brief restart window
+// because postgres was ready very recently (within LeaderPostgresResponseThreshold).
+func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
+	defer span.End()
+
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Guard: only a PRIMARY may resign.
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	state, err := pm.checkDemotionState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: transition to DRAINING so new queries are rejected while we drain.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+		}
+	}); err != nil {
+		return nil, mterrors.Wrap(err, "failed to transition to DRAINING")
+	}
+
+	// Step 2: drain in-flight write connections.
+	if err := pm.drainWriteActivity(ctx, recruitDrainTimeout); err != nil {
+		return nil, mterrors.Wrap(err, "failed to drain write activity")
+	}
+
+	// Step 3: terminate any remaining write connections.
+	if _, err := pm.terminateWriteConnections(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "resign_leadership: failed to terminate write connections (non-fatal)", "error", err)
+	}
+
+	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
+	// drives the election. Best-effort: if this fails the caller can still poll
+	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
+	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
+			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
+		}
+	}
+
+	// Step 5: restart PostgreSQL as standby. This triggers a graceful shutdown
+	// (SIGTERM → smart shutdown → checkpoint → WAL sent to standbys → exit),
+	// so connected standbys receive the shutdown checkpoint WAL before postgres
+	// exits.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear restore_command before resign restart")
+	}
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+		return nil, mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	}
+
+	// Step 6: mark rewind as not needed — this is a planned failover so there is
+	// no WAL divergence between the old primary and the new timeline.
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		pm.logger.WarnContext(ctx, "resign_leadership: failed to clear suspected divergence (non-fatal)", "error", err)
+	}
+
+	// Re-enable serving now that we're back as a healthy standby.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.InRecovery
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}); err != nil {
+		return nil, mterrors.Wrap(err, "failed to re-enable serving after resign")
+	}
+
+	// Step 7: capture the post-shutdown WAL replay position. Callers can use
+	// this to poll for a new leader at or beyond this LSN.
+	flushLSN, err := pm.getStandbyReplayLSN(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to capture post-shutdown replay LSN")
+	}
+
+	pm.logger.InfoContext(ctx, "resign_leadership: complete", "flush_lsn", flushLSN)
+	return &multipoolermanagerdatapb.ResignLeadershipResponse{FlushLsn: flushLSN}, nil
+}
+
 // Recruit handles a coordinator's request to stop replication participation and
 // record a TermRevocation, returning the node's stable position afterward.
 //
@@ -138,12 +239,25 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 	coordinatorID := revocation.GetAcceptedCoordinatorId()
 
-	pm.logger.InfoContext(ctx, "Recruit received",
+	pm.logger.InfoContext(ctx, "recruit received",
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
-	// State check — reject immediately if the node's committed WAL
-	// rule or stored revocation already conflicts with this request.
+	// Refuse recruitment while cohort-ineligible. That signal is raised only on a
+	// deliberate exit (graceful shutdown / admin-stopped WAL receiver), so this node
+	// must not join the new term — otherwise it could be re-elected leader or counted
+	// for quorum while leaving. Enforcing here is synchronous and does not depend on
+	// the coordinator having observed the (health-stream) eligibility signal in time.
+	if pm.buildCohortEligibilityStatus().GetSignal() == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+		pm.logger.InfoContext(ctx, "refusing recruitment: cohort-ineligible")
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "cohort-ineligible (shutting down); refusing recruitment")
+	}
+
+	// State check — reject immediately if the node's committed WAL rule,
+	// stored revocation, or recruit position floor already conflicts with
+	// this request (the floor check matters because pg_rewind deletes back
+	// to the last common checkpoint, potentially discarding acknowledged,
+	// durably-stored transactions — see ConsensusStatus.recruit_blocked_until).
 	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
 	preStatus, _ := pm.consensusMgr.ConsensusStatus(ctx)
 	if err := commonconsensus.ValidateRevocation(preStatus, revocation); err != nil {
@@ -160,39 +274,17 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
 
-	// Stop replication participation.
-	var savedConnInfo string // non-empty if standby; used for recovery on race failure
-	{
-		stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
-		if pgMode.OutOfRecovery() {
-			pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
-				"revoked_below_term", revokedBelowTerm)
-			err = pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
-		} else {
-			// Save primary_conninfo so we can restore it if the position check fails.
-			if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {
-				pm.logger.WarnContext(stopCtx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
-			}
-			pm.logger.InfoContext(stopCtx, "Recruiting standby: pausing replication",
-				"revoked_below_term", revokedBelowTerm)
-			_, err = pm.pauseReplication(stopCtx,
-				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-				true /* wait */)
-		}
-		stopSpan.End()
-		if err != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed to stop replication during recruit")
-		}
+	savedConnInfo, err := pm.stopReplicationForRecruit(ctx, pgMode, revokedBelowTerm)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+		return nil, mterrors.Wrap(err, "failed to stop replication during recruit")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		stabilizeCtx, stabilizeSpan := telemetry.Tracer().Start(ctx, "consensus/stabilize")
-		_, err = pm.waitForReplayStabilize(stabilizeCtx)
-		stabilizeSpan.End()
+		_, err = pm.waitForReplayComplete(ctx)
 		if err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed waiting for replay to stabilize during recruit")
+			return nil, mterrors.Wrap(err, "failed waiting for replay to complete during recruit")
 		}
 	}
 
@@ -204,29 +296,16 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
 	}
-	{
-		acceptCtx, acceptSpan := telemetry.Tracer().Start(ctx, "consensus/accept-revocation")
-		err = pm.consensusMgr.Promises().AcceptRevocation(acceptCtx, stableStatus, revocation)
-		acceptSpan.End()
-	}
-	if err != nil {
+
+	if err := pm.consensusMgr.Promises().AcceptRevocation(ctx, stableStatus, revocation); err != nil {
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
-		// Attempt to restore the node to its prior replication role.
-		if pgMode.OutOfRecovery() {
-			// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
-			// simpler for now we just keep publishing the signal that this pooler resigned from its term as
-			// leader to allow orch to do a failover.
-		} else if savedConnInfo != "" {
-			if restoreErr := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); restoreErr != nil {
-				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit failure", "error", restoreErr)
-			}
-		}
+		pm.restoreReplicationAfterRecruitRace(ctx, pgMode, savedConnInfo)
 		return nil, raceErr
 	}
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
-	pm.logger.InfoContext(ctx, "Recruit complete", "revoked_below_term", revokedBelowTerm)
+	pm.logger.InfoContext(ctx, "recruit complete", "revoked_below_term", revokedBelowTerm)
 
 	// The revocation persisted: this pooler's term is now revoked, so it is no
 	// longer the active leader even if postgres has not yet left recovery. Recalc
@@ -237,7 +316,7 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	// Recruit) and AcceptRevocation has released the consensus lock, so reading the
 	// consensus snapshot inside Recalc cannot deadlock.
 	if err := pm.stateManager.Recalc(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Recruit: failed to recalc serving state after revocation", "error", err)
+		pm.logger.WarnContext(ctx, "recruit: failed to recalc serving state after revocation", "error", err)
 	}
 
 	// Step 5: Return ConsensusStatus with the stable post-revoke position.
@@ -247,6 +326,69 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 // recruitDrainTimeout is the drain window when recruiting a primary.
 const recruitDrainTimeout = 5 * time.Second
+
+// stopReplicationForRecruit stops this pooler's replication participation as
+// part of Recruit: a primary is demoted and restarted as standby; a standby
+// pauses its receiver and confirms restore_command is fully stopped. Returns
+// the primary_conninfo saved before stopping, for
+// restoreReplicationAfterRecruitRace to use if the recruit loses a race.
+func (pm *MultipoolerManager) stopReplicationForRecruit(ctx context.Context, pgMode pgmode.Mode, revokedBelowTerm int64) (savedConnInfo string, err error) {
+	stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
+	defer stopSpan.End()
+
+	if pgMode.OutOfRecovery() {
+		pm.logger.InfoContext(stopCtx, "recruiting primary: demoting and restarting as standby",
+			"revoked_below_term", revokedBelowTerm)
+		return "", pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
+	}
+
+	// Save primary_conninfo so we can restore it if the position check fails.
+	if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {
+		pm.logger.WarnContext(stopCtx, "failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
+	}
+	pm.logger.InfoContext(stopCtx, "recruiting standby: pausing replication",
+		"revoked_below_term", revokedBelowTerm)
+	if _, err := pm.pauseReplication(stopCtx,
+		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+		true /* wait */); err != nil {
+		return savedConnInfo, err
+	}
+
+	// This pooler is becoming a cohort member: from here on it must only ever
+	// advance via streaming from the current leader, never the archive (an
+	// observer catching up may have had it enabled). Clear restore_command
+	// and confirm any in-flight invocation has actually stopped before the
+	// caller's waitForReplayComplete is allowed to declare replay complete —
+	// postgres cannot cancel an in-flight invocation on its own, so clearing
+	// the config alone only stops future fetches.
+	//
+	// A failure here is a hard error, not a warning: consensus correctness
+	// depends on a cohort member never trusting archive-sourced WAL, so
+	// proceeding without confirming this would put that at risk.
+	if err := pm.resetRestoreCommand(stopCtx); err != nil {
+		return savedConnInfo, err
+	}
+	return savedConnInfo, pm.stopRestoreCommand(stopCtx)
+}
+
+// restoreReplicationAfterRecruitRace attempts to restore this pooler to its
+// prior replication role after AcceptRevocation loses a race (another
+// coordinator's revocation was already persisted). Best-effort: logs and
+// continues on error rather than compounding the original failure.
+func (pm *MultipoolerManager) restoreReplicationAfterRecruitRace(ctx context.Context, pgMode pgmode.Mode, savedConnInfo string) {
+	if pgMode.OutOfRecovery() {
+		// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
+		// simpler for now we just keep publishing the signal that this pooler resigned from its term as
+		// leader to allow orch to do a failover.
+		return
+	}
+	if savedConnInfo == "" {
+		return
+	}
+	if err := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to restore primary_conninfo after recruit failure", "error", err)
+	}
+}
 
 // setPrimaryConnInfoAndReload sets primary_conninfo and reloads postgres config so the
 // WAL receiver reconnects. Used to restore a standby's replication after a recruit failure.
@@ -347,7 +489,7 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 	coordinatorID := revocation.GetAcceptedCoordinatorId()
 
-	pm.logger.InfoContext(ctx, "Promote received",
+	pm.logger.InfoContext(ctx, "promote received",
 		"rule", commonconsensus.FormatRuleNumber(proposedRule.GetRuleNumber()),
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName(),
@@ -426,14 +568,38 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		reason = "promote"
 	}
 
-	// Re-establish resignation on any failure from here on, regardless of
-	// cause. The promotion hook below clears it optimistically before the
-	// promotion is confirmed (to shrink the window where other coordinators
-	// still see this node as needing replacement and pile on with competing
-	// Recruit calls); if the promotion then fails for any reason, that leaves
-	// this node silently fallen through the cracks — no longer signaling
-	// resignation, but also never actually promoted. Recruit already proved
-	// this node needs replacing, so a failed promote must not lose that.
+	promotionHook := func(hookCtx context.Context) error {
+		if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
+			return mterrors.Wrap(err, "failed to clear resigned primary term")
+		}
+		// Slot-based replication (flag-gated): create a physical replication
+		// slot for each follower BEFORE pg_promote, while this node is still a
+		// standby, so a slot failure fails the promotion cleanly rather than
+		// leaving a promoted-but-unrecorded node. No-op when the flag is off.
+		cohortMembers := proposedRule.GetCohortMembers()
+		if err := pm.ensureFollowerPhysicalSlots(hookCtx, cohortMembers); err != nil {
+			return err
+		}
+		// Hold the failover logical slots back to the followers' physical slots so
+		// a standby cannot outrun a slot's catalog_xmin and block slot-sync. Set
+		// before pg_promote so it is in effect the moment this node is primary.
+		if err := pm.setSynchronizedStandbySlots(hookCtx, cohortMembers); err != nil {
+			return err
+		}
+		// Log any synced failover slots that are not failover-ready before
+		// pg_promote. Durable slot creation guarantees a failover slot is synced and
+		// persistent on the required standbys before its creation is acknowledged, so
+		// a slot that is not ready here is in a terminal state a wait could not fix.
+		// Advisory only — never blocks failover.
+		pm.logUnreadyFailoverSlots(hookCtx)
+		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
+	}
+
+	// The hook above clears resignation optimistically before promotion is
+	// confirmed, to shrink the window where other coordinators still see this
+	// node as needing replacement. If promotion then fails, re-establish it
+	// here — otherwise this node is stuck silently unpromoted and no longer
+	// signaling for replacement either.
 	defer func() {
 		if err != nil {
 			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {
@@ -447,21 +613,40 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		proposedRule.GetCoordinatorId(),
 		"promotion",
 		reason,
-		proposedRule.GetCreationTime().AsTime()).
+		proposedRule.GetCreationTime().AsTime(),
+	).
 		WithLeader(pm.serviceID).
 		WithCohort(proposedRule.GetCohortMembers()).
 		WithDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
 		WithAcceptedMembers(req.GetAcceptedNodeIds()).
 		WithWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
-		WithPromotionHook(func(hookCtx context.Context) error {
-			if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
-				return mterrors.Wrap(err, "failed to clear resigned primary term")
-			}
-			return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
-		})
+		WithPromotionHook(promotionHook).
+		// CAS catches drift across the whole Recruit-to-Promote window.
+		WithPreviousRule(
+			revocation.GetOutgoingRule().GetCoordinatorTerm(),
+			revocation.GetOutgoingRule().GetLeaderSubterm(),
+		)
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
+
+	// Record optimistically, before the quorum-gated write below, so
+	// SelfConsensusRole/rewind-readiness don't stay stale until that write
+	// commits (which can deadlock recovery).
+	//
+	// This doesn't impact multigateway routing. It only matters if the write
+	// below times out or fails partway: we'll know this pooler should be
+	// leader even though it hasn't finished acting like one, so the postgres
+	// monitor can resign (if postgres never left recovery) or reconcile
+	// serving state (if it did) — either way, orch's next recovery cycle can
+	// finish or supersede this term instead of it going undetected.
+	if err := pm.consensusMgr.RecordTermPrimary(
+		ctx,
+		commonconsensus.ReplicationPrimaryFromProposal(proposal, false),
+	); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to record replication primary before promote", "error", err)
+	}
+
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
@@ -485,22 +670,19 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
 	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update serving state after promote", "error", err)
+		pm.logger.WarnContext(ctx, "failed to update serving state after promote", "error", err)
 	}
 
-	// Record the (rule, primary) — this pooler IS now the primary. Stamping
-	// the published ReplicationPrimary lets the health stream advertise the
-	// new leadership immediately.
+	// Upgrade the pre-write record above from Proposal to Decision now that
+	// DoUpdateRule has committed it.
 	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
-		// DoUpdateRule above already committed this rule, so it is now a
-		// settled decision.
 		Position: &clustermetadatapb.RulePosition{Decision: proposedRule},
 		Primary:  proposalLeader,
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to record replication primary after promote", "error", err)
 	}
 
-	pm.logger.InfoContext(ctx, "Promote complete",
+	pm.logger.InfoContext(ctx, "promote complete",
 		"rule", commonconsensus.FormatRuleNumber(proposedRule.GetRuleNumber()),
 		"revoked_below_term", revokedBelowTerm)
 
@@ -594,7 +776,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		return nil, mterrors.Wrap(err, "failed to read revocation while validating SetPrimary")
 	}
 	if commonconsensus.IsRuleRevoked(rp.GetPosition(), revocation) {
-		pm.logger.InfoContext(ctx, "SetPrimary: rule revoked, ignoring",
+		pm.logger.InfoContext(ctx, "SetPrimary: rule revoked, ignoring", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"incoming_rule", undecidedRule.GetRuleNumber(),
 			"revoked_below_term", revocation.GetRevokedBelowTerm(),
 			"outgoing_rule", revocation.GetOutgoingRule())
@@ -613,6 +795,37 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		pm.logger.ErrorContext(ctx, "failed to record replication primary in SetPrimary", "error", err)
 	}
 
+	// If this pooler is (or is now being told it is) a cohort member, it must
+	// never resume WAL playback from the archive — only stream from the leader.
+	// Clear restore_command synchronously, mirroring what Recruit does when a
+	// member joins during a promotion wave.
+	//
+	// Why here, and not conditional on the change actually being applied: the
+	// clear must run BEFORE the "incoming position not higher" no-op gate below.
+	// A member that joins an already-established cohort out-of-band — provisioned
+	// after a failover and added via UpdateConsensusRule/ReconcileCohort rather
+	// than Recruit — never goes through Recruit's synchronous clear. multiorch
+	// drives this member-side clear by re-issuing SetPrimary after the cohort ADD;
+	// that call is frequently a position no-op (the member may already follow this
+	// leader), so leaving the clear on the apply path only would strand
+	// restore_command until the monitor backstop notices ~one tick later, during
+	// which a restart-as-standby could FATAL on a divergent archive timeline (see
+	// resetRestoreCommand).
+	//
+	// Why here, and not in SetPrimary's caller-side gate or UpdateConsensusRule:
+	// membership is decided by the rule, which RecordTermPrimary just folded into
+	// HighestKnownRule, so IsPotentialCohortMember reflects the rule this call is
+	// delivering — making the clear race-free without waiting for the member to
+	// independently stream the new rule. It sits after the revoked-rule early
+	// return above, so a revoked rule never reaches here to trigger a clear. An
+	// observer still catching up is not named in any rule yet, so it is correctly
+	// left with restore_command.
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		if err := pm.clearRestoreCommandIfSet(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		}
+	}
+
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
 	selfPos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
@@ -623,9 +836,11 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	// Compare by rule position only — LSN is intentionally not part of the
 	// gate. See SetPrimaryRequest's proto comment for the reasoning.
 	if commonconsensus.CompareRulePosition(rp.GetPosition(), selfPos.GetPosition()) <= 0 {
-		pm.logger.InfoContext(ctx, "SetPrimary: incoming position not higher, no-op",
+		pm.logger.InfoContext(ctx, "SetPrimary: incoming position not higher, no-op", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"incoming_position", commonconsensus.FormatRulePosition(rp.GetPosition()),
-			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()))
+			"incoming_rule_coordinator", undecidedRule.GetCoordinatorId().GetName(),
+			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()),
+			"self_rule_coordinator", commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition()).GetCoordinatorId().GetName())
 		// The position itself is a no-op, but primary_conninfo may have
 		// drifted from what we're recorded as following (e.g. an operator or
 		// test manually cleared it without changing consensus state). We
@@ -638,8 +853,8 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		// staleness comparison against whatever was already recorded, so this
 		// request may not be what actually got persisted.
 		if pgMode, err := pm.postgresMode(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "SetPrimary: failed to check recovery status before drift check; skipping", "error", err)
-		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to check recovery status before drift check; skipping", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx, nil) {
 			pm.reconcilePrimaryConnInfoToRecorded(ctx, "SetPrimary")
 		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
@@ -651,7 +866,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, setPrimaryEvent)
 
-	resp, err := pm.setPrimaryLocked(ctx, req)
+	resp, err := pm.setPrimaryLocked(ctx, req, selfPos)
 	if err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, setPrimaryEvent, "error", err)
 	} else {
@@ -660,7 +875,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	return resp, err
 }
 
-func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest, selfPos *clustermetadatapb.PoolerPosition) (*consensusdatapb.SetPrimaryResponse, error) {
 	rp := req.GetReplicationPrimary()
 	leader := rp.GetPrimary()
 	incomingPosition := commonconsensus.FormatRulePosition(rp.GetPosition())
@@ -674,31 +889,36 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if pgMode.OutOfRecovery() {
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
+	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
+		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
 		}
 	}
+
+	// The cohort-member restore_command clear runs in SetPrimary (the public
+	// entrypoint) before the no-op position gate, so it covers this apply path as
+	// well as the no-op path that never reaches here.
 
 	if pm.consensusMgr.SuspectedDivergence() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
 		// as replication_primary.rewind_ready. Restarting before then would FATAL on
-		// this node's own un-replicated WAL and leave it stuck. Deferring leaves the
-		// node running as-is (queryable, no downtime); the record was already updated
-		// by RecordTermPrimary above, so orch's retry and the monitor's demote path
-		// both re-attempt once the leader advertises rewind_ready.
+		// this node's own un-replicated WAL and leave it stuck. The record was already
+		// updated by RecordTermPrimary above, so orch's retry and the monitor's demote
+		// path both re-attempt once the leader advertises rewind_ready. The node stays
+		// DRAINING while it waits so divergent WAL is not exposed through reads.
 		if !rp.GetRewindReady() {
-			pm.logger.InfoContext(ctx, "SetPrimary: leader not yet rewind-ready; deferring stale-primary demote",
+			pm.logger.InfoContext(ctx, "SetPrimary: leader not yet rewind-ready; deferring stale-primary demote", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"new_leader", leader.GetId().GetName(), "incoming_position", incomingPosition)
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"leader %s not yet rewind-ready; deferring demote of stale primary", leader.GetId().GetName())
 		}
-		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby",
+		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"new_leader", leader.GetId().GetName(),
 			"incoming_position", incomingPosition,
-			"postgres_mode", pgMode)
+			"postgres_mode", pgMode.String())
 		// restartAsStandbyLocked sets primary_conninfo to leader on success,
 		// so we don't need a separate setPrimaryConnInfoLocked call here.
 		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {
@@ -709,10 +929,10 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		// ALTER SYSTEM) so the manager stays the sole writer and its cache stays
 		// coherent.
 		if err := pm.consensusMgr.Rules().ClearSyncStandby(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to clear synchronous replication after demotion", "error", err)
+			pm.logger.WarnContext(ctx, "failed to clear synchronous replication after demotion", "error", err)
 		}
 	} else {
-		pm.logger.InfoContext(ctx, "SetPrimary: updating standby primary_conninfo",
+		pm.logger.InfoContext(ctx, "SetPrimary: updating standby primary_conninfo", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"new_leader", leader.GetId().GetName(),
 			"incoming_position", incomingPosition)
 		// Already a standby with an active stream; pause replay, swap
@@ -721,6 +941,22 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
+	}
+
+	// Slot-based replication (flag-gated): this node is now a standby of the
+	// leader. Drop any physical slots it still holds as a former primary (covers a
+	// stale-primary rejoin), then point primary_slot_name at its own deterministic
+	// slot (created on the primary during promotion / cohort-add) and enable the
+	// standby-side feedback and slot-sync GUCs. Best-effort — on failure the
+	// standby simply streams slot-less, as it does today.
+	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop stale managed physical slots (non-fatal)", "error", err)
+	}
+	if err := pm.resetSynchronizedStandbySlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to clear synchronized_standby_slots (non-fatal)", "error", err)
+	}
+	if err := pm.applyStandbySlotSettings(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to apply standby slot settings (non-fatal)", "error", err)
 	}
 
 	// Ensure topology reflects REPLICA. This matters when postgres has
@@ -734,16 +970,14 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// no longer primary. That derives routing role REPLICA, clearing any stale
 	// PRIMARY label/self-leadership (so the stale-leader analyzer stops firing) and
 	// the published writable signal immediately rather than waiting a monitor
-	// cycle. Serving status is owned by the lifecycle and the monitor's reconcile,
-	// not by "here is your primary" bookkeeping.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
+	// cycle. Re-enable reads only after the restart path has cleared suspected
+	// divergence.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		pm.logger.WarnContext(ctx, "failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 
 	if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after promote", "error", err)
+		pm.logger.WarnContext(ctx, "failed to clear resigned leader term after promote", "error", err)
 	}
 
 	pm.broadcastHealth()

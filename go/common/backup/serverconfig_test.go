@@ -51,7 +51,7 @@ func TestWriteServerConfig(t *testing.T) {
 	assert.Equal(t, "/certs/pgbackrest.crt", global.Key("tls-server-cert-file").String())
 	assert.Equal(t, "/certs/pgbackrest.key", global.Key("tls-server-key-file").String())
 	assert.Equal(t, "/certs/ca.crt", global.Key("tls-server-ca-file").String())
-	assert.Equal(t, "0.0.0.0", global.Key("tls-server-address").String())
+	assert.Equal(t, "::", global.Key("tls-server-address").String())
 	assert.Equal(t, "8443", global.Key("tls-server-port").String())
 	assert.Equal(t, "pgbackrest=*", global.Key("tls-server-auth").String())
 

@@ -17,6 +17,7 @@ package mterrors
 import (
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,20 @@ func TestToGRPCRegularError(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 	assert.Equal(t, "invalid query", st.Message())
+}
+
+func TestToGRPCLongRegularErrorTruncatesStatusAndDetails(t *testing.T) {
+	grpcErr := ToGRPC(New(mtrpcpb.Code_INVALID_ARGUMENT, strings.Repeat("x", 10_000)))
+	st, ok := status.FromError(grpcErr)
+	require.True(t, ok)
+	require.Len(t, st.Details(), 1)
+
+	rpcErr, ok := st.Details()[0].(*mtrpcpb.RPCError)
+	require.True(t, ok)
+	assert.Equal(t, st.Message(), rpcErr.Message)
+	assert.Contains(t, rpcErr.Message, "truncated")
+	assert.Less(t, len(rpcErr.Message), 10_000)
+	assert.Equal(t, rpcErr.Message, FromGRPC(grpcErr).Error())
 }
 
 func TestToGRPCPgError(t *testing.T) {
@@ -229,6 +244,42 @@ func TestNonPgErrorGRPCRoundTrip(t *testing.T) {
 	// Should NOT be a PgDiagnostic
 	var pgDiag *PgDiagnostic
 	assert.False(t, errors.As(recovered, &pgDiag))
+}
+
+func TestPreExecutionUnavailableGRPCRoundTrip(t *testing.T) {
+	assert.NoError(t, MarkPreExecutionUnavailable(nil))
+
+	tests := []struct {
+		name      string
+		cause     error
+		wantState string
+		wantMsg   string
+	}{
+		{
+			name:      "preserves PostgreSQL diagnostic",
+			cause:     NewPgError("ERROR", PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", "original detail"),
+			wantState: PgSSReadOnlyTransaction,
+			wantMsg:   "cannot execute INSERT in a read-only transaction",
+		},
+		{
+			name:      "maps transport failure to cannot connect now",
+			cause:     io.EOF,
+			wantState: PgSSCannotConnectNow,
+			wantMsg:   "database is temporarily unavailable; please retry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recovered := FromGRPC(ToGRPC(MarkPreExecutionUnavailable(tt.cause)))
+			assert.True(t, IsPreExecutionUnavailable(recovered))
+
+			var diagnostic *PgDiagnostic
+			require.ErrorAs(t, recovered, &diagnostic)
+			assert.Equal(t, tt.wantState, diagnostic.Code)
+			assert.Equal(t, tt.wantMsg, diagnostic.Message)
+		})
+	}
 }
 
 func TestTruncateError(t *testing.T) {

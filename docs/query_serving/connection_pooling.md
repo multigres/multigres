@@ -531,6 +531,30 @@ regularConn, _ := mgr.GetRegularConnWithSettings(ctx, map[string]string{
 }, user)
 ```
 
+### Gateway-authoritative session state
+
+The gateway is the sole authority on a logical session's GUC state. A settings
+bucket label is valid because backend session state can only change in
+lockstep with the gateway map: unpinned SET validates via a statement-local
+probe that leaves nothing behind; an unpinned session-persisting `set_config`
+is rewritten to `is_local := true` so it reverts on the pooled backend exactly
+like that SET probe (the value lives only in the gateway map, replayed at the
+next checkout); and pinned statements (transactions, reservations) route real
+SET/RESET — or a real `set_config` — to the pinned backend while the gateway
+records the same change. The choice between reverting and persisting a
+`set_config` is made per live session state at execute time (a
+`SessionStateBranch` primitive), so its plan stays cacheable and no
+per-statement capture reservation is needed.
+
+At final reservation release, the gateway's map is stamped onto the physical
+connection as its new settings label — zero reconciliation SQL — and the
+connection re-enters the pool in the matching bucket. On checkout, a
+pointer-equal bucket hit needs no SQL; a mismatch resets and replays the full
+map.
+
+See [session_settings.md](./session_settings.md) for statement
+classification and known limitations.
+
 ## User Management and RLS
 
 ### Per-User Connection Pools
@@ -865,6 +889,47 @@ Future improvements could add support for:
 
 This would enable more flexible deployment topologies where the connection
 pooler runs on separate hosts from PostgreSQL.
+
+## Login Event Triggers
+
+PostgreSQL 17's `CREATE EVENT TRIGGER ... ON login` fires when a **backend
+process** starts a session. Under connection pooling that is an accepted
+product deviation from stock PostgreSQL:
+
+- **Login triggers fire once per pooled-backend creation, as the pooler's
+  connection — never per client connection.** A client connecting to
+  multigateway is attached to an already-running backend, so no login event
+  fires for it. Backends created before the trigger existed never fire it at
+  all.
+- **Trigger output is not delivered to clients.** A `RAISE NOTICE` in a login
+  trigger arrives during the pooler's connection startup, where notices are
+  discarded (`pgprotocol/client/startup.go`). No client ever sees it.
+- **The gateway warns at CREATE time.** `CREATE EVENT TRIGGER ... ON login`
+  through multigateway succeeds but emits a self-contained `WARNING`
+  (SQLSTATE 01000) explaining the pooled-backend semantics, so the changed
+  behavior is discoverable when the trigger is created rather than when login
+  counting mysteriously stops.
+
+There is no faithful emulation available: event trigger functions cannot be
+invoked from SQL (they return the `event_trigger` pseudo-type), so the
+gateway cannot "re-fire" a login trigger when a client attaches to a pooled
+backend.
+
+### Operational hazard: a broken login trigger
+
+In stock PostgreSQL a login trigger that raises an error locks users out _at
+login_, and the error tells them why. Under multigres the failure moves: the
+**pooler's backend creation** fails instead. The symptom is pool exhaustion
+or connection-acquisition errors at the gateway, with the trigger's actual
+error only in the multipooler logs — clients never see the trigger error
+directly.
+
+Recovery uses stock PostgreSQL's escape hatch: connect directly to
+PostgreSQL as a superuser with event trigger firing disabled —
+`PGOPTIONS="-c event_triggers=false" psql ...` (PostgreSQL 17+ GUC,
+superuser-only) — and repair or drop the trigger. The same GUC can be set in
+the pooler's backend startup configuration to keep backend creation working
+while the trigger is being fixed.
 
 ## Related Documentation
 

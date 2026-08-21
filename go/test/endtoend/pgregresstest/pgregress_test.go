@@ -314,6 +314,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 				return
 			}
 
+			isolationDir := filepath.Join(builder.BuildDir, "src", "test", "isolation")
+			builder.VerifyIsolationWithPatches(suiteCtx, results, isolationDir)
+
 			logSuiteResults(t, "Isolation", results)
 
 			// Count expected tests from schedule (only for full suite runs)

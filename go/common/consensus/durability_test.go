@@ -15,7 +15,6 @@
 package consensus
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,13 +94,9 @@ func TestNewPolicyWithCohort(t *testing.T) {
 // family — its method bodies are deliberately minimal.
 type stubPolicy struct{}
 
-func (stubPolicy) CheckSufficientRecruitment([]*clustermetadatapb.ID, []*clustermetadatapb.ID) error {
-	return nil
-}
+func (stubPolicy) SatisfiedBy([]*clustermetadatapb.ID) error { return nil }
 
-func (stubPolicy) CheckAchievable([]*clustermetadatapb.ID) error { return nil }
-
-func (stubPolicy) BuildSyncReplicationConfig(*slog.Logger, []*clustermetadatapb.ID, *clustermetadatapb.ID) (*SyncReplicationConfig, error) {
+func (stubPolicy) BuildSyncReplicationConfig([]*clustermetadatapb.ID, *clustermetadatapb.ID) (*SyncReplicationConfig, error) {
 	return nil, nil
 }
 

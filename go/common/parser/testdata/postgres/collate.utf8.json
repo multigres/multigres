@@ -83,7 +83,7 @@
   {
     "comment": "collate.utf8 - Statement 18",
     "query": "SELECT '൧' !~ '\\d' COLLATE PG_C_UTF8",
-    "expected": "SELECT '൧' !~ '\\d' COLLATE pg_c_utf8"
+    "expected": "SELECT '൧' !~ E'\\\\d' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 19",

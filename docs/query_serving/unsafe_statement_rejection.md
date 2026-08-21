@@ -23,8 +23,10 @@ expression-level filter that runs across all tiers:
 The tiers are handled differently because the mitigations are
 different (see [Handling](#handling) below). In the current
 implementation, **Tier 2 and the expression-level filter block at plan
-time; Tier 1 is allowed through pending deeper analysis**; the tiers
-will continue to diverge as follow-up layers land.
+time; Tier 1 is allowed through pending deeper analysis**. Tier 1 statements
+can therefore install session-state mutations the gateway cannot track — a
+known cross-session leak vector until creation-time body analysis lands (see
+[Future Work](#future-work)).
 
 Blocked statements return a PostgreSQL `feature_not_supported` error
 (SQLSTATE `0A000`) with a descriptive message.
@@ -95,17 +97,14 @@ proxy's own NOTICE/ERROR-forwarding tests — without actually closing
 the session-state leak, since `SELECT set_config(...)` achieves the
 same effect at the expression level.
 
-**How they will eventually be handled:** body analysis. Rather than a
-blanket rejection, the planner will parse the PL/pgSQL body (for DO
-and CREATE FUNCTION LANGUAGE plpgsql) and walk `RuleStmt.Actions` /
-trigger functions, rejecting only bodies that contain dangerous
-literal statements (`SET`, `DISCARD`, `LISTEN`, `PERFORM
-set_config(...)`, `PREPARE TRANSACTION`, etc.). Dynamic `EXECUTE`
-with non-literal arguments stays as an acknowledged gap until the
-connection-reset backstop lands.
+**How they will be handled:** creation-time body analysis must reject (or
+certify) state-mutating routine definitions before they can exist, so the
+gateway's session-state tracking stays exact by construction. Until that gate
+lands, a state-mutating body is a documented cross-session leak
+(`go/test/endtoend/queryserving/session_state_leak_test.go` is the skipped
+acceptance test).
 
-See [Future Work](#future-work) for the follow-up tickets that close
-Tier 1.
+See [Future Work](#future-work) for the separate Tier 1 policy work.
 
 ### Tier 2 — infrastructure operations (blocked at plan time)
 
@@ -287,6 +286,7 @@ be usefully blocked wholesale.
 | `CALL proc()`                                              | `T_CallStmt`                                    | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.                                                                             |
 | `CREATE EXTENSION`                                         | `T_CreateExtensionStmt`                         | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).                                                                        |
 | `ALTER DATABASE ... SET` / `ALTER ROLE ... SET`            | `T_AlterDatabaseSetStmt` / `T_AlterRoleSetStmt` | Changes connection-start defaults; existing pooled backends keep old values. See [Connection-start defaults](#connection-start-defaults-alter-databaserole-set). |
+| `CREATE EVENT TRIGGER ... ON login`                        | `T_CreateEventTrigStmt`                         | Login triggers fire when pooled backend connections are created, not for each client session. See [Login event triggers](#login-event-triggers).                 |
 | User-defined functions in expressions (`SELECT my_func()`) | N/A (expression-level)                          | Opaque function bodies. The expression-level filter only blocks built-ins known to breach the pooler boundary; arbitrary user functions are out of scope.        |
 
 ### Connection-start defaults (`ALTER DATABASE/ROLE SET`)
@@ -313,6 +313,16 @@ search_path = ..., topology`; after that install it terminates existing client
 backends so multipooler reconnects with the new topology-aware startup default.
 A future connection-default refresh mechanism could make this automatic, but it
 must preserve reserved-session state and transaction-pinning invariants.
+
+### Login event triggers
+
+PostgreSQL 17 login event triggers fire when a backend process starts a session. In Multigres connection pooling, PostgreSQL backends are created by the pooler and reused across client sessions, so `CREATE EVENT TRIGGER ... ON login` succeeds but its trigger fires only when the pooler opens a backend connection.
+
+It is not re-run for each client login, and `RAISE NOTICE` output from the trigger is not delivered to client sessions.
+
+The gateway emits a self-contained `WARNING`/`HINT` at `CREATE EVENT TRIGGER ... ON login` time so the changed semantics are visible when the trigger is created.
+
+There is no faithful emulation available: event trigger functions return the `event_trigger` pseudo-type and cannot be invoked from ordinary SQL when a client attaches to a pooled backend.
 
 ## Implementation
 
@@ -414,23 +424,11 @@ apply identically:
 
 ## Future Work
 
-One follow-up layer remains to harden against session-state and
-code-execution vectors that the current filters do not catch.
+Routine-body policy remains separate from physical-session sanitation. The
+PL/pgSQL parser can expose embedded SQL for analysis, but this change does not
+reject SQL or PL/pgSQL routine definitions. A follow-up can define that policy
+and its handling of dynamic `EXECUTE` independently.
 
-### PL/pgSQL body analysis (closes Tier 1)
-
-Port PostgreSQL's PL/pgSQL parser (`src/pl/plpgsql/src/pl_gram.y`,
-`pl_scanner.c`) so we can walk the body of `DO` blocks and
-`CREATE FUNCTION ... LANGUAGE plpgsql` to detect literal `SET`,
-`DISCARD`, `LISTEN`, `RESET`, `PREPARE TRANSACTION`, and
-`PERFORM set_config(...)` uses. Combined with the expression walker
-above, this closes the literal-text case.
-
-Known gap (documented, not closed by this work): dynamic
-`EXECUTE 'SET '||var` cannot be analyzed at parse time. Options under
-consideration:
-
-- reject any `EXECUTE` with a non-literal argument (most migrations
-  don't need it), or
-- rely on connection-reset on client handoff (`DISCARD ALL`) as the
-  backstop.
+Mutable process-global state maintained by C extensions is outside the
+gateway-authoritative model entirely; see
+[`session_settings.md`](./session_settings.md) for that known limitation.

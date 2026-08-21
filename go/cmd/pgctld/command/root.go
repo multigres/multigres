@@ -36,6 +36,13 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// skipTelemetryAnnotation, when set to "true" in a (sub)command's
+// Annotations, opts it out of root's telemetry init/shutdown.
+// Used by restore-wrapper, which postgres invokes once per WAL
+// segment during catch-up and which isn't itself instrumented,
+// so the OpenTelemetry lifecycle overhead buys nothing there.
+const skipTelemetryAnnotation = "skip-telemetry"
+
 // PgCtlCommand holds the configuration for pgctld commands.
 // This contains all flags and information necessary to run any pgctld command.
 type PgCtlCommand struct {
@@ -58,6 +65,7 @@ type PgCtlCommand struct {
 	pgInitdbSQLFiles   viperutil.Value[[]string]
 	pgInitdbSQLDirs    viperutil.Value[[]string]
 	pgInitdbExtraConf  viperutil.Value[[]string]
+	pgInitSecretsFile  viperutil.Value[string]
 
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
@@ -122,6 +130,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		postgresConfigTmpl: viperutil.Configure(reg, "postgres-config-template", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "postgres-config-template",
+			EnvVars:  []string{constants.PgConfigTemplateEnvVar},
 			Dynamic:  false,
 		}),
 		pgInitdbArgs: viperutil.Configure(reg, "pg-initdb-args", viperutil.Options[string]{
@@ -148,6 +157,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars:  []string{constants.PgInitdbExtraConfEnvVar},
 			Dynamic:  false,
 		}),
+		pgInitSecretsFile: viperutil.Configure(reg, "pg-init-secrets-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-init-secrets-file",
+			EnvVars:  []string{constants.PgInitSecretsFileEnvVar},
+			Dynamic:  false,
+		}),
 		vc:        viperutil.NewViperConfig(reg),
 		lg:        servenv.NewLogger(reg, telemetry),
 		telemetry: telemetry,
@@ -167,6 +182,9 @@ management for PostgreSQL servers.`,
 			// runtime errors so the error message is not buried under the usage text.
 			cmd.Root().SilenceUsage = true
 			pc.lg.SetupLogging()
+			if cmd.Annotations[skipTelemetryAnnotation] == "true" {
+				return nil
+			}
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
 			if span, err = pc.telemetry.InitForCommand(cmd, constants.ServicePgctld, cmd.Use != "server" /* startSpan */); err != nil {
@@ -176,6 +194,9 @@ management for PostgreSQL servers.`,
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Annotations[skipTelemetryAnnotation] == "true" {
+				return nil
+			}
 			span.End()
 
 			// Shutdown OpenTelemetry to flush all pending spans
@@ -196,12 +217,13 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
-	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file (overrides "+constants.PgConfigTemplateEnvVar+" env var)")
 	root.PersistentFlags().String("pg-password-file", pc.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL password (plaintext, docker-library/postgres convention). Takes precedence over "+constants.PgPasswordEnvVar+". Also reads "+constants.PgPasswordFileEnvVar+" env var.")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-dirs", pc.pgInitdbSQLDirs.Default(), "Directory of .sql files to run after initdb, in role:path format. Files run in lexicographic order under SET SESSION AUTHORIZATION <role>. Repeat for multiple directories (overrides "+constants.PgInitdbSQLDirsEnvVar+" env var).")
-	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet live-included (via include_if_exists) at the end of the generated config. The file is re-read on every start and reload, so edits to it take effect on restart. Repeat the flag to include multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
+	root.PersistentFlags().String("pg-init-secrets-file", pc.pgInitSecretsFile.Default(), "Path to a JSON file of per-project day-0 state (role passwords/verifiers and database settings) applied during the transient init phase, after init SQL runs. See init_secrets.go for the format (overrides "+constants.PgInitSecretsFileEnvVar+" env var).")
 
 	// Backwards-compat alias: --init-db-sql-file → --pg-initdb-sql-files.
 	// Remove once downstream users have migrated.
@@ -230,6 +252,7 @@ management for PostgreSQL servers.`,
 		pc.pgInitdbSQLFiles,
 		pc.pgInitdbSQLDirs,
 		pc.pgInitdbExtraConf,
+		pc.pgInitSecretsFile,
 	)
 
 	// Save the persistent flag set so GetPostgresPassword can use
@@ -246,12 +269,13 @@ management for PostgreSQL servers.`,
 	AddStatusCommand(root, pc)
 	AddVersionCommand(root, pc)
 	AddReloadCommand(root, pc)
+	AddRestoreWrapperCommand(root)
 
 	return root, pc
 }
 
 // validateGlobalFlags validates required global flags for all pgctld commands
-func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateGlobalFlags(_ *cobra.Command, _ []string) error {
 	// Validate pooler-dir is required and non-empty for all commands
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
@@ -324,6 +348,7 @@ func (pc *PgCtlCommand) buildServiceConfig() (PgCtldServiceConfig, error) {
 		InitdbSQLFiles:       pc.pgInitdbSQLFiles.Get(),
 		InitdbSQLDirs:        pc.pgInitdbSQLDirs.Get(),
 		InitdbExtraConfFiles: pc.pgInitdbExtraConf.Get(),
+		InitSecretsFile:      pc.pgInitSecretsFile.Get(),
 	}, nil
 }
 

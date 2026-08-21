@@ -16,98 +16,135 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestPoolerHealthState_IsInitialized(t *testing.T) {
-	// IsInitialized() now uses the IsInitialized field from Status RPC directly,
-	// based on data directory state, not LSN values.
+func TestPooler_HealthWithin(t *testing.T) {
+	now := time.Now()
+	const maxAge = 15 * time.Second
+
 	tests := []struct {
-		name     string
-		pooler   *multiorchdatapb.PoolerHealthState
-		expected bool
+		name       string
+		pooler     *multiorchdatapb.PoolerHealthState
+		expectOK   bool
+		expectInit bool // only checked when expectOK
 	}{
 		{
-			name: "unreachable node is uninitialized even with IsInitialized=true",
+			name: "never observed",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: false,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+				Multipooler: &clustermetadatapb.Multipooler{},
+				Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
-			expected: false,
+			expectOK: false,
 		},
 		{
-			name: "reachable node with IsInitialized=true is initialized",
+			name: "observation older than maxAge is untrustworthy",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+				Multipooler: &clustermetadatapb.Multipooler{},
+				LastSeen:    timestamppb.New(now.Add(-time.Minute)),
+				Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
-			expected: true,
+			expectOK: false,
 		},
 		{
-			name: "reachable node with IsInitialized=false is uninitialized",
+			name: "fresh observation counts even with the connectivity flag false",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status:           &multipoolermanagerdatapb.Status{IsInitialized: false},
+				StreamConnected: false, // e.g. a momentary stream blip
+				Multipooler:     &clustermetadatapb.Multipooler{},
+				LastSeen:        timestamppb.New(now),
+				Status:          &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
-			expected: false,
+			expectOK:   true,
+			expectInit: true,
 		},
 		{
-			name: "reachable primary with IsInitialized=true is initialized",
+			name: "fresh and initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
-					IsInitialized: true,
-					PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/123ABC"},
-				},
+				Multipooler: &clustermetadatapb.Multipooler{},
+				LastSeen:    timestamppb.New(now),
+				Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
-			expected: true,
+			expectOK:   true,
+			expectInit: true,
 		},
 		{
-			name: "reachable replica with IsInitialized=true is initialized",
+			name: "fresh but not initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
-					IsInitialized: true,
-					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-						LastReplayLsn: "0/123ABC",
-					},
-				},
+				Multipooler: &clustermetadatapb.Multipooler{},
+				LastSeen:    timestamppb.New(now),
+				Status:      &multipoolermanagerdatapb.Status{IsInitialized: false},
 			},
-			expected: true,
-		},
-		{
-			name: "reachable replica with IsInitialized=false is uninitialized even with LSN",
-			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				Multipooler:      &clustermetadatapb.Multipooler{},
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
-					IsInitialized: false,
-					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-						LastReplayLsn: "0/123ABC",
-					},
-				},
-			},
-			expected: false,
+			expectOK:   true,
+			expectInit: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewPooler(tt.pooler, nil).IsInitialized()
-			require.Equal(t, tt.expected, got)
+			hs, ok := NewPooler(tt.pooler, nil).HealthWithin(now, maxAge)
+			require.Equal(t, tt.expectOK, ok)
+			if tt.expectOK {
+				require.Equal(t, tt.expectInit, hs.GetStatus().GetIsInitialized())
+			}
 		})
 	}
+}
+
+func TestLeaderWritesProgressing(t *testing.T) {
+	now := time.Now()
+	freshness := 30 * time.Second
+	decided := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5, LeaderSubterm: 2},
+	}}
+	undecided := &clustermetadatapb.RulePosition{
+		Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5, LeaderSubterm: 2}},
+		Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6, LeaderSubterm: 0}},
+	}
+
+	leader := func(lastSeen time.Time, status multipoolermanagerdatapb.PostgresStatus) *Pooler {
+		return NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{},
+			LastSeen:    timestamppb.New(lastSeen),
+			Status:      &multipoolermanagerdatapb.Status{PostgresStatus: status},
+		}, nil)
+	}
+
+	t.Run("nil leader is never progressing", func(t *testing.T) {
+		require.False(t, LeaderWritesProgressing(nil, decided, now, freshness))
+	})
+
+	t.Run("fresh primary with a decided rule is progressing", func(t *testing.T) {
+		l := leader(now, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY)
+		require.True(t, LeaderWritesProgressing(l, decided, now, freshness))
+	})
+
+	t.Run("stale observation is not progressing", func(t *testing.T) {
+		l := leader(now.Add(-time.Minute), multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY)
+		require.False(t, LeaderWritesProgressing(l, decided, now, freshness))
+	})
+
+	t.Run("never observed is not progressing", func(t *testing.T) {
+		l := NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{},
+			Status:      &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+		}, nil)
+		require.False(t, LeaderWritesProgressing(l, decided, now, freshness))
+	})
+
+	t.Run("standby is not progressing even if fresh", func(t *testing.T) {
+		l := leader(now, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY)
+		require.False(t, LeaderWritesProgressing(l, decided, now, freshness))
+	})
+
+	t.Run("undecided highest position is not progressing", func(t *testing.T) {
+		l := leader(now, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY)
+		require.False(t, LeaderWritesProgressing(l, undecided, now, freshness))
+	})
 }

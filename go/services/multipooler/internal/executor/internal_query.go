@@ -28,23 +28,48 @@ import (
 // already been committed or rolled back.
 var errTxFinished = errors.New("transaction already finished")
 
-// InternalQueryService provides a simplified query interface for internal multipooler
-// components. It uses the admin connection pool, which authenticates as the configured
-// superuser (POSTGRES_USER / POSTGRES_PASSWORD).
+// InternalQueryService provides a simplified query interface for internal
+// multipooler components. It exposes two families of methods over two connection
+// pools:
+//
+//   - Query / QueryArgs / QueryMultiStatement / Begin run on the regular pool (as
+//     the configured PgUser). Use for pure system queries — pg_is_in_recovery(),
+//     ALTER SYSTEM, WAL LSN reads, SELECT 1 — so the small admin pool is not
+//     exhausted by high-volume polling.
+//   - QueryAdmin / QueryAdminArgs / QueryAdminMultiStatement run on the admin
+//     (true-superuser) pool. Use for every read/write of the locked-down multigres
+//     sidecar schema, which is owned by the true superuser and which customer
+//     roles on the regular pool cannot reach.
+//
+// Choosing the pool at the call site (by method name) keeps "this touches the
+// locked-down schema" visible where the query is written.
 type InternalQueryService interface {
-	// Query executes a query and returns the result.
+	// Query executes a query on the regular pool and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
 
-	// QueryArgs executes a query with arguments and returns the result.
-	// This is a convenience method that accepts Go values as arguments and converts
-	// them to the appropriate text format for PostgreSQL.
+	// QueryArgs executes a query with arguments on the regular pool and returns
+	// the result. This is a convenience method that accepts Go values as arguments
+	// and converts them to the appropriate text format for PostgreSQL.
 	// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
 	// float32, float64, bool, and time.Time.
 	QueryArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
 
 	// QueryMultiStatement executes a multi-statement query (e.g. "BEGIN; ...; COMMIT;")
-	// using the simple query protocol. Unlike Query, it does not require exactly one result set.
+	// on the regular pool using the simple query protocol. Unlike Query, it does
+	// not require exactly one result set.
 	QueryMultiStatement(ctx context.Context, query string) error
+
+	// QueryAdmin executes a query on the admin (true-superuser) pool and returns
+	// the single result. Use for reads/writes of the multigres sidecar schema.
+	QueryAdmin(ctx context.Context, query string) (*sqltypes.Result, error)
+
+	// QueryAdminArgs is QueryAdmin with arguments; it accepts the same Go argument
+	// types as QueryArgs.
+	QueryAdminArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
+
+	// QueryAdminMultiStatement is QueryMultiStatement on the admin pool. Use for
+	// the multigres schema DDL that grants privileges alongside CREATE.
+	QueryAdminMultiStatement(ctx context.Context, query string) error
 
 	// Begin starts a transaction on a reserved connection and returns a handle
 	// for issuing queries within it. Reserved connections are the mechanism for
@@ -68,6 +93,9 @@ type InternalQueryService interface {
 	//	}
 	//	return tx.Commit(ctx)
 	Begin(ctx context.Context) (InternalTx, error)
+
+	// BeginAdmin is Begin on the admin pool.
+	BeginAdmin(ctx context.Context) (InternalTx, error)
 }
 
 // InternalTx is a handle to an in-progress transaction held on a reserved
@@ -94,33 +122,55 @@ type InternalTx interface {
 	Rollback(ctx context.Context) error
 }
 
-// Compile-time check that internalTx implements InternalTx.
-var _ InternalTx = (*internalTx)(nil)
+// Compile-time check that genericTx implements InternalTx.
+var _ InternalTx = (*genericTx)(nil)
 
 // Compile-time check that Executor implements InternalQueryService.
 var _ InternalQueryService = (*Executor)(nil)
 
-// Query implements InternalQueryService for simple internal queries.
-//
-// It executes a query using the regular connection pool and returns the first
-// result. We use the regular connection pool rather than the admin pool because
-// we do not want to exhaust the admin pool.
-//
-// Internal queries include SQL text in trace spans since they use system
-// functions.
-func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
-	// Enable SQL text in trace spans for internal queries (safe - no user data)
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
+// pooledQueryConn is the subset of a borrowed pool connection the internal query
+// helpers use. Both *regular.Conn and *admin.Conn satisfy it, which lets the
+// regular and admin query methods share the run* helpers below and differ only
+// in the borrower they pass.
+type pooledQueryConn interface {
+	QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+}
 
+// connBorrower acquires a pool connection and returns it with a release function
+// the caller must invoke when finished. The Query/QueryAdmin pairs differ only in
+// which borrower they pass: borrowRegular (per-user regular pool) vs borrowAdmin
+// (admin true-superuser pool).
+type connBorrower func(ctx context.Context) (conn pooledQueryConn, release func(), err error)
+
+// borrowRegular borrows a connection from the per-user regular pool as the
+// configured PgUser. We use the regular pool for system queries rather than the
+// admin pool so as not to exhaust the small admin pool.
+func (e *Executor) borrowRegular(ctx context.Context) (pooledQueryConn, func(), error) {
 	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn.Conn, conn.Recycle, nil
+}
+
+// withInternalQueryTracing enables SQL text in trace spans for internal queries
+// (safe - no user data, and they use system functions).
+func withInternalQueryTracing(ctx context.Context) context.Context {
+	return client.WithQueryTracing(ctx, client.QueryTracingConfig{IncludeQueryText: true})
+}
+
+// runSingleQuery runs a query on a borrowed connection and returns its single
+// result set, erroring if the query did not produce exactly one.
+func runSingleQuery(ctx context.Context, borrow connBorrower, queryStr string) (*sqltypes.Result, error) {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Recycle()
+	defer release()
 
-	results, err := conn.Conn.QueryWithRetry(ctx, queryStr)
+	results, err := conn.QueryWithRetry(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -130,49 +180,58 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 	return results[0], nil
 }
 
-// QueryMultiStatement implements InternalQueryService for multi-statement queries.
-// It executes a query using the simple query protocol and does not check the number of result sets.
-func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) error {
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
+// runSingleQueryArgs is runSingleQuery for a parameterized query.
+func runSingleQueryArgs(ctx context.Context, borrow connBorrower, sql string, args ...any) (*sqltypes.Result, error) {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
+	results, err := conn.QueryArgsWithRetry(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, errors.New("unexpected number of results")
+	}
+	return results[0], nil
+}
+
+// runMultiStatement runs a multi-statement query on a borrowed connection using
+// the simple query protocol, without checking the number of result sets.
+func runMultiStatement(ctx context.Context, borrow connBorrower, queryStr string) error {
+	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
 	if err != nil {
 		return err
 	}
-	defer conn.Recycle()
+	defer release()
 
-	_, err = conn.Conn.QueryWithRetry(ctx, queryStr)
+	_, err = conn.QueryWithRetry(ctx, queryStr)
 	return err
 }
 
-// QueryArgs implements InternalQueryService for simple internal queries.
-// This is a convenience method that accepts Go values as arguments and converts
-// them to the appropriate text format for PostgreSQL.
-// Supported argument types: nil, string, []byte, int, int32, int64, *int64, uint32, uint64,
-// float32, float64, bool, and time.Time.
-// Internal queries include SQL text in trace spans since they use system functions.
+// Query implements InternalQueryService for simple internal queries on the
+// regular pool.
+func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	return runSingleQuery(ctx, e.borrowRegular, queryStr)
+}
+
+// QueryMultiStatement implements InternalQueryService for multi-statement queries
+// on the regular pool.
+func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) error {
+	return runMultiStatement(ctx, e.borrowRegular, queryStr)
+}
+
+// QueryArgs implements InternalQueryService for simple parameterized queries on
+// the regular pool. It accepts Go values as arguments and converts them to the
+// appropriate text format for PostgreSQL. Supported argument types: nil, string,
+// []byte, int, int32, int64, *int64, uint32, uint64, float32, float64, bool, and
+// time.Time.
 func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
-	// Enable SQL text in trace spans for internal queries (safe - no user data)
-	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
-		IncludeQueryText: true,
-	})
-
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Recycle()
-
-	results, err := conn.Conn.QueryArgsWithRetry(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	if len(results) != 1 {
-		return nil, errors.New("unexpected number of results")
-	}
-	return results[0], nil
+	return runSingleQueryArgs(ctx, e.borrowRegular, sql, args...)
 }
 
 // Begin implements InternalQueryService. It reserves a connection (via the
@@ -200,22 +259,58 @@ func (e *Executor) Begin(ctx context.Context) (InternalTx, error) {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	return &internalTx{conn: reservedConn}, nil
+	return &genericTx{
+		conn: reservedConn,
+		onRelease: func(outcome txOutcome, err error) {
+			switch {
+			case err != nil:
+				// The op itself failed: the connection's state is no longer
+				// known to be clean, so release it as an error (which taints
+				// it) rather than recycling.
+				reservedConn.Release(reserved.ReleaseError, nil)
+			case outcome == txCommitted:
+				reservedConn.Release(reserved.ReleaseCommit, nil)
+			default:
+				reservedConn.Release(reserved.ReleaseRollback, nil)
+			}
+		},
+	}, nil
 }
 
-// internalTx is the Executor's implementation of InternalTx. It owns a reserved
-// connection for the duration of a transaction.
-type internalTx struct {
-	// conn is the reserved connection carrying the open transaction.
-	conn *reserved.Conn
+// txConn is the subset of a transaction-capable connection genericTx needs.
+// *reserved.Conn (the regular pool's reserved connection, used by Begin) and
+// *admin.TxConn (used by BeginAdmin) both satisfy it natively.
+type txConn interface {
+	Query(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
 
-	// finished is set once the transaction has been committed or rolled back and
-	// the connection released. Further queries on a finished tx are rejected.
+// txOutcome names which end of the transaction genericTx reached, passed to
+// onRelease alongside any error.
+type txOutcome int
+
+const (
+	txCommitted txOutcome = iota
+	txRolledBack
+)
+
+// genericTx is the shared InternalTx implementation for both Begin (regular
+// pool) and BeginAdmin (admin pool). onRelease is called exactly once, after
+// Commit or Rollback resolves, so each pool can apply its own release
+// semantics.
+type genericTx struct {
+	conn      txConn
+	onRelease func(outcome txOutcome, err error)
+
+	// finished is set once the transaction has been committed or rolled back.
+	// Further queries on a finished tx are rejected.
 	finished bool
 }
 
 // Query implements InternalTx.
-func (tx *internalTx) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+func (tx *genericTx) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
 	if tx.finished {
 		return nil, errTxFinished
 	}
@@ -234,7 +329,7 @@ func (tx *internalTx) Query(ctx context.Context, queryStr string) (*sqltypes.Res
 }
 
 // QueryArgs implements InternalTx.
-func (tx *internalTx) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
+func (tx *genericTx) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	if tx.finished {
 		return nil, errTxFinished
 	}
@@ -253,7 +348,7 @@ func (tx *internalTx) QueryArgs(ctx context.Context, sql string, args ...any) (*
 }
 
 // Commit implements InternalTx.
-func (tx *internalTx) Commit(ctx context.Context) error {
+func (tx *genericTx) Commit(ctx context.Context) error {
 	if tx.finished {
 		return errTxFinished
 	}
@@ -262,19 +357,17 @@ func (tx *internalTx) Commit(ctx context.Context) error {
 		IncludeQueryText: true,
 	})
 
-	if err := tx.conn.Commit(ctx); err != nil {
-		// COMMIT failed: the connection's state is no longer known to be clean,
-		// so release it as an error (which taints it) rather than recycling.
-		tx.conn.Release(reserved.ReleaseError, nil)
+	err := tx.conn.Commit(ctx)
+	tx.onRelease(txCommitted, err)
+	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	tx.conn.Release(reserved.ReleaseCommit, nil)
 	return nil
 }
 
 // Rollback implements InternalTx. It is a no-op once the transaction is
 // finished, so callers can defer it unconditionally alongside Commit.
-func (tx *internalTx) Rollback(ctx context.Context) error {
+func (tx *genericTx) Rollback(ctx context.Context) error {
 	if tx.finished {
 		return nil
 	}
@@ -283,10 +376,10 @@ func (tx *internalTx) Rollback(ctx context.Context) error {
 		IncludeQueryText: true,
 	})
 
-	if err := tx.conn.Rollback(ctx); err != nil {
-		tx.conn.Release(reserved.ReleaseError, nil)
+	err := tx.conn.Rollback(ctx)
+	tx.onRelease(txRolledBack, err)
+	if err != nil {
 		return fmt.Errorf("failed to rollback transaction: %w", err)
 	}
-	tx.conn.Release(reserved.ReleaseRollback, nil)
 	return nil
 }

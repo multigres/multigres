@@ -102,7 +102,7 @@ func (c *CloseCursorRoute) StreamExecute(
 	// plan time.
 	targets := c.targets(state)
 	info.ReleasePortals = targets
-	if err := exec.StreamExecute(ctx, conn, c.TableGroup, c.Shard, c.Query, nil, state, info, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, c.TableGroup, c.Shard, c.Query, nil, state, info, false, callback); err != nil {
 		return err
 	}
 	for _, name := range targets {

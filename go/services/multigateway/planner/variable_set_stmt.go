@@ -16,6 +16,8 @@ package planner
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -23,25 +25,47 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // planVariableSetStmt plans SET/RESET commands.
 //
-//   - SET var = value (non gateway-managed, non-LOCAL) is planned as
-//     Sequence[ValidateSetting, ApplySessionState]: ValidateSetting runs
-//     set_config(name, value, is_local := true) on a backend so an invalid
-//     name/value errors at SET time (matching PostgreSQL) without persisting on
-//     the pooled backend, and ApplySessionState records it for pool-rotation
-//     replay only if validation succeeded.
-//   - RESET / RESET ALL update local tracking only (no backend round-trip).
-//   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION / FROM CURRENT
-//     are handled by their dedicated paths below.
+// The gateway is the sole authority on logical session GUC state; a pooled
+// backend's session state may only change in lockstep with the gateway map.
+// Two shapes per statement kind, split on whether the session is pinned to a
+// backend (inside an explicit transaction, including its deferred-BEGIN first
+// statement, or holding a reserved connection):
+//
+//   - Pinned SET/RESET/RESET ALL route the real statement to the pinned
+//     backend and silently track it after success (Sequence[Route,
+//     ApplySessionStateSilent]) — PostgreSQL applies the change for real and
+//     the gateway records the same change, keeping map and backend in
+//     lockstep. Routing (rather than a SELECT set_config probe) also avoids
+//     assigning a REPEATABLE READ/SERIALIZABLE snapshot before the
+//     transaction's first real query.
+//   - Unpinned SET is planned as Sequence[ValidateSetting, ApplySessionState]:
+//     the probe runs set_config(name, value, is_local := true) so an invalid
+//     name/value errors at SET time (matching PostgreSQL) while reverting at
+//     statement end — no state is left on the pooled backend; persistence
+//     lives in the gateway map and is replayed at checkout.
+//   - Unpinned RESET is Sequence[ValidateSettingReset, ApplySessionState]:
+//     the probe (set_config(name, NULL, is_local := true)) errors on unknown
+//     names like a real RESET and reverts, then the tracker drops the map
+//     entry. Unpinned RESET ALL is a pure map edit — it cannot fail.
+//   - SET SESSION CHARACTERISTICS AS TRANSACTION <mode> is translated to the
+//     default_transaction_* GUC it sets and re-planned through the paths
+//     above, so it is tracked like any other session GUC.
+//   - SET var FROM CURRENT is rejected: its effective value is only knowable
+//     by mutating a backend, which would diverge from the gateway map.
+//   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION are handled
+//     by their dedicated paths below.
 func (p *Planner) planVariableSetStmt(
 	sql string,
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, error) {
 	// Transaction-only variables are backend state, not replayable session GUCs.
 	// In particular, RESET transaction_isolation/read_only/deferrable must reach
@@ -52,20 +76,6 @@ func (p *Planner) planVariableSetStmt(
 		p.logger.Debug("transaction-only variable detected, passing through",
 			"kind", stmt.Kind, "variable", stmt.Name)
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
-	}
-
-	// Role/session authorization are replayable session state, but they are not
-	// ordinary GUCs for validation/replay purposes. Keep them on the local
-	// tracking path (so pooled backends don't get mutated behind connstate), and
-	// let ApplySettings replay them as SET SESSION AUTHORIZATION / SET ROLE in
-	// PostgreSQL-compatible order.
-	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
-		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
-			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-			p.logger.Debug("created role/session authorization reset plan",
-				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-			return plan, nil
-		}
 	}
 
 	// Gateway-managed variables are handled locally without routing to PostgreSQL,
@@ -98,7 +108,11 @@ func (p *Planner) planVariableSetStmt(
 
 	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
 	// (PG's ExecSetVariableStmt falls through from VAR_SET_DEFAULT to VAR_RESET).
-	// Normalize before the switch so it shares the same tracking path.
+	// Normalize before the switch so it shares the same tracking path. The
+	// pre-normalization stmt is kept so the startup-restore path below can
+	// hand the tracker the original kind — executeSetDefault emits the "SET"
+	// tag a SET ... TO DEFAULT client expects, executeReset emits "RESET".
+	trackStmt := stmt
 	if stmt.Kind == ast.VAR_SET_DEFAULT {
 		p.logger.Debug("SET TO DEFAULT treated as RESET",
 			"variable", stmt.Name)
@@ -108,14 +122,31 @@ func (p *Planner) planVariableSetStmt(
 		}
 	}
 
+	pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard)
+
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
-		// Validate the value against PostgreSQL, then track it locally. The
-		// ValidateSetting step runs set_config(name, value, is_local := true),
+		// Pinned: route the real SET to the session's backend and silently track
+		// it after success — the backend genuinely carries the value (surviving
+		// COMMIT, reverting on ROLLBACK exactly like the gateway map, whose
+		// savepoint frames revert in lockstep). Routing rather than probing also
+		// avoids assigning a REPEATABLE READ/SERIALIZABLE snapshot before the
+		// transaction's first real query.
+		if pinned {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			track := engine.NewApplySessionStateSilent(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+			p.logger.Debug("created route-then-track SET plan on pinned session",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
+		// Unpinned: validate the value against PostgreSQL, then track it locally.
+		// The ValidateSetting step runs set_config(name, value, is_local := true),
 		// which validates the value (an invalid name or out-of-range value
 		// errors at SET time, matching PostgreSQL) but reverts immediately, so
-		// no state is left on the pooled backend — multipooler stays the sole
-		// authority on backend session GUCs. The Sequence stops on the first
+		// no state is left on the pooled backend — the gateway stays the sole
+		// authority on session GUCs. The Sequence stops on the first
 		// child's error, so a rejected SET never reaches the tracker. On success
 		// the trailing ApplySessionState records the setting for pool-rotation
 		// replay and emits CommandComplete("SET").
@@ -128,25 +159,171 @@ func (p *Planner) planVariableSetStmt(
 		return plan, nil
 
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
-		// RESET clears local tracking; the merged settings the pool applies on
-		// the next query then fall back to the startup/default value. No
-		// PostgreSQL round-trip is needed.
+		// Pinned: the backend must end where the gateway map ends. For a GUC
+		// with no startup fallback that is what the raw RESET does, so it
+		// routes unchanged. For a GUC the client set in its startup packet the
+		// raw RESET would diverge: pooled backends receive startup params via
+		// replayed SET (never a real startup packet), so PostgreSQL's reset
+		// value there is the server default — while on a direct connection
+		// startup-packet GUCs are the session baseline (PGC_S_CLIENT) and
+		// RESET restores them. The merged gateway map (GetSessionSettings)
+		// already implements the correct semantics, so the backend is brought
+		// to it: RESET of a startup-param GUC routes a synthesized
+		// SET var = '<startup value>' (a SET statement, not set_config — a
+		// SELECT would latch the snapshot of a not-yet-snapshotted REPEATABLE
+		// READ/SERIALIZABLE transaction), and RESET ALL routes the raw
+		// statement followed by silent restores of every startup param. The
+		// client-visible tag comes from the tracker (probe-and-track shape,
+		// like the unpinned paths).
+		if pinned {
+			var startup map[string]string
+			if state != nil {
+				startup = state.GetStartupParams()
+			}
+
+			if stmt.Kind == ast.VAR_RESET {
+				if restoreSQL, ok := startupRestoreStatement(startup, stmt.Name); ok {
+					restore := engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL)
+					track := engine.NewApplySessionState(sql, trackStmt)
+					plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{restore, track}))
+					p.logger.Debug("created startup-restore RESET plan on pinned session",
+						"variable", stmt.Name, "plan", plan.String())
+					return plan, nil
+				}
+			} else if restores, skipped := startupRestoreStatements(startup); len(restores) > 0 {
+				// The label-equals-backend model rests on every startup param
+				// being restorable; a skipped key diverges for that GUC.
+				for _, name := range skipped {
+					p.logger.Warn("startup parameter skipped by RESET ALL reconciliation; backend and label diverge for it",
+						"parameter", name)
+				}
+				// Every route is silent and the trailing tracker emits the
+				// RESET tag, so a failing restore surfaces as a bare error —
+				// the raw statement's own tag must not reach the client
+				// before the reconciliation it depends on has succeeded.
+				children := []engine.Primitive{engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, sql)}
+				for _, restoreSQL := range restores {
+					children = append(children, engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL))
+				}
+				children = append(children, engine.NewApplySessionState(sql, stmt))
+				plan := engine.NewPlan(sql, engine.NewSequence(children))
+				p.logger.Debug("created RESET ALL plan with startup restores on pinned session",
+					"restores", len(restores), "plan", plan.String())
+				return plan, nil
+			}
+
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			track := engine.NewApplySessionStateSilent(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+			p.logger.Debug("created route-then-track RESET plan on pinned session",
+				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
+		// Unpinned RESET: validate the name with a statement-local reset probe
+		// (set_config(name, NULL, true) errors on unknown names like a real
+		// RESET and reverts instantly), then drop the map entry and emit
+		// CommandComplete("RESET"). No backend session state is touched.
+		if stmt.Kind == ast.VAR_RESET {
+			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
+			// trackStmt (pre-normalization) so SET x TO DEFAULT completes as
+			// "SET" — matching PostgreSQL and the pinned paths, which route the
+			// original SQL or hand the tracker the original kind.
+			track := engine.NewApplySessionState(sql, trackStmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
+			p.logger.Debug("created validate-then-track RESET plan",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
+		// Unpinned RESET ALL cannot fail: it is a pure gateway map edit.
 		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-		p.logger.Debug("created RESET plan",
-			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+		p.logger.Debug("created gateway-only RESET ALL plan", "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_SET_MULTI, ast.VAR_SET_CURRENT:
-		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
-		//   must be executed directly on the backend, no session tracking needed.
-		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
-		p.logger.Debug("passing through to PostgreSQL",
-			"kind", stmt.Kind, "variable", stmt.Name)
-		return p.planDefault(sql, stmt, conn, PlanOptions{})
+	case ast.VAR_SET_MULTI:
+		// SET TRANSACTION is transaction-scoped: it leaves no session state
+		// behind, so it passes through to the backend untracked.
+		if stmt.Name == "TRANSACTION" {
+			p.logger.Debug("passing SET TRANSACTION through to PostgreSQL")
+			return p.planDefault(sql, stmt, conn, PlanOptions{})
+		}
+		// SET SESSION CHARACTERISTICS AS TRANSACTION <mode> sets a session-level
+		// default_transaction_* GUC. Translate it to the equivalent SET and
+		// re-plan so it is tracked like any other session GUC.
+		translated, err := translateSessionCharacteristics(stmt)
+		if err != nil {
+			return nil, err
+		}
+		return p.planVariableSetStmt(sql, translated, conn, state)
+
+	case ast.VAR_SET_CURRENT:
+		// SET var FROM CURRENT resolves its value inside the backend; the
+		// gateway cannot learn the resulting session state without mutating a
+		// pooled backend behind its own bookkeeping. Reject fail-closed.
+		return nil, mterrors.NewFeatureNotSupported("SET ... FROM CURRENT is not supported: the resulting session state cannot be tracked by the connection pooler")
 
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
 	}
+}
+
+// sessionPinned reports whether a statement routed to tableGroup/shard will
+// execute on a session-affine backend. It delegates to engine.SessionPinned so
+// the SET planner and the SessionStateBranch primitive (which makes the same
+// pinned/unpinned decision at execute time for cacheable set_config plans)
+// share one definition of "pinned".
+//
+// The target scoping is load-bearing: ScatterConn reuses a reservation only
+// when the shard state matches the statement's target, so a session-wide
+// check would let a statement planned as pinned fall through to a pooled
+// connection on its own target and mutate it untracked. Callers must pass
+// exactly the tablegroup/shard they hand to the Route they build.
+//
+// Known gap, not closed here: with a reservation on a DIFFERENT shard, a
+// tracked map change has no propagation path onto that pinned backend — the
+// per-statement re-apply that used to carry it is gone. Multi-shard session
+// settings need their own design; today every plan routes to the default
+// tablegroup/shard, so the situation is unreachable.
+func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState, tableGroup, shard string) bool {
+	return engine.SessionPinned(conn, state, tableGroup, shard)
+}
+
+// translateSessionCharacteristics maps SET SESSION CHARACTERISTICS AS
+// TRANSACTION <mode> onto the default_transaction_* session GUC it sets.
+// PostgreSQL's grammar produces DefElems named transaction_isolation,
+// transaction_read_only, and transaction_deferrable; the session form sets the
+// corresponding default_* GUC. Multi-mode lists are rejected (rare, and each
+// mode would need its own tracked plan).
+func translateSessionCharacteristics(stmt *ast.VariableSetStmt) (*ast.VariableSetStmt, error) {
+	if stmt.Args == nil || stmt.Args.Len() != 1 {
+		return nil, mterrors.NewFeatureNotSupported("SET SESSION CHARACTERISTICS with multiple transaction modes is not supported")
+	}
+	def, ok := stmt.Args.Items[0].(*ast.DefElem)
+	if !ok {
+		return nil, mterrors.NewFeatureNotSupported("unsupported SET SESSION CHARACTERISTICS form")
+	}
+
+	var value string
+	switch arg := def.Arg.(type) {
+	case *ast.String:
+		value = arg.SVal
+	case *ast.Boolean:
+		if arg.BoolVal {
+			value = "on"
+		} else {
+			value = "off"
+		}
+	default:
+		return nil, mterrors.NewFeatureNotSupported("unsupported SET SESSION CHARACTERISTICS form")
+	}
+
+	return ast.NewVariableSetStmt(
+		ast.VAR_SET_VALUE,
+		"default_"+def.Defname,
+		ast.NewNodeList(ast.NewA_Const(ast.NewString(value), 0)),
+		false,
+	), nil
 }
 
 // isTransactionOnlyVariable reports variables whose SET/RESET forms must be
@@ -155,15 +332,6 @@ func (p *Planner) planVariableSetStmt(
 func isTransactionOnlyVariable(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":
-		return true
-	default:
-		return false
-	}
-}
-
-func isRoleAuthVariable(name string) bool {
-	switch strings.ToLower(name) {
-	case "role", "session_authorization":
 		return true
 	default:
 		return false
@@ -274,4 +442,61 @@ func extractConstValue(aConst *ast.A_Const) string {
 	default:
 		return aConst.SqlString()
 	}
+}
+
+// safeGUCName matches names that can be embedded verbatim in a synthesized
+// SET statement: plain or dotted (custom-extension) GUC identifiers. Startup
+// parameters arrive from the client's startup packet, so any name outside
+// this shape must never be spliced into SQL.
+var safeGUCName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)*$`)
+
+// startupRestoreStatement returns the synthesized SET that brings a pinned
+// backend to the startup-packet value of name, or ok=false when the client's
+// startup packet carries no such GUC (or its name cannot be safely embedded).
+func startupRestoreStatement(startup map[string]string, name string) (string, bool) {
+	want := pgsettings.CanonicalGUCName(name)
+	for k, v := range startup {
+		if pgsettings.CanonicalGUCName(k) != want {
+			continue
+		}
+		if !safeGUCName.MatchString(k) {
+			return "", false
+		}
+		// ast.QuoteStringLiteral, not hand-rolled doubling: it emits E'...'
+		// with doubled backslashes when needed, so the literal parses the
+		// same regardless of the backend's standard_conforming_strings —
+		// which the client itself can set via its startup packet.
+		return fmt.Sprintf("SET %s = %s", k, ast.QuoteStringLiteral(v)), true
+	}
+	return "", false
+}
+
+// startupRestoreStatements returns the synthesized SETs a pinned RESET ALL
+// must route after the raw statement, in deterministic order, plus the names
+// it refused to embed (non-identifier startup keys) so the caller can log the
+// resulting divergence instead of hiding it.
+// session_authorization and role are skipped silently: PostgreSQL's RESET ALL
+// preserves them on the backend (GUC_NO_RESET_ALL) and the tracker preserves
+// their map entries, so re-imposing startup values here would clobber a
+// legitimate in-session SET ROLE both sides agreed to keep — no divergence.
+func startupRestoreStatements(startup map[string]string) (restores, skipped []string) {
+	names := make([]string, 0, len(startup))
+	for k := range startup {
+		switch pgsettings.CanonicalGUCName(k) {
+		case "session_authorization", "role":
+			continue
+		}
+		if !safeGUCName.MatchString(k) {
+			skipped = append(skipped, k)
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	sort.Strings(skipped)
+	restores = make([]string, 0, len(names))
+	for _, k := range names {
+		restores = append(restores, fmt.Sprintf("SET %s = %s", k, ast.QuoteStringLiteral(startup[k])))
+	}
+	return restores, skipped
 }

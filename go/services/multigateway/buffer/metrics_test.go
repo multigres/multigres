@@ -240,6 +240,45 @@ func TestQueueDepthMetricOnShutdown(t *testing.T) {
 		"queue.depth should be 0 after Shutdown evicts all entries")
 }
 
+// TestFailedUnbufferedMetric verifies the classification-gap alarm records
+// only while the shard's buffer is active: unknown and idle shards are
+// no-ops, and an active (BUFFERING) shard increments the counter.
+func TestFailedUnbufferedMetric(t *testing.T) {
+	reader := setupBufferTelemetry(t)
+
+	cfg := testConfig(t)
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+	ctx := context.Background()
+
+	// Shard never seen: nothing recorded.
+	buf.RecordUnbufferedFailure(ctx, shard1Key, "UNAVAILABLE")
+	assert.Equal(t, int64(0), readSumInt64(t, reader, "multigateway.buffer.requests.failed_unbuffered"),
+		"an unknown shard must not record")
+
+	// Arm the buffer, then record: counts.
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		retryDone, _ := buf.WaitForFailoverEnd(ctx, shard1Key)
+		if retryDone != nil {
+			retryDone()
+		}
+	})
+	waitForQueueLen(t, buf, 1)
+	buf.RecordUnbufferedFailure(ctx, shard1Key, "UNAVAILABLE")
+	assert.Equal(t, int64(1), readSumInt64(t, reader, "multigateway.buffer.requests.failed_unbuffered"),
+		"an active shard must record")
+
+	// Back to idle after the drain: no longer records.
+	buf.StopBuffering(shard1Key)
+	wg.Wait()
+	sb := buf.buffers[commontypes.FormatShardKey(shard1Key)]
+	sb.drainWg.Wait()
+	buf.RecordUnbufferedFailure(ctx, shard1Key, "UNAVAILABLE")
+	assert.Equal(t, int64(1), readSumInt64(t, reader, "multigateway.buffer.requests.failed_unbuffered"),
+		"an idle shard must not record")
+}
+
 // TestFailoverDurationMetricRecords verifies the failover.duration histogram
 // records one sample per failover, and the recorded value matches the clock
 // delta between BUFFERING start and the drain trigger.

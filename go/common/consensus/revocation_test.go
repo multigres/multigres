@@ -262,6 +262,19 @@ func TestValidateRevocation(t *testing.T) {
 			revocation: revocationAt5,
 			wantErr:    "cannot accept revocation: recorded position 6.0 is not revoked by outgoing_rule 4.0 / revoked_below_term 5",
 		},
+		{
+			// recruit_blocked_until is only ever present in ConsensusStatus
+			// while still outstanding (see recruitPositionFloorIfOutstanding),
+			// so its mere presence here is enough to refuse — regardless of
+			// how the WAL-position and stored-revocation checks would resolve.
+			name: "RecruitPositionFloorOutstanding_Refused",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition:     positionAtCoordTerm(4),
+				RecruitBlockedUntil: &clustermetadatapb.LsnPosition{Lsn: "0/2000"},
+			},
+			revocation: revocationAt5,
+			wantErr:    "has not caught up to its recruit position floor (floor lsn=0/2000)",
+		},
 	}
 
 	for _, tc := range tests {
@@ -304,6 +317,61 @@ func positionWithUndecidedProposal(decisionTerm, proposalTerm int64) *clustermet
 	}
 }
 
+func TestIsSelfRevoked(t *testing.T) {
+	// Recruited at term 2, transitioning away from the term-1 rule.
+	rev := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 2,
+		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+	}
+	rule := func(term, subterm int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm},
+		}}
+	}
+
+	tests := []struct {
+		name   string
+		status *clustermetadatapb.ConsensusStatus
+		want   bool
+	}{
+		{
+			name:   "no revocation is never self-revoked",
+			status: &clustermetadatapb.ConsensusStatus{CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(1, 0)}},
+			want:   false,
+		},
+		{
+			name: "recruited above own rule with no higher known rule is stranded",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(1, 0)},
+				TermRevocation:  rev,
+			},
+			want: true,
+		},
+		{
+			name: "recruited but following a higher accepted rule while WAL lags is not stranded",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition:    &clustermetadatapb.PoolerPosition{Position: rule(1, 0)},
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Position: rule(1, 5)},
+				TermRevocation:     rev,
+			},
+			want: false,
+		},
+		{
+			name: "consumed recruit: own rule reached the revoked term",
+			status: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule(2, 0)},
+				TermRevocation:  rev,
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsSelfRevoked(tt.status))
+		})
+	}
+}
+
 func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
@@ -335,18 +403,23 @@ func TestNewTermRevocation(t *testing.T) {
 		require.Nil(t, rev)
 	})
 
-	t.Run("cohort's most advanced position is an undecided proposal returns error", func(t *testing.T) {
-		// Propagation isn't supported yet: the most-advanced position across
-		// the cohort must already be decided. A node reporting only an
-		// undecided proposal beyond its decision must not be silently
-		// trusted as the outgoing rule.
+	t.Run("cohort's most advanced position is an undecided proposal: trusted as outgoing_rule", func(t *testing.T) {
+		// An undecided proposal beyond the decision is trusted as the
+		// outgoing rule without a separate verification step: whoever gets
+		// promoted still has to write a fresh proposal under the same
+		// durability policy and cohort, and that write can't get its
+		// synchronous ack unless the position it's superseding was
+		// actually durable — an unverified minority proposal just makes
+		// the promotion attempt fail to reach quorum, not succeed
+		// incorrectly.
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{CurrentPosition: positionWithUndecidedProposal(4, 6)},
 		}
 		rev, err := NewTermRevocation(statuses, coord, ts1)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cohort's most advanced position is an undecided proposal at rule 6.0; propagation is not yet supported")
-		require.Nil(t, rev)
+		require.NoError(t, err)
+		require.NotNil(t, rev)
+		assert.Equal(t, int64(6), rev.GetOutgoingRule().GetCoordinatorTerm())
+		assert.Equal(t, int64(7), rev.GetRevokedBelowTerm())
 	})
 
 	t.Run("revocation-term-only statuses with no recorded rule return error", func(t *testing.T) {

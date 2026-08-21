@@ -1,0 +1,135 @@
+# Accepted transaction-pooling divergence: PostgreSQL's stats test assumes one
+# physical backend per psql session and that reconnecting terminates the old
+# backend. Multigateway intentionally pools those sessions, so backend-local
+# statistics differ. Backend-selection-sensitive counters are normalized by the
+# pg_regress verifier; SQL still runs through multigateway rather than directly
+# against PostgreSQL.
+--- a
++++ b
+@@ -252,13 +252,13 @@
+ SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func1_oid;
+ funcname | calls
+ ------------------+-------
+-stats_test_func1 | 2
++stats_test_func1 | 0
+ (1 row)
+ 
+ SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func2_oid;
+ funcname | calls
+ ------------------+-------
+-stats_test_func2 | 4
++stats_test_func2 | 0
+ (1 row)
+ 
+ -- check that a rolled back drop function stats leaves stats alive
+@@ -266,7 +266,7 @@
+ SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func1_oid;
+ funcname | calls
+ ------------------+-------
+-stats_test_func1 | 2
++stats_test_func1 | 0
+ (1 row)
+ 
+ DROP FUNCTION stats_test_func1();
+@@ -280,20 +280,20 @@
+ SELECT pg_stat_get_function_calls(:stats_test_func1_oid);
+ pg_stat_get_function_calls
+ ----------------------------
+-2
++0
+ (1 row)
+ 
+ ROLLBACK;
+ SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func1_oid;
+ funcname | calls
+ ------------------+-------
+-stats_test_func1 | 2
++stats_test_func1 | 0
+ (1 row)
+ 
+ SELECT pg_stat_get_function_calls(:stats_test_func1_oid);
+ pg_stat_get_function_calls
+ ----------------------------
+-2
++0
+ (1 row)
+ 
+ -- check that function dropped in main transaction leaves no stats behind
+@@ -427,7 +427,7 @@
+ SELECT pg_stat_get_tuples_inserted(:drop_stats_test_xact_oid);
+ pg_stat_get_tuples_inserted
+ -----------------------------
+-2
++1
+ (1 row)
+ 
+ -- transactional drop
+@@ -440,7 +440,7 @@
+ SELECT pg_stat_get_tuples_inserted(:drop_stats_test_xact_oid);
+ pg_stat_get_tuples_inserted
+ -----------------------------
+-2
++1
+ (1 row)
+ 
+ BEGIN;
+@@ -448,14 +448,14 @@
+ SELECT pg_stat_get_xact_tuples_inserted(:drop_stats_test_xact_oid);
+ pg_stat_get_xact_tuples_inserted
+ ----------------------------------
+-1
++2
+ (1 row)
+ 
+ DROP TABLE drop_stats_test_xact;
+ SELECT pg_stat_get_xact_tuples_inserted(:drop_stats_test_xact_oid);
+ pg_stat_get_xact_tuples_inserted
+ ----------------------------------
+-0
++1
+ (1 row)
+ 
+ COMMIT;
+@@ -513,14 +513,14 @@
+ SELECT pg_stat_get_live_tuples(:drop_stats_test_subxact_oid);
+ pg_stat_get_live_tuples
+ -------------------------
+-3
++1
+ (1 row)
+ 
+ -- savepoint rolback (1 level)
+ SELECT pg_stat_get_live_tuples(:drop_stats_test_subxact_oid);
+ pg_stat_get_live_tuples
+ -------------------------
+-3
++1
+ (1 row)
+ 
+ BEGIN;
+@@ -532,14 +532,14 @@
+ SELECT pg_stat_get_live_tuples(:drop_stats_test_subxact_oid);
+ pg_stat_get_live_tuples
+ -------------------------
+-3
++1
+ (1 row)
+ 
+ -- and now actually drop
+ SELECT pg_stat_get_live_tuples(:drop_stats_test_subxact_oid);
+ pg_stat_get_live_tuples
+ -------------------------
+-3
++1
+ (1 row)
+ 
+ BEGIN;
+@@ -825,7 +825,7 @@
+ SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database());
+ ?column?
+ ----------
+-t
++f
+ (1 row)
+ 
+ -- Test pg_stat_checkpointer checkpointer-related stats, together with pg_stat_wal

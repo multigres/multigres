@@ -90,7 +90,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 
 	// Initialize OpenTelemetry with service identity attributes
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
-		slog.Error("Failed to initialize OpenTelemetry", "error", err)
+		slog.Error("failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
 	} else {
 		// Re-wrap logger now that LoggerProvider is initialized
@@ -105,7 +105,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		signal.Notify(sigChan, syscall.SIGPIPE)
 		go func() {
 			<-sigChan
-			slog.Warn("Caught SIGPIPE (ignoring all future SIGPIPEs)")
+			slog.Warn("caught SIGPIPE (ignoring all future SIGPIPEs)")
 			signal.Ignore(syscall.SIGPIPE)
 		}()
 	}
@@ -132,7 +132,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	// the server.
 	fdLimit := &syscall.Rlimit{}
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, fdLimit); err != nil {
-		slog.Error("max-open-fds failed", "err", err)
+		slog.Error("max-open-fds failed", "error", err)
 	}
 
 	// Limit the stack size. We don't need huge stacks and smaller limits mean
@@ -160,23 +160,23 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 func (sv *ServEnv) populateHostname() error {
 	// If hostname was explicitly set via --hostname flag, use that
 	if sv.hostname.Get() != "" {
-		slog.Info("Using explicitly configured hostname for service URL", "hostname", sv.hostname.Get())
+		slog.Info("using explicitly configured hostname for service URL", "hostname", sv.hostname.Get())
 		return nil
 	}
 
 	// Otherwise, auto-detect hostname
 	host, err := netutil.FullyQualifiedHostname()
 	if err != nil {
-		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
+		slog.Warn("failed to get fully qualified hostname, falling back to simple hostname",
 			"error", err,
 			"note", "This may indicate DNS configuration issues but service will continue normally")
 		host, err = os.Hostname()
 		if err != nil {
 			return fmt.Errorf("os.Hostname() failed: %w", err)
 		}
-		slog.Info("Using simple hostname for service URL", "hostname", host)
+		slog.Info("using simple hostname for service URL", "hostname", host)
 	} else {
-		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
+		slog.Info("using fully qualified hostname for service URL", "hostname", host)
 	}
 	sv.hostname.Set(host)
 	return nil
@@ -203,12 +203,12 @@ func (sv *ServEnv) startOrphanDetection() {
 		var err error
 		testParentPID, err = strconv.Atoi(testParentPIDStr)
 		if err != nil {
-			slog.Warn("Invalid MULTIGRES_TEST_PARENT_PID", "value", testParentPIDStr)
+			slog.Warn("invalid MULTIGRES_TEST_PARENT_PID", "value", testParentPIDStr)
 			testParentPID = 0
 		}
 	}
 
-	slog.Info("Starting orphan detection",
+	slog.Info("starting orphan detection",
 		"testdata_dir", testDataDir,
 		"test_parent_pid", testParentPID)
 
@@ -247,7 +247,7 @@ func (sv *ServEnv) startOrphanDetection() {
 				}
 
 				if shouldShutdown {
-					slog.Warn("Orphan condition detected, initiating graceful shutdown",
+					slog.Warn("orphan condition detected, initiating graceful shutdown",
 						"reason", reason,
 						"testdata_dir", testDataDir,
 						"test_parent_pid", testParentPID)
@@ -260,7 +260,7 @@ func (sv *ServEnv) startOrphanDetection() {
 					case <-closeComplete:
 						return
 					case <-time.After(10 * time.Second):
-						slog.Error("Graceful shutdown timed out after orphan detection, force killing")
+						slog.Error("graceful shutdown timed out after orphan detection, force killing")
 						os.Exit(1) //nolint:forbidigo // Last resort: this is a test and graceful shutdown already timed out
 					}
 				}

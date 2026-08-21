@@ -39,8 +39,14 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	setup := getSharedSetup(t)
-	setup.SetupTest(t)
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultiorchCount(1),
+		shardsetup.WithMultigateway(),
+	)
+	defer cleanup()
+	setup.StartMultiorchs(t.Context(), t)
+	setup.WaitForMultigatewayQueryServing(t)
 
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 

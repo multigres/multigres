@@ -82,9 +82,9 @@ const (
 	// MultipoolerServiceStreamPoolerHealthProcedure is the fully-qualified name of the
 	// MultipoolerService's StreamPoolerHealth RPC.
 	MultipoolerServiceStreamPoolerHealthProcedure = "/multipoolerservice.MultipoolerService/StreamPoolerHealth"
-	// MultipoolerServiceStreamNotificationsProcedure is the fully-qualified name of the
-	// MultipoolerService's StreamNotifications RPC.
-	MultipoolerServiceStreamNotificationsProcedure = "/multipoolerservice.MultipoolerService/StreamNotifications"
+	// MultipoolerServiceNotificationStreamProcedure is the fully-qualified name of the
+	// MultipoolerService's NotificationStream RPC.
+	MultipoolerServiceNotificationStreamProcedure = "/multipoolerservice.MultipoolerService/NotificationStream"
 )
 
 // MultipoolerServiceClient is a client for the multipoolerservice.MultipoolerService service.
@@ -145,10 +145,10 @@ type MultipoolerServiceClient interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamPoolerHealthResponse], error)
-	// StreamNotifications opens a server-streaming RPC for async PG notifications.
-	// The gateway subscribes to notification channels on behalf of a client session.
-	// The pooler fans out notifications from its shared listener connection.
-	StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamNotificationsResponse], error)
+	// NotificationStream opens a bidirectional stream for one gateway client
+	// session. Subscription updates and notification delivery share one stream so
+	// notifications across channels preserve PostgreSQL delivery order.
+	NotificationStream(context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
 }
 
 // NewMultipoolerServiceClient constructs a client for the multipoolerservice.MultipoolerService
@@ -228,10 +228,10 @@ func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerServiceMethods.ByName("StreamPoolerHealth")),
 			connect.WithClientOptions(opts...),
 		),
-		streamNotifications: connect.NewClient[multipoolerservice.StreamNotificationsRequest, multipoolerservice.StreamNotificationsResponse](
+		notificationStream: connect.NewClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse](
 			httpClient,
-			baseURL+MultipoolerServiceStreamNotificationsProcedure,
-			connect.WithSchema(multipoolerServiceMethods.ByName("StreamNotifications")),
+			baseURL+MultipoolerServiceNotificationStreamProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -250,7 +250,7 @@ type multipoolerServiceClient struct {
 	discardTempTables         *connect.Client[multipoolerservice.DiscardTempTablesRequest, multipoolerservice.DiscardTempTablesResponse]
 	releaseReservedConnection *connect.Client[multipoolerservice.ReleaseReservedConnectionRequest, multipoolerservice.ReleaseReservedConnectionResponse]
 	streamPoolerHealth        *connect.Client[multipoolerservice.StreamPoolerHealthRequest, multipoolerservice.StreamPoolerHealthResponse]
-	streamNotifications       *connect.Client[multipoolerservice.StreamNotificationsRequest, multipoolerservice.StreamNotificationsResponse]
+	notificationStream        *connect.Client[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
 }
 
 // ExecuteQuery calls multipoolerservice.MultipoolerService.ExecuteQuery.
@@ -308,9 +308,9 @@ func (c *multipoolerServiceClient) StreamPoolerHealth(ctx context.Context, req *
 	return c.streamPoolerHealth.CallServerStream(ctx, req)
 }
 
-// StreamNotifications calls multipoolerservice.MultipoolerService.StreamNotifications.
-func (c *multipoolerServiceClient) StreamNotifications(ctx context.Context, req *connect.Request[multipoolerservice.StreamNotificationsRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamNotificationsResponse], error) {
-	return c.streamNotifications.CallServerStream(ctx, req)
+// NotificationStream calls multipoolerservice.MultipoolerService.NotificationStream.
+func (c *multipoolerServiceClient) NotificationStream(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse] {
+	return c.notificationStream.CallBidiStream(ctx)
 }
 
 // MultipoolerServiceHandler is an implementation of the multipoolerservice.MultipoolerService
@@ -372,10 +372,10 @@ type MultipoolerServiceHandler interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest], *connect.ServerStream[multipoolerservice.StreamPoolerHealthResponse]) error
-	// StreamNotifications opens a server-streaming RPC for async PG notifications.
-	// The gateway subscribes to notification channels on behalf of a client session.
-	// The pooler fans out notifications from its shared listener connection.
-	StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest], *connect.ServerStream[multipoolerservice.StreamNotificationsResponse]) error
+	// NotificationStream opens a bidirectional stream for one gateway client
+	// session. Subscription updates and notification delivery share one stream so
+	// notifications across channels preserve PostgreSQL delivery order.
+	NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error
 }
 
 // NewMultipoolerServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -451,10 +451,10 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 		connect.WithSchema(multipoolerServiceMethods.ByName("StreamPoolerHealth")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multipoolerServiceStreamNotificationsHandler := connect.NewServerStreamHandler(
-		MultipoolerServiceStreamNotificationsProcedure,
-		svc.StreamNotifications,
-		connect.WithSchema(multipoolerServiceMethods.ByName("StreamNotifications")),
+	multipoolerServiceNotificationStreamHandler := connect.NewBidiStreamHandler(
+		MultipoolerServiceNotificationStreamProcedure,
+		svc.NotificationStream,
+		connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/multipoolerservice.MultipoolerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -481,8 +481,8 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 			multipoolerServiceReleaseReservedConnectionHandler.ServeHTTP(w, r)
 		case MultipoolerServiceStreamPoolerHealthProcedure:
 			multipoolerServiceStreamPoolerHealthHandler.ServeHTTP(w, r)
-		case MultipoolerServiceStreamNotificationsProcedure:
-			multipoolerServiceStreamNotificationsHandler.ServeHTTP(w, r)
+		case MultipoolerServiceNotificationStreamProcedure:
+			multipoolerServiceNotificationStreamHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -536,6 +536,6 @@ func (UnimplementedMultipoolerServiceHandler) StreamPoolerHealth(context.Context
 	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamPoolerHealth is not implemented"))
 }
 
-func (UnimplementedMultipoolerServiceHandler) StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest], *connect.ServerStream[multipoolerservice.StreamNotificationsResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamNotifications is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.NotificationStream is not implemented"))
 }

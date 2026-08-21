@@ -45,10 +45,6 @@ func (m *mockActionWithGracePeriod) RequiresHealthyLeader() bool {
 	return false
 }
 
-func (m *mockActionWithGracePeriod) Priority() types.Priority {
-	return types.PriorityNormal
-}
-
 func (m *mockActionWithGracePeriod) GracePeriod() *types.GracePeriodConfig {
 	return m.gracePeriod
 }
@@ -91,7 +87,7 @@ func TestRecoveryGracePeriod_FirstDetectionStartsCountdown(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 4 * time.Second, MaxJitter: 8 * time.Second},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	before := time.Now()
 	tracker.Reconcile([]types.Problem{problem})
@@ -114,7 +110,7 @@ func TestRecoveryGracePeriod_StillDetectedFreezesDeadline(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	first, ok := tracker.deadlineFor(problem)
@@ -137,7 +133,7 @@ func TestRecoveryGracePeriod_ResolvedProblemIsEvicted(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	_, ok := tracker.deadlineFor(problem)
@@ -156,7 +152,7 @@ func TestRecoveryGracePeriod_RecurrenceStartsFreshCountdown(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	first, ok := tracker.deadlineFor(problem)
@@ -179,7 +175,7 @@ func TestRecoveryGracePeriod_ShouldExecuteBeforeDeadline(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	assert.False(t, tracker.ShouldExecute(problem), "should not execute before the deadline expires")
@@ -192,7 +188,7 @@ func TestRecoveryGracePeriod_ShouldExecuteAfterDeadline(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 100 * time.Millisecond, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	time.Sleep(150 * time.Millisecond)
@@ -205,7 +201,7 @@ func TestRecoveryGracePeriod_NoGracePeriodExecutesImmediately(t *testing.T) {
 
 	// Action with no grace period is not tracked and executes immediately.
 	action := &mockActionWithGracePeriod{gracePeriod: nil}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
 	_, exists := tracker.deadlineFor(problem)
@@ -220,7 +216,7 @@ func TestRecoveryGracePeriod_MissingDeadlineDefersExecution(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	// ShouldExecute without a prior Reconcile has no deadline: defer rather than
 	// act blindly.
@@ -234,7 +230,7 @@ func TestRecoveryGracePeriod_DistinctProblemsTrackedIndependently(t *testing.T) 
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	leaderProblem := shardProblem(types.ProblemLeaderIsDead, action)
+	leaderProblem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 	replicaProblem := poolerProblem(types.ProblemReplicaNotReplicating, "replica-1", action)
 
 	tracker.Reconcile([]types.Problem{leaderProblem, replicaProblem})
@@ -261,7 +257,7 @@ func TestRecoveryGracePeriod_JitterWithinConfiguredBounds(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 4 * time.Second, MaxJitter: 8 * time.Second},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	testRng := rand.New(rand.NewPCG(99999, 88888))
 	expectedJitter := time.Duration(testRng.Int64N(int64(8 * time.Second)))
@@ -283,7 +279,7 @@ func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0},
 	}
-	problemA := shardProblem(types.ProblemLeaderIsDead, action)
+	problemA := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 	problemB := poolerProblem(types.ProblemStaleLeader, "pooler-1", action)
 
 	tracker.Reconcile([]types.Problem{problemA, problemB})
@@ -303,7 +299,7 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 	action := &mockActionWithGracePeriod{
 		gracePeriod: &types.GracePeriodConfig{BaseDelay: 4 * time.Second, MaxJitter: 8 * time.Second},
 	}
-	problem := shardProblem(types.ProblemLeaderIsDead, action)
+	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	done := make(chan bool)
 	for range 10 {

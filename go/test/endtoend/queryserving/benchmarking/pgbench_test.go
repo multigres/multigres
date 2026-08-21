@@ -145,6 +145,9 @@ func TestPgBench(t *testing.T) {
 	duration := ParseDuration(t)
 	clients := ParseClients(t)
 	scenarios := DefaultScenarios(duration, clients)
+	// Additive: only present when PGBENCH_LARGE_RESULT_ROWS is set. These
+	// exercise the result-row path that the tiny-row tpcb workload cannot.
+	scenarios = append(scenarios, LargeResultScenarios(duration, clients)...)
 
 	// Initialize pgbench tables once via direct postgres. All routes share
 	// the same backend, so tables are visible from every target.

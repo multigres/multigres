@@ -357,7 +357,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		// freshly-restored standby that joins via SetPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
-		const autoRestoreTimeout = 90 * time.Second
+		const autoRestoreTimeout = 15 * time.Second
 		restoreStart := time.Now()
 		shardsetup.EventuallyPoolerCondition(t,
 			[]*shardsetup.MultipoolerInstance{standbyInst}, autoRestoreTimeout, 1*time.Second,
@@ -372,7 +372,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			"auto-restore should complete within timeout",
 		)
-		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), autoRestoreTimeout)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), utils.ScaleTimeout(autoRestoreTimeout))
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)

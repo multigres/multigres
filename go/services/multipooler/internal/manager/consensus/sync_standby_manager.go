@@ -25,6 +25,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -87,11 +88,11 @@ func (s *postgresqlSyncStandbyManager) setSynchronousCommit(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
-	s.logger.InfoContext(ctx, "Setting synchronous_commit", "value", val)
+	s.logger.InfoContext(ctx, "setting synchronous_commit", "value", val)
 	if err := s.exec(execCtx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", val)); err != nil {
-		s.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
+		s.logger.ErrorContext(ctx, "failed to set synchronous_commit", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_commit")
 	}
 	return nil
@@ -102,12 +103,12 @@ func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, meth
 	if err != nil {
 		return err
 	}
-	s.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	s.logger.InfoContext(ctx, "setting synchronous_standby_names", "value", value)
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
 	sql := "ALTER SYSTEM SET synchronous_standby_names = " + ast.QuoteStringLiteral(value)
 	if err := s.exec(execCtx, sql); err != nil {
-		s.logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
+		s.logger.ErrorContext(ctx, "failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
 	}
 	return nil
@@ -137,11 +138,21 @@ type computedGUC struct {
 	wantStandby  string
 }
 
+// standbyAppNames renders standby IDs as their PostgreSQL application_names,
+// for logging alongside the GUC values that reference them.
+func standbyAppNames(standbys []ReplicaID) []string {
+	names := make([]string, len(standbys))
+	for i, r := range standbys {
+		names[i] = r.AppName()
+	}
+	return names
+}
+
 // computeGUC derives the expected GUC state for the current policy.
 // Returns a zero computedGUC (wantCommit == "") when the policy produces no
 // eligible standbys; the caller should use Clear in that case.
 func (s *postgresqlSyncStandbyManager) computeGUC(pc commonconsensus.PolicyWithCohort) (computedGUC, error) {
-	cfg, err := pc.Policy.BuildSyncReplicationConfig(s.logger, pc.Cohort, s.localID)
+	cfg, err := pc.Policy.BuildSyncReplicationConfig(pc.Cohort, s.localID)
 	if err != nil {
 		return computedGUC{}, fmt.Errorf("build GUC config: %w", err)
 	}
@@ -207,7 +218,7 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc common
 		return false, nil
 	}
 
-	s.logger.InfoContext(ctx, "NeedsApply: GUC drift detected",
+	s.logger.InfoContext(ctx, "NeedsApply: GUC drift detected", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"synchronous_commit_actual", pgCommit,
 		"synchronous_commit_want", g.wantCommit,
 		"synchronous_standby_names_actual", pgStandby,
@@ -243,6 +254,12 @@ func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonc
 	if unchanged {
 		return nil
 	}
+
+	s.logger.InfoContext(ctx, "configuring synchronous replication",
+		"policy", pc.Policy.Description(),
+		"synchronous_commit", g.wantCommit,
+		"standbys", standbyAppNames(g.standbyNames),
+	)
 
 	if err := s.setSynchronousCommit(ctx, g.cfg.SyncCommit); err != nil {
 		return err

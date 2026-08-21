@@ -54,10 +54,6 @@ service MultipoolerManager {
   rpc Backup(multipoolermanagerdata.BackupRequest)
     returns (multipoolermanagerdata.BackupResponse);
 
-  // RestoreFromBackup restores from a backup
-  rpc RestoreFromBackup(multipoolermanagerdata.RestoreFromBackupRequest)
-    returns (multipoolermanagerdata.RestoreFromBackupResponse);
-
   // GetBackups retrieves backup information
   rpc GetBackups(multipoolermanagerdata.GetBackupsRequest)
     returns (multipoolermanagerdata.GetBackupsResponse);
@@ -81,12 +77,46 @@ service MultipoolerManager {
   // PostgreSQL Monitoring Control
   //
 
+  // ResignLeadership gracefully resigns this pooler from leadership.
+  // Transitions the pooler to NOT_SERVING (rejecting new queries with MTF01),
+  // drains write connections, publishes REQUESTING_DEMOTION, and returns the
+  // WAL flush LSN at the moment writes were quiesced. The caller can then wait
+  // for standbys to reach that LSN before triggering a new election.
+  //
+  // Only valid on a pooler that is currently the consensus leader (PRIMARY).
+  // Does NOT restart postgres as standby — that happens later via the normal
+  // Recruit path when multiorch picks up REQUESTING_DEMOTION.
+  rpc ResignLeadership(multipoolermanagerdata.ResignLeadershipRequest)
+      returns (multipoolermanagerdata.ResignLeadershipResponse);
+
   // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
   // When disabled, the monitor continues to run but will not auto-restart a stopped
   // PostgreSQL instance. Used by tests and demos to prevent premature restarts during
   // controlled failovers.
   rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
       returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
+
+  // ReconcileFollowers declares to the primary the full set of cohort-eligible
+  // follower members it should hold per-follower physical replication slots for.
+  // The primary creates any missing slot and drops managed slots for members no
+  // longer in the set. It is level-triggered and declarative: the orchestrator
+  // re-sends the set each cycle, so a missed event or a primary restart
+  // self-heals. It creates only the physical slots (so a late-joining standby
+  // can stream); it does NOT touch synchronized_standby_slots — a follower is
+  // added there only once it is streaming and caught up, via the cohort path.
+  rpc ReconcileFollowers(multipoolermanagerdata.ReconcileFollowersRequest)
+      returns (multipoolermanagerdata.ReconcileFollowersResponse);
+
+  //
+  // PostgreSQL Configuration Reload
+  //
+
+  // ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
+  // on this multipooler's local PostgreSQL and confirms it took effect by
+  // waiting for pg_conf_load_time() to advance. The returned config_load_time
+  // lets the caller verify its config-file change was re-read.
+  rpc ReloadConfig(multipoolermanagerdata.ReloadConfigRequest)
+      returns (multipoolermanagerdata.ReloadConfigResponse);
 
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.

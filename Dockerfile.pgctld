@@ -8,6 +8,9 @@
 ARG GO_VERSION=1.26
 FROM golang:${GO_VERSION}-alpine AS builder
 
+ARG GIT_COMMIT=unknown
+ARG COMMIT_DATE=unknown
+
 WORKDIR /src
 
 # Intentionally unpinned: the builder base (golang:1.25-alpine) is a rolling
@@ -21,7 +24,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN make build-release
+RUN GIT_COMMIT="${GIT_COMMIT}" COMMIT_DATE="${COMMIT_DATE}" make build-release
 
 # =========================================================================
 # Stage 2: Final PostgreSQL + pgctld

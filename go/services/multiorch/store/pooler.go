@@ -21,7 +21,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // Pooler is multiorch's per-pooler cache rider. It bundles the proto
@@ -124,21 +127,6 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 	p.state.Store(next)
 }
 
-// IsInitialized reports whether the pooler has been initialized. A pooler is
-// considered initialized based on the IsInitialized field from the Status
-// RPC (data-directory state, not LSN). The node must also be reachable for
-// us to trust the value.
-func (p *Pooler) IsInitialized() bool {
-	h := p.Health()
-	if h == nil || !h.IsLastCheckValid {
-		return false
-	}
-	if h.Multipooler == nil {
-		return false
-	}
-	return h.GetStatus().GetIsInitialized()
-}
-
 // ObservationAge reports how long ago — on the orchestrator's clock — this
 // pooler's most recent successful health snapshot was recorded, measured
 // against now. ok is false when no snapshot time has ever been recorded
@@ -154,4 +142,56 @@ func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	return now.Sub(ls.AsTime()), true
+}
+
+// DefaultObservationFreshness is the default staleness tolerance for callers
+// that need a trustworthy health snapshot but have no more specific policy of
+// their own (e.g. actions, which can't import the analysis package's
+// AvailabilityPolicy). analysis.DefaultAvailabilityPolicy's ObservationFreshness
+// uses this same value, so the two packages share one source of truth.
+const DefaultObservationFreshness = 15 * time.Second
+
+// HealthWithin returns the pooler's health snapshot if it was recorded within
+// maxAge of now, and ok=false otherwise (including "never observed"). Prefer
+// this over Health() wherever a decision depends on how current the data is —
+// it makes the staleness tolerance an explicit, mandatory choice at the call
+// site instead of a separately-remembered ObservationAge/observationFresh
+// check that's easy to omit.
+func (p *Pooler) HealthWithin(now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
+	age, ok := p.ObservationAge(now)
+	if !ok || age > maxAge {
+		return nil, false
+	}
+	return p.Health(), true
+}
+
+// DefaultLeaderWriteFreshness is the default freshness bound for
+// LeaderWritesProgressing's health-report check, shared so analysis and
+// actions packages (which can't import each other) don't each pick their own
+// value.
+const DefaultLeaderWriteFreshness = 15 * time.Second
+
+// LeaderWritesProgressing reports whether it looks safe to attempt a
+// leader-led rule write right now (a cohort reconcile, a no-op rule advance,
+// etc.): a recent health report, postgres genuinely out of recovery (a
+// resigning leader can still be a writable primary — recovery mode is what
+// actually precludes writes), and the shard's highest known rule fully
+// decided — no outstanding proposal to race against.
+//
+// TODO: this is a proxy for "the leader can currently commit a synchronous
+// write", not direct proof of it — the strongest signal would be a recent
+// successful heartbeat write, which isn't surfaced through health today.
+// Tighten this once that signal exists.
+func LeaderWritesProgressing(leader *Pooler, highestKnownPosition *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
+	if leader == nil {
+		return false
+	}
+	age, ok := leader.ObservationAge(now)
+	if !ok || age > freshness {
+		return false
+	}
+	if leader.Health().GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
+		return false
+	}
+	return commonconsensus.IsRuleDecided(highestKnownPosition)
 }

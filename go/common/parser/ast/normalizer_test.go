@@ -209,6 +209,26 @@ func TestNormalize_SetConfigIsLocalGating(t *testing.T) {
 		assert.Contains(t, result.NormalizedSQL, "$1",
 			"set_config value must be parameterized: %s", result.NormalizedSQL)
 	})
+
+	// search_path values are parameterized like any other on the
+	// is_local=true path: the planner emits a vet-only entry for the
+	// (literal search_path name, bound value) shape and resolveSetConfig
+	// re-checks the resolved value for pg_temp at execute time, so a
+	// multi-tenant per-request set_config('search_path', <tenant>, true)
+	// shares one plan-cache entry across tenants.
+	t.Run("is_local=true parameterizes the search_path value", func(t *testing.T) {
+		result := Normalize(selectSetConfig("search_path", "tenant_a", true))
+		assert.NotContains(t, result.NormalizedSQL, "'tenant_a'",
+			"search_path value must be parameterized: %s", result.NormalizedSQL)
+		assert.Contains(t, result.NormalizedSQL, "$1",
+			"search_path value must be parameterized: %s", result.NormalizedSQL)
+	})
+
+	t.Run("is_local=true search_path fingerprint stable across values", func(t *testing.T) {
+		fp1 := Normalize(selectSetConfig("search_path", "tenant_a", true)).Fingerprint()
+		fp2 := Normalize(selectSetConfig("search_path", "tenant_b", true)).Fingerprint()
+		assert.Equal(t, fp1, fp2, "distinct search_path values must share a fingerprint")
+	})
 }
 
 func TestNormalizeDoesNotMutateOriginal(t *testing.T) {

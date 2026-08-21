@@ -54,6 +54,101 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	require.NoError(t, err)
 }
 
+// expectRewindPositionFloorMocks adds the query expectations for the
+// pause-replication/wait-stabilize/measure-position sequence that
+// restartAsStandbyLocked's wantRewind branch now runs before pg_rewind (see
+// ConsensusPromises.SetRecruitBlockedUntil) — pauseReplication(REPLAY_AND_RECEIVER),
+// waitForReplayComplete, and ConsensusStatus's rule-store read. Most patterns
+// are added via AddQueryPattern (repeatable), so callers don't need to track
+// exact poll counts. The reload-config pair is the exception: it's added via
+// AddQueryPatternOnce (this reload fires exactly once, before pg_rewind), so
+// it's fully consumed here and doesn't shadow or get consumed by a second,
+// textually-identical reload a test's own setPrimaryConnInfoLocked call runs
+// later (which needs to see its own load-time value change to detect
+// completion, not this call's).
+func expectRewindPositionFloorMocks(m *mock.QueryService) {
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	replStatusRow := [][]any{{nil, nil, true, "paused", nil, "", nil, nil, nil, nil}}
+
+	// pauseReplication(REPLAY_AND_RECEIVER): resetPrimaryConnInfo, then reload.
+	// The reload reads the config load time as a Unix epoch (see readConfLoadTime),
+	// so the before/after mocks return distinct epoch seconds.
+	m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"0"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1"}}))
+
+	// restartAsStandbyLocked clears restore_command before the replay-completion
+	// wait (a rewinding cohort member must replay only local WAL / stream from the
+	// leader). resetRestoreCommand does ALTER SYSTEM RESET + a second reload cycle;
+	// register it after the pause reload above so the Once load-time pairs are
+	// consumed in execution order. (stopRestoreCommand goes through the mock pgctld
+	// gRPC server, so it needs no SQL mock here.)
+	m.AddQueryPattern("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"2"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"3"}}))
+
+	// ConsensusStatus -> Rules().ObservePosition -> readCurrentRule's SELECT.
+	// Column shape mirrors consensus.mockDecidedReadResult (a decided rule,
+	// no pending proposal). Registered before the broader
+	// "pg_last_wal_receive_lsn" pattern below: readCurrentRule's own SQL
+	// computes current_lsn via a COALESCE that happens to contain
+	// "pg_last_wal_receive_lsn()" as a substring, so the more specific
+	// pattern must be tried first or it never gets reached.
+	m.AddQueryPattern("SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members",
+		mock.MakeQueryResult(
+			[]string{
+				"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+				"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+				"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+				"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+				"proposal_created_at", "current_lsn",
+			},
+			[][]any{
+				{
+					int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+					"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
+					nil, nil, nil, nil, nil, nil, nil, nil,
+					"0/100",
+				},
+			},
+		))
+
+	// waitForReceiverDisconnect: count/status/conninfo snapshot, then a final
+	// queryReplicationStatus once the receiver shows disconnected.
+	m.AddQueryPattern("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult(
+		[]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
+
+	// waitForReplayComplete's checkNoWALSource precondition: primary_conninfo empty
+	// (not streaming). Anchored so it matches only this query, not the other
+	// current_setting('primary_conninfo') reads in this path.
+	m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+		[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}}))
+
+	// waitForReplayComplete's queryReplayProgress reads replay_lsn, receive_lsn,
+	// is_paused, and the startup wait event in one query. It is the only query
+	// containing pg_stat_activity, so it is matched on that; it also contains
+	// pg_last_wal_receive_lsn(), so it must be registered BEFORE the broad
+	// "pg_last_wal_receive_lsn" pattern below or that one would shadow it.
+	// replay == receive (and no wait event) → caught up, so waitForReplayComplete
+	// returns via signal 1 on the first poll.
+	m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(
+		[]string{"pg_last_wal_replay_lsn", "pg_last_wal_receive_lsn", "pg_is_wal_replay_paused", "wait_event_type", "wait_event"},
+		[][]any{{"0/100", "0/100", false, nil, nil}}))
+
+	// queryReplicationStatus (10-column) for waitForReceiverDisconnect's final
+	// read and waitForReplayComplete's returned status.
+	m.AddQueryPattern("pg_last_wal_receive_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+
+	// Pause replay, then waitForReplicationPause's queryReplicationStatus poll.
+	m.AddQueryPattern("pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
+}
+
 func TestPrimaryPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -257,24 +352,11 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "ResetReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "UndoDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
-			},
-		},
-		{
 			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, &clustermetadatapb.RuleNumber{}, nil)
+				_, err := manager.UpdateConsensusRule(ctx, multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD, []*clustermetadatapb.ID{serviceID}, &clustermetadatapb.RuleNumber{}, nil)
+				return err
 			},
 		},
 	}
@@ -407,7 +489,7 @@ func TestReplicationStatus(t *testing.T) {
 		// Ready, so drive an explicit iteration and wait for the derived PRIMARY.
 		require.Eventually(t, func() bool {
 			_, _ = pm.monitorPostgresIteration(ctx)
-			return pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+			return pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
 		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
 
 		// Call ReplicationStatus
@@ -849,9 +931,9 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	// Call UpdateConsensusRule to add a new standby
 	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-3"}
 
-	err = manager.UpdateConsensusRule(
+	_, err = manager.UpdateConsensusRule(
 		ctx,
-		multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+		multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD,
 		[]*clustermetadatapb.ID{newStandby},
 		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5}, // expectedOutgoingRule
 		nil, // coordinatorID
@@ -866,11 +948,122 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		"If this fails, it means SetPolicy was called despite history insert failure")
 }
 
-// TestRewindToSource_ManagerReopenedOnError is a regression test for a bug where
-// RewindToSource would leave the manager closed if an error occurred after pausing.
-// The fix uses the Pause()/resume() pattern with defer to guarantee the manager
-// is always reopened, even on error paths.
-func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
+// TestUpdateConsensusRule_RejectsWhenSelfRevoked verifies the defense-in-depth
+// guardrail: a primary whose own committed rule is already revoked by its own
+// accepted promise must refuse to write a further rule, rather than relying
+// solely on the indirect out-of-recovery side effect of Recruit's demotion.
+func TestUpdateConsensusRule_RejectsWhenSelfRevoked(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-primary",
+	}
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	createPgDataDir(t, poolerDir)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
+		Type:          clustermetadatapb.PoolerType_PRIMARY,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+	multipooler.PoolerDir = poolerDir
+
+	// This pooler's own committed rule is at term 5, but it has already
+	// accepted a revocation below term 6 anchored on that same rule — a
+	// coordinator recruited it into a newer term. Its own commit is now
+	// self-revoked, even though nothing has restarted it as standby yet.
+	consensustest.SeedTerm(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 6,
+		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+	})
+
+	config := &Config{TopoClient: ts}
+	mockQueryService := mock.NewQueryService()
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(&fakeRuleStore{
+			pos: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					CohortMembers: []*clustermetadatapb.ID{
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-1"},
+					},
+					DurabilityPolicy: testBootstrapPolicy(),
+				}},
+			},
+		}))
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	_, err = manager.consensusMgr.Promises().Load()
+	require.NoError(t, err)
+
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
+
+	require.NoError(t, manager.setInitialized())
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go manager.Start(senv)
+	require.Eventually(t, func() bool {
+		return manager.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond)
+
+	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-2"}
+	_, err = manager.UpdateConsensusRule(
+		ctx,
+		multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD,
+		[]*clustermetadatapb.ID{newStandby},
+		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		nil,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "term has been revoked")
+	// No cohort/GUC queries beyond the recovery-mode check above.
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// rewindAsStandbyForTest drives the action-locked rewind core that used to sit
+// behind the RewindToSource RPC (removed in favor of the monitor's local
+// self-heal): it raises suspectedDivergence and calls restartAsStandbyLocked,
+// the shared helper these regression tests exercise. Callers still reach it via
+// SetPrimary's stale-primary branch and the monitor's divergence-rewind path.
+func rewindAsStandbyForTest(t *testing.T, manager *MultipoolerManager, source *clustermetadatapb.Multipooler) (bool, error) {
+	t.Helper()
+	lockCtx, err := manager.actionLock.Acquire(t.Context(), "test-rewind")
+	require.NoError(t, err)
+	defer manager.actionLock.Release(lockCtx)
+	if _, err := manager.consensusMgr.SetSuspectedDivergence(lockCtx, true); err != nil {
+		return false, err
+	}
+	return manager.restartAsStandbyLocked(lockCtx, source.Hostname, source.PortMap["postgres"])
+}
+
+// TestRestartAsStandby_ManagerReopenedOnError is a regression test for a bug where
+// the rewind path would leave the manager closed if an error occurred after
+// pausing. The fix uses the Pause()/resume() pattern with defer to guarantee the
+// manager is always reopened, even on error paths.
+func TestRestartAsStandby_ManagerReopenedOnError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -909,6 +1102,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	expectRewindPositionFloorMocks(mockQueryService)
 
 	config := &Config{
 		TopoClient: ts,
@@ -949,29 +1143,29 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Call RewindToSource - this should fail during the Stop call
-	_, err = manager.RewindToSource(ctx, source)
+	// Drive the rewind core - this should fail during the Stop call
+	_, err = rewindAsStandbyForTest(t, manager, source)
 
 	// Verify the call failed as expected
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "PostgreSQL stop failed")
 
 	// CRITICAL REGRESSION TEST: Verify the manager was reopened despite the error.
-	// This is the bug we're testing for: if RewindToSource fails, the manager must
+	// This is the bug we're testing for: if the rewind fails, the manager must
 	// still be reopened so the node can continue operating.
 	require.Eventually(t, func() bool {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
 		return manager.isOpen
-	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
+	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when the rewind fails")
 }
 
-// TestRewindToSource_RestoresPrimaryConnInfo is a regression test for the bug where
-// RewindToSource did not call setPrimaryConnInfoLocked after pg_rewind. When actual
+// TestRestartAsStandby_RestoresPrimaryConnInfo is a regression test for the bug where
+// the rewind path did not call setPrimaryConnInfoLocked after pg_rewind. When actual
 // pg_rewind runs it syncs postgresql.auto.conf from the source (which has no
 // primary_conninfo), wiping the value set by the earlier SetPrimary call and
 // leaving the WAL receiver with no primary to connect to.
-func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
+func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -1013,6 +1207,10 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	var primaryConnInfoSet string
 
 	mockQueryService := mock.NewQueryService()
+	// Registered first so its one-shot reload patterns are consumed by this
+	// test's earlier (rewind-path) reload, not the later setPrimaryConnInfoLocked
+	// one below — see expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
 	// SELECT 1 for waitForDatabaseConnection
 	mockQueryService.AddQueryPattern("SELECT 1",
 		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
@@ -1025,15 +1223,15 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	// pg_conf_load_time before reload (consumed once)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	// config load time before reload, read as a Unix epoch (consumed once)
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	// pg_reload_conf
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	// pg_conf_load_time after reload (different value signals reload completed)
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	// config load time after reload (different value signals reload completed)
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,
@@ -1047,6 +1245,21 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 
 	createPgDataDir(t, poolerDir)
 	require.NoError(t, manager.setInitialized())
+
+	// Seed postgresql.auto.conf as pg_rewind leaves it: copied from the source
+	// primary, so no primary_conninfo entry.
+	autoConfPath := filepath.Join(poolerDir, "pg_data", "postgresql.auto.conf")
+	require.NoError(t, os.WriteFile(autoConfPath, []byte("# Do not edit this file manually!\n"), 0o600))
+
+	// Snapshot auto.conf at the moment pgctld is asked to restart postgres. The
+	// deadlock this guards against (2026-08-12 incident): conninfo arriving only
+	// via SQL after start, which a standby that needs leader WAL to reach
+	// consistency can never accept.
+	var autoConfAtRestart string
+	mockPgctld.RestartFunc = func(*pgctldpb.RestartRequest) {
+		b, _ := os.ReadFile(autoConfPath)
+		autoConfAtRestart = string(b)
+	}
 
 	manager.mu.Lock()
 	manager.isOpen = true
@@ -1064,9 +1277,16 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	rewindPerformed, err := rewindAsStandbyForTest(t, manager, source)
 	require.NoError(t, err)
-	assert.True(t, resp.RewindPerformed, "actual pg_rewind should have run (divergence detected)")
+	assert.True(t, rewindPerformed, "actual pg_rewind should have run (divergence detected)")
+
+	// REGRESSION TEST: primary_conninfo must already be in postgresql.auto.conf
+	// when postgres restarts, so a standby that cannot reach consistency (and
+	// thus never accepts the post-start SQL write below) still comes up
+	// streaming from the leader instead of held blind.
+	assert.Contains(t, autoConfAtRestart, "primary_conninfo = 'host=source-host port=5433 ",
+		"auto.conf must carry the source's primary_conninfo before the standby starts")
 
 	// Verify both actual rewind calls were made (dry-run + actual).
 	rewindCalls := mockPgctld.PgRewindCalls
@@ -1082,16 +1302,16 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
 }
 
-// TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo guards the helper
+// TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo guards the helper
 // contract introduced in the unified-rewind refactor: restartAsStandbyLocked
 // sets primary_conninfo on success regardless of whether pg_rewind actually
 // ran. The dry-run reports no divergence here, so runPgRewind returns
 // rewindPerformed=false and skips the actual rewind — but the helper must
 // still point primary_conninfo at source. Without this test, a regression
 // that gates the conninfo call on rewindPerformed would pass the divergence
-// test (TestRewindToSource_RestoresPrimaryConnInfo) and silently break
+// test (TestRestartAsStandby_RestoresPrimaryConnInfo) and silently break
 // callers that arrive via this path.
-func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
+func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -1133,6 +1353,10 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	var primaryConnInfoSet string
 
 	mockQueryService := mock.NewQueryService()
+	// Registered first so its one-shot reload patterns are consumed by this
+	// test's earlier (rewind-path) reload, not the later setPrimaryConnInfoLocked
+	// one below — see expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
 	mockQueryService.AddQueryPattern("SELECT 1",
 		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
@@ -1142,12 +1366,12 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,
@@ -1161,6 +1385,19 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 
 	createPgDataDir(t, poolerDir)
 	require.NoError(t, manager.setInitialized())
+
+	// Seed postgresql.auto.conf with a stale conninfo persisted by a previous
+	// run: the pre-start file write must replace it in place, not stack a
+	// second entry.
+	autoConfPath := filepath.Join(poolerDir, "pg_data", "postgresql.auto.conf")
+	require.NoError(t, os.WriteFile(autoConfPath,
+		[]byte("primary_conninfo = 'host=old-leader port=5432 user=postgres application_name=stale'\n"), 0o600))
+
+	var autoConfAtRestart string
+	mockPgctld.RestartFunc = func(*pgctldpb.RestartRequest) {
+		b, _ := os.ReadFile(autoConfPath)
+		autoConfAtRestart = string(b)
+	}
 
 	manager.mu.Lock()
 	manager.isOpen = true
@@ -1178,9 +1415,16 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	rewindPerformed, err := rewindAsStandbyForTest(t, manager, source)
 	require.NoError(t, err)
-	assert.False(t, resp.RewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
+	assert.False(t, rewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
+
+	// The no-rewind path must also carry conninfo in auto.conf before the
+	// restart, with the stale entry replaced rather than shadowing the new one.
+	assert.Contains(t, autoConfAtRestart, "primary_conninfo = 'host=source-host port=5433 ",
+		"auto.conf must carry the source's primary_conninfo before the standby starts")
+	assert.NotContains(t, autoConfAtRestart, "old-leader",
+		"the stale conninfo entry must be replaced, not left behind")
 
 	// Only the dry-run should have fired; no actual rewind.
 	rewindCalls := mockPgctld.PgRewindCalls
@@ -1193,25 +1437,36 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
 }
 
-// TestRewindToSource_InvalidArgs verifies the four input-validation branches
-// at the top of RewindToSource return INVALID_ARGUMENT without touching
-// postgres. The manager is constructed but never reaches setInitialized; the
-// validation happens before checkReady, so this is enough.
-func TestRewindToSource_InvalidArgs(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	ctx := context.Background()
+// restartAsStandbyNoRewindForTest drives restartAsStandbyLocked WITHOUT raising
+// suspectedDivergence, exercising the plain stop/restart path (no pg_rewind, no
+// position-floor measurement).
+func restartAsStandbyNoRewindForTest(t *testing.T, manager *MultipoolerManager, host string, port int32) error {
+	t.Helper()
+	lockCtx, err := manager.actionLock.Acquire(t.Context(), "test-restart")
+	require.NoError(t, err)
+	defer manager.actionLock.Release(lockCtx)
+	_, err = manager.restartAsStandbyLocked(lockCtx, host, port)
+	return err
+}
 
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+// newRestartAsStandbyTestManager builds the manager + mock pgctld boilerplate
+// shared by the pre-start conninfo file-write tests: a REPLICA pooler with a
+// seeded postgresql.auto.conf and a RestartFunc snapshot capturing the file
+// content at the moment pgctld is asked to restart postgres.
+func newRestartAsStandbyTestManager(t *testing.T, mockQueryService *mock.QueryService, seedAutoConf string) (manager *MultipoolerManager, autoConfPath string, autoConfAtRestart *string) {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { _ = ts.Close() })
 
 	poolerDir := t.TempDir()
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-pooler",
-	}
 	multipooler := &clustermetadatapb.Multipooler{
-		Id:        serviceID,
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-pooler",
+		},
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
 		PortMap:   map[string]int32{"postgres": 5432},
@@ -1222,59 +1477,213 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 		},
 	}
 
-	manager, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	mockPgctld := &testutil.MockPgCtldService{}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, &Config{TopoClient: ts, PgctldAddr: pgctldAddr},
+		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
-	defer manager.ShutdownForTest(t.Context())
+	t.Cleanup(func() { manager.ShutdownForTest(t.Context()) })
 
 	createPgDataDir(t, poolerDir)
 	require.NoError(t, manager.setInitialized())
+
+	autoConfPath = filepath.Join(poolerDir, "pg_data", "postgresql.auto.conf")
+	require.NoError(t, os.WriteFile(autoConfPath, []byte(seedAutoConf), 0o600))
+
+	snapshot := new(string)
+	mockPgctld.RestartFunc = func(*pgctldpb.RestartRequest) {
+		b, _ := os.ReadFile(autoConfPath)
+		*snapshot = string(b)
+	}
+
 	manager.mu.Lock()
 	manager.isOpen = true
 	manager.state = ManagerStateReady
-	manager.ctx, manager.cancel = context.WithCancel(ctx)
+	manager.ctx, manager.cancel = context.WithCancel(context.Background())
 	manager.mu.Unlock()
 
-	cases := []struct {
-		name   string
-		source *clustermetadatapb.Multipooler
-	}{
-		{
-			name:   "nil source",
-			source: nil,
-		},
-		{
-			name: "nil port map",
-			source: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Name: "src"},
-				Hostname: "src-host",
-			},
-		},
-		{
-			name: "empty hostname",
-			source: &clustermetadatapb.Multipooler{
-				Id:      &clustermetadatapb.ID{Name: "src"},
-				PortMap: map[string]int32{"postgres": 5433},
-			},
-		},
-		{
-			name: "missing postgres port",
-			source: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Name: "src"},
-				Hostname: "src-host",
-				PortMap:  map[string]int32{"grpc": 8080},
-			},
-		},
+	return manager, autoConfPath, snapshot
+}
+
+// TestRestartAsStandby_ManualStopSkipsConnInfoFileWrite: when StopReplication
+// has set the manual-stop flag, the pre-start file write must NOT bypass the
+// admin pause — auto.conf stays untouched and the post-start SQL path refuses
+// loudly, preserving the pre-file-write behavior.
+func TestRestartAsStandby_ManualStopSkipsConnInfoFileWrite(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT 1",
+		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+
+	const stale = "primary_conninfo = 'host=old-leader port=5432 user=postgres application_name=stale'\n"
+	manager, autoConfPath, autoConfAtRestart := newRestartAsStandbyTestManager(t, mockQueryService, stale)
+
+	manager.walReceiverManuallyStopped.Store(true)
+
+	err := restartAsStandbyNoRewindForTest(t, manager, "source-host", 5433)
+	require.Error(t, err, "restart must fail: the SQL conninfo path refuses while replication is manually stopped")
+	assert.Contains(t, err.Error(), "manually stopped")
+
+	// The admin pause held: no conninfo write happened, by file or by SQL.
+	assert.Equal(t, stale, *autoConfAtRestart, "auto.conf must be untouched at restart time")
+	b, readErr := os.ReadFile(autoConfPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, stale, string(b), "auto.conf must remain untouched after the refused restart")
+}
+
+// TestRestartAsStandby_FileWriteFailureFallsBackToSQL: the pre-start file write
+// is best-effort — when it fails (unwritable auto.conf here), the restart still
+// proceeds and the post-start SQL path establishes the conninfo, preserving the
+// helper's "working standby of source on return" contract for nodes that can
+// accept connections.
+func TestRestartAsStandby_FileWriteFailureFallsBackToSQL(t *testing.T) {
+	var primaryConnInfoSet string
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT 1",
+		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(query string) { primaryConnInfoSet = query },
+	)
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
+	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
+		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
+
+	const stale = "primary_conninfo = 'host=old-leader port=5432 user=postgres application_name=stale'\n"
+	manager, autoConfPath, autoConfAtRestart := newRestartAsStandbyTestManager(t, mockQueryService, stale)
+
+	// Make the file unwritable so the pre-start write fails (logged, not fatal).
+	require.NoError(t, os.Chmod(autoConfPath, 0o400))
+
+	err := restartAsStandbyNoRewindForTest(t, manager, "source-host", 5433)
+	require.NoError(t, err, "restart must succeed despite the failed file write")
+
+	assert.Contains(t, *autoConfAtRestart, "old-leader",
+		"file write failed, so auto.conf still carries the stale entry at restart")
+	assert.Contains(t, primaryConnInfoSet, "source-host",
+		"the SQL fallback must establish the conninfo after restart")
+}
+
+// TestSetAutoConfSetting covers the file-edit SET variant used to write
+// primary_conninfo while postgres is stopped (the pre-start write in
+// restartAsStandbyLocked): append when absent, replace in place, idempotent
+// no-op, token-boundary name matching, GUC-file quoting, and duplicate
+// collapse.
+func TestSetAutoConfSetting(t *testing.T) {
+	ctx := t.Context()
+
+	setup := func(t *testing.T, content string) (pm *MultipoolerManager, autoConfPath string) {
+		t.Helper()
+		dir := t.TempDir()
+		t.Setenv(constants.PgDataDirEnvVar, dir)
+		autoConfPath = filepath.Join(dir, "postgresql.auto.conf")
+		require.NoError(t, os.WriteFile(autoConfPath, []byte(content), 0o600))
+		return &MultipoolerManager{logger: slog.Default()}, autoConfPath
+	}
+	read := func(t *testing.T, path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return string(b)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, err := manager.RewindToSource(ctx, tc.source)
-			require.Error(t, err)
-			assert.Nil(t, resp)
-			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err),
-				"expected INVALID_ARGUMENT, got %v: %v", mterrors.Code(err), err)
-		})
-	}
+	t.Run("appends_when_absent", func(t *testing.T) {
+		pm, path := setup(t, "# Do not edit this file manually!\nrestore_command = 'pgbackrest restore'\n")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 port=5432"))
+		assert.Equal(t,
+			"# Do not edit this file manually!\nrestore_command = 'pgbackrest restore'\nprimary_conninfo = 'host=h1 port=5432'\n",
+			read(t, path))
+	})
+
+	t.Run("appends_to_empty_file", func(t *testing.T) {
+		pm, path := setup(t, "")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 port=5432"))
+		assert.Equal(t, "primary_conninfo = 'host=h1 port=5432'\n", read(t, path))
+	})
+
+	t.Run("replaces_in_place", func(t *testing.T) {
+		pm, path := setup(t, "primary_conninfo = 'host=old port=1'\nrestore_command = 'pgbackrest restore'\n")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=new port=2"))
+		assert.Equal(t,
+			"primary_conninfo = 'host=new port=2'\nrestore_command = 'pgbackrest restore'\n",
+			read(t, path))
+	})
+
+	t.Run("idempotent_skips_write", func(t *testing.T) {
+		pm, path := setup(t, "")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 port=5432"))
+		before := read(t, path)
+		// Make the file unwritable: a second identical set must not attempt a
+		// write at all, so it succeeds despite the permissions.
+		require.NoError(t, os.Chmod(path, 0o400))
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 port=5432"))
+		assert.Equal(t, before, read(t, path))
+	})
+
+	t.Run("respects_token_boundaries", func(t *testing.T) {
+		pm, path := setup(t, "primary_conninfo_extra = 'keepme'\n")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 port=5432"))
+		assert.Equal(t,
+			"primary_conninfo_extra = 'keepme'\nprimary_conninfo = 'host=h1 port=5432'\n",
+			read(t, path))
+	})
+
+	t.Run("quotes_embedded_single_quotes", func(t *testing.T) {
+		pm, path := setup(t, "")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1 password=pa'ss"))
+		assert.Equal(t, "primary_conninfo = 'host=h1 password=pa''ss'\n", read(t, path))
+	})
+
+	t.Run("doubles_backslashes", func(t *testing.T) {
+		// The GUC config-file lexer processes backslash escapes inside quoted
+		// values, so a lone backslash would be reinterpreted (e.g. \t → tab).
+		// Doubling matches ALTER SYSTEM's own writer.
+		pm, path := setup(t, "")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", `host=h1 options=-c\ttl=1`))
+		assert.Equal(t, `primary_conninfo = 'host=h1 options=-c\\ttl=1'`+"\n", read(t, path))
+	})
+
+	t.Run("collapses_duplicates", func(t *testing.T) {
+		// Postgres reads the last occurrence, so a surviving stale duplicate
+		// below the fresh entry would override it.
+		pm, path := setup(t, "primary_conninfo = 'host=a'\nprimary_conninfo = 'host=b'\n")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=new"))
+		assert.Equal(t, "primary_conninfo = 'host=new'\n", read(t, path))
+	})
+
+	t.Run("errors_when_file_missing", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv(constants.PgDataDirEnvVar, dir)
+		pm := &MultipoolerManager{logger: slog.Default()}
+		assert.Error(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1"))
+	})
+
+	t.Run("rejects_invalid_names", func(t *testing.T) {
+		// A name with spaces, '=', quotes, or line breaks would corrupt the
+		// line-oriented file; a caller passing one is a bug worth surfacing.
+		pm, path := setup(t, "")
+		for _, name := range []string{"", "primary conninfo", "1abc", "name=inject", "a.b.c", "na'me", "nl\nname"} {
+			assert.Error(t, pm.setAutoConfSetting(ctx, name, "host=h1"), "name %q must be rejected", name)
+		}
+		// Valid forms: plain and extension-qualified.
+		require.NoError(t, pm.setAutoConfSetting(ctx, "my_ext.some_guc", "v"))
+		assert.Contains(t, read(t, path), "my_ext.some_guc = 'v'\n")
+	})
+
+	t.Run("rejects_line_break_values", func(t *testing.T) {
+		pm, path := setup(t, "")
+		assert.Error(t, pm.setAutoConfSetting(ctx, "primary_conninfo", "host=h1\nmalicious=x"))
+		assert.Equal(t, "", read(t, path), "file must be untouched after rejection")
+	})
 }
 
 func TestSetPostgresRestartsEnabledRPC(t *testing.T) {

@@ -157,6 +157,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -226,8 +227,10 @@ func (f *fundamental) Error() string { return f.msg }
 func (f *fundamental) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
-		panicIfError(io.WriteString(s, "Code: "+f.code.String()+"\n"))
-		panicIfError(io.WriteString(s, f.msg+"\n"))
+		// Single line: log pipelines routinely index only the first line of a
+		// message, so a newline here would hide the actual cause (e.g. the
+		// transport detail behind an UNAVAILABLE) from most tooling.
+		panicIfError(io.WriteString(s, "Code: "+f.code.String()+": "+f.msg))
 		if getLogErrStacks() {
 			f.stack.Format(s, verb)
 		}
@@ -239,27 +242,22 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	}
 }
 
-// Code returns the error code if it's a mtError.
-// If err is nil, it returns ok.
+// Code returns the error code associated with err or any error in its standard
+// unwrap chain. If err is nil, it returns OK.
 func Code(err error) mtrpcpb.Code {
 	if err == nil {
 		return mtrpcpb.Code_OK
 	}
-	if err, ok := err.(ErrorWithCode); ok {
-		return err.ErrorCode()
-	}
-
-	cause := Cause(err)
-	if cause != err && cause != nil {
-		// If we did not find an error code at the outer level, let's find the cause and check it's code
-		return Code(cause)
+	var coded ErrorWithCode
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
 	}
 
 	// Handle some special cases.
-	switch err {
-	case context.Canceled:
+	switch {
+	case errors.Is(err, context.Canceled):
 		return mtrpcpb.Code_CANCELED
-	case context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		return mtrpcpb.Code_DEADLINE_EXCEEDED
 	}
 	return mtrpcpb.Code_UNKNOWN
@@ -321,8 +319,9 @@ func (w *wrapping) Unwrap() error { return w.cause }
 
 func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
-		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
-		panicIfError(io.WriteString(s, w.msg))
+		// Single line, message-first — the same order as Error() — so the
+		// rendering never splits across log lines (see fundamental.Format).
+		panicIfError(fmt.Fprintf(s, "%s: %v", w.msg, w.Cause()))
 		if getLogErrStacks() {
 			w.stack.Format(s, verb)
 		}
@@ -422,18 +421,10 @@ func TruncateError(oldErr error, max int) error {
 
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
 
-// IsConnectionError returns true if the error indicates a broken or lost
-// connection to PostgreSQL. It checks two categories:
-//
-//  1. Go I/O errors: EOF, connection reset, broken pipe, etc. These occur
-//     when the TCP/Unix socket is broken.
-//
-//  2. PostgreSQL SQLSTATE codes: When PostgreSQL shuts down or crashes, it may
-//     send a FATAL ErrorResponse before closing the connection. We check for
-//     Class 08 (Connection Exception) and specific Class 57 shutdown codes.
-//
-// This is the PostgreSQL equivalent of Vitess's sqlerror.IsConnErr, which
-// checks MySQL CR_* client error codes.
+// IsConnectionError returns true if err is worth a reconnect + retry.
+// It intentionally recognizes only transport failures, SQLSTATE class 08,
+// and PostgreSQL shutdown SQLSTATEs. Use IsConnectionDead for discard-only
+// decisions that must also catch non-retryable FATAL/PANIC diagnostics.
 func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
@@ -462,6 +453,50 @@ func IsConnectionError(err error) bool {
 		// A wrapped error chain could contain both a PgDiagnostic and an
 		// underlying I/O error (e.g., EOF), and we don't want the
 		// non-connection SQLSTATE to mask the transport-level failure.
+	}
+
+	return isTransportConnectionError(err)
+}
+
+// IsConnectionDead reports whether err means the PostgreSQL socket/session
+// must be discarded. It is an eviction/cleanup predicate, not a retry
+// predicate. Use IsConnectionError for reconnect + retry gates.
+func IsConnectionDead(err error) bool {
+	if IsConnectionError(err) {
+		return true
+	}
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) && diag.IsFatal()
+}
+
+// IsTempBuffersFreeze recognizes the temporary-access freeze: PostgreSQL
+// rejects changing temp_buffers for the life of a backend once it has accessed
+// any temporary table — even when the accessing statement itself failed, since
+// the local-buffer latch is not transactional. Matched structurally so it
+// stays both locale-proof and client-proof:
+//
+//   - SQLSTATE 22023 plus the quoted GUC name in the primary message —
+//     parameter names are not localized, unlike the surrounding sentence.
+//   - A non-empty DETAIL. The freeze is the only temp_buffers 22023 that
+//     carries one; a client-supplied bad value ("abc", out of range) produces
+//     a bare message (at most a HINT) and must NOT match — the callers use
+//     this to decide a backend needs replacing, which client input must not
+//     be able to trigger. The DETAIL text itself is deliberately not matched
+//     (localized); presence alone discriminates.
+//
+// Unrecognized shapes fail closed to false: the error surfaces to the caller
+// as if no recovery existed.
+func IsTempBuffersFreeze(err error) bool {
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == PgSSInvalidParameterValue &&
+		strings.Contains(diag.Message, `"temp_buffers"`) &&
+		diag.Detail != ""
+}
+
+func isTransportConnectionError(err error) bool {
+	if err == nil {
+		return false
 	}
 
 	// Common I/O errors indicating connection loss.

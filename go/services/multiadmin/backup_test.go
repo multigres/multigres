@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -84,44 +85,6 @@ func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, codes.InvalidArgument, st.Code())
-}
-
-func TestRestoreFromBackup_ValidationErrors(t *testing.T) {
-	logger := slog.Default()
-	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	defer server.backupJobTracker.Stop()
-
-	tests := []struct {
-		name    string
-		req     *multiadminpb.RestoreFromBackupRequest
-		wantErr codes.Code
-	}{
-		{
-			name:    "empty database",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "", TableGroup: "test"},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "empty table_group",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: ""},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "nil pooler_id",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: "test", PoolerId: nil},
-			wantErr: codes.InvalidArgument,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := server.RestoreFromBackup(t.Context(), tt.req)
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			require.Equal(t, tt.wantErr, st.Code())
-		})
-	}
 }
 
 func TestGetBackups_ValidationErrors(t *testing.T) {
@@ -289,18 +252,24 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
 
+	startTimestamp := timestamppb.New(time.Date(2026, 1, 4, 10, 0, 0, 0, time.UTC))
+	stopTimestamp := timestamppb.New(time.Date(2026, 1, 4, 10, 5, 0, 0, time.UTC))
+
 	fakeClient := rpcclient.NewFakeClient()
 	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
 	fakeClient.GetBackupsResponses[poolerKey] = &multipoolermanagerdata.GetBackupsResponse{
 		Backups: []*multipoolermanagerdata.BackupMetadata{{
-			BackupId:   "20250104-100000F",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       "full",
-			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
-			StartLsn:   "0/21000028",
-			StopLsn:    "0/21000100",
-			PgVersion:  "16.2",
+			BackupId:       "20250104-100000F",
+			TableGroup:     "default",
+			Shard:          "0",
+			Type:           "full",
+			Status:         multipoolermanagerdata.BackupMetadata_COMPLETE,
+			StartLsn:       "0/21000028",
+			StopLsn:        "0/21000100",
+			PgVersion:      "16.2",
+			StartTimestamp: startTimestamp,
+			StopTimestamp:  stopTimestamp,
+			JobId:          "20250104-100000.000000_replica-pooler",
 		}},
 	}
 	server.SetRPCClient(fakeClient)
@@ -313,6 +282,30 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 	require.Equal(t, "0/21000028", resp.Backups[0].StartLsn)
 	require.Equal(t, "0/21000100", resp.Backups[0].StopLsn)
 	require.Equal(t, "16.2", resp.Backups[0].PgVersion)
+	require.True(t, startTimestamp.AsTime().Equal(resp.Backups[0].StartTimestamp.AsTime()))
+	require.True(t, stopTimestamp.AsTime().Equal(resp.Backups[0].StopTimestamp.AsTime()))
+	require.Equal(t, "20250104-100000.000000_replica-pooler", resp.Backups[0].JobId)
+}
+
+func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	disabled := makeRoutedPooler("cell1", "disabled-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	disabled.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	require.NoError(t, server.ts.CreateMultipooler(ctx, disabled))
+
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "serving follower pooler not found")
+
+	serving := makeRoutedPooler("cell1", "serving-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	serving.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, server.ts.CreateMultipooler(ctx, serving))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.NoError(t, err)
+	require.Equal(t, serving.Id.Name, got.Id.Name)
 }
 
 func TestBackup_ForcePrimary(t *testing.T) {

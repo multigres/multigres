@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -776,7 +777,7 @@ func TestDescribePortalThenFlush(t *testing.T) {
 		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
-func TestUnsupportedFunctionCallDrainsMessageBody(t *testing.T) {
+func TestUnsupportedFunctionCallRejectsCleanly(t *testing.T) {
 	var readBuf bytes.Buffer
 	var writeBuf bytes.Buffer
 	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
@@ -793,10 +794,20 @@ func TestUnsupportedFunctionCallDrainsMessageBody(t *testing.T) {
 	writeTestInt32(&readBuf, int32(4+len(body)))
 	readBuf.Write(body)
 
+	conn.startWriterBuffering()
 	err := conn.handleMessage(protocol.MsgFunctionCall)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported message type: F")
+	require.NoError(t, err, "fast-path rejection must keep the session alive")
+	require.NoError(t, conn.endWriterBuffering())
 	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must be drained before rejection")
+
+	// The client sees ErrorResponse(0A000 feature_not_supported) followed by
+	// ReadyForQuery — a clean cycle, not a connection teardown.
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
+	assert.Contains(t, string(respBody), "fast-path function call protocol is not supported")
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType)
 }
 
 func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
@@ -806,10 +817,15 @@ func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
 
 	writeTestInt32(&readBuf, 4)
 
+	conn.startWriterBuffering()
 	err := conn.handleMessage(protocol.MsgFunctionCall)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported message type: F")
+	require.NoError(t, err)
+	require.NoError(t, conn.endWriterBuffering())
 	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must consume the length field")
+
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
 }
 
 func TestUnsupportedFunctionCallReportsDrainError(t *testing.T) {
@@ -960,9 +976,9 @@ func TestHandleDescribeMissingNullTerminator(t *testing.T) {
 	readBuf.WriteByte('S')
 	readBuf.WriteString("stmt")
 
-	err := conn.handleDescribe()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing null terminator")
+	require.NoError(t, conn.handleDescribe())
+	assert.Equal(t, mterrors.PgSSProtocolViolation, errorResponseSQLSTATE(t, &writeBuf))
+	assert.True(t, conn.discardingUntilSync)
 }
 
 // TestHandleCloseMissingNullTerminator verifies the same for handleClose.
@@ -976,9 +992,9 @@ func TestHandleCloseMissingNullTerminator(t *testing.T) {
 	readBuf.WriteByte('S')
 	readBuf.WriteString("stmt")
 
-	err := conn.handleClose()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing null terminator")
+	require.NoError(t, conn.handleClose())
+	assert.Equal(t, mterrors.PgSSProtocolViolation, errorResponseSQLSTATE(t, &writeBuf))
+	assert.True(t, conn.discardingUntilSync)
 }
 
 // TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
@@ -1246,7 +1262,6 @@ func TestPipelinedParseErrorRecovery(t *testing.T) {
 // ErrorResponse and ReadyForQuery; the original wire trace came from a
 // Parse / Bind / Execute / Close / Sync flight, but the gate applies to
 // every Parse/Bind/Describe/Execute/Close after an error.
-// See ~/dev/multigres-plans/investigations/2026-05-20-multigateway-extended-query-close-after-error.md.
 func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 	var readBuf, writeBuf bytes.Buffer
 	handler := &testHandler{

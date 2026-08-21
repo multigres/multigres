@@ -42,7 +42,8 @@
   },
   {
     "comment": "COPY FROM with escape option",
-    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', escape '\\\\')"
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', escape '\\\\')",
+    "expected": "COPY users FROM '/path/to/file.csv' (format 'csv', escape E'\\\\\\\\')"
   },
   {
     "comment": "COPY FROM with force_quote all",

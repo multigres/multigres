@@ -205,6 +205,15 @@ type Conn struct {
 	// Current transaction state.
 	txnStatus protocol.TransactionStatus
 
+	// reportedParams is the value of each GUC_REPORT parameter this connection
+	// has told the client, seeded by the startup ParameterStatus run. PostgreSQL
+	// re-reports a parameter only when its value actually changes, so this is
+	// what reportParameterStatus diffs against to avoid emitting a redundant
+	// ParameterStatus for a SET that is a no-op (e.g. SET TimeZone='UTC' when
+	// the session is already UTC). Written only from the connection's own
+	// goroutine during startup and query handling.
+	reportedParams map[string]string
+
 	// state holds handler-specific connection state.
 	// Handlers can store their own state here by calling SetConnectionState.
 	// This allows different handler implementations to maintain their own state.
@@ -288,23 +297,17 @@ func (c *Conn) Close() error {
 	}
 
 	c.cancel()
+	c.zeroizeCredentials()
+	c.returnPooledBuffers()
 
-	// Clean up handler-specific state (if any).
-	// The state is set to nil so handlers should handle nil-checking.
-	c.state = nil
+	return c.conn.Close()
+}
 
-	// Zeroize SCRAM passthrough keys so a post-mortem or memory dump cannot
-	// recover credentials for this session after close.
-	for i := range c.scramClientKey {
-		c.scramClientKey[i] = 0
-	}
-	for i := range c.scramServerKey {
-		c.scramServerKey[i] = 0
-	}
-	c.scramClientKey = nil
-	c.scramServerKey = nil
-
-	// Return pooled resources.
+// returnPooledBuffers releases the reader, read-buffer, and write-buffer
+// resources back to their pools. Shared by Close() and DetachConn(), which
+// must mirror each other's teardown order so neither leaks nor double-frees
+// a pooled buffer.
+func (c *Conn) returnPooledBuffers() {
 	c.returnReader()
 	// Defensive cleanup: if a handler panicked between readMessageBody
 	// and its returnReadBuffer call, the inbound pool buffer is still
@@ -313,15 +316,29 @@ func (c *Conn) Close() error {
 	// Same defense for the write side: a panic between startPacket and
 	// writePacket leaves outboundPoolBuf set (writePacket's defer never
 	// fires) and bufMu held. We can't re-lock here without deadlocking
-	// our own goroutine, but Close runs after concurrent access has
+	// our own goroutine, but this runs after concurrent access has
 	// stopped so an unlocked Put is safe.
 	c.returnOutboundBuffer()
 	// End writer buffering (flushes and returns to pool). Flush errors
 	// during teardown are uninteresting — we're closing the socket
 	// next anyway — so swallow them here.
 	_ = c.endWriterBuffering()
+}
 
-	return c.conn.Close()
+// zeroizeCredentials clears handler state and SCRAM passthrough keys so a
+// post-mortem or memory dump cannot recover credentials for this session
+// after close. Shared by Close() and DetachConn().
+func (c *Conn) zeroizeCredentials() {
+	// The state is set to nil so handlers should handle nil-checking.
+	c.state = nil
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
 }
 
 // SetTxnStatus sets the protocol-level transaction status indicator.
@@ -362,6 +379,77 @@ func (c *Conn) ConnectionID() uint32 {
 // Handler returns the protocol handler for this connection.
 func (c *Conn) Handler() Handler {
 	return c.handler
+}
+
+// DetachConn detaches the underlying network connection from this Conn and
+// returns it along with any bytes the read buffer had already read ahead.
+// After a successful call the Conn is closed for protocol use: a later Close()
+// will not touch the returned socket, which the caller now owns.
+//
+// The caller MUST treat `buffered` as bytes that arrived before any subsequent
+// socket read: prepend them to the read stream (e.g.
+// io.MultiReader(bytes.NewReader(buffered), raw)). The write buffer is flushed
+// before detaching, so writes may go straight to raw.
+//
+// Detach claims the close transition with the same CompareAndSwap that Close()
+// uses, so it is mutually exclusive with Close(): a concurrent Close() either
+// wins the CAS — in which case DetachConn returns an error and touches nothing —
+// or loses it and short-circuits. Either way only one of them ever tears down
+// c.conn or returns the pooled buffers, so there is no data race, double-free,
+// or double-close. We claim teardown ourselves rather than leaning on a "later
+// Close()" so the contract holds even if a concurrent closer is added later.
+//
+// The ordering here mirrors Close()'s teardown so detaching does not leak or
+// double-free pooled buffers: the buffered read-ahead is captured before the
+// reader is returned to the pool (the pool Resets readers to nil, discarding
+// their buffer). Because the winning DetachConn owns teardown, every error path
+// past the CAS must release resources itself — Close() will no-op. The caller
+// owns and must close `raw`.
+func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil, nil, errors.New("pgwire: DetachConn on closed connection")
+	}
+	// We now own teardown; Close() will CAS-fail and no-op, so it no longer
+	// reaches its c.cancel(). Cancel here exactly once.
+	c.cancel()
+
+	// On any error past this point we still own the socket — close it ourselves,
+	// since Close() is now a no-op and would otherwise leak it. The caller has
+	// already read any keys it needs (e.g. for SCRAM passthrough) before
+	// detaching; zeroizeCredentials() mirrors Close()'s credential hygiene since
+	// the CAS above makes a later Close() short-circuit before it can wipe these.
+	fail := func(format string, args ...any) (net.Conn, []byte, error) {
+		c.returnPooledBuffers()
+		c.zeroizeCredentials()
+		_ = c.conn.Close()
+		c.conn = nil
+		return nil, nil, fmt.Errorf(format, args...)
+	}
+
+	if err := c.flush(); err != nil {
+		return fail("pgwire: flush before hijack: %w", err)
+	}
+	// Capture any read-ahead bytes before returning the reader to the pool;
+	// returnReader Resets the reader to nil, which discards its buffer.
+	if c.bufferedReader != nil {
+		if n := c.bufferedReader.Buffered(); n > 0 {
+			peeked, peekErr := c.bufferedReader.Peek(n)
+			if peekErr != nil {
+				return fail("pgwire: peek buffered bytes: %w", peekErr)
+			}
+			buffered = append([]byte(nil), peeked...) // copy; reader memory is reused
+			if _, discardErr := c.bufferedReader.Discard(n); discardErr != nil {
+				return fail("pgwire: discard buffered bytes: %w", discardErr)
+			}
+		}
+	}
+
+	c.returnPooledBuffers()
+	c.zeroizeCredentials()
+
+	raw = c.conn
+	c.conn = nil // prevent a (CAS-failed, no-op) Close() from closing the hijacked socket
+	return raw, buffered, nil
 }
 
 // User returns the authenticated user.
@@ -555,6 +643,21 @@ func (c *Conn) endWriterBuffering() error {
 	return flushErr
 }
 
+// abortWriterBuffering discards buffered bytes and returns the writer to its
+// pool without flushing. It is used when the pgwire stream ends inside a frame:
+// flushing or appending an ErrorResponse would expose malformed protocol data.
+func (c *Conn) abortWriterBuffering() {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if c.bufferedWriter == nil {
+		return
+	}
+	c.bufferedWriter.Reset(nil)
+	c.listener.writersPool.Put(c.bufferedWriter)
+	c.bufferedWriter = nil
+}
+
 // canSendPlaintextStartupError reports whether a best-effort plaintext
 // ErrorResponse during the startup phase would be intelligible to the
 // client. If the client sent SSLRequest and the server already answered
@@ -704,6 +807,19 @@ func (c *Conn) serve() error {
 		}
 	}
 
+	// A logical-replication (replication=database) connection is tunneled
+	// byte-for-byte to the PRIMARY pooler rather than processed as a stream
+	// of SQL commands. If the handler exposes the replication capability,
+	// hand the authenticated socket over to it now. Physical replication
+	// (ReplicationPhysical) is intentionally left to the command loop.
+	if c.replicationMode == ReplicationLogical {
+		if rh, ok := c.handler.(ReplicationHandler); ok {
+			return rh.HandleReplicationStream(c.ctx, c)
+		}
+		// No replication handler installed: fall through to the existing
+		// command loop.
+	}
+
 	// Main command loop. Startup already sent ReadyForQuery, so the first
 	// frontend message is the start of a new command cycle. For extended query
 	// protocol, only Sync completes that cycle and returns to ReadyForQuery;
@@ -757,6 +873,25 @@ func (c *Conn) serve() error {
 				c.logger.Debug("client closed connection")
 				return nil
 			}
+			// A FATAL ErrorResponse is already on the wire; PostgreSQL closes
+			// without a ReadyForQuery, so flush and tear down without emitting
+			// any further frames.
+			if errors.Is(err, errFatalDiagnosticSent) {
+				_ = c.endWriterBuffering()
+				return nil
+			}
+			// The client is still inside an incomplete DataRow. No subsequent
+			// pgwire frame would be parseable, so discard buffered output and close.
+			if errors.Is(err, errIncompleteDataRow) {
+				c.abortWriterBuffering()
+				return err
+			}
+			// PostgreSQL closes the connection without emitting a pgwire error
+			// when a frontend frame exceeds PQ_LARGE_MESSAGE_LIMIT.
+			if errors.Is(err, errFrontendMessageTooLarge) {
+				c.abortWriterBuffering()
+				return err
+			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
@@ -791,7 +926,10 @@ func (c *Conn) serve() error {
 		// MsgFlush itself flushes inside handleMessage (and stays
 		// buffered, since more pipelined messages typically follow);
 		// it doesn't need a release here.
-		isBatchBoundary := msgType == protocol.MsgSync ||
+		// MsgFunctionCall is its own cycle boundary: the (rejection)
+		// ErrorResponse + ReadyForQuery written by handleMessage must reach the
+		// client now — no Sync will follow.
+		isBatchBoundary := msgType == protocol.MsgSync || msgType == protocol.MsgFunctionCall ||
 			(msgType == protocol.MsgQuery && !c.discardingUntilSync)
 		if isBatchBoundary {
 			if err := c.endWriterBuffering(); err != nil {
@@ -924,8 +1062,17 @@ func (c *Conn) handleMessage(msgType byte) error {
 		// consumed by serve()'s ReadMessageType; if we don't consume
 		// the length here, the next ReadMessageType picks up 0x00
 		// and treats it as a bogus type.
-		if _, err := c.ReadMessageLength(); err != nil {
+		bodyLen, err := c.ReadMessageLength()
+		if err != nil {
 			return fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		if bodyLen != 0 {
+			if _, err := c.readMessageBody(bodyLen); err != nil {
+				return fmt.Errorf("failed to read Flush message body: %w", err)
+			}
+			c.returnReadBuffer()
+			return c.writeExtendedProtocolViolation("invalid Flush message",
+				fmt.Errorf("expected empty body, got %d bytes", bodyLen))
 		}
 		// Push any buffered bytes (including a deferred Describe('P')
 		// that resolveDeferredPortalDescribe flushed into the buffer
@@ -938,14 +1085,23 @@ func (c *Conn) handleMessage(msgType byte) error {
 		return c.flush()
 
 	case protocol.MsgFunctionCall:
-		// Fast-path FunctionCall is not implemented yet, but it is still a
-		// normal length-prefixed frontend message. Drain the frame before
-		// rejecting it so we do not close the socket while the client is still
-		// writing the rest of the packet, which can surface as ECONNRESET/SIGPIPE.
+		// The fast-path function call protocol is not supported: reject it
+		// explicitly with 0A000 (feature_not_supported) and keep the session
+		// alive. FunctionCall acts as its own cycle boundary in the protocol
+		// (the backend replies FunctionCallResponse-or-ErrorResponse plus
+		// ReadyForQuery without a Sync), so we answer ErrorResponse +
+		// ReadyForQuery. The frame is still a normal length-prefixed frontend
+		// message — drain it first so we never read its body bytes as message
+		// types. libpq's large-object API (psql \lo_*, pg_dump with blobs,
+		// JDBC LargeObjectManager) is the main remaining user of fast-path;
+		// implementing passthrough is tracked as future work.
 		if err := c.discardMessageBody(); err != nil {
 			return fmt.Errorf("failed to discard unsupported FunctionCall message: %w", err)
 		}
-		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
+		if err := c.writeError(mterrors.NewFeatureNotSupported("fast-path function call protocol is not supported")); err != nil {
+			return err
+		}
+		return c.writeReadyForQuery()
 
 	default:
 		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
@@ -975,6 +1131,7 @@ func (c *Conn) handleQuery() error {
 	// Track state for current result set.
 	// This is reset when we complete a result set (when CommandTag is set).
 	sentRowDescription := false
+	passthroughRowInProgress := false
 
 	// Execute the query via the handler with streaming callback.
 	// The callback will be invoked multiple times for:
@@ -1008,11 +1165,13 @@ func (c *Conn) handleQuery() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
+		}
+		if result.PassthroughBlock != nil {
+			passthroughRowInProgress = result.PassthroughRowInProgress
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
@@ -1025,13 +1184,32 @@ func (c *Conn) handleQuery() error {
 			sentRowDescription = false
 		}
 
+		// Report changed GUC_REPORT parameters. PostgreSQL reports them just
+		// before ReadyForQuery (postgres.c), so after any CommandComplete above.
+		// They ride the SET/RESET result on the local set_config path, and arrive
+		// as their own CommandTag-less result on the routed (in-transaction /
+		// ROLLBACK) path; either way reportParameterStatus drops the ones whose
+		// value did not actually change.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
+		if passthroughRowInProgress {
+			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
+		}
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
+		}
+		// A relayed FATAL ends the session: PostgreSQL sends the
+		// ErrorResponse and closes without a ReadyForQuery.
+		if diag := fatalDiagnostic(err); diag != nil {
+			c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+			return errFatalDiagnosticSent
 		}
 	}
 
@@ -1058,6 +1236,31 @@ func preserveExtendedQueryError(err error, fallback *mterrors.MTError) error {
 	}
 	return fallback.NewWithDetail(err.Error())
 }
+
+func protocolViolation(message string, err error) *mterrors.PgDiagnostic {
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation, message, detail)
+}
+
+func (c *Conn) writeExtendedProtocolViolation(message string, err error) error {
+	return c.writeExtendedQueryError(protocolViolation(message, err))
+}
+
+func requireMessageConsumed(reader *MessageReader, messageType string) error {
+	if remaining := reader.Remaining(); remaining != 0 {
+		return fmt.Errorf("invalid %s message: %d trailing bytes", messageType, remaining)
+	}
+	return nil
+}
+
+const (
+	parameterTypeOIDWireSize = 4
+	formatCodeWireSize       = 2
+	parameterLengthWireSize  = 4
+)
 
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 // Parse message format:
@@ -1089,26 +1292,33 @@ func (c *Conn) handleParse() error {
 
 	stmtName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read statement name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read statement name: %w", err))
 	}
 
 	queryStr, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read query string: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read query string: %w", err))
 	}
 
-	paramCount, err := reader.ReadInt16()
+	paramCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read parameter count: %w", err))
+	}
+	if int(paramCount) > reader.Remaining()/parameterTypeOIDWireSize {
+		return c.writeExtendedProtocolViolation("invalid Parse message",
+			fmt.Errorf("parameter type count %d exceeds remaining message body", paramCount))
 	}
 
-	paramTypes := make([]uint32, paramCount)
+	paramTypes := make([]uint32, int(paramCount))
 	for i := range paramCount {
 		oid, err := reader.ReadUint32()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter type %d: %w", i, err)
+			return c.writeExtendedProtocolViolation("invalid Parse message", fmt.Errorf("failed to read parameter type %d: %w", i, err))
 		}
 		paramTypes[i] = oid
+	}
+	if err := requireMessageConsumed(&reader, "Parse"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Parse message", err)
 	}
 
 	c.logger.Debug("parse", "name", stmtName, "query", queryStr, "param_count", paramCount)
@@ -1122,8 +1332,9 @@ func (c *Conn) handleParse() error {
 		// cause protocol desynchronization: pgx would read the premature ReadyForQuery
 		// and think the pipeline is done, but stale responses from subsequent messages
 		// (Describe, Sync) would corrupt the next query's response stream.
-		// The error packet stays buffered until Sync flushes the batch — same shape
-		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
+		// writeExtendedQueryError flushes the error packet immediately — it
+		// does not wait for Sync (see that function's comment for why).
+		// ReadyForQuery itself still only comes from Sync, per the protocol.
 		//
 		// Preserve a structured PostgreSQL diagnostic (e.g. 42601 syntax_error
 		// from the parser); only opaque errors are wrapped as MTD04, a genuinely
@@ -1157,54 +1368,77 @@ func (c *Conn) handleBind() error {
 
 	portalName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read portal name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read portal name: %w", err))
 	}
 
 	stmtName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read statement name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read statement name: %w", err))
 	}
 
 	// Read parameter format codes
-	paramFormatCount, err := reader.ReadInt16()
+	paramFormatCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter format count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter format count: %w", err))
 	}
-	paramFormats := make([]int16, paramFormatCount)
+	if int(paramFormatCount) > reader.Remaining()/formatCodeWireSize {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("parameter format count %d exceeds remaining message body", paramFormatCount))
+	}
+	paramFormats := make([]int16, int(paramFormatCount))
 	for i := range paramFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter format: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter format: %w", err))
+		}
+		if format != 0 && format != 1 {
+			return c.writeExtendedQueryError(mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("unsupported format code: %d", format), "Formats must be 0 (text) or 1 (binary)."))
 		}
 		paramFormats[i] = format
 	}
 
 	// Read parameters
-	paramCount, err := reader.ReadInt16()
+	paramCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter count: %w", err))
 	}
-	params := make([][]byte, paramCount)
+	if int(paramCount) > reader.Remaining()/parameterLengthWireSize {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("parameter count %d exceeds remaining message body", paramCount))
+	}
+	params := make([][]byte, int(paramCount))
 	for i := range paramCount {
 		param, err := reader.ReadByteString()
 		if err != nil {
-			return fmt.Errorf("failed to read parameter: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read parameter: %w", err))
 		}
 		params[i] = param
 	}
 
 	// Read result format codes
-	resultFormatCount, err := reader.ReadInt16()
+	resultFormatCount, err := reader.ReadUint16()
 	if err != nil {
-		return fmt.Errorf("failed to read result format count: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read result format count: %w", err))
 	}
-	resultFormats := make([]int16, resultFormatCount)
+	if int(resultFormatCount) > reader.Remaining()/formatCodeWireSize {
+		return c.writeExtendedProtocolViolation("invalid Bind message",
+			fmt.Errorf("result format count %d exceeds remaining message body", resultFormatCount))
+	}
+	resultFormats := make([]int16, int(resultFormatCount))
 	for i := range resultFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read result format: %w", err)
+			return c.writeExtendedProtocolViolation("invalid Bind message", fmt.Errorf("failed to read result format: %w", err))
+		}
+		if format != 0 && format != 1 {
+			return c.writeExtendedQueryError(mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("unsupported format code: %d", format), "Formats must be 0 (text) or 1 (binary)."))
 		}
 		resultFormats[i] = format
+	}
+	if err := requireMessageConsumed(&reader, "Bind"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Bind message", err)
 	}
 
 	c.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
@@ -1212,8 +1446,10 @@ func (c *Conn) handleBind() error {
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
-		// ReadyForQuery is sent only in response to Sync. The error packet
-		// stays buffered until Sync flushes the batch.
+		// ReadyForQuery is sent only in response to Sync.
+		// writeExtendedQueryError flushes the error packet immediately —
+		// see that function's comment. ReadyForQuery itself still only
+		// comes from Sync, per the protocol.
 		//
 		// Preserve a structured diagnostic (e.g. 26000 for a Bind referencing a
 		// prepared statement that was never Parsed); only opaque errors become
@@ -1252,12 +1488,15 @@ func (c *Conn) handleExecute() error {
 
 	portalName, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read portal name: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Execute message", fmt.Errorf("failed to read portal name: %w", err))
 	}
 
 	maxRows, err := reader.ReadInt32()
 	if err != nil {
-		return fmt.Errorf("failed to read max rows: %w", err)
+		return c.writeExtendedProtocolViolation("invalid Execute message", fmt.Errorf("failed to read max rows: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Execute"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Execute message", err)
 	}
 
 	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
@@ -1293,6 +1532,7 @@ func (c *Conn) handleExecute() error {
 
 	// Track state for streaming results.
 	sentRowDescription := false
+	passthroughRowInProgress := false
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
@@ -1330,11 +1570,13 @@ func (c *Conn) handleExecute() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
+		}
+		if result.PassthroughBlock != nil {
+			passthroughRowInProgress = result.PassthroughRowInProgress
 		}
 
 		// If CommandTag is set, this is the last packet.
@@ -1353,10 +1595,23 @@ func (c *Conn) handleExecute() error {
 			}
 		}
 
+		// Report changed GUC_REPORT parameters, as the simple-query path does: a
+		// SET/RESET run over the extended protocol changes the session just the
+		// same, whether it took the local set_config path (value rides the
+		// CommandTag result) or was routed to the backend (value arrives as its
+		// own result). Sent after any CommandComplete and before the
+		// ReadyForQuery that Sync writes, matching PostgreSQL's order.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
+		if passthroughRowInProgress {
+			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
+		}
 		return c.writeExtendedQueryError(err)
 	}
 
@@ -1373,24 +1628,27 @@ func (c *Conn) handleDescribe() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
-	if msgLen < 2 {
-		return errors.New("invalid describe message: missing type or name")
-	}
-
-	// Read the full body (type byte + null-terminated name) into a
-	// pooled buffer.
 	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
 		return fmt.Errorf("failed to read describe body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
-	if buf[len(buf)-1] != 0 {
-		return errors.New("invalid describe message: name missing null terminator")
+	reader := NewMessageReader(buf)
+	typ, err := reader.ReadByte()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("failed to read target type: %w", err))
 	}
-	typ := buf[0]
-	// String() copies, so the body buffer can be returned to the pool.
-	name := string(buf[1 : len(buf)-1])
+	if typ != 'S' && typ != 'P' {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("unsupported target type %q", typ))
+	}
+	name, err := reader.ReadString()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", fmt.Errorf("failed to read target name: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Describe"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Describe message", err)
+	}
 
 	c.logger.Debug("describe", "type", string(typ), "name", name)
 
@@ -1481,24 +1739,27 @@ func (c *Conn) handleClose() error {
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
-	if msgLen < 2 {
-		return errors.New("invalid close message: missing type or name")
-	}
-
-	// Read the full body (type byte + null-terminated name) into a
-	// pooled buffer.
 	buf, err := c.readMessageBody(msgLen)
 	if err != nil {
 		return fmt.Errorf("failed to read close body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
-	if buf[len(buf)-1] != 0 {
-		return errors.New("invalid close message: name missing null terminator")
+	reader := NewMessageReader(buf)
+	typ, err := reader.ReadByte()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("failed to read target type: %w", err))
 	}
-	typ := buf[0]
-	// String() copies, so the body buffer can be returned to the pool.
-	name := string(buf[1 : len(buf)-1])
+	if typ != 'S' && typ != 'P' {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("unsupported target type %q", typ))
+	}
+	name, err := reader.ReadString()
+	if err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", fmt.Errorf("failed to read target name: %w", err))
+	}
+	if err := requireMessageConsumed(&reader, "Close"); err != nil {
+		return c.writeExtendedProtocolViolation("invalid Close message", err)
+	}
 
 	c.logger.Debug("close", "type", string(typ), "name", name)
 
@@ -1548,8 +1809,15 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 		// Flush still pushes any buffered ErrorResponse to the client
 		// but writes no reply of its own. Mirror the length-consume +
 		// flush dance that handleMessage's MsgFlush branch does.
-		if _, err := c.ReadMessageLength(); err != nil {
+		bodyLen, err := c.ReadMessageLength()
+		if err != nil {
 			return true, fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		if bodyLen != 0 {
+			if _, err := c.readMessageBody(bodyLen); err != nil {
+				return true, fmt.Errorf("failed to read Flush message body: %w", err)
+			}
+			c.returnReadBuffer()
 		}
 		return true, c.flush()
 	default:
@@ -1598,7 +1866,47 @@ func (c *Conn) drainExtendedQueryMessage() error {
 // drain ends at).
 func (c *Conn) writeExtendedQueryError(err error) error {
 	c.discardingUntilSync = true
-	return c.writeError(err)
+	if writeErr := c.writeError(err); writeErr != nil {
+		return writeErr
+	}
+	// A relayed FATAL ends the session immediately — no drain-until-Sync, no
+	// ReadyForQuery. PostgreSQL closes right after the ErrorResponse.
+	if diag := fatalDiagnostic(err); diag != nil {
+		c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+		return errFatalDiagnosticSent
+	}
+	// Flush now rather than leaving the ErrorResponse buffered until Sync.
+	//
+	// Execute (and Parse/Bind/Describe/Close) aren't flush boundaries by
+	// design — see the isBatchBoundary comment in serve() — so without this,
+	// the buffer would sit until a Sync arrives. That's fine for a client
+	// that plans to send Sync regardless of the result. It's not fine for a
+	// client that pipelines a recovery attempt WITHOUT Sync and decides what
+	// to send next based on whether this errored (e.g. Postgrex's
+	// mode: :savepoint, which pipelines Bind + Execute + an optimistic
+	// "RELEASE SAVEPOINT ..." with no Flush/Sync): it can't know to send
+	// Sync until it has actually seen this error, so it never does, and the
+	// buffered response would sit here until something else — like the
+	// client's own timeout, then disconnecting — eventually forces a flush.
+	//
+	// The PostgreSQL protocol spec is genuinely ambiguous about whether the
+	// general "buffer until Flush" discretion
+	// (https://www.postgresql.org/docs/current/protocol-flow.html, Extended
+	// Query section) extends to this error case — "the backend issues
+	// ErrorResponse" doesn't explicitly say "flushes immediately." This
+	// isn't fixing a protocol violation; it's resolving that ambiguity to
+	// match what a real PostgreSQL 17.6 instance actually does on the wire
+	// (confirmed via a tshark-decoded packet capture: it delivers an
+	// extended-query ErrorResponse in ~0.6ms with no Flush message sent by
+	// the client). Matching that observed behavior, not a narrower reading
+	// of the ambiguous prose, is the correct target for a wire-compatible
+	// proxy.
+	//
+	// This does not touch the discard-until-Sync gate itself (still correct,
+	// still spec-compliant — a message pipelined after the error is properly
+	// discarded, not dispatched, until Sync). Only the timing of delivering
+	// the already-written ErrorResponse changes.
+	return c.flush()
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
@@ -1610,9 +1918,19 @@ func (c *Conn) writeExtendedQueryError(err error) error {
 // DataRow / CommandComplete from earlier messages in the batch, plus
 // the ReadyForQuery we write here) once we return.
 func (c *Conn) handleSync() error {
-	// Read (and discard) message length.
-	if _, err := c.ReadMessageLength(); err != nil {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
 		return fmt.Errorf("failed to read Sync message length: %w", err)
+	}
+	if bodyLen != 0 {
+		if _, err := c.readMessageBody(bodyLen); err != nil {
+			return fmt.Errorf("failed to read Sync message body: %w", err)
+		}
+		c.returnReadBuffer()
+		if err := c.writeError(protocolViolation("invalid Sync message", fmt.Errorf("expected empty body, got %d bytes", bodyLen))); err != nil {
+			return err
+		}
+		return c.writeReadyForQuery()
 	}
 
 	c.logger.Debug("sync")
@@ -1629,79 +1947,70 @@ func (c *Conn) handleSync() error {
 	return c.writeReadyForQuery()
 }
 
-// notifPusher holds state for async notification delivery.
+// notifPusher serializes async notification delivery and synchronous flushes.
+// Only its worker receives from ch; otherwise a synchronous drain can overtake a
+// notification already dequeued by the background pusher.
 type notifPusher struct {
-	ch     chan *sqltypes.Notification
-	cancel context.CancelFunc
+	ch            chan *sqltypes.Notification
+	flushRequests chan chan error
+	cancel        context.CancelFunc
+	done          chan struct{}
 }
 
 // EnableAsyncNotifications starts a background goroutine that delivers
 // notifications from notifCh to the client socket. Must be called at most once.
 // Returns a channel that the caller should send notifications to.
 func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.Notification {
-	ch := make(chan *sqltypes.Notification, 256)
 	ctx, cancel := context.WithCancel(ctx)
-	c.notifPush = &notifPusher{ch: ch, cancel: cancel}
+	pusher := &notifPusher{
+		ch:            make(chan *sqltypes.Notification, 256),
+		flushRequests: make(chan chan error),
+		cancel:        cancel,
+		done:          make(chan struct{}),
+	}
+	c.notifPush = pusher
+	go c.runAsyncNotificationPusher(ctx, pusher)
+	return pusher.ch
+}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
+func (c *Conn) runAsyncNotificationPusher(ctx context.Context, pusher *notifPusher) {
+	defer close(pusher.done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result := <-pusher.flushRequests:
+			err := c.flushQueuedNotifications(pusher.ch)
+			result <- err
+			if err != nil {
 				return
-			case notif, ok := <-ch:
-				if !ok {
-					return
-				}
-				c.startWriterBuffering()
-				// writeNotificationResponseMsg acquires bufMu through
-				// startPacket/writePacket; each notification packet is
-				// committed atomically under that lock, so it can't be
-				// interleaved with a synchronous handler's packet.
-				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
-					c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
-					return
-				}
-				if err := c.flush(); err != nil {
-					c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
-					return
-				}
+			}
+		case notif := <-pusher.ch:
+			if notif == nil {
+				continue
+			}
+			c.startWriterBuffering()
+			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+				c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
+				return
+			}
+			if err := c.flush(); err != nil {
+				c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
+				return
 			}
 		}
-	}()
-
-	return ch
-}
-
-// StopAsyncNotifications stops the background notification pusher.
-func (c *Conn) StopAsyncNotifications() {
-	if c.notifPush != nil {
-		c.notifPush.cancel()
-		c.notifPush = nil
 	}
 }
 
-// FlushPendingNotifications drains all pending notifications from
-// the async pusher channel and writes them to the client socket.
-// Called synchronously after each query completes (before
-// ReadyForQuery) to deliver notifications that arrived during query
-// execution.
-//
-// Each notification is written via writeNotificationResponseMsg,
-// which acquires bufMu inside startPacket/writePacket per packet.
-// Multiple notifications may interleave with the synchronous query
-// handler's writes between packets, but every individual packet is
-// committed atomically under the lock, so packet bodies can never be
-// split.
-func (c *Conn) FlushPendingNotifications() error {
-	if c.notifPush == nil {
-		return nil
-	}
+// flushQueuedNotifications runs only on the pusher worker, preserving FIFO order
+// while draining everything queued before ReadyForQuery or shutdown.
+func (c *Conn) flushQueuedNotifications(ch <-chan *sqltypes.Notification) error {
 	c.startWriterBuffering()
 	for {
 		select {
-		case notif, ok := <-c.notifPush.ch:
-			if !ok || notif == nil {
-				return c.flush()
+		case notif := <-ch:
+			if notif == nil {
+				continue
 			}
 			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
 				return err
@@ -1710,6 +2019,46 @@ func (c *Conn) FlushPendingNotifications() error {
 			return c.flush()
 		}
 	}
+}
+
+func (c *Conn) flushNotificationPusher(pusher *notifPusher) error {
+	result := make(chan error, 1)
+	select {
+	case pusher.flushRequests <- result:
+	case <-pusher.done:
+		return nil
+	}
+	select {
+	case err := <-result:
+		return err
+	case <-pusher.done:
+		return nil
+	}
+}
+
+// StopAsyncNotifications drains queued notifications and waits for any in-flight
+// write before stopping the pusher.
+func (c *Conn) StopAsyncNotifications() {
+	pusher := c.notifPush
+	if pusher == nil {
+		return
+	}
+	if err := c.flushNotificationPusher(pusher); err != nil {
+		c.logger.Error("failed to flush notifications before stopping", "error", err)
+	}
+	pusher.cancel()
+	<-pusher.done
+	c.notifPush = nil
+}
+
+// FlushPendingNotifications asks the sole notification worker to drain queued
+// notifications before ReadyForQuery. It must not receive from the worker's
+// channel itself, because two consumers can reorder notifications.
+func (c *Conn) FlushPendingNotifications() error {
+	if c.notifPush == nil {
+		return nil
+	}
+	return c.flushNotificationPusher(c.notifPush)
 }
 
 // writeNotificationResponseMsg writes a NotificationResponse ('A')

@@ -27,6 +27,12 @@ import (
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
+const (
+	detachPartitionCancelTest  = "detach-partition-concurrently-4"
+	detachPartitionPIDOriginal = "insert into d4_pid select pg_backend_pid();"
+	detachPartitionPIDPinned   = "insert into d4_pid select pg_backend_pid() from multigres.backend_vpid bv cross join lateral pg_advisory_lock(bv.vpid) where bv.backend_pid = pg_backend_pid();"
+)
+
 // patchIsolationtester rewrites two pieces of
 // src/test/isolation/isolationtester.c so the harness works against
 // multigateway:
@@ -146,6 +152,36 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 	return nil
 }
 
+// patchDetachPartitionCancel pins session s2 before it records the backend PID
+// that a later step cancels. Without the pin, transaction pooling may run the
+// blocked detach on a different backend.
+func (pb *PostgresBuilder) patchDetachPartitionCancel(t *testing.T, ctx context.Context) error {
+	t.Helper()
+	rel := filepath.Join("src", "test", "isolation", "specs", detachPartitionCancelTest+".spec")
+	abs := filepath.Join(pb.SourceDir, rel)
+
+	reset := executil.Command(ctx, "git", "-C", pb.SourceDir, "checkout", "--", rel)
+	if out, err := reset.CombinedOutput(); err != nil {
+		return fmt.Errorf("reset %s: %w\n%s", rel, err, out)
+	}
+
+	src, err := os.ReadFile(abs)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", abs, err)
+	}
+
+	if bytes.Count(src, []byte(detachPartitionPIDOriginal)) != 1 {
+		return fmt.Errorf("%s: expected query not found exactly once (PG version drift?)", rel)
+	}
+	src = bytes.Replace(src, []byte(detachPartitionPIDOriginal), []byte(detachPartitionPIDPinned), 1)
+
+	if err := os.WriteFile(abs, src, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", abs, err)
+	}
+	t.Logf("Patched %s: pin the backend whose PID is later canceled", rel)
+	return nil
+}
+
 // BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and
 // pg_isolation_regress). Must be called after Build().
 func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) error {
@@ -153,6 +189,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 
 	if err := pb.patchIsolationtester(t, ctx); err != nil {
 		return fmt.Errorf("patch isolationtester: %w", err)
+	}
+	if err := pb.patchDetachPartitionCancel(t, ctx); err != nil {
+		return fmt.Errorf("patch detach partition cancellation: %w", err)
 	}
 
 	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
@@ -189,8 +228,11 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // DEFERRABLE specs such as read-only-anomaly-3), PostgreSQL deliberately
 // returns true when any safe-snapshot blocker exists; those blockers are
 // never autovacuum/background workers, so no blocked_by intersection is
-// needed. Both inputs are multigateway virtual pids; we map them to real
-// PostgreSQL backend pids via the multigres.backend_vpid table, which the
+// needed. If the blocker list is momentarily empty while pg_stat_activity
+// already shows WAIT_EVENT_SAFE_SNAPSHOT, treat that wait event as blocked
+// too; otherwise isolationtester times out a genuinely waiting step. Both
+// inputs are multigateway virtual pids; we map them to real PostgreSQL
+// backend pids via the multigres.backend_vpid table, which the
 // multipooler upserts through its admin pool whenever it hands a backend to a
 // gateway session. The admin-pool write is immediately visible to this probe
 // for the whole transaction. The row is deleted when the backend is released
@@ -246,6 +288,7 @@ DECLARE
     v_blocking_pids int4[];
     v_heavyweight_blocking_pids int4[];
     v_safe_snapshot_blocking_pids int4[];
+    v_safe_snapshot_waiting boolean;
     v_vpid_entries text[];
     v_all_backends text[];
     v_stamp_found boolean;
@@ -268,7 +311,7 @@ BEGIN
     FROM multigres.backend_vpid bv
     JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid;
 
-    SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
+    SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>') || ':' || COALESCE(sa.wait_event_type,'') || ':' || COALESCE(sa.wait_event,''))
     INTO v_all_backends
     FROM pg_stat_activity sa
     WHERE sa.datname = current_database();
@@ -331,6 +374,22 @@ BEGIN
     ) sub
     WHERE b IS NOT NULL;
 
+    SELECT EXISTS (
+        SELECT 1
+        FROM multigres.backend_vpid bv
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+        WHERE bv.vpid = check_pid
+          AND sa.wait_event_type = 'IPC'
+          AND sa.wait_event = 'SafeSnapshot'
+        UNION ALL
+        SELECT 1
+        FROM pg_stat_activity sa
+        WHERE NOT v_stamp_found
+          AND sa.pid = check_pid
+          AND sa.wait_event_type = 'IPC'
+          AND sa.wait_event = 'SafeSnapshot'
+    ) INTO v_safe_snapshot_waiting;
+
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_blocking_pids
     FROM (
         SELECT unnest(v_heavyweight_blocking_pids) AS b
@@ -340,7 +399,8 @@ BEGIN
     WHERE b IS NOT NULL;
 
     v_result := (v_heavyweight_blocking_pids && v_real_blocked_by)
-        OR cardinality(v_safe_snapshot_blocking_pids) > 0;
+        OR cardinality(v_safe_snapshot_blocking_pids) > 0
+        OR v_safe_snapshot_waiting;
 
     UPDATE public.isolation_debug_log
     SET real_check_pid = v_real_check_pid,

@@ -23,7 +23,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
+func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 	tests := []struct {
 		name           string
 		n              int
@@ -55,7 +55,7 @@ func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-2", "cell1"),
 				id("pooler-3", "cell1"),
 			},
-			wantErrMsg: "proposed cohort spans 1 cells, required 2",
+			wantErrMsg: "durability not satisfied: poolers span 1 cells, required 2",
 		},
 		{
 			name: "MULTI_CELL_3 with poolers in 2 cells is not achievable",
@@ -64,14 +64,14 @@ func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
 			},
-			wantErrMsg: "proposed cohort spans 2 cells, required 3",
+			wantErrMsg: "durability not satisfied: poolers span 2 cells, required 3",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := MultiCellPolicy{N: tc.n}
-			err := p.CheckAchievable(tc.proposedCohort)
+			err := p.SatisfiedBy(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -188,7 +188,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1b", "cell1"),
 				id("pooler-1c", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers span 2 cells",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell2_pooler-2, cell3_pooler-3] could independently satisfy",
 		},
 		{
 			name: "MULTI_CELL_2 with a recruited pooler outside the cohort is rejected",
@@ -209,7 +209,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := MultiCellPolicy{N: tc.n}
-			err := p.CheckSufficientRecruitment(tc.cohort, tc.recruited)
+			err := CheckSufficientRecruitment(p, tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -221,8 +221,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 }
 
 func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
-	logger := testLogger()
-
 	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
 		leader := id("primary", "cell-a")
 		p := MultiCellPolicy{N: 1}
@@ -231,7 +229,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp1", "cell-b"),
 			id("mp2", "cell-c"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
@@ -249,7 +247,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp2", "us-west-1b"),
 			id("mp3", "us-west-1c"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 1, cfg.NumSync)
@@ -270,7 +268,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp4", "cell-c"),
 			id("mp5", "cell-d"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync)
@@ -289,7 +287,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp2", "us-west-1a"),
 			id("mp3", "us-west-1a"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.Nil(t, cfg)
 		require.EqualError(t, err, "cannot establish synchronous replication: no eligible standbys in different cells (primary_cell=us-west-1a)")
 	})
@@ -303,7 +301,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp2", "cell-a"), // excluded
 			id("mp3", "cell-b"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.Nil(t, cfg)
 		require.EqualError(t, err, "cannot establish synchronous replication: insufficient different-cell standbys (required 3 standbys, available 1)")
 	})
@@ -317,7 +315,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp2", "us-west-1b"),
 			id("mp3", "us-west-1c"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 1, cfg.NumSync, "num_sync should be N-1")
@@ -335,7 +333,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			leader,
 			id("mp1", "cell-b"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)

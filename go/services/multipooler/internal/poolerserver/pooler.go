@@ -194,9 +194,10 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 
 	s.mu.Lock()
 
-	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"routing_from", s.routingRole, "routing_to", routingRole,
-		"status_from", s.servingStatus, "status_to", servingStatus)
+	s.logger.InfoContext(ctx, "transitioning serving type",
+		"routing_from", s.routingRole.String(), "routing_to", routingRole.String(),
+		"status_from", s.servingStatus.String(), "status_to", servingStatus.String())
+	fromRole := s.routingRole
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		s.routingRole = routingRole
@@ -240,19 +241,19 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 		}
 
 		if outcome == drainOutcomeForceClose {
-			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period, force-closing reserved connections",
+			s.logger.WarnContext(ctx, "graceful drain did not complete within grace period, force-closing reserved connections",
 				"grace_period", s.gracePeriod)
 			// Force-close all reserved connections so no transaction survives into
 			// a non-serving state. In-flight single queries (if any) are killed by
 			// the postgres demotion that follows the not-serving transition.
 			killed := s.poolManager.CloseReservedConnections(ctx)
-			s.drainStats.recordForceClosed(ctx, killed)
+			s.drainStats.recordForceClosed(ctx, killed, fromRole)
 			if killed > 0 {
-				s.logger.WarnContext(ctx, "Force-closed reserved connections after drain timeout",
+				s.logger.WarnContext(ctx, "force-closed reserved connections after drain timeout",
 					"killed", killed)
 			}
 		}
-		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
+		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome, fromRole)
 	}
 
 	// Complete the transition. The routing role is set here (after drain) so that

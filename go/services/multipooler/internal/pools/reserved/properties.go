@@ -134,8 +134,18 @@ const (
 	ReleasePortalComplete
 
 	// ReleaseAdvisoryUnlock indicates the session released its last session-level
-	// advisory lock, so the backend no longer needs to stay pinned.
+	// advisory lock, so the backend — which held the reservation across statements
+	// specifically for that lock — is unpinned and returns to the pool.
 	ReleaseAdvisoryUnlock
+
+	// ReleaseUnreserved indicates a connection took the reserved path but never
+	// ultimately reserved a backend — a pg_try_advisory_lock that did not acquire,
+	// or a maxRows portal that completed on its first Execute without suspending.
+	// It was reset clean before re-entering the pool, since the statement's own
+	// (pinned) set_config may have committed session state the release label would
+	// not otherwise describe. Distinct from ReleaseAdvisoryUnlock, which unpins a
+	// reservation that genuinely existed across statements.
+	ReleaseUnreserved
 
 	// ReleaseTimeout indicates the reservation timed out.
 	ReleaseTimeout
@@ -145,6 +155,17 @@ const (
 
 	// ReleaseError indicates an error occurred.
 	ReleaseError
+
+	// ReleaseStatementError indicates the statement failed with a clean
+	// PostgreSQL SQL-level error (a real ErrorResponse — see
+	// IsRecoverableSQLError) that drained the reservation. PostgreSQL aborted
+	// that statement atomically, so the backend's session state is exactly
+	// what it was when the connection was acquired and the label applied then
+	// is still truthful: the connection is reusable. Distinct from
+	// ReleaseError, which covers connection-level and indeterminate failures
+	// (cancellation, deadline, dead socket) where the backend's state cannot
+	// be trusted and the socket must be closed.
+	ReleaseStatementError
 )
 
 // preventsReuse reports whether the release reason indicates uncertain
@@ -153,7 +174,7 @@ const (
 // to taint.
 func (r ReleaseReason) preventsReuse() bool {
 	switch r {
-	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock:
+	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock, ReleaseUnreserved, ReleaseStatementError:
 		return false
 	default:
 		return true
@@ -171,6 +192,10 @@ func (r ReleaseReason) String() string {
 		return "portal_complete"
 	case ReleaseAdvisoryUnlock:
 		return "advisory_unlock"
+	case ReleaseUnreserved:
+		return "unreserved"
+	case ReleaseStatementError:
+		return "statement_error"
 	case ReleaseTimeout:
 		return "timeout"
 	case ReleaseKill:

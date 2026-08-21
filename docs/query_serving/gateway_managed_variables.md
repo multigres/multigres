@@ -16,6 +16,12 @@ Both are registered in the single source of truth,
 `gatewayManagedVariables` in `handler/gateway_managed_variables.go` (see
 [Adding or changing a GMV](#adding-or-changing-a-gmv)).
 
+> **Not a GMV:** `SHOW multigres.server_version` (and `SELECT multigres.version()`) is
+> also answered by the gateway, but it is a read-only pseudo-variable, not a
+> GMV — it has no `SET`/`RESET`/`set_config`/transaction behavior and is not in
+> this registry. See [`multigres_version.md`](./multigres_version.md). Don't add
+> it here.
+
 ## Why GMVs exist
 
 Regular session settings are stored in `SessionSettings` and applied to pooled
@@ -41,6 +47,8 @@ For a GMV, multigateway handles the SQL surfaces that it can plan safely:
 - `RESET ALL` clears all regular `SessionSettings` and resets every registered
   GMV.
 - `SHOW <gmv>` reads gateway-local state without a PostgreSQL round trip.
+- `current_setting('<gmv>'[, missing_ok])` in a value-evaluating DML statement
+  returns the gateway-local value (same string as `SHOW`), not the backend GUC.
 - Top-level `SELECT set_config('<gmv>', value, false)` updates gateway-local
   session state.
 - Top-level `SELECT set_config('<gmv>', value, true)` updates gateway-local
@@ -100,16 +108,38 @@ Not handled (rejected up front, not leaked):
 `SHOW <gmv>` is planned explicitly and returns the value from multigateway's
 connection state.
 
-Arbitrary SQL expressions are not rewritten. A query such as:
+`current_setting('<gmv>'[, missing_ok])` is also answered with the gateway-owned
+value, so it agrees with `SHOW` — matching native PostgreSQL, where the two always
+agree. A GMV is never applied to the pooled backend, so evaluating the call there
+would observe the backend's local GUC and diverge; the gateway prevents that by
+**rewriting the call out of the query**, the same technique used for `set_config`:
 
 ```sql
-SELECT current_setting('statement_timeout');
+SELECT current_setting('statement_timeout', true);
 ```
 
-runs on PostgreSQL and observes that backend connection's local GUC state, not
-multigateway's GMV state. Clients that need the gateway-owned value should use
-`SHOW <gmv>` or rely on the gateway behavior itself (for `statement_timeout`,
-the enforced request deadline).
+Each `current_setting('<gmv>', …)` call whose name is a **literal** gateway-managed
+variable is replaced by a synthetic bind slot that `GatewayManagedValueRoute` fills
+from gateway connection state at execute time (the string `SHOW` returns). Because
+the value is resolved per execution, the plan stays cacheable across value changes.
+`missing_ok` is irrelevant — a registered GMV always exists, so the call never
+returns `NULL`.
+
+Scope and limits:
+
+- Only statements that **evaluate** the call for a result are rewritten — `SELECT`
+  (including `SELECT INTO`), `INSERT`, `UPDATE`, `DELETE`, and `CREATE TABLE AS`
+  (all materialize the value once). Statements that **store** the call as a
+  re-evaluable definition are left as-is so the value isn't frozen to the creating
+  session: `CREATE VIEW` (re-evaluated on every read) and `CREATE MATERIALIZED VIEW`
+  (re-run by `REFRESH`) — the latter shares the `CREATE TABLE AS` node but is
+  excluded by its object type.
+- A **bound variable name** (`current_setting($1)`) is not recognized as a GMV at
+  plan time, so it routes to the backend — the same documented gap as a bound
+  `set_config` name. Real callers use a literal name.
+- The observable backend GUC (for leak checks and the like) is
+  `SELECT setting FROM pg_settings WHERE name = '<gmv>'`, which reads the pooled
+  connection's real state and is never rewritten.
 
 ## Transaction and savepoint lifecycle
 

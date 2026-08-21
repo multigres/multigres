@@ -39,9 +39,17 @@ import (
 type mockIExecute struct {
 	// StreamExecute behavior
 	streamExecuteErr error
+	// streamExecuteResult, when non-nil, is passed to StreamExecute's callback
+	// before returning streamExecuteErr: lets a test simulate a backend
+	// response (e.g. set_config's returned row) without a real connection.
+	streamExecuteResult *sqltypes.Result
 	// lastStreamResv captures the reservation intent of the most recent
 	// StreamExecute call so tests can assert what a primitive forwarded.
 	lastStreamResv PlanExecInfo
+	// lastStreamKeepStructured captures the keepStructured argument of the most
+	// recent StreamExecute call so tests can assert whether a primitive opted
+	// out of opaque row passthrough.
+	lastStreamKeepStructured bool
 
 	// CopyInitiate behavior
 	copyInitiateErr     error
@@ -85,9 +93,16 @@ func (m *mockIExecute) StreamExecute(
 	preparedStatement *query.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
+	m.lastStreamKeepStructured = keepStructured
+	if m.streamExecuteResult != nil && callback != nil {
+		if err := callback(ctx, m.streamExecuteResult); err != nil {
+			return err
+		}
+	}
 	return m.streamExecuteErr
 }
 
@@ -101,6 +116,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
@@ -201,6 +217,17 @@ func (m *mockIExecute) CopyOutStream(
 	return m.copyOutStreamResult, nil
 }
 
+func (m *mockIExecute) StreamReplication(
+	context.Context,
+	*server.Conn,
+	string,
+	string,
+	*handler.MultigatewayConnectionState,
+	*multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) ConcludeTransaction(
 	context.Context,
 	*server.Conn,
@@ -218,7 +245,7 @@ func (m *mockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn,
 	return nil
 }
 
-func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	m.releaseAllCalled.Add(1)
 	return m.releaseAllErr
 }

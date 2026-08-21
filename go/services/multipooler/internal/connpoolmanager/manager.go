@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 const (
@@ -93,9 +94,14 @@ const (
 //	regularConn, _ := mgr.GetRegularConn(ctx, user)
 //	reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 type Manager struct {
-	config     *Config
-	logger     *slog.Logger      // Set by Open()
-	connConfig *ConnectionConfig // Stored for lazy pool creation
+	config *Config
+	logger *slog.Logger // Set by Open()
+
+	// connConfig holds the connection settings, stored once at Open and read
+	// lock-free elsewhere — PgDatabase (off the postgres-monitor loop) and
+	// buildClientConfig (on pool creation). An atomic pointer so those reads never
+	// race the Open write; nil until the first Open.
+	connConfig atomic.Pointer[ConnectionConfig]
 
 	ctx           context.Context          // Manager lifecycle context, used for lazy pool creation
 	adminPool     *admin.Pool              // Shared admin pool for kill operations
@@ -164,6 +170,16 @@ func (m *Manager) CredentialQueryRecorder() CredentialQueryRecorder {
 	return m.metrics
 }
 
+// OnStateChange tracks the current routing role for metrics emitted by the
+// connection pool manager. Pool lifecycles are controlled elsewhere.
+func (m *Manager) OnStateChange(_ context.Context, state servingstate.State) error {
+	if m == nil {
+		return nil
+	}
+	m.metrics.SetRoutingRole(state.Routing.Role)
+	return nil
+}
+
 // Open initializes the manager and creates the shared admin pool.
 // User pools are created lazily on first connection request.
 //
@@ -175,7 +191,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	defer m.createMu.Unlock()
 
 	m.ctx = ctx
-	m.connConfig = connConfig
+	m.connConfig.Store(connConfig)
 	emptyPools := make(map[string]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
 
@@ -266,16 +282,20 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // this manager. They are honored only on TCP connections (libpq parity); the
 // client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
+	// Non-nil on every call: buildClientConfig runs only after Open has stored
+	// connConfig (the admin pool is built later in Open; user pools are built
+	// lazily thereafter).
+	cc := m.connConfig.Load()
 	return &client.Config{
-		SocketFile:     m.connConfig.SocketFile,
-		Host:           m.connConfig.Host,
-		Port:           m.connConfig.Port,
-		Database:       m.connConfig.Database,
+		SocketFile:     cc.SocketFile,
+		Host:           cc.Host,
+		Port:           cc.Port,
+		Database:       cc.Database,
 		User:           user,
 		Password:       password,
-		SSLMode:        m.connConfig.SSLMode,
-		SSLNegotiation: m.connConfig.SSLNegotiation,
-		TLSConfig:      m.connConfig.TLSConfig,
+		SSLMode:        cc.SSLMode,
+		SSLNegotiation: cc.SSLNegotiation,
+		TLSConfig:      cc.TLSConfig,
 		DialTimeout:    m.config.DialTimeout(),
 	}
 }
@@ -521,6 +541,16 @@ func (m *Manager) teardownLocked() {
 // PgUser returns the configured PostgreSQL user for system queries.
 func (m *Manager) PgUser() string {
 	return m.config.PgUser()
+}
+
+// PgDatabase returns the PostgreSQL database the pooler connects to, taken from
+// the connection config supplied at Open. Empty before Open.
+func (m *Manager) PgDatabase() string {
+	cc := m.connConfig.Load()
+	if cc == nil {
+		return ""
+	}
+	return cc.Database
 }
 
 // PgPassword returns the resolved PostgreSQL superuser password and an "ok"
@@ -827,35 +857,6 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 	}
 
 	return pool.GetReservedConn(connID)
-}
-
-// ApplySettingsToConn ensures the connection's settings match the given session
-// settings. ApplySettings handles the diff internally: it resets removed
-// variables via individual RESET commands (safe inside transactions, unlike
-// RESET ALL) and applies desired variables via SET SESSION.
-func (m *Manager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error {
-	desired := m.settingsCache.GetOrCreate(settings)
-	current := conn.Settings()
-
-	// Pointer equality — same *Settings means same settings (via cache interning)
-	if desired == current {
-		return nil
-	}
-
-	return conn.ApplySettings(ctx, desired)
-}
-
-// RecordSettingsOnConn updates only the tracked connstate for a backend whose
-// session state was changed by PostgreSQL during the just-completed statement.
-// It intentionally does not issue SET/RESET SQL; callers must use it only after
-// a successful statement that already produced the backend state represented by
-// settings.
-func (m *Manager) RecordSettingsOnConn(conn *regular.Conn, settings map[string]string) {
-	if conn == nil {
-		return
-	}
-	desired := m.settingsCache.GetOrCreate(settings)
-	conn.State().SetSettings(desired)
 }
 
 // --- Stats ---

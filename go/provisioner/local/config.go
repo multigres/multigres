@@ -31,6 +31,17 @@ type BackupConfig struct {
 	Type  string       `yaml:"type"` // "local", "s3", "azure", etc.
 	Local *LocalBackup `yaml:"local,omitempty"`
 	S3    *S3Backup    `yaml:"s3,omitempty"`
+	// Encrypt requires client-side backup encryption. When true the provisioner
+	// generates a cipher key file (if absent) and starts every multipooler with
+	// --pgbackrest-cipher-key-file, so the initial repository is encrypted at
+	// stanza creation. Applies to both local and S3 backups.
+	Encrypt bool `yaml:"encrypt,omitempty"`
+	// CipherKeyFile is the path to the JSON cipher key file mapping repository
+	// generation to passphrase ({"1": "<passphrase>"}). Only the path lives in
+	// config; the passphrase itself stays in the referenced file. Defaults to
+	// <root-working-dir>/pgbackrest-cipher-keys.json. Meaningful only when
+	// Encrypt is true.
+	CipherKeyFile string `yaml:"cipher-key-file,omitempty"`
 }
 
 // LocalBackup holds filesystem backup configuration
@@ -46,6 +57,11 @@ type S3Backup struct {
 	KeyPrefix         string `yaml:"key-prefix,omitempty"`
 	UseEnvCredentials bool   `yaml:"use-env-credentials,omitempty"`
 }
+
+// DefaultCipherKeyFileName is the filename of the backup cipher key file the
+// provisioner generates under the root working directory when encryption is
+// enabled without an explicit cipher-key-file path.
+const DefaultCipherKeyFileName = "pgbackrest-cipher-keys.json"
 
 // CellConfig holds the configuration for a single cell
 type CellConfig struct {
@@ -220,6 +236,14 @@ func buildBackupConfig(backupConfig map[string]string, baseDir string) BackupCon
 			KeyPrefix:         backupConfig["s3-key-prefix"],
 			UseEnvCredentials: backupConfig["s3-use-env-credentials"] == "true",
 		}
+	}
+
+	// Backup encryption applies regardless of backend. The passphrase is
+	// generated into the key file at provision time; here we only record that
+	// encryption is required and where the key file lives.
+	if backupConfig["encrypt"] == "true" {
+		config.Encrypt = true
+		config.CipherKeyFile = filepath.Join(baseDir, DefaultCipherKeyFileName)
 	}
 
 	return config

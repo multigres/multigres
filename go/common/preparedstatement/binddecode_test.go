@@ -53,6 +53,12 @@ func TestDecodeBindAsText_AcceptedOIDs(t *testing.T) {
 		{"text/binary format", uint32(ast.TEXTOID), 1},
 		{"varchar/text format", uint32(ast.VARCHAROID), 0},
 		{"unspecified/text format", uint32(ast.InvalidOid), 0},
+		// UNKNOWN is what a client sends for an untyped parameter — the shape
+		// PostgREST uses for set_config's value. PostgreSQL coerces unknown ->
+		// text natively; rejecting it failed statements that PostgreSQL would
+		// simply have executed. Its wire form is the plain text form.
+		{"unknown/text format", uint32(ast.UNKNOWNOID), 0},
+		{"unknown/binary format", uint32(ast.UNKNOWNOID), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pi := buildTestPortalInfo(t, "SELECT $1", []uint32{tc.oid}, [][]byte{[]byte("public,extensions")}, []int16{tc.format})
@@ -88,7 +94,9 @@ func TestDecodeBindAsBool_AcceptedSpellings(t *testing.T) {
 		{"true", true},
 		{"TRUE", true},
 		{"t", true},
+		{"tr", true},
 		{"y", true},
+		{"ye", true},
 		{"yes", true},
 		{"on", true},
 		{"1", true},
@@ -96,8 +104,10 @@ func TestDecodeBindAsBool_AcceptedSpellings(t *testing.T) {
 		{"false", false},
 		{"FALSE", false},
 		{"f", false},
+		{"fa", false},
 		{"n", false},
 		{"no", false},
+		{"of", false},
 		{"off", false},
 		{"0", false},
 	} {
@@ -144,10 +154,14 @@ func TestDecodeBindAsBool_InvalidBinaryLength(t *testing.T) {
 // TestDecodeBindAsBool_InvalidSpelling — text-format bool that isn't one
 // of PG's boolin spellings must error rather than guess.
 func TestDecodeBindAsBool_InvalidSpelling(t *testing.T) {
-	pi := buildTestPortalInfo(t, "SELECT $1", []uint32{uint32(ast.BOOLOID)}, [][]byte{[]byte("maybe")}, []int16{0})
-	_, err := DecodeBindAsBool(pi, paramRef(1), "test arg")
-	require.Error(t, err)
-	assertFeatureErr(t, err, "invalid boolean value")
+	for _, raw := range []string{"maybe", "o"} {
+		t.Run(raw, func(t *testing.T) {
+			pi := buildTestPortalInfo(t, "SELECT $1", []uint32{uint32(ast.BOOLOID)}, [][]byte{[]byte(raw)}, []int16{0})
+			_, err := DecodeBindAsBool(pi, paramRef(1), "test arg")
+			require.Error(t, err)
+			assertFeatureErr(t, err, "invalid boolean value")
+		})
+	}
 }
 
 // TestDecodeBind_NullRejected covers both text and bool paths — NULL

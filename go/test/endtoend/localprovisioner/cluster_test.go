@@ -41,6 +41,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -177,15 +178,31 @@ func cleanupTestProcesses(tempDir string) error {
 	return nil
 }
 
+// clusterOption customizes the provisioner config a test cluster is built from.
+type clusterOption func(*local.LocalProvisionerConfig)
+
+// withBackupEncryption requires client-side backup encryption for the cluster.
+// The provisioner generates the cipher key file and starts every multipooler
+// with --pgbackrest-cipher-key-file, encrypting the initial repository.
+func withBackupEncryption() clusterOption {
+	return func(c *local.LocalProvisionerConfig) {
+		c.Backup = local.BackupConfig{
+			Type:    "local",
+			Local:   &local.LocalBackup{Path: filepath.Join(c.RootWorkingDir, "data", "backups")},
+			Encrypt: true,
+		}
+	}
+}
+
 // createTestConfigWithPorts creates a test configuration file with custom ports using "postgres"
 // as the database name. The number of zones is determined by len(portConfig.Zones).
-func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
-	return createTestConfigWithDatabase(tempDir, portConfig, "postgres")
+func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig, opts ...clusterOption) (string, error) {
+	return createTestConfigWithDatabase(tempDir, portConfig, "postgres", opts...)
 }
 
 // createTestConfigWithDatabase creates a test configuration file with custom ports and a specified
 // database name. The number of zones is determined by len(portConfig.Zones).
-func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, dbName string) (string, error) {
+func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, dbName string, opts ...clusterOption) (string, error) {
 	numZones := len(portConfig.Zones)
 	if numZones == 0 {
 		return "", errors.New("portConfig must have at least one zone")
@@ -278,6 +295,11 @@ func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, db
 		}
 
 		localConfig.Cells[zoneName] = cellConfig
+	}
+
+	// Apply optional customizations (e.g. backup encryption) before serializing.
+	for _, opt := range opts {
+		opt(localConfig)
 	}
 
 	// Convert the typed config to map[string]any via YAML marshaling
@@ -1485,6 +1507,74 @@ func TestTCPPasswordAuthentication(t *testing.T) {
 	})
 }
 
+// TestEncryptedClusterBootstrap starts a cluster with backup encryption enabled
+// and verifies it bootstraps end-to-end: the provisioner generates the cipher
+// key file, every multipooler starts with it (poolers refuse to serve without a
+// key when encryption is required), and the initial repository is recorded as
+// encrypted with that key's fingerprint in multigres.pgbackrest_repos.
+func TestEncryptedClusterBootstrap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping encrypted cluster test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	if _, err := exec.LookPath("etcd"); err != nil {
+		t.Skip("etcd binary not found in PATH")
+	}
+
+	// Reaching a bootstrapped cluster already proves encryption is wired: the
+	// poolers require a cipher key (require_initial_repo_encryption) and would
+	// refuse to serve without one.
+	clusterSetup := setupTestCluster(t, withBackupEncryption())
+	tempDir := clusterSetup.TempDir
+	ports := clusterSetup.PortConfig
+
+	// The provisioner generates the cipher key file at a stable path; read it to
+	// compute the fingerprint the repository metadata should record.
+	keyFile := filepath.Join(tempDir, local.DefaultCipherKeyFileName)
+	fileInfo, err := os.Stat(keyFile)
+	require.NoError(t, err, "backup cipher key file should be generated")
+	assert.Equal(t, os.FileMode(0o600), fileInfo.Mode().Perm(), "cipher key file should be 0600")
+
+	keyData, err := os.ReadFile(keyFile)
+	require.NoError(t, err)
+	var keys map[string]string
+	require.NoError(t, json.Unmarshal(keyData, &keys), "cipher key file should be valid JSON")
+	require.Contains(t, keys, "1", "cipher key file should declare generation 1")
+	wantFingerprint := backup.CipherKeyFingerprint(keys["1"])
+
+	// The generation-1 repo row is seeded on the primary at bootstrap.
+	zone1Addr := fmt.Sprintf("localhost:%d", ports.Zones[0].MultipoolerGRPCPort)
+	zone2Addr := fmt.Sprintf("localhost:%d", ports.Zones[1].MultipoolerGRPCPort)
+	zone1Type, err := shardsetup.WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
+	require.NoError(t, err, "zone1 pooler type should be assigned")
+	primaryAddr := zone1Addr
+	if zone1Type != clustermetadatapb.PoolerType_PRIMARY {
+		primaryAddr = zone2Addr
+	}
+
+	client, err := shardsetup.NewMultipoolerTestClient(primaryAddr)
+	require.NoError(t, err, "failed to connect to primary multipooler at %s", primaryAddr)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Filtering on `encrypted` means an unencrypted initial repo returns no rows,
+	// so a single returned row proves the repository is encrypted (the table's
+	// CHECK also ties encrypted to a non-empty fingerprint).
+	result, err := client.ExecuteQuery(ctx,
+		"SELECT key_fingerprint FROM multigres.pgbackrest_repos WHERE generation = 1 AND encrypted", 1)
+	require.NoError(t, err, "should be able to query pgbackrest_repos on the primary")
+	require.Len(t, result.Rows, 1, "initial repository should be recorded as encrypted")
+	require.Len(t, result.Rows[0].Values, 1)
+	assert.Equal(t, wantFingerprint, string(result.Rows[0].Values[0]),
+		"recorded key fingerprint should match the generated cipher key")
+
+	t.Log("Encrypted cluster bootstrapped and initial repository is encrypted")
+}
+
 // assertDirectoryTreeEmpty recursively checks that a directory tree contains no files,
 // only empty directories. Returns an error if any files are found.
 func assertDirectoryTreeEmpty(rootPath string) error {
@@ -1656,7 +1746,7 @@ type testClusterSetup struct {
 // and verifying all services are up and responding. Returns a testClusterSetup
 // with resources and a cleanup function that must be called when done (typically
 // via t.Cleanup).
-func setupTestCluster(t *testing.T) *testClusterSetup {
+func setupTestCluster(t *testing.T, opts ...clusterOption) *testClusterSetup {
 	t.Helper()
 
 	// Setup test directory
@@ -1699,7 +1789,7 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	// Create cluster configuration with test ports
 	t.Log("Creating cluster configuration with test ports...")
-	configFile, err := createTestConfigWithPorts(tempDir, testPorts)
+	configFile, err := createTestConfigWithPorts(tempDir, testPorts, opts...)
 	require.NoError(t, err, "Failed to create test configuration")
 	t.Logf("Created test configuration: %s", configFile)
 

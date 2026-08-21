@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,14 +50,15 @@ type mockIExecute struct {
 type streamExecuteCall struct {
 	sql                         string
 	executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+	info                        engine.PlanExecInfo
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
-	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps})
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps, info: info})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	m.portalStreamExecuteCalled = true
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1", Rows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("1")}}}})
 }
@@ -69,7 +71,7 @@ func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handl
 	return nil
 }
 
-func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	return nil
 }
 
@@ -94,6 +96,10 @@ func (m *mockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, st
 }
 
 func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
+}
+
+func (m *mockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
 	return nil, nil
 }
 
@@ -123,8 +129,16 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 	return nil, nil
 }
 
+func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
+	return nil
+}
+
 func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockHandlerExecutor) StreamReplication(context.Context, *server.Conn, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // testSetup bundles the objects needed for prepared statement planner tests.
@@ -258,6 +272,83 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 	assert.Equal(t, " ( 42 )", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
+func TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_advisory_lock(0)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.AdvisoryLock)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.RecheckAdvisoryLocks)
+}
+
+func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1 AS x INTO TEMP ps_temp")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
+}
+
+// TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig pins the unpinned
+// EXECUTE handling that replaces the old capture reservation: a prepared body
+// carrying a session-persisting set_config(..., false) runs on the pooled
+// backend with its is_local rewritten to true, so nothing persists there (the
+// gateway tracks the value and pool-rotation replay carries it). A
+// transaction-scoped (is_local true) body already persists nothing and runs
+// verbatim.
+func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	routedBody := func(sql string) string {
+		_, err := planAndExecute(t, s, sql)
+		require.NoError(t, err)
+		require.NotEmpty(t, s.exec.streamExecuteCalls)
+		last := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+		require.NotNil(t, last.executeSQLPreparedStatement)
+		require.NotNil(t, last.executeSQLPreparedStatement.GetPreparedStatement())
+		return strings.ToLower(last.executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+	}
+
+	// Unpinned session (no transaction, no reserved conn): the persisting
+	// is_local=false body is rewritten so the pooled backend reverts it.
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
+	require.NoError(t, err)
+	body := routedBody("EXECUTE myplan('prepared_app')")
+	assert.Contains(t, body, "true", "the routed body must apply set_config with is_local := true")
+	assert.NotContains(t, body, "false", "the persisting is_local := false must be rewritten out")
+
+	// A transaction-scoped body persists nothing, so it runs verbatim.
+	_, err = planAndExecute(t, s, "PREPARE localplan(text) AS SELECT set_config('application_name', $1, true)")
+	require.NoError(t, err)
+	body = routedBody("EXECUTE localplan('x')")
+	assert.Contains(t, body, "true", "the transaction-scoped body runs verbatim (is_local := true)")
+}
+
+func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config($1, 'x', false)")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "set_config name argument inside SQL PREPARE must be a literal constant")
+}
+
+func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
+	s := newTestSetup(t)
+	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
+
+	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn, nil)
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+}
+
 func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -265,6 +356,7 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NoError(t, err)
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
+	assert.Equal(t, []uint32{uint32(ast.INT4OID), uint32(ast.INT4ARRAYOID)}, psi.ParamTypes)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
 	require.NoError(t, err)
@@ -344,4 +436,32 @@ func TestPlanPrepareExecuteDeallocateLifecycle(t *testing.T) {
 	_, err = planAndExecute(t, s, "EXECUTE myplan")
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+}
+
+// TestPlanPrepareStmtRejectsGatewayManagedSetConfig pins the fail-closed
+// gate: a prepared body executes verbatim on the backend, so the direct
+// path's gateway-managed rewrite cannot apply — a literal gateway-managed
+// set_config in the body would put a real statement_timeout on a pooled
+// backend that the release label (built from SessionSettings) can never
+// describe. Rejected at PREPARE time, for both is_local variants, so the
+// prepared form cannot silently diverge from the identical direct statement.
+func TestPlanPrepareStmtRejectsGatewayManagedSetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s,
+		"PREPARE leak AS SELECT set_config('statement_timeout', '5s', false)")
+	require.ErrorContains(t, err, `gateway-managed variable "statement_timeout"`)
+	require.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "leak"),
+		"a rejected PREPARE must register nothing")
+
+	_, err = planAndExecute(t, s,
+		"PREPARE leak2 AS SELECT set_config('idle_session_timeout', '5s', true)")
+	require.ErrorContains(t, err, `gateway-managed variable "idle_session_timeout"`,
+		"statement-local form is rejected too so prepared and direct semantics cannot diverge")
+
+	// An ordinary GUC keeps the capture-intent path.
+	_, err = planAndExecute(t, s,
+		"PREPARE ok AS SELECT set_config('work_mem', '64MB', false)")
+	require.NoError(t, err)
+	require.NotNil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "ok"))
 }

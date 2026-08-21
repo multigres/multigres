@@ -93,6 +93,15 @@ func (p *protectedPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRe
 	return p.client.PgRewind(ctx, req, opts...)
 }
 
+// StopRestoreCommand stops any in-flight restore_command invocation. Requires
+// action lock to be held by caller (it can signal a running process).
+func (p *protectedPgctldClient) StopRestoreCommand(ctx context.Context, req *pgctldpb.StopRestoreCommandRequest, opts ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return nil, fmt.Errorf("StopRestoreCommand requires action lock to be held: %w", err)
+	}
+	return p.client.StopRestoreCommand(ctx, req, opts...)
+}
+
 // Status returns PostgreSQL status. Does not require action lock (read-only operation).
 func (p *protectedPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
 	return p.client.Status(ctx, req, opts...)

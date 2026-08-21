@@ -95,13 +95,15 @@ func (psi *PreparedStatementInfo) IsEmpty() bool {
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {
 	asts, err := parser.ParseSQL(ps.Query)
 	if err != nil {
-		// ParseSQL only does syntactic parsing, so any error here is a syntax
-		// error. Surface it as a 42601 diagnostic (the parser stays
-		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would,
-		// carrying the cursor position for the ErrorResponse "P" field.
+		// ParseSQL only does syntactic parsing, so any error here is a parse-stage
+		// error. Surface it as the diagnostic PostgreSQL would send (the parser
+		// stays mterrors-free): 42601 unless the parser named a SQLSTATE of its
+		// own, carrying the cursor position for the ErrorResponse "P" field.
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
-			return nil, mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition, se.SQLState)
+			diag.Hint = se.Hint
+			return nil, diag
 		}
 		return nil, mterrors.NewParseError(err.Error())
 	}
@@ -163,10 +165,10 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 	// Describe fails — the client retries Parse with the same name.
 	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
 		slog.Debug("replacing existing prepared statement",
-			"connId", connId,
+			"conn_id", connId,
 			"name", name,
-			"oldQuery", existing.Query,
-			"newQuery", queryStr,
+			"old_query", existing.Query,
+			"new_query", queryStr,
 		)
 		psc.usageCount[existing]--
 		if psc.usageCount[existing] == 0 {

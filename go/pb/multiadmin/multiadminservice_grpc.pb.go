@@ -41,7 +41,6 @@ const (
 	MultiadminService_GetPoolers_FullMethodName                 = "/multiadmin.MultiadminService/GetPoolers"
 	MultiadminService_GetOrchs_FullMethodName                   = "/multiadmin.MultiadminService/GetOrchs"
 	MultiadminService_Backup_FullMethodName                     = "/multiadmin.MultiadminService/Backup"
-	MultiadminService_RestoreFromBackup_FullMethodName          = "/multiadmin.MultiadminService/RestoreFromBackup"
 	MultiadminService_GetBackupJobStatus_FullMethodName         = "/multiadmin.MultiadminService/GetBackupJobStatus"
 	MultiadminService_GetBackups_FullMethodName                 = "/multiadmin.MultiadminService/GetBackups"
 	MultiadminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiadminService/ExpireBackups"
@@ -51,6 +50,7 @@ const (
 	MultiadminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiadminService/GetGatewayQueries"
 	MultiadminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiadminService/GetGatewayConsolidator"
 	MultiadminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
+	MultiadminService_SwitchPrimary_FullMethodName              = "/multiadmin.MultiadminService/SwitchPrimary"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -75,8 +75,6 @@ type MultiadminServiceClient interface {
 	GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
 	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -108,6 +106,13 @@ type MultiadminServiceClient interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -192,16 +197,6 @@ func (c *multiadminServiceClient) Backup(ctx context.Context, in *BackupRequest,
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BackupResponse)
 	err := c.cc.Invoke(ctx, MultiadminService_Backup_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RestoreFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultiadminService_RestoreFromBackup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +293,16 @@ func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, 
 	return out, nil
 }
 
+func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SwitchPrimaryResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SwitchPrimary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -320,8 +325,6 @@ type MultiadminServiceServer interface {
 	GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -353,6 +356,13 @@ type MultiadminServiceServer interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
+	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
+	// writes on the current leader, restarts it as a standby, and publishes
+	// REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+	// leader through the normal consensus flow. The RPC returns as soon as the
+	// old primary has been quiesced — it does not wait for the new leader to
+	// appear.
+	SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -387,9 +397,6 @@ func (UnimplementedMultiadminServiceServer) GetOrchs(context.Context, *GetOrchsR
 func (UnimplementedMultiadminServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
 }
-func (UnimplementedMultiadminServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
-}
 func (UnimplementedMultiadminServiceServer) GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupJobStatus not implemented")
 }
@@ -416,6 +423,9 @@ func (UnimplementedMultiadminServiceServer) GetGatewayConsolidator(context.Conte
 }
 func (UnimplementedMultiadminServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwitchPrimary not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -582,24 +592,6 @@ func _MultiadminService_Backup_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiadminService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RestoreFromBackupRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiadminService_RestoreFromBackup_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiadminService_GetBackupJobStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBackupJobStatusRequest)
 	if err := dec(in); err != nil {
@@ -762,6 +754,24 @@ func _MultiadminService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_SwitchPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchPrimaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SwitchPrimary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SwitchPrimary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SwitchPrimary(ctx, req.(*SwitchPrimaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -802,10 +812,6 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiadminService_Backup_Handler,
 		},
 		{
-			MethodName: "RestoreFromBackup",
-			Handler:    _MultiadminService_RestoreFromBackup_Handler,
-		},
-		{
 			MethodName: "GetBackupJobStatus",
 			Handler:    _MultiadminService_GetBackupJobStatus_Handler,
 		},
@@ -840,6 +846,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyCertifiedRuleChange",
 			Handler:    _MultiadminService_ApplyCertifiedRuleChange_Handler,
+		},
+		{
+			MethodName: "SwitchPrimary",
+			Handler:    _MultiadminService_SwitchPrimary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
