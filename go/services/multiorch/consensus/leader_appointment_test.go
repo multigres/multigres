@@ -20,6 +20,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -432,4 +433,136 @@ func TestAppointLeader_TiebreaksByResignation(t *testing.T) {
 	resignedKey := topoclient.ComponentIDString(cohortIDs[0])
 	_, promotedResigned := fakeClient.PromoteRequests[resignedKey]
 	require.False(t, promotedResigned, "resigned primary should NOT be re-elected when a standby is available")
+}
+
+// TestAppointLeader_TiebreaksBySlotReadiness verifies that poolerHealthStateLess
+// prefers the candidate with more failover-ready logical slots when candidates
+// are otherwise tied (same WAL position, neither resigning). Promoting the
+// slot-ready node keeps subscribers resumable across the failover instead of
+// forcing a re-seed.
+func TestAppointLeader_TiebreaksBySlotReadiness(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "slot_empty"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "slot_ready"},
+	}
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(2),
+	}
+
+	const flushLSN = "0/2000000"
+	slotEmpty := createMockNode(fakeClient, "slot_empty", 5, flushLSN, true, outgoingRule)
+	slotReady := createMockNode(fakeClient, "slot_ready", 5, flushLSN, true, outgoingRule)
+
+	// Neither node is resigning and both are at the same WAL position — the only
+	// difference is failover-slot readiness. slot_empty is listed first, so
+	// without the slot tiebreak it would win on stable ordering.
+	slotEmpty.Status.FailoverSlotsReady = 0
+	slotReady.Status.FailoverSlotsReady = 2
+
+	for i, mp := range []*multiorchdatapb.PoolerHealthState{slotEmpty, slotReady} {
+		id := cohortIDs[i]
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:      flushLSN,
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+		}
+		fakeClient.RecruitResponses[topoclient.ComponentIDString(id)] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:      flushLSN,
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+	}
+
+	cohort := []*multiorchdatapb.PoolerHealthState{slotEmpty, slotReady}
+	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_slot_readiness_tiebreak"))
+
+	readyKey := topoclient.ComponentIDString(cohortIDs[1])
+	_, promoted := fakeClient.PromoteRequests[readyKey]
+	require.True(t, promoted, "the slot-ready node should be elected")
+
+	emptyKey := topoclient.ComponentIDString(cohortIDs[0])
+	_, promotedEmpty := fakeClient.PromoteRequests[emptyKey]
+	require.False(t, promotedEmpty, "the slot-empty node should NOT be elected when a slot-ready peer is available")
+}
+
+// TestPoolerHealthStateLess pins the comparator's ordering contract directly:
+// the leadership signal is the primary key (non-resigning before resigning) and
+// failover-slot readiness only breaks a tie between equal signals. The
+// end-to-end TiebreaksBy* tests each pin one dimension; this covers the
+// precedence between them and the fully-tied case.
+func TestPoolerHealthStateLess(t *testing.T) {
+	const (
+		active = clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_ACTIVE
+		resign = clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION
+	)
+
+	// node builds a ConsensusStatus and its matching PoolerHealthState carrying
+	// the given leadership signal and failover-slot-ready count.
+	node := func(name string, signal clustermetadatapb.LeadershipSignal, slotsReady int32) (*clustermetadatapb.ConsensusStatus, *multiorchdatapb.PoolerHealthState) {
+		id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
+		cs := &clustermetadatapb.ConsensusStatus{Id: id}
+		h := &multiorchdatapb.PoolerHealthState{
+			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
+				LeadershipStatus: &clustermetadatapb.LeadershipStatus{Signal: signal},
+			},
+			Status: &multipoolermanagerdatapb.Status{FailoverSlotsReady: slotsReady},
+		}
+		return cs, h
+	}
+	lessFor := func(aCS, bCS *clustermetadatapb.ConsensusStatus, aH, bH *multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		return poolerHealthStateLess(map[string]*multiorchdatapb.PoolerHealthState{
+			topoclient.ClusterIDString(aCS.GetId()): aH,
+			topoclient.ClusterIDString(bCS.GetId()): bH,
+		})
+	}
+
+	t.Run("non-resigning sorts before resigning regardless of slot readiness", func(t *testing.T) {
+		// The resigning node is slot-ready and the active node is slot-empty:
+		// the signal must still dominate so the resign intent is honored.
+		a, aH := node("active_empty", active, 0)
+		b, bH := node("resign_ready", resign, 5)
+		less := lessFor(a, b, aH, bH)
+		assert.True(t, less(a, b), "active (slot-empty) must sort before resigning (slot-ready)")
+		assert.False(t, less(b, a))
+	})
+
+	t.Run("same signal: more failover-ready slots sorts first", func(t *testing.T) {
+		a, aH := node("ready2", active, 2)
+		b, bH := node("ready0", active, 0)
+		less := lessFor(a, b, aH, bH)
+		assert.True(t, less(a, b))
+		assert.False(t, less(b, a))
+	})
+
+	t.Run("fully tied is not less in either direction", func(t *testing.T) {
+		a, aH := node("t1", active, 1)
+		b, bH := node("t2", active, 1)
+		less := lessFor(a, b, aH, bH)
+		assert.False(t, less(a, b))
+		assert.False(t, less(b, a))
+	})
 }

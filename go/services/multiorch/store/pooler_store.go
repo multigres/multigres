@@ -74,6 +74,31 @@ type ShardMembers struct {
 	Leader *Pooler
 }
 
+// CohortEligibleFollowerIDs returns the IDs of the shard's cohort-eligible
+// followers: every member that is not the leader. The leader is identified from
+// consensus state — FindShardMembers derives members.Leader from the highest
+// known shard rule — never from the topology Multipooler.Type, which multiorch
+// must not consult for identity. This mirrors the SetPrimary fan-out in
+// propagateLeaderInfoForShard, which likewise points every non-leader member at
+// the primary: each such member streams from the primary and therefore needs a
+// per-follower physical replication slot pre-created there (§2.6). Eligibility is
+// membership, not streaming state or role, so a freshly discovered standby is
+// included before it streams — breaking the bootstrap ordering deadlock where a
+// late-joining standby can never stream, so can never join the cohort, so never
+// gets its slot. Pure; call on the result of FindShardMembers (a nil
+// members.Leader yields every member, so callers gate on a known leader before
+// acting).
+func CohortEligibleFollowerIDs(members ShardMembers) []*clustermetadatapb.ID {
+	ids := make([]*clustermetadatapb.ID, 0, len(members.Poolers))
+	for _, pooler := range members.Poolers {
+		if pooler == members.Leader {
+			continue
+		}
+		ids = append(ids, pooler.Health().GetMultipooler().GetId())
+	}
+	return ids
+}
+
 // FindShardMembers identifies the shard's members, consensus position, and
 // leader's health.
 func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) ShardMembers {
