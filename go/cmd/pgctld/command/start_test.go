@@ -909,3 +909,17 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 		assert.Contains(t, err.Error(), "crashed")
 	})
 }
+
+// postgresMayBeRunning resolves an unreadable postmaster.pid to "running", so the
+// crash-recovery guards never run single-user recovery against a live postmaster.
+func TestPostgresMayBeRunning(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions, so an unreadable pidfile cannot be simulated")
+	}
+
+	unreadable := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(unreadable, "postmaster.pid"), []byte("12345\n"), 0o000))
+
+	assert.True(t, postgresMayBeRunning(unreadable))
+	assert.False(t, postgresMayBeRunning(t.TempDir()), "no pidfile is the only authoritative down")
+}

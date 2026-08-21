@@ -284,7 +284,7 @@ func TestRunCrashRecoveryInDir_SkipsWhenPostgresRunning(t *testing.T) {
 	require.NoError(t, err1)
 
 	// postmaster.pid's first line is the PID; point it at ourselves so
-	// isPostgreSQLRunning sees a live process.
+	// postgresMayBeRunning sees a live process.
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "postmaster.pid"),
 		[]byte(strconv.Itoa(os.Getpid())+"\n"),

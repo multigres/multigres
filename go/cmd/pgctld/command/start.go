@@ -300,6 +300,15 @@ func postgresIsRunning(logger *slog.Logger, config *pgctld.PostgresCtlConfig) bo
 	}
 }
 
+// postgresMayBeRunning is the running-check for the crash-recovery guards. It
+// resolves pgUnknown to "running" instead of probing like postgresIsRunning:
+// pg_isready calls a postmaster that is still replaying WAL not ready, and that
+// is the state these guards most need to catch.
+func postgresMayBeRunning(dataDir string) bool {
+	liveness, _ := postgresLiveness(dataDir)
+	return liveness != pgDown
+}
+
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	// Use pg_ctl to start PostgreSQL properly as a daemon
 	// Pass port, listen_addresses, and unix_socket_directories as command-line parameters for portability
