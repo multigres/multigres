@@ -17,6 +17,7 @@ package actions
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -332,6 +333,16 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	// Verify SetPrimary was called on the replica, NOT SetPrimaryConnInfo.
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+
+	// Backstop (§2.6): the primary is told to ensure the follower's physical slot,
+	// and that ReconcileFollowers runs BEFORE SetPrimary points the replica at the
+	// primary — otherwise the replica's WAL receiver could START_REPLICATION on a
+	// slot that does not exist yet and strand itself.
+	assert.Contains(t, fakeClient.CallLog, "ReconcileFollowers(multipooler-cell1-primary)")
+	reconcileIdx := slices.Index(fakeClient.CallLog, "ReconcileFollowers(multipooler-cell1-primary)")
+	setPrimaryIdx := slices.Index(fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
+	require.GreaterOrEqual(t, reconcileIdx, 0, "ReconcileFollowers must have been called")
+	require.Less(t, reconcileIdx, setPrimaryIdx, "ReconcileFollowers must run before SetPrimary")
 
 	// Verify the request carried the primary's contact info and known position.
 	setPrimaryReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]

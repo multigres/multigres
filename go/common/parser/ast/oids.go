@@ -45,6 +45,14 @@ const (
 	VARCHAROID Oid = 1043 // varchar
 )
 
+// Pseudo-types
+const (
+	// UNKNOWNOID is the type PostgreSQL assigns a parameter or literal whose
+	// type it has not resolved — what a client sends for an untyped bind. Its
+	// wire representation is the plain text form, so it decodes like TEXTOID.
+	UNKNOWNOID Oid = 705 // unknown
+)
+
 // Binary types
 const (
 	BYTEAOID Oid = 17 // bytea

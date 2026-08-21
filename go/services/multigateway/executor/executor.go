@@ -187,7 +187,7 @@ func isCacheable(stmt ast.Stmt) bool {
 		// Exclude SELECT INTO — temp-table variants use a different primitive
 		// (TempTableRoute), and non-temp variants are DDL-like (they create a
 		// table), so caching their plans is not useful.
-		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.IntoClause != nil {
+		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.LeafIntoClause() != nil {
 			return false
 		}
 		return true

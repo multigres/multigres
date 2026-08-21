@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -492,6 +493,122 @@ func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	}
 
 	return pm.reloadPostgresConfig(ctx)
+}
+
+type postgresOption struct {
+	name  string
+	value string
+}
+
+// alterSystemSetOptions applies a list of ALTER SYSTEM SET commands. Each
+// option's value is quoted as a string literal, but its name is interpolated
+// verbatim — so name must be a trusted constant (a hardcoded GUC name), never
+// client-derived input.
+func (pm *MultipoolerManager) alterSystemSetOptions(ctx context.Context, options []postgresOption) error {
+	for _, opt := range options {
+		// Explicit cancel (not defer) so timeouts don't accumulate across the loop.
+		execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+		sql := fmt.Sprintf("ALTER SYSTEM SET %s = %s", opt.name, ast.QuoteStringLiteral(opt.value))
+		err := pm.exec(execCtx, sql)
+		execCancel()
+		if err != nil {
+			return mterrors.Wrapf(err, "failed to set option %q", opt.name)
+		}
+	}
+	return nil
+}
+
+// applyStandbySlotSettings configures the standby-side GUCs for slot-based
+// physical replication when the flag is on: primary_slot_name (this node's own
+// deterministic slot, which its primary creates for it), hot_standby_feedback,
+// and sync_replication_slots. Applied via ALTER SYSTEM + reload; idempotent.
+// No-op when the flag is off, so the default stays slot-less streaming.
+func (pm *MultipoolerManager) applyStandbySlotSettings(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	slot, err := LogicalSlotName(pm.serviceID.GetName())
+	if err != nil {
+		return mterrors.Wrapf(err, "compute primary_slot_name for %q", pm.serviceID.GetName())
+	}
+
+	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer execCancel()
+	// LogicalSlotName restricts the slot to [a-z0-9_]; quote it as a string
+	// literal regardless. hot_standby_feedback + sync_replication_slots are the
+	// standby half of native slot sync.
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "primary_slot_name", value: slot},
+		{name: "hot_standby_feedback", value: "on"},
+		{name: "sync_replication_slots", value: "on"},
+	}); err != nil {
+		return err
+	}
+	return pm.reloadPostgresConfig(execCtx)
+}
+
+// followerPhysicalSlotNames returns the deterministic physical-slot names for
+// every follower in cohort (cohort minus this pooler), sorted so the derived
+// synchronized_standby_slots value is stable across calls.
+func (pm *MultipoolerManager) followerPhysicalSlotNames(cohort []*clustermetadatapb.ID) ([]string, error) {
+	selfName := pm.serviceID.GetName()
+	slots := make([]string, 0, len(cohort))
+	for _, member := range cohort {
+		if member.GetName() == selfName {
+			continue
+		}
+		slot, err := LogicalSlotName(member.GetName())
+		if err != nil {
+			return nil, mterrors.Wrapf(err, "compute physical slot name for follower %q", member.GetName())
+		}
+		slots = append(slots, slot)
+	}
+	sort.Strings(slots)
+	return slots, nil
+}
+
+// setSynchronizedStandbySlots points synchronized_standby_slots at the cohort's
+// follower physical slots so the primary's failover logical slots hold their
+// restart_lsn and catalog_xmin back to what those standbys have received.
+// Without it a standby's catalog horizon can outrun a freshly-created failover
+// slot, and the standby's slot-sync worker refuses to persist the synced slot
+// ("synchronization could lead to data loss"). An empty cohort clears it to ”
+// so logical decoding is not stalled when no follower slot exists yet. Applied
+// via ALTER SYSTEM + reload; no-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) setSynchronizedStandbySlots(ctx context.Context, cohort []*clustermetadatapb.ID) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	slots, err := pm.followerPhysicalSlotNames(cohort)
+	if err != nil {
+		return err
+	}
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "synchronized_standby_slots", value: strings.Join(slots, ",")},
+	}); err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer cancel()
+	return pm.reloadPostgresConfig(execCtx)
+}
+
+// resetSynchronizedStandbySlots clears synchronized_standby_slots. A standby has
+// no followers; leaving a stale list would, on a later promotion, make the node
+// wait on physical slots that may no longer exist and stall logical decoding
+// (§2.3). No-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) resetSynchronizedStandbySlots(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "synchronized_standby_slots", value: ""},
+	}); err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer cancel()
+	return pm.reloadPostgresConfig(execCtx)
 }
 
 // readRestoreCommand reads the currently configured restore_command, or ""

@@ -204,6 +204,14 @@ type MultipoolerClient interface {
 	// ResignLeadership gracefully resigns the pooler from leadership for a planned failover.
 	ResignLeadership(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error)
 
+	// ReconcileFollowers declares to the primary pooler the full set of
+	// cohort-eligible follower members it should hold per-follower physical
+	// replication slots for; the primary creates missing slots and drops managed
+	// slots for members no longer in the set. Used by the orchestrator's
+	// discovery-driven reconcile so a late-joining standby's slot exists before it
+	// streams.
+	ReconcileFollowers(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error)
+
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 

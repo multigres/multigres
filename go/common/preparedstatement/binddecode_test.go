@@ -53,6 +53,12 @@ func TestDecodeBindAsText_AcceptedOIDs(t *testing.T) {
 		{"text/binary format", uint32(ast.TEXTOID), 1},
 		{"varchar/text format", uint32(ast.VARCHAROID), 0},
 		{"unspecified/text format", uint32(ast.InvalidOid), 0},
+		// UNKNOWN is what a client sends for an untyped parameter — the shape
+		// PostgREST uses for set_config's value. PostgreSQL coerces unknown ->
+		// text natively; rejecting it failed statements that PostgreSQL would
+		// simply have executed. Its wire form is the plain text form.
+		{"unknown/text format", uint32(ast.UNKNOWNOID), 0},
+		{"unknown/binary format", uint32(ast.UNKNOWNOID), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pi := buildTestPortalInfo(t, "SELECT $1", []uint32{tc.oid}, [][]byte{[]byte("public,extensions")}, []int16{tc.format})

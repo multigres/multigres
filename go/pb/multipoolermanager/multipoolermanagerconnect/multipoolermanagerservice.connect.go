@@ -81,6 +81,9 @@ const (
 	// MultipoolerManagerSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
 	// MultipoolerManager's SetPostgresRestartsEnabled RPC.
 	MultipoolerManagerSetPostgresRestartsEnabledProcedure = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
+	// MultipoolerManagerReconcileFollowersProcedure is the fully-qualified name of the
+	// MultipoolerManager's ReconcileFollowers RPC.
+	MultipoolerManagerReconcileFollowersProcedure = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -128,6 +131,15 @@ type MultipoolerManagerClient interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error)
+	// ReconcileFollowers declares to the primary the full set of cohort-eligible
+	// follower members it should hold per-follower physical replication slots for.
+	// The primary creates any missing slot and drops managed slots for members no
+	// longer in the set. It is level-triggered and declarative: the orchestrator
+	// re-sends the set each cycle, so a missed event or a primary restart
+	// self-heals. It creates only the physical slots (so a late-joining standby
+	// can stream); it does NOT touch synchronized_standby_slots — a follower is
+	// added there only once it is streaming and caught up, via the cohort path.
+	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -227,6 +239,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
 			connect.WithClientOptions(opts...),
 		),
+		reconcileFollowers: connect.NewClient[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse](
+			httpClient,
+			baseURL+MultipoolerManagerReconcileFollowersProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
+			connect.WithClientOptions(opts...),
+		),
 		reloadConfig: connect.NewClient[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse](
 			httpClient,
 			baseURL+MultipoolerManagerReloadConfigProcedure,
@@ -255,6 +273,7 @@ type multipoolerManagerClient struct {
 	verifyBackups              *connect.Client[multipoolermanagerdata.VerifyBackupsRequest, multipoolermanagerdata.VerifyBackupsResponse]
 	resignLeadership           *connect.Client[multipoolermanagerdata.ResignLeadershipRequest, multipoolermanagerdata.ResignLeadershipResponse]
 	setPostgresRestartsEnabled *connect.Client[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse]
+	reconcileFollowers         *connect.Client[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
@@ -315,6 +334,11 @@ func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Contex
 	return c.setPostgresRestartsEnabled.CallUnary(ctx, req)
 }
 
+// ReconcileFollowers calls multipoolermanager.MultipoolerManager.ReconcileFollowers.
+func (c *multipoolerManagerClient) ReconcileFollowers(ctx context.Context, req *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error) {
+	return c.reconcileFollowers.CallUnary(ctx, req)
+}
+
 // ReloadConfig calls multipoolermanager.MultipoolerManager.ReloadConfig.
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, req *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
 	return c.reloadConfig.CallUnary(ctx, req)
@@ -365,6 +389,15 @@ type MultipoolerManagerHandler interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error)
+	// ReconcileFollowers declares to the primary the full set of cohort-eligible
+	// follower members it should hold per-follower physical replication slots for.
+	// The primary creates any missing slot and drops managed slots for members no
+	// longer in the set. It is level-triggered and declarative: the orchestrator
+	// re-sends the set each cycle, so a missed event or a primary restart
+	// self-heals. It creates only the physical slots (so a late-joining standby
+	// can stream); it does NOT touch synchronized_standby_slots — a follower is
+	// added there only once it is streaming and caught up, via the cohort path.
+	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -460,6 +493,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerReconcileFollowersHandler := connect.NewUnaryHandler(
+		MultipoolerManagerReconcileFollowersProcedure,
+		svc.ReconcileFollowers,
+		connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerReloadConfigHandler := connect.NewUnaryHandler(
 		MultipoolerManagerReloadConfigProcedure,
 		svc.ReloadConfig,
@@ -496,6 +535,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerResignLeadershipHandler.ServeHTTP(w, r)
 		case MultipoolerManagerSetPostgresRestartsEnabledProcedure:
 			multipoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
+		case MultipoolerManagerReconcileFollowersProcedure:
+			multipoolerManagerReconcileFollowersHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
 		case MultipoolerManagerManagerHealthStreamProcedure:
@@ -551,6 +592,10 @@ func (UnimplementedMultipoolerManagerHandler) ResignLeadership(context.Context, 
 
 func (UnimplementedMultipoolerManagerHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.SetPostgresRestartsEnabled is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ReconcileFollowers is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
