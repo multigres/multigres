@@ -287,16 +287,20 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 	panic("unreachable")
 }
 
-// QueryNoRetry and QueryArgsNoRetry run a single query attempt with no retry
-// or reconnection on error. Use these instead of QueryWithRetry/
-// QueryArgsWithRetry once a transaction has begun (BEGIN already sent): those
-// retry by silently reconnecting on a connection error, which would start a
-// fresh session that never ran BEGIN, silently losing the transaction. An
-// ordinary SQL error (e.g. a NOWAIT lock conflict) leaves the now-aborted
-// transaction on this same connection for the caller's Rollback to clean up,
-// same as any transaction; only a genuine connection failure closes the
-// connection, so it's never returned to the pool in an unknown state.
-func (c *Conn) QueryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+// queryNoRetry and queryArgsNoRetry run a single query attempt with no retry
+// or reconnection on error. Used by TxConn once a transaction has begun
+// (BEGIN already sent): QueryWithRetry/QueryArgsWithRetry retry by silently
+// reconnecting on a connection error, which would start a fresh session that
+// never ran BEGIN, silently losing the transaction. An ordinary SQL error
+// (e.g. a NOWAIT lock conflict) leaves the now-aborted transaction on this
+// same connection for the caller's Rollback to clean up, same as any
+// transaction; only a genuine connection failure closes the connection, so
+// it's never returned to the pool in an unknown state.
+//
+// Unexported: TxConn is the only supported way to run a transaction on an
+// admin connection, so there is no reason for a caller outside this package
+// to reach for these directly.
+func (c *Conn) queryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
@@ -306,8 +310,8 @@ func (c *Conn) QueryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result
 	return results, err
 }
 
-// QueryArgsNoRetry is QueryNoRetry for a parameterized query.
-func (c *Conn) QueryArgsNoRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+// queryArgsNoRetry is queryNoRetry for a parameterized query.
+func (c *Conn) queryArgsNoRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
 	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, sql, args...)
 	})
@@ -315,6 +319,46 @@ func (c *Conn) QueryArgsNoRetry(ctx context.Context, sql string, args ...any) ([
 		c.conn.Close()
 	}
 	return results, err
+}
+
+// TxConn is an admin Conn that has started an explicit transaction. It
+// exposes only single-attempt query methods — no retry variant exists on it
+// at all — mirroring how the regular pool's reserved.Conn separates
+// transactional connections from the retry-capable stateless ones, so a
+// caller mid-transaction cannot reach for the wrong method by mistake.
+type TxConn struct {
+	conn *Conn
+}
+
+// BeginTx sends BEGIN on c and returns a TxConn for running the rest of the
+// transaction. c must not be used directly again until the transaction ends.
+func (c *Conn) BeginTx(ctx context.Context) (*TxConn, error) {
+	if _, err := c.queryNoRetry(ctx, "BEGIN"); err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	return &TxConn{conn: c}, nil
+}
+
+// Query runs sql as a single no-retry attempt.
+func (tc *TxConn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	return tc.conn.queryNoRetry(ctx, sql)
+}
+
+// QueryArgs is Query for a parameterized query.
+func (tc *TxConn) QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	return tc.conn.queryArgsNoRetry(ctx, sql, args...)
+}
+
+// Commit sends COMMIT.
+func (tc *TxConn) Commit(ctx context.Context) error {
+	_, err := tc.conn.queryNoRetry(ctx, "COMMIT")
+	return err
+}
+
+// Rollback sends ROLLBACK.
+func (tc *TxConn) Rollback(ctx context.Context) error {
+	_, err := tc.conn.queryNoRetry(ctx, "ROLLBACK")
+	return err
 }
 
 // execQueryWithContextCancel executes a query operation in a goroutine so that

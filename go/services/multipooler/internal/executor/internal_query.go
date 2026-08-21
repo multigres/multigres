@@ -278,10 +278,8 @@ func (e *Executor) Begin(ctx context.Context) (InternalTx, error) {
 }
 
 // txConn is the subset of a transaction-capable connection genericTx needs.
-// *reserved.Conn (the regular pool's reserved connection, used by Begin)
-// satisfies it natively; admin-pool connections are adapted via adminTxConn
-// (used by BeginAdmin), since admin.Conn has no native transaction-lifecycle
-// methods of its own.
+// *reserved.Conn (the regular pool's reserved connection, used by Begin) and
+// *admin.TxConn (used by BeginAdmin) both satisfy it natively.
 type txConn interface {
 	Query(ctx context.Context, sql string) ([]*sqltypes.Result, error)
 	QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
