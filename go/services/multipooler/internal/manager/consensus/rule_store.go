@@ -484,12 +484,10 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	var result *sqltypes.Result
 	var err error
 	if forUpdate {
-		// FOR UPDATE NOWAIT is load-bearing, not just a raw-SQL tripwire: it's
-		// how callers prove a prior action-lock holder's write transaction has
-		// actually ended on postgres, even if that holder's own context timed
-		// out first (see WithPriorRuleWritesDrained). wrapInRollback keeps
-		// this check from paying for synchronous_commit it doesn't need — see
-		// its doc comment.
+		// Load-bearing, not just a raw-SQL tripwire: proves a prior
+		// action-lock holder's write transaction has actually ended on
+		// postgres, even after that holder's own context timed out (see
+		// WithPriorRuleWritesDrained).
 		result, err = rs.wrapInRollback(ctx, query+" FOR UPDATE NOWAIT", []byte("0"))
 	} else {
 		result, err = rs.queryService.QueryAdminArgs(ctx, query, []byte("0"))
@@ -538,23 +536,16 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	return pos, nil
 }
 
-// wrapInRollback runs query in its own transaction and always rolls back
-// rather than commits, so the query's implicit write (if any) never waits on
-// synchronous_commit — only COMMIT does, ROLLBACK never does, regardless of
-// the GUC. Useful for a statement whose WAL-logged side effect doesn't need
-// to persist or be replicated, such as SELECT ... FOR UPDATE NOWAIT: the row
-// lock it takes exists only to fail fast on a concurrent writer, not to
-// outlive this call.
+// wrapInRollback runs query in its own transaction and always rolls back, so
+// its implicit write (if any) never waits on synchronous_commit — only
+// COMMIT does. Useful for a statement whose WAL-logged side effect doesn't
+// need to persist, like SELECT ... FOR UPDATE NOWAIT.
 //
-// An explicit transaction was chosen over a single "BEGIN; ...; ROLLBACK;"
-// string: a NOWAIT lock conflict — the expected, common case here, not an
-// edge case — aborts the transaction and skips every remaining statement in
-// a multi-statement message, including its own trailing ROLLBACK, leaving
-// the connection idle-in-a-failed-transaction for whoever borrows it next.
-// The deferred Rollback below always runs regardless of how the query
-// failed. A stored procedure was also considered; it would need a
-// schema-migration mechanism this codebase doesn't otherwise have, to
-// deploy the same behavior.
+// Uses an explicit transaction rather than a "BEGIN; ...; ROLLBACK;" string:
+// a NOWAIT lock conflict is the expected case here, and it would abort the
+// transaction and skip the remaining statements — including the trailing
+// ROLLBACK — leaving the connection idle-in-a-failed-transaction. The
+// deferred Rollback below always runs regardless of how the query failed.
 //
 // Uses BeginAdmin, not Begin: this touches the locked-down multigres schema.
 func (rs *ruleStore) wrapInRollback(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {

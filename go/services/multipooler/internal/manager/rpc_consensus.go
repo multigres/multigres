@@ -592,14 +592,11 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
 	}
 
-	// Re-establish resignation on any failure from here on, regardless of
-	// cause. The promotion hook above clears it optimistically before the
-	// promotion is confirmed (to shrink the window where other coordinators
-	// still see this node as needing replacement and pile on with competing
-	// Recruit calls); if the promotion then fails for any reason, that leaves
-	// this node silently fallen through the cracks — no longer signaling
-	// resignation, but also never actually promoted. Recruit already proved
-	// this node needs replacing, so a failed promote must not lose that.
+	// The hook above clears resignation optimistically before promotion is
+	// confirmed, to shrink the window where other coordinators still see this
+	// node as needing replacement. If promotion then fails, re-establish it
+	// here — otherwise this node is stuck silently unpromoted and no longer
+	// signaling for replacement either.
 	defer func() {
 		if err != nil {
 			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {

@@ -297,12 +297,9 @@ const (
 )
 
 // genericTx is the shared InternalTx implementation for both Begin (regular
-// pool) and BeginAdmin (admin pool), so the two don't grow independent,
-// driftable copies of this logic. onRelease is called exactly once, after
-// Commit or Rollback resolves, naming which one ran and whether it errored,
-// so each pool can apply its own release semantics (reserved.Conn's
-// ReleaseCommit/ReleaseRollback/ReleaseError bookkeeping vs. the admin pool's
-// plain recycle).
+// pool) and BeginAdmin (admin pool). onRelease is called exactly once, after
+// Commit or Rollback resolves, so each pool can apply its own release
+// semantics.
 type genericTx struct {
 	conn      txConn
 	onRelease func(outcome txOutcome, err error)

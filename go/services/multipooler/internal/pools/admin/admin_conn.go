@@ -288,18 +288,10 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 }
 
 // queryNoRetry and queryArgsNoRetry run a single query attempt with no retry
-// or reconnection on error. Used by TxConn once a transaction has begun
-// (BEGIN already sent): QueryWithRetry/QueryArgsWithRetry retry by silently
-// reconnecting on a connection error, which would start a fresh session that
-// never ran BEGIN, silently losing the transaction. An ordinary SQL error
-// (e.g. a NOWAIT lock conflict) leaves the now-aborted transaction on this
-// same connection for the caller's Rollback to clean up, same as any
-// transaction; only a genuine connection failure closes the connection, so
-// it's never returned to the pool in an unknown state.
-//
-// Unexported: TxConn is the only supported way to run a transaction on an
-// admin connection, so there is no reason for a caller outside this package
-// to reach for these directly.
+// or reconnection. Used by TxConn once BEGIN has been sent: the WithRetry
+// variants reconnect silently on a connection error, which would start a
+// fresh session that never ran BEGIN, losing the transaction. Unexported —
+// TxConn is the only supported way to run a transaction here.
 func (c *Conn) queryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
