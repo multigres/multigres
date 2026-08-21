@@ -281,7 +281,7 @@ func waitForGatewaysReady(ctx context.Context, gateways []gatewayEndpoint, probe
 	return nil
 }
 
-// start handles the cluster up command
+// start handles the cluster start command
 func start(cmd *cobra.Command, args []string) error {
 	fmt.Println("Multigres — Distributed Postgres made easy")
 	fmt.Println("=================================================================")

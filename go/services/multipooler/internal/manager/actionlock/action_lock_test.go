@@ -212,3 +212,26 @@ func TestActionLock_ReleasePanicsWithWrongContext(t *testing.T) {
 		lock.Release(ctx1)
 	})
 }
+
+func TestCarryLock(t *testing.T) {
+	lock := NewActionLock()
+
+	held, err := lock.Acquire(context.Background(), "op")
+	require.NoError(t, err)
+
+	// A bare context does not hold the lock; carrying it over from the held
+	// context makes it prove ownership without re-acquiring.
+	bare := context.Background()
+	require.Error(t, AssertActionLockHeld(bare), "precondition: bare context holds no lock")
+
+	carried := CarryLock(bare, held)
+	require.NoError(t, AssertActionLockHeld(carried), "carried context should prove ownership")
+
+	// The same lock value is shared: releasing via the original context also
+	// invalidates the carried one (they are the one lock, not two).
+	lock.Release(held)
+	require.Error(t, AssertActionLockHeld(carried), "carried context should observe the release")
+
+	// No-op when the source holds no lock: returns dst unchanged.
+	require.Error(t, AssertActionLockHeld(CarryLock(bare, context.Background())))
+}

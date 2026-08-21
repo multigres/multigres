@@ -287,6 +287,27 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 	require.Equal(t, "20250104-100000.000000_replica-pooler", resp.Backups[0].JobId)
 }
 
+func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	disabled := makeRoutedPooler("cell1", "disabled-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	disabled.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	require.NoError(t, server.ts.CreateMultipooler(ctx, disabled))
+
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "serving follower pooler not found")
+
+	serving := makeRoutedPooler("cell1", "serving-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	serving.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, server.ts.CreateMultipooler(ctx, serving))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.NoError(t, err)
+	require.Equal(t, serving.Id.Name, got.Id.Name)
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")

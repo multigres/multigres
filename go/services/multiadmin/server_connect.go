@@ -54,13 +54,10 @@ func newConnectHandler(srv *MultiadminServer, authPlugin func() servenv.Authenti
 }
 
 // newJWTConnectInterceptor wraps servenv.AuthenticateBearer for the Connect
-// protocol: rejects requests with a missing or invalid bearer token if and
-// only if the currently active auth plugin supports token verification
-// (servenv.TokenVerifier). If auth is disabled, or the active plugin is
-// something else entirely (e.g. mtls, which is unrelated to this
-// HTTP/Connect surface), requests pass through unchanged - this is what
-// keeps the feature off by default and immune to other, unrelated auth
-// modes being configured for gRPC.
+// protocol. The accessor supplied by Multiadmin returns nil while
+// --enable-auth is disabled, so native gRPC authentication cannot
+// accidentally alter this HTTP/Connect surface. Once enabled, missing or
+// invalid bearer tokens fail closed.
 func newJWTConnectInterceptor(authPlugin func() servenv.Authenticator) func(connect.UnaryFunc) connect.UnaryFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {

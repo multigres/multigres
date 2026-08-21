@@ -106,6 +106,17 @@ const (
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
 
+	// RewindSentinelFile marks an in-progress pg_rewind. Written before the actual
+	// (mutating) pg_rewind runs and removed only after postgres is verified back up
+	// as a standby; its presence on startup means a prior rewind was interrupted
+	// (e.g. the pod was killed mid-rewind) and the data directory is partially
+	// rewound — unstartable and, per PostgreSQL guidance, generally unrecoverable.
+	// The monitor uses it to force the rewind-repair path instead of starting
+	// postgres on the half-rewound directory, and to quarantine if repair keeps
+	// failing. Lives in pooler_dir (not PGDATA) so it stays out of pgBackRest
+	// backups, and on the local volume so it survives a pod restart on the same PVC.
+	RewindSentinelFile = ".multigres-rewind-in-progress"
+
 	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
 	// puts the server into standby mode. Notably, postgres --single refuses to
 	// run with it present, so crash recovery removes and recreates it.

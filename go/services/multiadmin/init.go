@@ -63,6 +63,18 @@ func (ma *Multiadmin) CobraPreRunE(cmd *cobra.Command) error {
 	return ma.senv.CobraPreRunE(cmd)
 }
 
+// httpAuthPlugin returns the JWT authenticator selected by --enable-auth for
+// Multiadmin's HTTP, Connect, REST, and pprof surfaces. Keep this separate from
+// GrpcServer.AuthPlugin: operators may independently configure native gRPC
+// authentication, and that must not change HTTP behavior while --enable-auth
+// remains disabled.
+func (ma *Multiadmin) httpAuthPlugin() servenv.Authenticator {
+	if !ma.enableAuth.Get() {
+		return nil
+	}
+	return ma.grpcServer.AuthPlugin()
+}
+
 func NewMultiadmin() *Multiadmin {
 	reg := viperutil.NewRegistry()
 	return &Multiadmin{
@@ -115,7 +127,7 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 	// gated by whichever auth plugin --enable-auth selects, same as the
 	// routes multiadmin registers itself below. Safe to call before Init:
 	// the accessor is resolved fresh per-request, not now.
-	ma.senv.SetAuthPlugin(ma.grpcServer.AuthPlugin)
+	ma.senv.SetAuthPlugin(ma.httpAuthPlugin)
 
 	if err := ma.senv.Init(servenv.ServiceIdentity{
 		ServiceName: constants.ServiceMultiadmin,
@@ -147,7 +159,7 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 			ma.adminServer = NewMultiadminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
-			connectPath, connectHandler := newConnectHandler(ma.adminServer, ma.grpcServer.AuthPlugin)
+			connectPath, connectHandler := newConnectHandler(ma.adminServer, ma.httpAuthPlugin)
 			// Serve the Connect/gRPC-Web protocol (canonical camelCase JSON) for
 			// the web UI directly.
 			ma.senv.HTTPHandle(connectPath, connectHandler)
@@ -168,12 +180,12 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 		}
 	})
 
-	// servenv.RequireBearerAuth resolves ma.grpcServer.AuthPlugin() fresh on
-	// every request rather than once here, since these routes are registered
-	// before the gRPC server (and therefore the active auth plugin) exists.
-	ma.senv.HTTPHandleFunc("/", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleIndex))
-	ma.senv.HTTPHandleFunc("/proxy/", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleProxy))
-	ma.senv.HTTPHandleFunc("/services", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleServices))
+	// servenv.RequireBearerAuth resolves ma.httpAuthPlugin() fresh on every
+	// request rather than once here, since these routes are registered before
+	// the gRPC server (and therefore the active auth plugin) exists.
+	ma.senv.HTTPHandleFunc("/", servenv.RequireBearerAuth(ma.httpAuthPlugin, ma.handleIndex))
+	ma.senv.HTTPHandleFunc("/proxy/", servenv.RequireBearerAuth(ma.httpAuthPlugin, ma.handleProxy))
+	ma.senv.HTTPHandleFunc("/services", servenv.RequireBearerAuth(ma.httpAuthPlugin, ma.handleServices))
 
 	ma.senv.OnClose(func() {
 		ma.Shutdown()

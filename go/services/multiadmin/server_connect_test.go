@@ -184,6 +184,18 @@ func TestConnectHandlerJWTAuth(t *testing.T) {
 	})
 }
 
+func TestHTTPAuthPluginRequiresEnableAuth(t *testing.T) {
+	ma := NewMultiadmin()
+	ma.grpcServer.SetAuthMode("mtls")
+
+	assert.Nil(t, ma.httpAuthPlugin(),
+		"native gRPC auth must not enable authentication on HTTP surfaces")
+
+	ma.enableAuth.Set(true)
+	assert.NotNil(t, ma.httpAuthPlugin(),
+		"--enable-auth must fail closed until the JWT plugin is resolved")
+}
+
 func TestConnectAdapterGetDatabaseNames(t *testing.T) {
 	adapter := newTestAdapter(t)
 	resp, err := adapter.GetDatabaseNames(t.Context(), connect.NewRequest(&multiadminpb.GetDatabaseNamesRequest{}))

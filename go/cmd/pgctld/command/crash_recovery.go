@@ -102,6 +102,20 @@ func (s *PgCtldService) runCrashRecoveryInDir(
 	r *retry.Retry,
 ) error {
 	logger := s.logger
+	dataDir := s.pgConfig.PostgresDataDir
+
+	// Never disturb a live postmaster. The standby.signal removal below opens a
+	// window in which the file is absent; a postmaster that is running — or still
+	// mid-startup after a Start whose success was misreported — can observe that
+	// absence and finish recovery as a primary on a timeline it must not claim.
+	// Callers gate this path on a stopped node; this is the last-line guard for
+	// the residual race where a postmaster appears between that check and here.
+	// A running node needs no crash recovery, so skipping is also the correct no-op.
+	if isPostgreSQLRunning(dataDir) {
+		logger.InfoContext(ctx, "skipping crash recovery: postgres is running", "data_dir", dataDir)
+		return nil
+	}
+
 	signalPath := s.standbySignalPath()
 	if _, err := os.Stat(signalPath); err == nil {
 		logger.InfoContext(ctx, "temporarily removing standby.signal for single-user crash recovery",

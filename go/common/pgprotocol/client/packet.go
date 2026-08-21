@@ -98,12 +98,7 @@ func (c *Conn) returnOutboundBuffer() {
 
 // readMessage reads a complete message (type, length, body).
 func (c *Conn) readMessage() (byte, []byte, error) {
-	msgType, err := c.readMessageType()
-	if err != nil {
-		return 0, nil, err
-	}
-
-	bodyLen, err := c.readMessageLength()
+	msgType, bodyLen, err := c.readMessageHeader()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -114,6 +109,23 @@ func (c *Conn) readMessage() (byte, []byte, error) {
 	}
 
 	return msgType, body, nil
+}
+
+// readMessageHeader reads a PostgreSQL message's type and length, leaving the
+// reader positioned at the first byte of the message body. Keeping this split
+// from readMessageBody lets callers stream large opaque message bodies without
+// first allocating a buffer for the complete message.
+func (c *Conn) readMessageHeader() (byte, int, error) {
+	msgType, err := c.readMessageType()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	bodyLen, err := c.readMessageLength()
+	if err != nil {
+		return 0, 0, err
+	}
+	return msgType, bodyLen, nil
 }
 
 // ReadRawMessage reads a single protocol message (type byte + body).

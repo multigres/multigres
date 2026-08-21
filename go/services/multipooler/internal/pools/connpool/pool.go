@@ -895,12 +895,20 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 // socket in place. A fresh PostgreSQL session starts clean, so desired must be
 // applied successfully before the pooled slot can be handed to the caller or
 // returned to a settings bucket.
+//
+// The temp_buffers freeze gets the same treatment as a stale socket: a backend
+// whose FAILED temp statement latched local buffers (the latch is not
+// transactional, so the failure-path recycle keeps it untainted — see
+// mterrors.IsTempBuffersFreeze) rejects any later SET temp_buffers replay for
+// the life of the process. The slot is checkout-time with no client work yet,
+// so replacing the backend and reapplying is safe and the borrower never sees
+// the error.
 func (pool *Pool[C]) applySettingsWithReconnect(ctx context.Context, conn *Pooled[C], desired *connstate.Settings) error {
 	err := conn.Conn.ApplySettings(ctx, desired)
 	if err == nil {
 		return nil
 	}
-	if !mterrors.IsConnectionError(err) {
+	if !mterrors.IsConnectionError(err) && !mterrors.IsTempBuffersFreeze(err) {
 		conn.Close()
 		pool.closedConn()
 		return err
