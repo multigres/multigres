@@ -106,7 +106,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 		},
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to find affected replica")
@@ -150,7 +150,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no consensus leader known")
@@ -227,7 +227,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported problem code")
@@ -327,7 +327,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 	require.NoError(t, err)
 
 	// Verify SetPrimary was called on the replica, NOT SetPrimaryConnInfo.
@@ -441,7 +441,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// Should succeed without calling SetPrimaryConnInfo (already configured)
 	require.NoError(t, err)
@@ -565,7 +565,7 @@ func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// The null-LSN guard treats the first poll as not-yet-replicating, so
 	// Execute proceeds to call SetPrimary (fixNotReplicating path).
@@ -746,7 +746,7 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// Should succeed: the fix was re-run despite primary_conninfo being set
 	require.NoError(t, err)
@@ -888,7 +888,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// SetPrimary configured the replica but the WAL receiver never reached
 	// "streaming", so verifyReplicationStarted fails and the action returns an

@@ -33,7 +33,7 @@ func TestAlertOnlyAction(t *testing.T) {
 	}
 
 	// Execute is a no-op: it records the problem and never errors or mutates state.
-	require.NoError(t, a.Execute(t.Context(), problem))
+	require.NoError(t, a.Execute(t.Context(), types.RecheckedProblem{Problem: problem}))
 
 	require.Equal(t, "AlertOnly", a.Metadata().Name)
 	require.False(t, a.RequiresHealthyLeader())

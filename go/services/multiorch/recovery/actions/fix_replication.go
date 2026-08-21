@@ -105,7 +105,8 @@ func NewFixReplicationAction(
 }
 
 // Execute performs replication fix for a replica that is not replicating.
-func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing fix replication action",
 		"shard_key", problem.ShardKey.String(),
 		"pooler", problem.PoolerID.Name,
