@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
@@ -49,6 +50,34 @@ const (
 	// remainder is truncated, so a smaller buffer may provide no margin at all.
 	pgIsReadyDeadlineBuffer = 1 * time.Second
 )
+
+// crossUserStatusReported tracks whether the "local process check was
+// inconclusive" condition has already been logged, so a persistent
+// misconfiguration costs one line instead of one per poll (multipooler's
+// monitor polls Status every few seconds).
+//
+// Deliberately a transition flag rather than a sync.Once: pgUnknown also covers
+// a malformed postmaster.pid, which postgres can momentarily present while
+// rewriting the file at startup. A sync.Once would let that blip consume the
+// only warning the process ever emits, permanently silencing a genuine
+// cross-user misconfiguration that arises later — or one that recurs after an
+// operator fixes and then re-breaks the pidfile's permissions. Clearing the
+// flag whenever the condition is absent re-arms the warning. Mirrors
+// setMonitorReason in the multipooler manager.
+var crossUserStatusReported atomic.Bool
+
+// noteCrossUserStatus logs the unreadable-postmaster.pid condition when it
+// first appears and stays quiet while it persists, re-arming once it clears.
+func noteCrossUserStatus(ctx context.Context, logger *slog.Logger, dataDir string, active bool) {
+	if !active {
+		crossUserStatusReported.Store(false)
+		return
+	}
+	if crossUserStatusReported.CompareAndSwap(false, true) {
+		logger.WarnContext(ctx, "PostgreSQL is accepting connections but the local process check was inconclusive; pgctld could not read postmaster.pid, so it may be running as a different OS user than postgres. Logged once until the condition clears.", //nolint:sloglint
+			"data_dir", dataDir)
+	}
+}
 
 // StatusResult contains the result of checking PostgreSQL status
 type StatusResult struct {
@@ -114,33 +143,74 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 		Port:    config.Port,
 	}
 
-	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	// Determine liveness. The local process check (postmaster.pid + signal) is a
+	// cheap fast path, but it cannot always reach a verdict: pgctld may be unable
+	// to read postmaster.pid, or may catch it mid-rewrite. Only that inconclusive
+	// case falls back to a connectivity probe — a readable PGDATA that reports no
+	// postmaster is authoritative, so a genuinely stopped server is reported
+	// stopped without paying for a probe on every poll.
+
+	// crossUser records whether this call had to trust the connectivity probe
+	// alone. Updated on every return path, so the warning below fires on the
+	// transition into that state and re-arms when it clears.
+	crossUser := false
+	defer func() { noteCrossUserStatus(ctx, logger, config.PostgresDataDir, crossUser) }()
+
+	liveness, pid := postgresLiveness(config.PostgresDataDir)
+	switch liveness {
+	case pgAlive:
+		// Process exists — verify it is actually accepting connections.
+		// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
+		// is treated as not running so that multipooler and multiorch can detect
+		// the failure and trigger recovery rather than waiting indefinitely.
+		if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+			result.Status = statusStopped
+			result.Message = "PostgreSQL process exists but is not accepting connections"
+			return result, nil
+		}
+		result.PID = pid
+	case pgDown:
 		result.Status = statusStopped
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
-	}
-
-	// Process exists — verify it is actually accepting connections.
-	// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
-	// is treated as not running so that multipooler and multiorch can detect
-	// the failure and trigger recovery rather than waiting indefinitely.
-	if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
-		result.Status = statusStopped
-		result.Message = "PostgreSQL process exists but is not accepting connections"
-		return result, nil
+	default:
+		// pgUnknown, and any liveness value added later that this switch does not
+		// understand: postmaster.pid could not be read, so process ownership
+		// tells us nothing. Connectivity is authoritative here — if PostgreSQL
+		// accepts connections it is running, whoever owns the postmaster.
+		// Deliberately the default rather than a separate `case pgUnknown`, so an
+		// unhandled state can never fall through to RUNNING without a probe ever
+		// having been run.
+		//
+		// Scope, precisely: this covers an unreadable or torn postmaster.pid —
+		// PGDATA traversable but the pidfile 0600 and owned by postgres, or a
+		// pidfile caught mid-rewrite during startup. It does NOT cover a PGDATA
+		// pgctld cannot traverse at all, even though that is the default
+		// PostgreSQL layout (PGDATA 0700). os.Stat needs only search permission
+		// on the parent directories, so pgctld.IsDataDirInitialized succeeds in
+		// the first regime and fails with EACCES in the second — and both entry
+		// points into this function are gated on it (the Status RPC returns
+		// NOT_INITIALIZED, the CLI's PreRunE errors out), so the untraversable
+		// case is intercepted before it can arrive here.
+		//
+		// That gate predates this branch and is worth fixing separately: a
+		// NOT_INITIALIZED reply sets dirInitialized=false in multipooler's
+		// monitor, and determinePostgresNotRunningAction then chooses
+		// remedialActionRestoreFromBackup when backups exist — restoring over a
+		// postgres that is running perfectly well and merely unreadable.
+		if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+			result.Status = statusStopped
+			result.Message = "PostgreSQL server is stopped"
+			return result, nil
+		}
+		// result.PID stays 0: postmaster.pid is exactly what we could not read,
+		// and re-reading it here would only fail again.
+		crossUser = true
 	}
 
 	// Server is running and accepting connections
 	result.Status = statusRunning
 	result.Message = "PostgreSQL server is running"
-
-	// Get PID if running
-	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
-		result.PID = pid
-	} else {
-		logger.WarnContext(ctx, "could not read postmaster PID", "error", err)
-	}
 
 	// Get server version if possible
 	result.Version = getServerVersionWithConfig(ctx, config)
