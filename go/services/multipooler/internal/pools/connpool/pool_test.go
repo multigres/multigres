@@ -68,6 +68,10 @@ func (m *mockConnection) ResetAllSettings(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockConnection) PurgePreparedAliases(context.Context) error {
+	return nil
+}
+
 func newTestPool(capacity int64) *Pool[*mockConnection] {
 	pool := NewPool[*mockConnection](context.Background(), &Config{
 		Name:         "test",

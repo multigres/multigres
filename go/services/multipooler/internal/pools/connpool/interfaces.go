@@ -44,4 +44,11 @@ type Connection interface {
 	// ResetAllSettings resets the connection to a clean state with no settings.
 	// This executes RESET ALL to clear all session variables at once.
 	ResetAllSettings(ctx context.Context) error
+
+	// PurgePreparedAliases closes every client-visible prepared-statement
+	// alias materialized on this backend (SQL PREPARE names shipped for
+	// server-side dynamic EXECUTE). The pool calls it on borrow so no
+	// client-visible name from a previous session survives into a new one;
+	// pooler-internal consolidated statements (ppstmt*) are deliberately kept.
+	PurgePreparedAliases(ctx context.Context) error
 }

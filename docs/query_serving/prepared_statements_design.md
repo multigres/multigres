@@ -259,7 +259,7 @@ Parse there before the conn is registered. Both the empty-settings and
 non-empty-settings cases benefit. See `connection_pooling.md` for the
 underlying primitive.
 
-### Scope and Known Limitation
+### Scope
 
 This rewrite handles **SQL-level** wrapped EXECUTE reachable via the
 PostgreSQL grammar:
@@ -268,13 +268,54 @@ PostgreSQL grammar:
 - `CREATE [TEMP] TABLE t AS EXECUTE p [(params)]`
 - `EXPLAIN [options] CREATE [TEMP] TABLE t AS EXECUTE p [(params)]`
 
-It does **not** handle EXECUTE reached through PL/pgSQL dynamic SQL
-(e.g. `EXECUTE format('explain execute %s', ...)` inside a server-side
-function like `explain_filter` or `explain_parallel_append`). Those cases
-run entirely on the backend session, which only sees the outer `SELECT`
-that invokes the function — the gateway never parses the wrapped EXECUTE
-and therefore cannot rewrite it. PostgreSQL's own `pg_regress` suite
-exercises this pattern heavily (e.g. `explain.sql`, `partition_prune.sql`
-parallel-append tests); those tests continue to fail until multigres
-supports pushing SQL-level PREPARE down to a backend session, which is a
-separate architectural change.
+It does not reach EXECUTE issued through PL/pgSQL dynamic SQL (e.g.
+`EXECUTE format('explain execute %s', ...)` inside a server-side function
+like `explain_filter` or `explain_parallel_append`). Those run entirely on
+the backend session, which only sees the outer `SELECT` that invokes the
+function, so there is no wrapped EXECUTE for the gateway to parse. Prepared
+statement aliases cover that case instead.
+
+## Prepared Statement Aliases
+
+Rewriting a name only works when the gateway can see the name. For
+server-side dynamic SQL it cannot, so the backend must already carry the
+client's prepared statement under the name the client used. Aliases
+reconcile that namespace onto whichever backend serves the session's next
+query.
+
+### What Becomes an Alias
+
+Only names introduced by **SQL-level `PREPARE`** become aliases. The
+planner registers one via `MarkSQLPreparedStatementAlias` after the
+statement has been parsed and described successfully, and
+`LogicalPreparedStatements(connID)` returns the resulting set.
+
+Names created by protocol-level Parse stay gateway-local. They are not part
+of the SQL namespace the client wrote, so materializing them on a backend
+would expose statements the session never named in SQL.
+
+### Reconciliation
+
+`attachPreparedStatementAliases` puts the session's complete alias set on
+`ExecuteOptions.prepared_statement_aliases` for every routed query and
+portal execute. On the multipooler, `reconcilePreparedAliases` makes the
+selected backend match that set before the query runs: it closes entries
+whose body or parameter types have drifted, parses the ones that are
+missing, and closes any pooler-internal (`ppstmt*`) statement occupying a
+name an alias needs. Physical names never cross the gateway boundary, so a
+collision resolves in favour of the client-visible name — see
+`materializeExecuteSQLPreparedStatement`.
+
+Because reconciliation targets whichever backend was selected, a session
+that moves between pooled backends re-parses its alias namespace on each
+new one. The cost scales with the number of live `PREPARE`s, paid once per
+backend per session.
+
+### Dormant Aliases
+
+A `PREPARE` can outlive the objects its body references. When such an alias
+fails to parse on a newly selected backend, reconciliation logs it and
+continues rather than failing the unrelated query that happened to trigger
+the switch. If dynamic SQL later executes that name, PostgreSQL reports its
+own missing-statement error, which is the diagnostic the client would
+expect anyway.
