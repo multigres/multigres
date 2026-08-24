@@ -251,8 +251,8 @@ var gatewayProbeTimeout = 1 * time.Second
 // filterReachableGateways drops gateways whose grpc address does not accept a
 // TCP connection within gatewayProbeTimeout. Probes run concurrently, so the
 // caller waits at most ~one timeout regardless of gateway count.
-// ponytail: request-time probe to hide stale registrations from dead pods;
-// delete once lease-backed registration (MUL-1311) makes records self-expire.
+// TODO(MUL-1311): request-time probe to hide stale registrations from dead
+// pods; delete once lease-backed registration makes records self-expire.
 func filterReachableGateways(gateways []*clustermetadatapb.Multigateway) []*clustermetadatapb.Multigateway {
 	alive := make([]bool, len(gateways))
 	var wg sync.WaitGroup
