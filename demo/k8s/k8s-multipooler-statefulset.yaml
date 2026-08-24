@@ -130,6 +130,10 @@ spec:
             - --pgbackrest-ca-file=/certs/ca.crt
             - --pgbackrest-port=8432
             - --pprof-http=true
+            # Logical-slot failover (PR #1394): admit non-temporary failover
+            # slots and enable per-follower physical slots, primary_slot_name,
+            # synchronized_standby_slots, wal_level=logical, hot_standby_feedback.
+            - --enable-slot-based-replication=true
           ports:
             - containerPort: 16000
               name: http
@@ -159,6 +163,14 @@ spec:
             - name: host-data
               mountPath: /data
               subPathExpr: $(POD_NAME)
+            # macOS/kind fix: the postgres unix socket lives at
+            # /data/pg_sockets, but on Docker Desktop the hostPath /data is a
+            # virtiofs mount that rejects fchmod on socket files ("could not
+            # set permissions ... Invalid argument"). Overlay just the socket
+            # dir with a pod-local emptyDir (real Linux fs) shared by both
+            # containers so postgres can create its socket.
+            - name: pg-sockets
+              mountPath: /data/pg_sockets
             # certs and backup-data must be common for all pods.
             - name: certs
               mountPath: /certs
@@ -221,6 +233,10 @@ spec:
             - name: host-data
               mountPath: /data
               subPathExpr: $(POD_NAME)
+            # macOS/kind fix: pod-local emptyDir for the postgres unix socket
+            # (see the multipooler container above for why).
+            - name: pg-sockets
+              mountPath: /data/pg_sockets
             - name: certs
               mountPath: /certs
             - name: backup-data
@@ -253,6 +269,10 @@ spec:
           hostPath:
             path: /data
             type: DirectoryOrCreate
+        # Pod-local socket dir (see volumeMounts above): keeps the postgres
+        # unix socket off the macOS-backed hostPath so socket creation works.
+        - name: pg-sockets
+          emptyDir: {}
         - name: certs-secret
           secret:
             secretName: pgbackrest-tls

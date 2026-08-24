@@ -75,7 +75,8 @@ func NewShardInitAction(
 }
 
 // Execute performs the initial cohort establishment for a bootstrapped shard.
-func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *ShardInitAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing shard init action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,

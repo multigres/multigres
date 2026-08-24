@@ -380,6 +380,16 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
    */
   passfile = "";
 
+  /**
+   * Database name for the replication connection (dbname=). Required by the
+   * PostgreSQL 17 slot-sync worker, which opens an ordinary SQL connection to
+   * the primary to synchronize failover slots; ignored by physical streaming
+   * replication.
+   *
+   * @generated from field: string dbname = 7;
+   */
+  dbname = "";
+
   constructor(data?: PartialMessage<PrimaryConnInfo>) {
     super();
     proto3.util.initPartial(data, this);
@@ -394,6 +404,7 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
     { no: 4, name: "application_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "raw", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "passfile", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "dbname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrimaryConnInfo {
@@ -1044,6 +1055,24 @@ export class Status extends Message<Status> {
    */
   postgresReady = false;
 
+  /**
+   * Failover logical replication slots on this node: failover_slots_ready is the
+   * number that are failover-ready (synced, not temporary, not invalidated) and
+   * failover_slots_total is how many exist. Populated only when slot-based
+   * replication is enabled; both zero otherwise. Multiorch uses
+   * failover_slots_ready as a tiebreaker among equally-WAL-advanced promotion
+   * candidates, so a failover prefers a node that keeps the most subscribers
+   * resumable.
+   *
+   * @generated from field: int32 failover_slots_ready = 15;
+   */
+  failoverSlotsReady = 0;
+
+  /**
+   * @generated from field: int32 failover_slots_total = 16;
+   */
+  failoverSlotsTotal = 0;
+
   constructor(data?: PartialMessage<Status>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1064,6 +1093,8 @@ export class Status extends Message<Status> {
     { no: 11, name: "postgres_action", kind: "enum", T: proto3.getEnumType(PostgresAction) },
     { no: 12, name: "postgres_action_duration", kind: "message", T: Duration },
     { no: 14, name: "postgres_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 15, name: "failover_slots_ready", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 16, name: "failover_slots_total", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Status {
@@ -2305,6 +2336,90 @@ export class ResignLeadershipResponse extends Message<ResignLeadershipResponse> 
 
   static equals(a: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined, b: ResignLeadershipResponse | PlainMessage<ResignLeadershipResponse> | undefined): boolean {
     return proto3.util.equals(ResignLeadershipResponse, a, b);
+  }
+}
+
+/**
+ * ReconcileFollowersRequest notifies the primary of the current set of
+ * cohort-eligible follower members so it can pre-create their per-follower
+ * physical replication slots ahead of streaming.
+ *
+ * This is NOT a consensus message. It does not change the consensus rule or
+ * cohort membership and carries no term/quorum semantics; it is purely a
+ * level-triggered notification, decoupled from the Recruit / Promote /
+ * UpdateConsensusRule path, that lets the current primary hold a slot ready
+ * before a follower's WAL receiver attaches. It is a declaration of intent, not
+ * a guarantee: the primary ensures a physical slot for each listed member and
+ * drops managed slots for members not listed, best-effort (e.g. it cannot
+ * create more slots than max_replication_slots allows).
+ *
+ * @generated from message multipoolermanagerdata.ReconcileFollowersRequest
+ */
+export class ReconcileFollowersRequest extends Message<ReconcileFollowersRequest> {
+  /**
+   * @generated from field: repeated clustermetadata.ID followers = 1;
+   */
+  followers: ID[] = [];
+
+  constructor(data?: PartialMessage<ReconcileFollowersRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReconcileFollowersRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "followers", kind: "message", T: ID, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileFollowersRequest {
+    return new ReconcileFollowersRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileFollowersRequest | PlainMessage<ReconcileFollowersRequest> | undefined, b: ReconcileFollowersRequest | PlainMessage<ReconcileFollowersRequest> | undefined): boolean {
+    return proto3.util.equals(ReconcileFollowersRequest, a, b);
+  }
+}
+
+/**
+ * ReconcileFollowersResponse is returned once the primary's per-follower physical
+ * slots have been reconciled to the requested set. It carries no fields.
+ *
+ * @generated from message multipoolermanagerdata.ReconcileFollowersResponse
+ */
+export class ReconcileFollowersResponse extends Message<ReconcileFollowersResponse> {
+  constructor(data?: PartialMessage<ReconcileFollowersResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReconcileFollowersResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileFollowersResponse {
+    return new ReconcileFollowersResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileFollowersResponse | PlainMessage<ReconcileFollowersResponse> | undefined, b: ReconcileFollowersResponse | PlainMessage<ReconcileFollowersResponse> | undefined): boolean {
+    return proto3.util.equals(ReconcileFollowersResponse, a, b);
   }
 }
 

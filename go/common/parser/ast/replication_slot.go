@@ -36,6 +36,17 @@ var ReplicationSlotFuncTemporaryArgIndex = map[string]int{
 	"pg_create_logical_replication_slot":  2,
 }
 
+// ReplicationSlotFuncFailoverArgIndex maps the logical slot builtin to the
+// zero-based index of its `failover` parameter:
+//
+//	pg_create_logical_replication_slot(slot_name, plugin, temporary DEFAULT false, twophase DEFAULT false, failover DEFAULT false)
+//
+// Only the logical function has one — a physical slot cannot be a logical
+// failover slot — so the physical builtin is deliberately absent.
+var ReplicationSlotFuncFailoverArgIndex = map[string]int{
+	"pg_create_logical_replication_slot": 4,
+}
+
 // FindNonTemporaryReplicationSlotCall walks stmt for a call to one of
 // ReplicationSlotFuncTemporaryArgIndex's functions whose `temporary`
 // argument is missing, non-literal, or false, and returns that function's
@@ -43,6 +54,28 @@ var ReplicationSlotFuncTemporaryArgIndex = map[string]int{
 // matching the planner's own check: a missing, bound, or non-literal
 // argument is treated the same as an explicit `false`.
 func FindNonTemporaryReplicationSlotCall(stmt Stmt) (string, bool) {
+	return findRejectableReplicationSlotCall(stmt, isTemporaryReplicationSlotCall)
+}
+
+// FindNonTemporaryNonFailoverReplicationSlotCall is like
+// FindNonTemporaryReplicationSlotCall but additionally admits a non-temporary
+// logical slot created with `failover => true`. Such a slot is safe to keep
+// persistently because multigres syncs it to the standbys and can transition
+// it across a primary failover. It returns the name of a replication-slot-
+// creating call that is neither temporary nor an admissible failover slot, or
+// ("", false) if none. Used by the multigateway replication preamble once the
+// slot-based-replication feature is enabled.
+func FindNonTemporaryNonFailoverReplicationSlotCall(stmt Stmt) (string, bool) {
+	return findRejectableReplicationSlotCall(stmt, func(name string, fc *FuncCall) bool {
+		return isTemporaryReplicationSlotCall(name, fc) || isFailoverReplicationSlotCall(name, fc)
+	})
+}
+
+// findRejectableReplicationSlotCall walks stmt for a replication-slot-creating
+// builtin that admissible reports false for, returning the first such call's
+// name. admissible receives the resolved (lower-cased, pg_catalog-stripped)
+// function name and its FuncCall and returns true when the call is allowed.
+func findRejectableReplicationSlotCall(stmt Stmt, admissible func(name string, fc *FuncCall) bool) (string, bool) {
 	if stmt == nil {
 		return "", false
 	}
@@ -56,19 +89,46 @@ func FindNonTemporaryReplicationSlotCall(stmt Stmt) (string, bool) {
 			return true
 		}
 		name := replicationSlotFuncCallName(fc.Funcname)
-		temporaryArgIndex, isReplicationSlotFunc := ReplicationSlotFuncTemporaryArgIndex[name]
-		if !isReplicationSlotFunc {
+		if _, isReplicationSlotFunc := ReplicationSlotFuncTemporaryArgIndex[name]; !isReplicationSlotFunc {
 			return true
 		}
-		if fc.Args != nil && fc.Args.Len() > temporaryArgIndex {
-			if isTemp, ok := literalBoolArg(fc.Args.Items[temporaryArgIndex]); ok && isTemp {
-				return true
-			}
+		if admissible(name, fc) {
+			return true
 		}
 		found = name
 		return false
 	}, nil)
 	return found, found != ""
+}
+
+// isTemporaryReplicationSlotCall reports whether fc's `temporary` argument is a
+// literal true. Fails closed: a missing, bound, or non-literal argument reads
+// as not-temporary.
+func isTemporaryReplicationSlotCall(name string, fc *FuncCall) bool {
+	return literalBoolArgAt(fc, ReplicationSlotFuncTemporaryArgIndex[name])
+}
+
+// isFailoverReplicationSlotCall reports whether fc's `failover` argument is a
+// literal true. Only the logical builtin has a failover parameter; for any
+// other function it returns false. Fails closed, like
+// isTemporaryReplicationSlotCall.
+func isFailoverReplicationSlotCall(name string, fc *FuncCall) bool {
+	idx, ok := ReplicationSlotFuncFailoverArgIndex[name]
+	if !ok {
+		return false
+	}
+	return literalBoolArgAt(fc, idx)
+}
+
+// literalBoolArgAt reports whether fc's argument at index idx is a literal
+// boolean true.
+func literalBoolArgAt(fc *FuncCall, idx int) bool {
+	if fc.Args != nil && fc.Args.Len() > idx {
+		if isTrue, ok := literalBoolArg(fc.Args.Items[idx]); ok && isTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // replicationSlotFuncCallName resolves a FuncCall's name for comparison

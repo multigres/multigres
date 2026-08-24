@@ -113,6 +113,31 @@ type ServEnv struct {
 	// service_map command line parameter will alter the map.
 	// Can only be used after servenv.Init has been called.
 	serviceMap map[string]bool
+
+	// authPlugin, if set, gates built-in HTTP endpoints registered directly
+	// by ServEnv (/config and /debug/pprof/*) behind whichever
+	// Authenticator the owning service's GrpcServer resolves - see
+	// SetAuthPlugin. Left nil by default: services that never call
+	// SetAuthPlugin (i.e. everything except Multiadmin today) see no change
+	// in behavior.
+	authPlugin func() Authenticator
+}
+
+// SetAuthPlugin registers an accessor for the Authenticator resolved by a
+// GrpcServer (see GrpcServer.AuthPlugin, including for why authPlugin must
+// be an accessor rather than a resolved value), so built-in ServEnv HTTP
+// endpoints such as /config and /debug/pprof/* can be gated by it too.
+func (sv *ServEnv) SetAuthPlugin(authPlugin func() Authenticator) {
+	sv.authPlugin = authPlugin
+}
+
+// resolveAuthPlugin returns the currently active Authenticator, or nil if
+// SetAuthPlugin was never called for this ServEnv.
+func (sv *ServEnv) resolveAuthPlugin() Authenticator {
+	if sv.authPlugin == nil {
+		return nil
+	}
+	return sv.authPlugin()
 }
 
 // NewServEnv creates a new ServEnv instance with the given registry
