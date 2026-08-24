@@ -830,6 +830,13 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to drop managed physical slots after demote (non-fatal)", "error", err)
 	}
+	// Likewise drop any logical failover slots this node still owns as un-synced
+	// originals from when it was primary: slot-sync cannot replace a same-named
+	// original, so it would freeze and invalidate, disqualifying this node as a
+	// failover target. Dropping them lets slot-sync recreate synced copies.
+	if err := pm.dropOrphanedFailoverSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop orphaned logical failover slots after demote (non-fatal)", "error", err)
+	}
 
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the monitor's demote path or its divergence-rewind

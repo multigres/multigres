@@ -491,6 +491,35 @@ func TestDropManagedPhysicalSlots(t *testing.T) {
 	})
 }
 
+func TestDropOrphanedFailoverSlots(t *testing.T) {
+	t.Run("no-op when disabled", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		// Nothing registered: any query would fail the mock, proving no-op.
+		require.NoError(t, pm.dropOrphanedFailoverSlots(t.Context()))
+		assert.NoError(t, m.ExpectationsWereMet())
+	})
+
+	t.Run("drops orphaned logical failover slots when enabled", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		// "synced" is unique to the orphaned-failover-slot drop query.
+		m.AddQueryPatternOnce("synced", mock.MakeQueryResult(nil, nil))
+
+		require.NoError(t, pm.dropOrphanedFailoverSlots(t.Context()))
+		assert.NoError(t, m.ExpectationsWereMet())
+	})
+
+	t.Run("propagates exec error", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		m.AddQueryPatternOnceWithError("synced", errors.New("boom"))
+
+		err := pm.dropOrphanedFailoverSlots(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to drop orphaned logical failover slots")
+	})
+}
+
 func TestReconcileFollowers(t *testing.T) {
 	t.Run("no-op when disabled", func(t *testing.T) {
 		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
