@@ -22,6 +22,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
+	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -223,6 +227,10 @@ func (s *MultiadminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 		}
 	}
 
+	if req.OnlyReachable {
+		allGateways = filterReachableGateways(allGateways)
+	}
+
 	response := &multiadminpb.GetGatewaysResponse{
 		Gateways: allGateways,
 	}
@@ -235,6 +243,44 @@ func (s *MultiadminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 
 	s.logger.DebugContext(ctx, "GetGateways request completed successfully", "count", len(allGateways)) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return response, nil
+}
+
+// gatewayProbeTimeout bounds each reachability probe. Var so tests can shrink it.
+var gatewayProbeTimeout = 1 * time.Second
+
+// filterReachableGateways drops gateways whose grpc address does not accept a
+// TCP connection within gatewayProbeTimeout. Probes run concurrently, so the
+// caller waits at most ~one timeout regardless of gateway count.
+// ponytail: request-time probe to hide stale registrations from dead pods;
+// delete once lease-backed registration (MUL-1311) makes records self-expire.
+func filterReachableGateways(gateways []*clustermetadatapb.Multigateway) []*clustermetadatapb.Multigateway {
+	alive := make([]bool, len(gateways))
+	var wg sync.WaitGroup
+	for i, gw := range gateways {
+		grpcPort, ok := gw.PortMap["grpc"]
+		if !ok {
+			continue // no grpc port registered: cannot probe, treat as stale
+		}
+		wg.Add(1)
+		go func(i int, addr string) {
+			defer wg.Done()
+			conn, err := net.DialTimeout("tcp", addr, gatewayProbeTimeout)
+			if err != nil {
+				return
+			}
+			conn.Close()
+			alive[i] = true
+		}(i, net.JoinHostPort(gw.Hostname, strconv.Itoa(int(grpcPort))))
+	}
+	wg.Wait()
+
+	reachable := make([]*clustermetadatapb.Multigateway, 0, len(gateways))
+	for i, gw := range gateways {
+		if alive[i] {
+			reachable = append(reachable, gw)
+		}
+	}
+	return reachable
 }
 
 // GetPoolers retrieves poolers filtered by cells and/or database
