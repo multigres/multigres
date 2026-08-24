@@ -200,7 +200,7 @@ func TestNonTemporaryCreateReplicationSlotError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := nonTemporaryCreateReplicationSlotError(tt.cmd)
+			err := nonTemporaryCreateReplicationSlotError(tt.cmd, false)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires TEMPORARY")
@@ -209,6 +209,131 @@ func TestNonTemporaryCreateReplicationSlotError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNonTemporaryCreateReplicationSlotError_Failover covers the command-form
+// guard once the slot-based-replication feature admits failover slots: a
+// non-temporary LOGICAL slot registered for failover is accepted, everything
+// else non-temporary is still rejected, and admitting is gated on the flag.
+func TestNonTemporaryCreateReplicationSlotError_Failover(t *testing.T) {
+	tests := []struct {
+		name          string
+		cmd           string
+		admitFailover bool
+		wantErr       bool
+	}{
+		// The exact command a real PostgreSQL 17 subscriber sends for
+		// CREATE SUBSCRIPTION ... WITH (failover = true); see
+		// go/test/endtoend/subscriptionwire.
+		{"real subscriber failover form admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER, SNAPSHOT 'nothing')", true, false},
+		{"bare FAILOVER admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", true, false},
+		{"FAILOVER glued to plugin admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput(FAILOVER)", true, false},
+		{"TWO_PHASE before FAILOVER admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (TWO_PHASE, FAILOVER)", true, false},
+		{"failover rejected when feature disabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", false, true},
+		{"non-failover logical rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput", true, true},
+		{"physical rejected when enabled", "CREATE_REPLICATION_SLOT s1 PHYSICAL", true, true},
+		{"explicit FAILOVER false rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER 'false')", true, true},
+		{"explicit FAILOVER off rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER off)", true, true},
+		{"temporary still accepted when enabled", "CREATE_REPLICATION_SLOT s1 TEMPORARY LOGICAL pgoutput", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := nonTemporaryCreateReplicationSlotError(tt.cmd, tt.admitFailover)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires TEMPORARY")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestNonTemporaryReplicationSlotSQLFuncError_Failover covers the SQL-function
+// guard (pg_create_logical_replication_slot on a replication connection) with
+// the failover argument, mirroring the command-form guard.
+func TestNonTemporaryReplicationSlotSQLFuncError_Failover(t *testing.T) {
+	tests := []struct {
+		name          string
+		cmd           string
+		admitFailover bool
+		wantErr       bool
+	}{
+		{"logical failover admitted when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', false, false, true)", true, false},
+		{"logical failover rejected when disabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', false, false, true)", false, true},
+		{"logical non-failover rejected when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', false, false, false)", true, true},
+		{"logical defaulted (no failover arg) rejected when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput')", true, true},
+		{"logical temporary accepted when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', true)", true, false},
+		{"physical rejected when enabled", "SELECT pg_create_physical_replication_slot('s')", true, true},
+		{"physical temporary accepted when enabled", "SELECT pg_create_physical_replication_slot('s', false, true)", true, false},
+		{"non-slot SQL passes through", "SELECT 1", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := nonTemporaryReplicationSlotSQLFuncError(tt.cmd, tt.admitFailover)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestCreateReplicationSlotHasFailover exercises the option-list tokenizer that
+// backs the command-form guard. Token slices are what strings.Fields produces
+// for the text after the LOGICAL keyword.
+func TestCreateReplicationSlotHasFailover(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens []string
+		want   bool
+	}{
+		{"real subscriber form", []string{"pgoutput", "(FAILOVER,", "SNAPSHOT", "'nothing')"}, true},
+		{"bare failover", []string{"pgoutput", "(FAILOVER)"}, true},
+		{"glued to plugin", []string{"pgoutput(FAILOVER)"}, true},
+		{"failover true quoted", []string{"pgoutput", "(FAILOVER", "'true')"}, true},
+		{"two_phase then failover", []string{"pgoutput", "(TWO_PHASE,", "FAILOVER)"}, true},
+		{"failover false quoted", []string{"pgoutput", "(FAILOVER", "'false')"}, false},
+		{"failover off unquoted", []string{"pgoutput", "(FAILOVER", "off)"}, false},
+		{"no options", []string{"pgoutput"}, false},
+		{"other options only", []string{"pgoutput", "(TWO_PHASE,", "SNAPSHOT", "'use')"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, createReplicationSlotHasFailover(tt.tokens))
+		})
+	}
+}
+
+// TestRunReplicationPreamble_AdmitsFailoverSlotWhenEnabled drives a real
+// PG17-style failover CREATE_REPLICATION_SLOT through the preamble with the
+// feature on, and confirms it is forwarded to the pooler (not rejected) and
+// streaming begins.
+func TestRunReplicationPreamble_AdmitsFailoverSlotWhenEnabled(t *testing.T) {
+	var clientInput bytes.Buffer
+	writeQueryMessage(&clientInput, `CREATE_REPLICATION_SLOT "sub_orders" LOGICAL pgoutput (FAILOVER, SNAPSHOT 'nothing')`)
+	writeQueryMessage(&clientInput, "START_REPLICATION SLOT sub_orders LOGICAL 0/0")
+
+	createSlotResp := bytes.Join([][]byte{
+		frameMessage(protocol.MsgCommandComplete, []byte("CREATE_REPLICATION_SLOT\x00")),
+		frameMessage(protocol.MsgReadyForQuery, []byte{'I'}),
+	}, nil)
+	startReplResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+
+	stream := &scriptedReplStream{
+		ctx:       context.Background(),
+		responses: [][]byte{createSlotResp, startReplResp},
+	}
+	testConn := server.NewTestConn(&clientInput)
+
+	streaming, _, err := runReplicationPreamble(testConn.Conn, stream, true)
+	require.NoError(t, err)
+	assert.True(t, streaming)
+
+	// The failover CREATE_REPLICATION_SLOT was relayed to the pooler verbatim.
+	require.Len(t, stream.sentRaw, 2)
+	assert.Contains(t, string(stream.sentRaw[0]), "FAILOVER")
 }
 
 // TestRunReplicationPreamble_HappyPath drives IDENTIFY_SYSTEM ->
@@ -242,7 +367,7 @@ func TestRunReplicationPreamble_HappyPath(t *testing.T) {
 	}
 
 	testConn := server.NewTestConn(&clientInput)
-	streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+	streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 	require.NoError(t, err)
 	assert.True(t, streaming)
 	assert.Empty(t, leftover)
@@ -274,7 +399,7 @@ func TestRunReplicationPreamble_ReturnsLeftoverAfterCopyBothResponse(t *testing.
 	}
 
 	testConn := server.NewTestConn(&clientInput)
-	streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+	streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 	require.NoError(t, err)
 	assert.True(t, streaming)
 	assert.Equal(t, extra, leftover)
@@ -295,7 +420,7 @@ func TestRunReplicationPreamble_RejectsNonTemporarySlot(t *testing.T) {
 	stream := &scriptedReplStream{ctx: context.Background()}
 	testConn := server.NewTestConn(&clientInput)
 
-	streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+	streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 	require.Error(t, err)
 	assert.False(t, streaming)
 	assert.Nil(t, leftover)
@@ -339,7 +464,7 @@ func TestRunReplicationPreamble_RejectsSQLFunctionSlotCreation(t *testing.T) {
 			}
 			testConn := server.NewTestConn(&clientInput)
 
-			streaming, _, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+			streaming, _, err := runReplicationPreamble(testConn.Conn, stream, false)
 			assert.False(t, streaming)
 			if !tt.wantErr {
 				require.NoError(t, err)
@@ -361,7 +486,7 @@ func TestRunReplicationPreamble_CleanEOF(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	stream := &scriptedReplStream{ctx: context.Background()}
 
-	streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+	streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 	require.NoError(t, err)
 	assert.False(t, streaming)
 	assert.Nil(t, leftover)
@@ -376,7 +501,7 @@ func TestRunReplicationPreamble_ClientTerminate(t *testing.T) {
 	stream := &scriptedReplStream{ctx: context.Background()}
 	testConn := server.NewTestConn(&clientInput)
 
-	streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+	streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 	require.NoError(t, err)
 	assert.False(t, streaming)
 	assert.Nil(t, leftover)
@@ -413,7 +538,7 @@ func TestRunReplicationPreamble_RejectsExtendedProtocol(t *testing.T) {
 			stream := &scriptedReplStream{ctx: context.Background()}
 			testConn := server.NewTestConn(&clientInput)
 
-			streaming, leftover, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+			streaming, leftover, err := runReplicationPreamble(testConn.Conn, stream, false)
 			require.Error(t, err)
 			assert.False(t, streaming)
 			assert.Nil(t, leftover)

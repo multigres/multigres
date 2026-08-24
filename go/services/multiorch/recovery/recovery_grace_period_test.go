@@ -33,7 +33,7 @@ type mockActionWithGracePeriod struct {
 	gracePeriod *types.GracePeriodConfig
 }
 
-func (m *mockActionWithGracePeriod) Execute(ctx context.Context, problem types.Problem) error {
+func (m *mockActionWithGracePeriod) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	return nil
 }
 

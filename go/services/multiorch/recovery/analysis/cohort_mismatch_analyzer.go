@@ -92,7 +92,31 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 		// Removal candidates: current cohort members signaling INELIGIBLE.
 		if _, inCohort := cohortIDs[key]; inCohort {
 			seen[key] = struct{}{}
-			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
+			// Unlike a tombstoned member, an INELIGIBLE one is still an
+			// active cohort voter until removed — gate on
+			// IsCohortMemberRemovalSafe the same way the missing-from-cache
+			// case below does, so removal doesn't leave the shard unable to
+			// survive a subsequent leader failure. Deferred every cycle
+			// until another member makes it safe.
+			//
+			// A permanently-broken INELIGIBLE member can therefore never be
+			// removed from a standard 3-node AT_LEAST_N(2) shard. Intentional
+			// for now: relaxing this needs a fallback that can still recruit
+			// an "ineligible" member for quorum in a genuine emergency
+			// (design not yet built) — without it, removing this gate risks
+			// stranding the shard on the next real leader failure.
+			//
+			// This check isn't capped to one removal per cycle the way the
+			// missing-from-cache path below is: multiple INELIGIBLE members
+			// each get their own problem, all checked against the same
+			// current rule. ReconcileCohortAction trusts this verdict as-is
+			// (it CASes on the same rule the engine's recheck re-verified
+			// this problem against, rather than re-deriving safety itself),
+			// and UpdateConsensusRule's compare-and-swap means only one
+			// removal lands per cycle regardless — the rest fail the CAS and
+			// retry next cycle against the now-changed cohort.
+			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
+				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",

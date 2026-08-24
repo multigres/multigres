@@ -73,7 +73,7 @@ func (h *MultigatewayHandler) HandleReplicationStream(ctx context.Context, conn 
 	// before the pooler/postgres ever see it. Runs on the still-attached
 	// client socket — any rejection error has already been surfaced to the
 	// client as an ErrorResponse inside the preamble.
-	streaming, leftover, err := runReplicationPreamble(ctx, conn, stream)
+	streaming, leftover, err := runReplicationPreamble(conn, stream, h.admitsFailoverSlots())
 	if err != nil {
 		return err
 	}

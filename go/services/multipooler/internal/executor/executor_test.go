@@ -224,6 +224,7 @@ func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfi
 func (m *stubPoolManager) Close()                                                  {}
 func (m *stubPoolManager) CloseForReopen()                                         {}
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
+func (m *stubPoolManager) PgDatabase() string                                      { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
 func (m *stubPoolManager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 	if m.adminErr != nil {

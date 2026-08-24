@@ -472,14 +472,19 @@ func (pm *MultipoolerManager) expectedPrimaryConnInfo(target *clustermetadatapb.
 // to follow the primary at (host, port) from the authoritative inputs: the
 // replication user (connPoolMgr.PgUser(), falling back to the default superuser
 // before the pool manager exists), this pooler's application_name
-// (servicePoolerID), and the pgpass path (pgpassFilePath(), the ONLY read of
+// (servicePoolerID), the database (connPoolMgr.PgDatabase(), the default postgres
+// database before the pool manager exists), and the pgpass path (pgpassFilePath(), the ONLY read of
 // pgpassPath). Both the write path (setPrimaryConnInfoLocked) and the drift
 // check assemble their value here, so there is one source of truth for what the
 // conninfo should contain.
 func (pm *MultipoolerManager) expectedPrimaryConnInfoAt(host string, port int32) *multipoolermanagerdatapb.PrimaryConnInfo {
 	user := constants.DefaultPostgresUser
+	dbname := constants.DefaultPostgresDatabase
 	if pm.connPoolMgr != nil {
 		user = pm.connPoolMgr.PgUser()
+		if db := pm.connPoolMgr.PgDatabase(); db != "" {
+			dbname = db
+		}
 	}
 	return &multipoolermanagerdatapb.PrimaryConnInfo{
 		Host:            host,
@@ -487,6 +492,7 @@ func (pm *MultipoolerManager) expectedPrimaryConnInfoAt(host string, port int32)
 		User:            user,
 		ApplicationName: pm.servicePoolerID.AppName(),
 		Passfile:        pm.pgpassFilePath(),
+		Dbname:          dbname,
 	}
 }
 
@@ -500,7 +506,7 @@ func connInfoPointsAt(actual *multipoolermanagerdatapb.PrimaryConnInfo, host str
 
 // connInfoDrifted reports whether the live primary_conninfo (actual) differs
 // from what this pooler should have (expected) in ANY managed field: host, port,
-// user, application_name, and passfile. This is the single comparison site — a
+// user, application_name, passfile, and dbname. This is the single comparison site — a
 // field added to the builder (buildPrimaryConnInfo) and to expectedPrimaryConnInfo
 // must be compared here too or the round-trip test fails.
 //
@@ -528,6 +534,11 @@ func connInfoDrifted(actual, expected *multipoolermanagerdatapb.PrimaryConnInfo)
 		return true
 	}
 	if expected.GetPassfile() != "" && actual.GetPassfile() != expected.GetPassfile() {
+		return true
+	}
+	// dbname uses the same "only flag drift we can fix" guard as passfile: an
+	// empty expected dbname means "nothing to reconcile toward yet".
+	if expected.GetDbname() != "" && actual.GetDbname() != expected.GetDbname() {
 		return true
 	}
 	return false

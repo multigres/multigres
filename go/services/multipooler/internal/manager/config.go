@@ -36,6 +36,11 @@ type Config struct {
 	ConsensusEnabled             bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
 	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	// SlotBasedReplicationEnabled reads whether slot-based physical replication is
+	// enabled. It is a getter (not a bool) so the value is read live: the backing
+	// flag is dynamic and reloadable at runtime. Nil reads as disabled (see
+	// MultipoolerManager.slotBasedReplicationEnabled).
+	SlotBasedReplicationEnabled func() bool
 
 	// StandbyStuckDivergenceThreshold is how long a standby must stay unable to
 	// stream from its correctly-recorded leader before the monitor concludes its
