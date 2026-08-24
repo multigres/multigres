@@ -20,15 +20,11 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// The QueryAdmin* methods are the InternalQueryService access path for the
-// locked-down multigres sidecar schema. They share the run* helpers with the
-// regular Query* methods and differ only in the borrower: they run on the admin
-// pool, which authenticates as the true PostgreSQL superuser. The multigres
-// schema is created and owned by that superuser and is not reachable by customer
-// roles through their per-user regular pool (they get only USAGE on the schema
-// and SELECT on multigres.backend_vpid), so any internal read/write of a
-// multigres.* table must go through these methods or it would fail once the
-// regular pool's role is not the schema owner.
+// The QueryAdmin* methods are the InternalQueryService access path for recovery
+// probes that must bypass saturated user pools and for the locked-down multigres
+// sidecar schema. They share the run* helpers with the regular Query* methods and
+// differ only in the borrower: they run on the admin pool, which authenticates
+// as the true PostgreSQL superuser.
 
 // borrowAdmin borrows a connection from the admin (true-superuser) pool.
 func (e *Executor) borrowAdmin(ctx context.Context) (pooledQueryConn, func(), error) {

@@ -517,8 +517,8 @@ func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...
 }
 
 // adminQuery executes a query on the admin (true-superuser) pool via the
-// InternalQueryService's QueryAdmin method and returns the result. Use for
-// reads/writes of the multigres sidecar schema.
+// InternalQueryService's QueryAdmin method. Use for recovery probes that must
+// bypass saturated user pools and for the multigres sidecar schema.
 func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {

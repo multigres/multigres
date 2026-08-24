@@ -33,16 +33,15 @@ var errTxFinished = errors.New("transaction already finished")
 // pools:
 //
 //   - Query / QueryArgs / QueryMultiStatement / Begin run on the regular pool (as
-//     the configured PgUser). Use for pure system queries — pg_is_in_recovery(),
-//     ALTER SYSTEM, WAL LSN reads, SELECT 1 — so the small admin pool is not
-//     exhausted by high-volume polling.
+//     the configured PgUser). Use for routine internal work that may safely share
+//     capacity with user traffic.
 //   - QueryAdmin / QueryAdminArgs / QueryAdminMultiStatement run on the admin
-//     (true-superuser) pool. Use for every read/write of the locked-down multigres
-//     sidecar schema, which is owned by the true superuser and which customer
-//     roles on the regular pool cannot reach.
+//     (true-superuser) pool. Use for control-plane recovery probes that must run
+//     when the regular pool is saturated, and for the locked-down multigres
+//     sidecar schema, which customer roles on the regular pool cannot reach.
 //
-// Choosing the pool at the call site (by method name) keeps "this touches the
-// locked-down schema" visible where the query is written.
+// Choosing the pool at the call site keeps the required isolation visible where
+// the query is written.
 type InternalQueryService interface {
 	// Query executes a query on the regular pool and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
@@ -60,7 +59,7 @@ type InternalQueryService interface {
 	QueryMultiStatement(ctx context.Context, query string) error
 
 	// QueryAdmin executes a query on the admin (true-superuser) pool and returns
-	// the single result. Use for reads/writes of the multigres sidecar schema.
+	// the single result. Use for recovery probes and the multigres sidecar schema.
 	QueryAdmin(ctx context.Context, query string) (*sqltypes.Result, error)
 
 	// QueryAdminArgs is QueryAdmin with arguments; it accepts the same Go argument
@@ -141,8 +140,8 @@ type pooledQueryConn interface {
 type connBorrower func(ctx context.Context) (conn pooledQueryConn, release func(), err error)
 
 // borrowRegular borrows a connection from the per-user regular pool as the
-// configured PgUser. We use the regular pool for system queries rather than the
-// admin pool so as not to exhaust the small admin pool.
+// configured PgUser. Routine internal work uses this path so it does not exhaust
+// the small admin pool reserved for control-plane operations.
 func (e *Executor) borrowRegular(ctx context.Context) (pooledQueryConn, func(), error) {
 	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
 	if err != nil {

@@ -68,7 +68,7 @@ import (
 func (pm *MultipoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+	result, err := pm.adminQuery(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
 		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
@@ -191,7 +191,7 @@ func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, erro
 		(SELECT timeline_id FROM pg_control_checkpoint())
 		= ('x' || substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8))::bit(32)::int
 	END`
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to query rewind-source readiness")
 	}
@@ -206,7 +206,7 @@ func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, erro
 func (pm *MultipoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
+	result, err := pm.adminQuery(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get replay LSN")
 	}
@@ -450,7 +450,7 @@ func (pm *MultipoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 func (pm *MultipoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true)")
+	result, err := pm.adminQuery(queryCtx, "SELECT current_setting('primary_conninfo', true)")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to read primary_conninfo")
 	}
