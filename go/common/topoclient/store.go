@@ -185,7 +185,6 @@ type CellStore interface {
 	UnregisterMultigateway(ctx context.Context, id *clustermetadatapb.ID) error
 	RegisterMultigateway(ctx context.Context, multigateway *clustermetadatapb.Multigateway, allowUpdate bool) error
 	ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error
-	ReleaseGatewayPrefix(ctx context.Context, prefix uint32) error
 
 	// Multiorch CRUD operations
 	GetMultiorch(ctx context.Context, id *clustermetadatapb.ID) (*MultiorchInfo, error)

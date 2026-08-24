@@ -91,8 +91,10 @@ func TestClaimUnusedPrefix_AvoidsRecordAdvertisedPrefixes(t *testing.T) {
 
 // TestClaimGatewayPrefix_TheftDetection verifies the store-level claim
 // semantics the re-assertion path relies on: a holder refreshes its own claim
-// freely, a competitor is rejected without overwriting it, and after a
-// release the prefix is claimable again.
+// freely, a competitor is rejected without overwriting it, and once a claim
+// expires (claims are never explicitly released — lease expiry is the only
+// release path, simulated here with a direct delete) the prefix passes to
+// the next claimant and the previous holder's refresh detects the loss.
 func TestClaimGatewayPrefix_TheftDetection(t *testing.T) {
 	ctx := context.Background()
 	const cell = "zone-1"
@@ -109,8 +111,10 @@ func TestClaimGatewayPrefix_TheftDetection(t *testing.T) {
 	err := ts.ClaimGatewayPrefix(ctx, 42, idB)
 	assert.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}),
 		"competitor claim should return NodeExists, got: %v", err)
-	// After release, the competitor can claim.
-	require.NoError(t, ts.ReleaseGatewayPrefix(ctx, 42))
+	// Simulate lease expiry of A's claim; the competitor can now claim.
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err)
+	require.NoError(t, conn.Delete(ctx, topoclient.GatewayPrefixesPath+"/42", nil))
 	require.NoError(t, ts.ClaimGatewayPrefix(ctx, 42, idB))
 	// And the previous holder's refresh now fails — this is how a gateway
 	// discovers its claim was lost after an expiry.

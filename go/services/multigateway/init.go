@@ -472,16 +472,12 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 			}
 			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
 		},
-		func(ctx context.Context) error {
-			// Release the prefix before deleting the record: the release
-			// tolerates NoNode, so a retry after a partial failure still
-			// reaches it, whereas the record delete's NoNode ends the
-			// caller's retry loop as success.
-			if err := mg.ts.ReleaseGatewayPrefix(ctx, multigateway.PidPrefix); err != nil {
-				return err
-			}
-			return mg.ts.UnregisterMultigateway(ctx, multigateway.Id)
-		},
+		// The prefix claim is deliberately NOT released here: lease expiry
+		// is its only release path, so a gateway can never delete a claim
+		// that has passed to another gateway (e.g. when a prefix-lost
+		// restart shuts this process down after a competitor legitimately
+		// claimed the prefix).
+		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
 		toporeg.WithReassert(),
 	)
 	if err != nil {

@@ -239,8 +239,13 @@ func gatewayPrefixPath(prefix uint32) string {
 // gateway holds the prefix.
 //
 // The claim is ephemeral and lives in the global topology (prefixes route
-// query-cancels across cells, so the namespace is cluster-wide). A dead
-// claimant's file expires with its connection's lease, freeing the prefix.
+// query-cancels across cells, so the namespace is cluster-wide). Claims are
+// never explicitly released: lease expiry is the only release path, so a
+// claimant can never delete a claim that has passed to another gateway, and
+// a stopped gateway's prefix frees itself within one lease TTL. Slot reuse
+// has no urgency — the pool holds 2047 prefixes and each process claims
+// exactly one.
+//
 // The claiming gateway re-asserts periodically; NodeExists on a re-assert
 // means the claim was lost to another gateway after an expiry — the caller
 // must stop treating the prefix as its own rather than retry past it.
@@ -250,22 +255,6 @@ func (ts *store) ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clus
 		return err
 	}
 	return conn.ClaimEphemeral(ctx, gatewayPrefixPath(prefix), []byte(ComponentIDString(id)))
-}
-
-// ReleaseGatewayPrefix deletes the claim file for the given PID prefix. Used
-// on graceful shutdown for prompt release; lease expiry is the backstop.
-// The delete is unconditional: a gateway releases only a prefix it believes
-// it holds, and in the rare case the claim was already stolen, the thief's
-// next re-assert simply re-creates it.
-func (ts *store) ReleaseGatewayPrefix(ctx context.Context, prefix uint32) error {
-	conn, err := ts.ConnForCell(ctx, GlobalCell)
-	if err != nil {
-		return err
-	}
-	if err := conn.Delete(ctx, gatewayPrefixPath(prefix), nil); err != nil && !errors.Is(err, &TopoError{Code: NoNode}) {
-		return err
-	}
-	return nil
 }
 
 // UnregisterMultigateway deletes the specified multigateway.
