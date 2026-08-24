@@ -391,13 +391,26 @@ changes apply to any member of the cohort.
 - Repoint `primary_conninfo` at the new primary, keeping the static user / `dbname` / application_name.
 - Drop the physical replication slots it held for its former followers. They have no consumer now and would
   otherwise pin WAL indefinitely.
+- Drop the logical failover slots it still owns as _un-synced originals_ (`synced = false`). While this node was
+  primary it held the writable originals of the failover slots; a standby, by contrast, is only supposed to hold
+  the _synced copies_ that its slot-sync worker maintains (`synced = true`). If the un-synced originals are left
+  in place, slot-sync cannot create the synced copy — a slot of that name already exists — so the original never
+  advances: its `restart_lsn` freezes and Postgres eventually invalidates it (`rows_removed`). An invalidated
+  slot makes this node an unusable failover target for that slot, so after a couple of leader rotations the
+  cohort runs out of failover-ready targets. Dropping the un-synced originals lets slot-sync recreate them as
+  proper synced copies. This is safe precisely because it runs only as the node becomes a standby — the live
+  originals live on the current primary, which never takes this path.
 - `RESET synchronized_standby_slots`. Primary does not have any followers. The option does not make a difference
   for the standby since it is not consulted for standbys, but if the standby is promoted, the list would be
   wrong.
 
-> **NOTE:** These same steps apply when a _former primary rejoins after a crash_. It never ran a graceful
-> demotion, so it comes back still holding physical slots for its old followers and a stale
-> `synchronized_standby_slots`; both must be cleaned as it rejoins as a standby.
+> **NOTE:** These same steps apply when a _former primary rejoins after a crash_ — or after a failover in which
+> it did not diverge and so was **not** rewound (it simply repoints at the new primary and streams). It never ran
+> a graceful demotion, so it comes back still holding physical slots for its old followers, the un-synced logical
+> failover originals it created while primary, and a stale `synchronized_standby_slots`; all three must be cleaned
+> as it rejoins as a standby. The no-rewind case is the important one: a rewind would have discarded the stale
+> originals as a side effect, but a clean repoint leaves them behind, which is exactly when the invalidation trap
+> above bites.
 
 ### 2.4 Changes needed for when a server is added as a new standby to the cohort
 

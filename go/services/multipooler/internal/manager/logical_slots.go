@@ -338,6 +338,53 @@ func (pm *MultipoolerManager) dropManagedPhysicalSlots(ctx context.Context) erro
 	return nil
 }
 
+// dropOrphanedFailoverSlotsSQL drops every logical failover slot this node still
+// owns as an un-synced original (synced = false) while it is (becoming) a
+// standby. On a standby a genuine failover slot is a copy the slot-sync worker
+// maintains from the primary (synced = true); an un-synced failover slot here is
+// the leftover original this node created back when it was primary. The
+// NOT active guard skips a slot a consumer is still attached to (dropping an
+// active slot errors and would abort the whole statement).
+const dropOrphanedFailoverSlotsSQL = `
+SELECT pg_drop_replication_slot(slot_name)
+  FROM pg_replication_slots
+ WHERE slot_type = 'logical'
+   AND failover
+   AND NOT synced
+   AND NOT active`
+
+// dropOrphanedFailoverSlots drops the logical failover slots this node still owns
+// as un-synced originals. It is the logical-slot counterpart of
+// dropManagedPhysicalSlots, called on the same demote / rejoin transitions.
+//
+// The problem it fixes: a former primary that rejoins as a standby (e.g. after a
+// failover, with no divergence and thus no rewind) keeps the original failover
+// slots it created while primary. Those originals carry synced = false. The
+// standby's slot-sync worker cannot create the proper synced copy because a slot
+// of that name already exists, so the stale original never advances — its
+// restart_lsn freezes, and postgres eventually invalidates it (rows_removed).
+// An invalidated slot makes this node an unusable failover target for that slot,
+// so after a couple of leader rotations the cohort runs out of failover-ready
+// targets. Dropping the un-synced originals lets slot-sync recreate them as
+// proper synced copies.
+//
+// Safe because this runs only when the node is (becoming) a standby, where it
+// owns no live originals — the live originals live on the current primary, which
+// never takes this path. No-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) dropOrphanedFailoverSlots(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
+	defer cancel()
+	if err := pm.execArgs(execCtx, dropOrphanedFailoverSlotsSQL); err != nil {
+		return mterrors.Wrap(err, "failed to drop orphaned logical failover slots")
+	}
+
+	return nil
+}
+
 // listManagedPhysicalSlotsSQL lists this node's managed physical replication
 // slots (name + active flag) so a reconcile can drop the ones no longer wanted.
 // Mirrors dropManagedPhysicalSlotsSQL's WHERE clause; the slot_type filter keeps
