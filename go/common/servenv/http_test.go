@@ -87,3 +87,50 @@ func TestHTTPRegisterPprofProfile_GatedByAuthPlugin(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, get(se, "/debug/pprof/cmdline", ""))
 	})
 }
+
+func TestConfigEndpoint_GatedByAuthPlugin(t *testing.T) {
+	const validToken = "valid-token"
+
+	request := func(se *ServEnv, path, authorization string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if authorization != "" {
+			req.Header.Set("Authorization", authorization)
+		}
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	t.Run("services without HTTP auth retain existing access", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.RegisterCommonHTTPEndpoints()
+		require.Equal(t, http.StatusOK, request(se, "/config", ""))
+	})
+
+	t.Run("missing token is rejected when HTTP auth is enabled", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.SetAuthPlugin(func() Authenticator {
+			return &servenvtest.FakeTokenVerifier{ValidToken: validToken}
+		})
+		se.RegisterCommonHTTPEndpoints()
+		require.Equal(t, http.StatusUnauthorized, request(se, "/config", ""))
+	})
+
+	t.Run("valid token grants config access", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.SetAuthPlugin(func() Authenticator {
+			return &servenvtest.FakeTokenVerifier{ValidToken: validToken}
+		})
+		se.RegisterCommonHTTPEndpoints()
+		require.Equal(t, http.StatusOK, request(se, "/config", "Bearer "+validToken))
+	})
+
+	t.Run("version remains unauthenticated", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.SetAuthPlugin(func() Authenticator {
+			return &servenvtest.FakeTokenVerifier{ValidToken: validToken}
+		})
+		se.RegisterCommonHTTPEndpoints()
+		require.Equal(t, http.StatusOK, request(se, "/version", ""))
+	})
+}
