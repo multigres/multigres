@@ -114,6 +114,23 @@ type ConnFile interface {
 	// the file permanent.
 	// filePath is a path relative to the root directory of the cell.
 	PutEphemeral(ctx context.Context, filePath string, contents []byte) error
+
+	// ClaimEphemeral atomically claims an ephemeral file on behalf of the
+	// owner identified by contents. It succeeds when the file is absent
+	// (creating it) or already holds exactly contents (refreshing its
+	// liveness binding); it returns NodeExists when another owner holds
+	// the file. Use it for exclusive claims from a shared pool — e.g. a
+	// gateway claiming a PID prefix — where create-if-absent must be
+	// atomic and a re-asserting owner must never overwrite a competitor.
+	//
+	// Like PutEphemeral, the file's lifetime is bound to this connection's
+	// process; a dead claimant's file expires on its own, freeing the
+	// claim. Owners re-assert periodically (toporeg.WithReassert); a
+	// NodeExists on re-assert means the claim was lost to another owner
+	// after an expiry, which the owner must treat as fatal for the
+	// claimed resource rather than retry past.
+	// filePath is a path relative to the root directory of the cell.
+	ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error
 }
 
 type ConnLock interface {

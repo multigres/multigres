@@ -274,6 +274,19 @@ func (c *WrapperConn) PutEphemeral(ctx context.Context, filePath string, content
 	return err
 }
 
+// ClaimEphemeral atomically claims or refreshes a process-liveness-bound
+// file; see Conn.ClaimEphemeral. Like PutEphemeral, the wrapper keeps no
+// record — the owner re-asserts the claim (toporeg.WithReassert).
+func (c *WrapperConn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	err = conn.ClaimEphemeral(ctx, filePath, contents)
+	c.handleConnectionError(conn, err)
+	return err
+}
+
 // Lock acquires a distributed lock on the specified directory path.
 func (c *WrapperConn) Lock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()

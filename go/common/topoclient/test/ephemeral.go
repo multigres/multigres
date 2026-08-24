@@ -63,3 +63,34 @@ func checkPutEphemeral(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	require.NoError(t, err, "Get after re-create failed")
 	assert.Equal(t, []byte("v3"), contents)
 }
+
+// checkClaimEphemeral tests the backend-agnostic semantics of
+// ClaimEphemeral: atomic claim when absent, refresh when held by the same
+// owner, NodeExists when held by another, and claimable again after delete.
+func checkClaimEphemeral(t *testing.T, ctx context.Context, ts topoclient.Store) {
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err, "ConnForCell(global) failed")
+
+	filePath := "ephemeral/claims/7"
+
+	// Absent: first claimant wins.
+	err = conn.ClaimEphemeral(ctx, filePath, []byte("owner-a"))
+	require.NoError(t, err, "ClaimEphemeral(absent) failed")
+
+	// Held by another: rejected, and the holder's contents are untouched.
+	err = conn.ClaimEphemeral(ctx, filePath, []byte("owner-b"))
+	assert.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}),
+		"ClaimEphemeral(held by another) should return NodeExists, got: %v", err)
+	contents, _, err := conn.Get(ctx, filePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("owner-a"), contents, "a losing claim must not overwrite the holder")
+
+	// Held by the same owner: refresh succeeds.
+	err = conn.ClaimEphemeral(ctx, filePath, []byte("owner-a"))
+	require.NoError(t, err, "ClaimEphemeral(refresh own claim) failed")
+
+	// Released: claimable by the next owner.
+	require.NoError(t, conn.Delete(ctx, filePath, nil))
+	err = conn.ClaimEphemeral(ctx, filePath, []byte("owner-b"))
+	require.NoError(t, err, "ClaimEphemeral after release failed")
+}

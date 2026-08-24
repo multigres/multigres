@@ -15,7 +15,9 @@
 package memorytopo
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -164,6 +166,25 @@ func (c *conn) Update(ctx context.Context, filePath string, contents []byte, ver
 // no process-liveness concept, so this is a plain unconditional update.
 func (c *conn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
 	_, err := c.Update(ctx, filePath, contents, nil)
+	return err
+}
+
+// ClaimEphemeral is part of the topoclient.Conn interface. The memory topo
+// has no process-liveness concept, so the claim never expires on its own; the
+// atomic claim-or-refresh semantics are preserved.
+func (c *conn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	existing, _, err := c.Get(ctx, filePath)
+	switch {
+	case err == nil:
+		if !bytes.Equal(existing, contents) {
+			return topoclient.NewError(topoclient.NodeExists, filePath)
+		}
+	case errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}):
+		// Absent: claimable.
+	default:
+		return err
+	}
+	_, err = c.Update(ctx, filePath, contents, nil)
 	return err
 }
 

@@ -23,6 +23,7 @@ import (
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
@@ -60,6 +61,51 @@ func (s *etcdtopo) PutEphemeral(ctx context.Context, filePath string, contents [
 			s.clearEphemeralLease(leaseID)
 		}
 		return convertError(err, nodePath)
+	}
+	return nil
+}
+
+// ClaimEphemeral is part of the topoclient.Conn interface.
+func (s *etcdtopo) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	nodePath := path.Join(s.root, filePath)
+
+	leaseID, err := s.ephemeralLease(ctx)
+	if err != nil {
+		return convertError(err, nodePath)
+	}
+
+	// Refresh-if-mine first: in steady state the claimant re-asserts a
+	// claim it already holds, and the value comparison also rebinds the
+	// file to the current lease after a lease change.
+	txnresp, err := s.cli.Txn(ctx).
+		If(clientv3.Compare(clientv3.Value(nodePath), "=", string(contents))).
+		Then(clientv3.OpPut(nodePath, string(contents), clientv3.WithLease(leaseID))).
+		Commit()
+	if err != nil {
+		if errors.Is(err, rpctypes.ErrLeaseNotFound) {
+			s.clearEphemeralLease(leaseID)
+		}
+		return convertError(err, nodePath)
+	}
+	if txnresp.Succeeded {
+		return nil
+	}
+
+	// Not ours (or absent): claim only if absent. A file appearing between
+	// the two transactions simply fails this one — no window where a
+	// competitor's claim can be overwritten.
+	txnresp, err = s.cli.Txn(ctx).
+		If(clientv3.Compare(clientv3.Version(nodePath), "=", 0)).
+		Then(clientv3.OpPut(nodePath, string(contents), clientv3.WithLease(leaseID))).
+		Commit()
+	if err != nil {
+		if errors.Is(err, rpctypes.ErrLeaseNotFound) {
+			s.clearEphemeralLease(leaseID)
+		}
+		return convertError(err, nodePath)
+	}
+	if !txnresp.Succeeded {
+		return topoclient.NewError(topoclient.NodeExists, nodePath)
 	}
 	return nil
 }

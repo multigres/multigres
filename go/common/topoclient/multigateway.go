@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 
@@ -225,6 +226,45 @@ func (ts *store) CreateMultigateway(ctx context.Context, mtgateway *clustermetad
 		return err
 	}
 
+	return nil
+}
+
+// gatewayPrefixPath returns the claim file path for a PID prefix.
+func gatewayPrefixPath(prefix uint32) string {
+	return path.Join(GatewayPrefixesPath, strconv.FormatUint(uint64(prefix), 10))
+}
+
+// ClaimGatewayPrefix atomically claims the PID prefix for the given gateway,
+// or refreshes a claim it already holds. It returns NodeExists when another
+// gateway holds the prefix.
+//
+// The claim is ephemeral and lives in the global topology (prefixes route
+// query-cancels across cells, so the namespace is cluster-wide). A dead
+// claimant's file expires with its connection's lease, freeing the prefix.
+// The claiming gateway re-asserts periodically; NodeExists on a re-assert
+// means the claim was lost to another gateway after an expiry — the caller
+// must stop treating the prefix as its own rather than retry past it.
+func (ts *store) ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error {
+	conn, err := ts.ConnForCell(ctx, GlobalCell)
+	if err != nil {
+		return err
+	}
+	return conn.ClaimEphemeral(ctx, gatewayPrefixPath(prefix), []byte(ComponentIDString(id)))
+}
+
+// ReleaseGatewayPrefix deletes the claim file for the given PID prefix. Used
+// on graceful shutdown for prompt release; lease expiry is the backstop.
+// The delete is unconditional: a gateway releases only a prefix it believes
+// it holds, and in the rare case the claim was already stolen, the thief's
+// next re-assert simply re-creates it.
+func (ts *store) ReleaseGatewayPrefix(ctx context.Context, prefix uint32) error {
+	conn, err := ts.ConnForCell(ctx, GlobalCell)
+	if err != nil {
+		return err
+	}
+	if err := conn.Delete(ctx, gatewayPrefixPath(prefix), nil); err != nil && !errors.Is(err, &TopoError{Code: NoNode}) {
+		return err
+	}
 	return nil
 }
 
