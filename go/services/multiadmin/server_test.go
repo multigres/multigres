@@ -79,6 +79,7 @@ func TestMultiadminServerGetCell(t *testing.T) {
 			Name:            "testcell",
 			ServerAddresses: []string{"localhost:2379"},
 			Root:            "/multigres/testcell",
+			Metadata:        `{"zoneId":"use1-az1"}`,
 		}
 
 		err := ts.CreateCell(ctx, "testcell", testCell)
@@ -94,6 +95,7 @@ func TestMultiadminServerGetCell(t *testing.T) {
 		assert.Equal(t, "testcell", resp.Cell.Name)
 		assert.Equal(t, []string{"localhost:2379"}, resp.Cell.ServerAddresses)
 		assert.Equal(t, "/multigres/testcell", resp.Cell.Root)
+		assert.Equal(t, `{"zoneId":"use1-az1"}`, resp.Cell.Metadata)
 	})
 }
 
