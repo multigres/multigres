@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -247,6 +248,25 @@ func (se *ServEnv) RegisterReadyCheck(f func() error) {
 	se.readyMu.Lock()
 	defer se.readyMu.Unlock()
 	se.readyChecks = append(se.readyChecks, f)
+}
+
+// InitiateShutdown triggers the same graceful shutdown sequence as SIGTERM:
+// lameduck, OnTerm/OnTermSync hooks, then OnClose hooks, then process exit.
+//
+// It exists for components that detect a fatal condition only a process
+// restart can repair — for example a gateway whose PID prefix claim has
+// passed to another gateway. Exiting from inside the process makes the
+// restart independent of deployment configuration: Kubernetes restartPolicy,
+// systemd, and docker-compose all restart an exited process, whether or not
+// any probe is wired up.
+//
+// Safe to call at any time and from any goroutine; repeat calls while a
+// shutdown is already pending are no-ops.
+func (se *ServEnv) InitiateShutdown() {
+	select {
+	case se.exitChan <- syscall.SIGTERM:
+	default: // A shutdown signal is already pending.
+	}
 }
 
 // GetHTTPPort returns the HTTP port value

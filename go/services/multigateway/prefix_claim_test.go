@@ -17,6 +17,7 @@ package multigateway
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -121,4 +122,57 @@ func TestClaimGatewayPrefix_TheftDetection(t *testing.T) {
 	err = ts.ClaimGatewayPrefix(ctx, 42, idA)
 	assert.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}),
 		"previous holder's refresh should return NodeExists, got: %v", err)
+}
+
+// TestRefreshPrefixClaim_LostClaimIsFatal verifies the gateway's response to
+// losing its prefix claim: a healthy refresh triggers nothing, a transient
+// topology error triggers nothing (the next re-assertion retries), and a
+// claim held by another gateway sets prefixLost and initiates graceful
+// shutdown exactly once — a live gateway cannot renumber, so a fresh process
+// claiming a fresh prefix is the only repair.
+func TestRefreshPrefixClaim_LostClaimIsFatal(t *testing.T) {
+	ctx := context.Background()
+	const cell = "zone-1"
+	ts, factory := memorytopo.NewServerAndFactory(ctx, cell)
+	defer ts.Close()
+
+	idA := gatewayID(cell, "gw-a")
+	idB := gatewayID(cell, "gw-b")
+
+	var shutdowns atomic.Int32
+	mg := &Multigateway{ts: ts}
+	mg.shutdownOnPrefixLoss = func() { shutdowns.Add(1) }
+
+	require.NoError(t, ts.ClaimGatewayPrefix(ctx, 42, idA))
+
+	// Healthy refresh: no flag, no shutdown.
+	require.NoError(t, mg.refreshPrefixClaim(ctx, 42, idA))
+	assert.False(t, mg.prefixLost.Load())
+	assert.Zero(t, shutdowns.Load())
+
+	// Transient topology error: surfaced to the caller, but not fatal.
+	factory.SetError(errors.New("topology unavailable"))
+	err := mg.refreshPrefixClaim(ctx, 42, idA)
+	require.Error(t, err)
+	assert.False(t, mg.prefixLost.Load(), "a transient error must not be treated as a lost claim")
+	assert.Zero(t, shutdowns.Load(), "a transient error must not shut the gateway down")
+	factory.SetError(nil)
+
+	// The claim expires (simulated) and another gateway takes it.
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err)
+	require.NoError(t, conn.Delete(ctx, topoclient.GatewayPrefixesPath+"/42", nil))
+	require.NoError(t, ts.ClaimGatewayPrefix(ctx, 42, idB))
+
+	// Loss detected: flag set, shutdown initiated.
+	err = mg.refreshPrefixClaim(ctx, 42, idA)
+	require.Error(t, err)
+	assert.True(t, mg.prefixLost.Load())
+	assert.Equal(t, int32(1), shutdowns.Load())
+
+	// A second detection (re-assert loop may tick again before shutdown
+	// completes) must not initiate another shutdown.
+	err = mg.refreshPrefixClaim(ctx, 42, idA)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), shutdowns.Load(), "shutdown must be initiated exactly once")
 }

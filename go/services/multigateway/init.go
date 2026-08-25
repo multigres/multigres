@@ -134,10 +134,15 @@ type Multigateway struct {
 	serverStatus Status
 	// prefixLost is set when a re-assertion finds this gateway's PID
 	// prefix claim held by another gateway (possible only after the claim
-	// expired during a topology outage). It fails the readiness check so
-	// the environment restarts the gateway into a fresh claim; a live
-	// gateway cannot safely renumber.
+	// expired during a topology outage). A live gateway cannot safely
+	// renumber, so the loss is fatal: it fails the readiness check (to
+	// drain new connections) and triggers shutdownOnPrefixLoss.
 	prefixLost atomic.Bool
+	// shutdownOnPrefixLoss initiates the gateway's graceful shutdown when
+	// its PID prefix claim is lost; the supervisor then restarts the
+	// process, which claims a fresh prefix. A field so tests can observe
+	// the trigger instead of terminating the test process.
+	shutdownOnPrefixLoss func()
 	// shutdownCtx is cancelled during Shutdown to propagate cancellation
 	// to all long-running goroutines (health streams, discovery, etc.)
 	shutdownCtx    context.Context
@@ -269,6 +274,7 @@ func NewMultigateway() *Multigateway {
 			},
 		},
 	}
+	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
 }
@@ -453,22 +459,8 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 					return err
 				}
 				multigateway.PidPrefix = prefix
-			} else {
-				// Re-assertion (or a retry after a successful claim):
-				// refresh the claim. NodeExists means it expired during an
-				// outage and another gateway took the prefix. A live
-				// gateway cannot renumber — clients hold PIDs stamped with
-				// this prefix — so surface the loss through readiness and
-				// let the environment restart us into a fresh claim.
-				err := mg.ts.ClaimGatewayPrefix(ctx, multigateway.PidPrefix, multigateway.Id)
-				if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
-					mg.prefixLost.Store(true)
-					return fmt.Errorf("PID prefix %d claim lost to another gateway", multigateway.PidPrefix)
-				}
-				if err != nil {
-					return err // Transient; the next re-assertion retries.
-				}
-				mg.prefixLost.Store(false)
+			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
+				return err
 			}
 			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
 		},
@@ -651,9 +643,9 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
 	// 2. At least one pooler has been discovered (can actually serve queries)
-	// 3. It still holds its PID prefix claim — a lost claim means another
-	//    gateway owns this prefix, and only a restart (fresh claim) can
-	//    make cancel routing correct again.
+	// 3. It still holds its PID prefix claim. A lost claim also initiates
+	//    the gateway's own graceful shutdown (see refreshPrefixClaim);
+	//    failing readiness here drains new connections during that window.
 	mg.senv.RegisterReadyCheck(func() error {
 		mg.serverStatus.mu.Lock()
 		defer mg.serverStatus.mu.Unlock()
@@ -798,6 +790,31 @@ func (mg *Multigateway) claimUnusedPrefix(ctx context.Context, id *clustermetada
 		}
 	}
 	return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", pid.MaxPrefix)
+}
+
+// refreshPrefixClaim re-asserts ownership of the gateway's claimed PID
+// prefix. NodeExists means the claim expired during a topology outage and
+// another gateway took the prefix — that loss is fatal: a live gateway
+// cannot renumber (its prefix is baked into the listeners and cancel
+// manager, and clients hold PIDs stamped with it), so the only repair is a
+// fresh process claiming a fresh prefix. On first detection the gateway
+// fails its readiness check (draining new connections) and initiates its
+// own graceful shutdown; the supervisor — Kubernetes restartPolicy,
+// systemd, docker-compose — restarts the process regardless of probe
+// configuration. Any other error is transient and left to the next
+// re-assertion.
+func (mg *Multigateway) refreshPrefixClaim(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error {
+	err := mg.ts.ClaimGatewayPrefix(ctx, prefix, id)
+	if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
+		if mg.prefixLost.CompareAndSwap(false, true) {
+			servenv.GetLogger().ErrorContext(ctx,
+				"PID prefix claim lost to another gateway; shutting down so a fresh process claims a fresh prefix",
+				"pid_prefix", prefix)
+			mg.shutdownOnPrefixLoss()
+		}
+		return fmt.Errorf("PID prefix %d claim lost to another gateway", prefix)
+	}
+	return err
 }
 
 // buildPGTLSConfig validates TLS flag combinations and loads the certificate.

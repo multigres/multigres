@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -99,5 +100,33 @@ func TestRegisterReadyCheck(t *testing.T) {
 		w := httptest.NewRecorder()
 		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
 		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestInitiateShutdown(t *testing.T) {
+	t.Run("delivers a termination signal", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.InitiateShutdown()
+		select {
+		case sig := <-se.exitChan:
+			require.Equal(t, syscall.SIGTERM, sig)
+		default:
+			t.Fatal("InitiateShutdown should have queued a termination signal")
+		}
+	})
+
+	t.Run("never blocks on repeat calls", func(t *testing.T) {
+		// The channel holds one pending signal; further calls must be
+		// no-ops rather than blocking the caller (a re-assert goroutine).
+		se := NewServEnv(viperutil.NewRegistry())
+		se.InitiateShutdown()
+		se.InitiateShutdown()
+		se.InitiateShutdown()
+		require.Equal(t, syscall.SIGTERM, <-se.exitChan)
+		select {
+		case sig := <-se.exitChan:
+			t.Fatalf("expected exactly one queued signal, got a second: %v", sig)
+		default:
+		}
 	})
 }
