@@ -16,6 +16,8 @@ package queryserving
 
 import (
 	"database/sql"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,4 +94,77 @@ func TestHiddenFunctionStateDoesNotLeak(t *testing.T) {
 	defer reservedB.Close()
 	require.NoError(t, reservedB.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
 	require.NotEqual(t, "123MB", workMem, "hidden reserved-pool state leaked across logical clients")
+}
+
+// TestSessionScrubberReplacesHiddenState verifies the pool's session-state
+// scrubber: a set_config hidden inside a SQL function body escapes the
+// gateway's session tracking and leaves real session GUC state on a pooled
+// backend whose settings label doesn't know it. The scrubber (default 10s
+// interval) probes idle connections, detects the divergence, and replaces the
+// contaminated backend, so no later client can observe the leaked value.
+//
+// This is the detection net behind the creation-time rejection gates; see
+// TestHiddenFunctionStateDoesNotLeak above for the gate itself.
+func TestSessionScrubberReplacesHiddenState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping session scrubber test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 3*time.Minute)
+
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	primary, err := sql.Open("postgres", primaryDSN)
+	require.NoError(t, err)
+	defer primary.Close()
+
+	// Install directly so the mutation is absent from the client's top-level SQL.
+	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_set()
+		RETURNS text LANGUAGE sql AS $$SELECT set_config('work_mem', '123MB', false)$$`)
+	require.NoError(t, err)
+	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_scrub_set()") //nolint:errcheck
+
+	// Contaminate one pooled backend and capture its PID in the same
+	// statement so both values come from the same physical connection.
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxIdleConns(0)
+	var ignored string
+	var leakedPID int
+	err = connA.QueryRowContext(ctx, "SELECT hidden_scrub_set(), pg_backend_pid()").Scan(&ignored, &leakedPID)
+	require.NoError(t, err)
+	require.NoError(t, connA.Close())
+
+	// The scrubber must find the diverged backend while it sits idle in the
+	// pool and terminate it.
+	require.Eventually(t, func() bool {
+		var alive int
+		if err := primary.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE pid = $1", leakedPID).Scan(&alive); err != nil {
+			return false
+		}
+		return alive == 0
+	}, 90*time.Second, time.Second, "scrubber should have replaced the contaminated backend (pid %d)", leakedPID)
+
+	// The replacement must have been the scrubber's doing, not routine pool
+	// churn: the multipooler logged the divergence with the leaked GUC name.
+	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	require.NoError(t, err)
+	require.Contains(t, string(poolerLog), "session-state divergence detected",
+		"multipooler log should record the scrubber replacing the backend")
+	require.Contains(t, string(poolerLog), "work_mem",
+		"divergence log should name the leaked GUC")
+	require.NotContains(t, strings.ToLower(string(poolerLog)), "123mb",
+		"divergence log must never carry GUC values")
+
+	// And no later client can observe the leaked value.
+	connB, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	defer connB.Close()
+	var workMem string
+	require.NoError(t, connB.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
+	require.NotEqual(t, "123MB", workMem, "hidden session state leaked past the scrubber")
 }
