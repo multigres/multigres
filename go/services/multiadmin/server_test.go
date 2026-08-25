@@ -17,6 +17,7 @@ package multiadmin
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"testing"
 
@@ -312,6 +313,49 @@ func TestMultiadminServerGetGatewaysMultiCell(t *testing.T) {
 		assert.Len(t, resp.Gateways, 3) // Should get results from existing cells only
 		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
 		assert.Contains(t, err.Error(), "failed to get gateways for cell nonexistent")
+	})
+}
+
+func TestMultiadminServerGetGatewaysOnlyReachable(t *testing.T) {
+	ctx := t.Context()
+	ts := memorytopo.NewServer(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	// Live gateway: its grpc port has a real TCP listener.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	livePort := int32(listener.Addr().(*net.TCPAddr).Port)
+
+	// Stale gateway: listener closed immediately, so the port refuses connections.
+	staleListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	stalePort := int32(staleListener.Addr().(*net.TCPAddr).Port)
+	require.NoError(t, staleListener.Close())
+
+	liveGW := topoclient.NewMultigateway("live", "cell1", "127.0.0.1")
+	liveGW.PortMap["grpc"] = livePort
+	require.NoError(t, ts.CreateMultigateway(ctx, liveGW))
+
+	staleGW := topoclient.NewMultigateway("stale", "cell1", "127.0.0.1")
+	staleGW.PortMap["grpc"] = stalePort
+	require.NoError(t, ts.CreateMultigateway(ctx, staleGW))
+
+	noPortGW := topoclient.NewMultigateway("noport", "cell1", "127.0.0.1")
+	require.NoError(t, ts.CreateMultigateway(ctx, noPortGW))
+
+	t.Run("without filter returns all registrations", func(t *testing.T) {
+		resp, err := server.GetGateways(ctx, &multiadminpb.GetGatewaysRequest{})
+		require.NoError(t, err)
+		assert.Len(t, resp.Gateways, 3)
+	})
+
+	t.Run("only_reachable drops stale and unprobeable gateways", func(t *testing.T) {
+		resp, err := server.GetGateways(ctx, &multiadminpb.GetGatewaysRequest{OnlyReachable: true})
+		require.NoError(t, err)
+		require.Len(t, resp.Gateways, 1)
+		assert.Equal(t, "live", resp.Gateways[0].Id.Name)
 	})
 }
 

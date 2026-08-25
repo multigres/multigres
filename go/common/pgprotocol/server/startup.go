@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -506,6 +507,31 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
+	// A GUC supplied at connect time (directly or via options=-c ...) flows
+	// through GetStartupParams into the session settings applied to pooled
+	// backends, bypassing the planner's SET guard — so every guard the SET
+	// path enforces has to be enforced here too, or the connect path is a way
+	// around it. FATAL pre-auth, matching the replication parameter handling
+	// above.
+	//
+	// Two guards apply:
+	//   - cluster-managed GUCs may not be assigned at all (see
+	//     pgsettings.RestrictedGUCStartupError). Checked by NAME against every
+	//     parameter rather than a hardcoded list, so a new entry in
+	//     restrictedGUCs is covered here automatically.
+	//   - search_path is value-restricted: pg_temp in it would make a pooled
+	//     backend's temporary namespace the creation target (see
+	//     pgsettings.RejectTempSchemaSearchPath).
+	for key, value := range c.params {
+		if err := startupParamError(key, value); err != nil {
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				return mterrors.NewPgError("FATAL", diag.Code, diag.Message, "")
+			}
+			return err
+		}
+	}
+
 	c.logger.Info("startup message parsed",
 		"user", c.user,
 		"database", c.database,
@@ -513,6 +539,19 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 
 	// Now perform authentication.
 	return c.authenticate()
+}
+
+// startupParamError vets one startup parameter against the guards that also
+// apply to a SET of the same GUC, returning nil when it is acceptable. Split
+// out so the checks read as a list and a new one has an obvious home.
+func startupParamError(key, value string) error {
+	if err := pgsettings.RestrictedGUCStartupError(key); err != nil {
+		return err
+	}
+	if strings.EqualFold(key, "search_path") {
+		return pgsettings.RejectTempSchemaSearchPath(value)
+	}
+	return nil
 }
 
 // errAuthRejected signals that the auth flow rejected the client and a FATAL

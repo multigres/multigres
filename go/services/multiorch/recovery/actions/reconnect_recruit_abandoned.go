@@ -70,7 +70,8 @@ func NewReconnectRecruitAbandonedAction(
 }
 
 // Execute advances the leader's rule and reconnects the stranded follower.
-func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing reconnect recruit-abandoned action",
 		"shard_key", problem.ShardKey.String(),
 		"pooler", problem.PoolerID.Name,

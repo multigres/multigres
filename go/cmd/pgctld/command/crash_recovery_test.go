@@ -19,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -270,4 +271,34 @@ func TestRunCrashRecoveryInDir_RemoveFailureSkipsRecovery(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to remove standby.signal")
 	assert.False(t, called, "recovery must not run when standby.signal could not be removed")
+}
+
+// TestRunCrashRecoveryInDir_SkipsWhenPostgresRunning verifies the guard that
+// crash recovery never disturbs a live postmaster: it must not touch
+// standby.signal and must not run recovery. A live postmaster is simulated by a
+// postmaster.pid pointing at this test process (which is, by definition, running).
+func TestRunCrashRecoveryInDir_SkipsWhenPostgresRunning(t *testing.T) {
+	dir := t.TempDir()
+	s := testPgCtldService(dir)
+	signalPath, err1 := s.createStandbySignal()
+	require.NoError(t, err1)
+
+	// postmaster.pid's first line is the PID; point it at ourselves so
+	// isPostgreSQLRunning sees a live process.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "postmaster.pid"),
+		[]byte(strconv.Itoa(os.Getpid())+"\n"),
+		0o644,
+	))
+
+	called := false
+	runner := func(ctx context.Context) ([]byte, error) {
+		called = true
+		return []byte("recovery complete"), nil
+	}
+
+	err := s.runCrashRecoveryInDir(context.Background(), runner, fastRetry())
+	require.NoError(t, err)
+	assert.False(t, called, "recovery must not run against a live postmaster")
+	assert.True(t, fileExists(t, signalPath), "standby.signal must be left untouched while postgres is running")
 }

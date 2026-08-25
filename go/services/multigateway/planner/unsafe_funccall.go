@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -147,6 +148,14 @@ type setConfigCall struct {
 	// override so SHOW matches the `SET LOCAL <gmv>` statement form. Mutually
 	// exclusive with IsLocalBind (a bound is_local is resolved at execute time).
 	IsLocalLiteralTrue bool
+
+	// ValueIsNull marks a call whose value argument is the literal NULL.
+	// set_config is not STRICT: set_config(name, NULL, false) resets the
+	// parameter to its default and returns that default, so the gateway must
+	// track a REMOVAL rather than a value (see syntheticSetStmt, which emits
+	// VAR_RESET for this shape). Mutually exclusive with ValueBind — a bound
+	// NULL is only knowable at execute time and is handled there.
+	ValueIsNull bool
 }
 
 func (sc setConfigCall) hasBoundParams() bool {
@@ -355,6 +364,9 @@ func analyzeStatement(stmt ast.Stmt, unsafePoolerMode bool) (*statementAnalysis,
 			return nil, err
 		}
 	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
+		return nil, err
+	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
 		if _, err := analyzeSQLPreparedBody(ps.Query, unsafePoolerMode); err != nil {
 			return nil, err
@@ -381,6 +393,9 @@ func analyzeSQLPreparedBody(query ast.Node, unsafePoolerMode bool) (*statementAn
 		if err := analyzeProceduralBody(stmt); err != nil {
 			return nil, err
 		}
+	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
+		return nil, err
 	}
 	analysis, err := analyzeFunctionCalls(stmt, !unsafePoolerMode)
 	if err != nil {
@@ -685,6 +700,9 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 // plan time; a cluster-managed GUC must never be assigned (its own message is
 // preserved); and a gateway-managed variable must never reach the backend,
 // since the gateway — not PostgreSQL — is the authority on its value.
+//
+// search_path is additionally value-restricted here: transaction scoping bounds
+// the GUC, not the objects created while it is in effect (see below).
 func allowTransactionLocalSetConfig(fc *ast.FuncCall) error {
 	reject := mterrors.NewFeatureNotSupported(
 		"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
@@ -704,6 +722,30 @@ func allowTransactionLocalSetConfig(fc *ast.FuncCall) error {
 	}
 	if handler.IsGatewayManagedVariable(name) {
 		return reject
+	}
+
+	// search_path is value-restricted, and is_local=true does NOT make it safe
+	// here. The GUC change reverts at transaction end, but anything created
+	// under it does not: with pg_temp as the effective creation target, an
+	// unqualified CREATE inside the same transaction lands in the pooled
+	// backend's temporary namespace and survives the COMMIT. That object
+	// carries no TEMP keyword and no pg_temp qualification, so
+	// planTempTableCreation and checkTempSchemaQualifiedCreate both miss it —
+	// no ReasonTempTable, no MarkTempTainted — and the backend returns to the
+	// pool holding it.
+	//
+	// Unlike every other set_config surface, this path emits no primitive, so
+	// there is no execute-time re-check to fall back on (contrast
+	// engine.resolveSetConfig / resolvePreparedSetConfig). A value that cannot
+	// be read at plan time therefore fails closed.
+	if strings.EqualFold(name, "search_path") {
+		value, ok := constStringArg(fc.Args.Items[1])
+		if !ok {
+			return reject
+		}
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1012,6 +1054,21 @@ func validateAcceptedSetConfig(fc *ast.FuncCall, reject bool) (*setConfigCall, e
 			if err := restrictedGUCError(name); err != nil {
 				return nil, err
 			}
+
+			// search_path values must be vetted for pg_temp (see
+			// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
+			// here; a bound value is resolved and re-checked at execute time by
+			// resolveSetConfig, which runs during the Sequence's prepare phase —
+			// before the paired Route reaches the backend — on every is_local
+			// shape (false, bound, or literal true via the vet-only entry built
+			// below).
+			if strings.EqualFold(name, "search_path") {
+				if value, ok := constStringArg(fc.Args.Items[1]); ok {
+					if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+						return nil, err
+					}
+				}
+			}
 		}
 	}
 
@@ -1031,18 +1088,51 @@ func validateAcceptedSetConfig(fc *ast.FuncCall, reject bool) (*setConfigCall, e
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {
-			// is_local literal true. For an ordinary variable we do not track
-			// it: PostgreSQL executes the call transaction-scoped via the
-			// paired Route and the gateway holds no state (which also keeps
-			// the plan cache compact for hot PostgREST set_config(...,true)
-			// patterns). For a gateway-managed variable we DO track it as a
+			// is_local literal true. For an ordinary variable with nothing
+			// left to vet we do not track it: PostgreSQL executes the call
+			// transaction-scoped via the paired Route and the gateway holds no
+			// state. For a gateway-managed variable we DO track it as a
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
-			// statement form. The normalizer keeps the name literal even on the
-			// is_local=true path, so the GMV check below is reliable.
-			if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			// statement form.
+			//
+			// Bound slots that still need vetting get a vet-only entry
+			// instead of the bare passthrough: IsLocalLiteralTrue plus the
+			// bind refs captured below produce an ApplySessionStateFromBind
+			// whose resolveSetConfig runs during the Sequence's prepare phase
+			// — before the Route reaches the backend — rejects a name
+			// resolving to a gateway-managed or restricted GUC and a
+			// search_path value naming pg_temp, then tracks nothing
+			// (shouldTrack=false for a transaction-scoped ordinary variable).
+			// This keeps the PostgREST hot path `set_config($1, $2, true)`
+			// working under a single cached plan.
+			name, nameIsLiteral := constStringArg(fc.Args.Items[0])
+			_, valueIsLiteral := constStringArg(fc.Args.Items[1])
+			// A literal NULL value needs no vetting: set_config(..., NULL, ...)
+			// resets the parameter to its default, which is server/admin
+			// configuration rather than a client-supplied value, so it can
+			// never carry a client-injected pg_temp.
+			valueIsLiteral = valueIsLiteral || isNullConstArg(fc.Args.Items[1])
+			switch {
+			case !nameIsLiteral:
+				// Bound name: vet-only. (A non-ParamRef expression name is
+				// rejected by the capture below — it cannot be resolved at
+				// execute time.)
+				sc.IsLocalLiteralTrue = true
+			case handler.IsGatewayManagedVariable(name):
+				// Tracked transaction-local override.
+				sc.IsLocalLiteralTrue = true
+			case strings.EqualFold(name, "search_path") && !valueIsLiteral:
+				// Literal search_path name with a bound value: vet-only, so
+				// the resolved value is checked for pg_temp before routing.
+				sc.IsLocalLiteralTrue = true
+			default:
+				// Ordinary variable, everything vetted at plan time:
+				// untracked passthrough, no primitive, plan cache compact.
+				// A transaction-scoped reset (literal NULL value) lands here
+				// too: PostgreSQL scopes it to the transaction, so there is
+				// nothing for the gateway to track.
 				return nil, nil
 			}
-			sc.IsLocalLiteralTrue = true
 		}
 		// is_local literal false: fall through. No field to set — the
 		// returned setConfigCall represents false implicitly via the
@@ -1063,11 +1153,43 @@ func validateAcceptedSetConfig(fc *ast.FuncCall, reject bool) (*setConfigCall, e
 		sc.ValueBind = pr
 	} else if value, ok := constStringArg(fc.Args.Items[1]); ok {
 		sc.Value = value
+	} else if isNullConstArg(fc.Args.Items[1]) {
+		// set_config(name, NULL, false) is a RESET: PostgreSQL is not STRICT
+		// here — it clears the parameter, returns the restored default, and
+		// the gateway must track the removal so pool replay stops asserting
+		// the old value. Reaching this point implies is_local is the literal
+		// false (bound is_local is gateway-managed only, and literal true
+		// returned above), so the reset is always session-scoped and
+		// syntheticSetStmt can emit VAR_RESET unconditionally.
+		//
+		// Two shapes stay fail-closed rather than guess:
+		//   - a bound name, which the VAR_RESET synthetic cannot resolve (it
+		//     would reset a placeholder and silently drift from the backend);
+		//   - a gateway-managed variable, whose value the gateway owns and
+		//     for which no per-variable reset primitive exists.
+		name, nameIsLiteral := constStringArg(fc.Args.Items[0])
+		if !nameIsLiteral {
+			return nil, setConfigArgError(fc.Args.Items[1], "value")
+		}
+		if handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", name, name))
+		}
+		sc.ValueIsNull = true
 	} else {
 		return nil, setConfigArgError(fc.Args.Items[1], "value")
 	}
 
 	return sc, nil
+}
+
+// isNullConstArg reports whether n is the literal NULL (after stripping any
+// TypeCast), the shape `set_config(name, NULL, false)` uses to reset a
+// parameter. Distinguished from constStringArg's failure cases so a NULL can
+// be given PostgreSQL's reset semantics instead of a rejection.
+func isNullConstArg(n ast.Node) bool {
+	c, ok := unwrapTypeCast(n).(*ast.A_Const)
+	return ok && c.Isnull
 }
 
 // setConfigArgError builds the user-facing rejection for a set_config

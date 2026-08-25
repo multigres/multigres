@@ -1503,7 +1503,8 @@
   },
   {
     "comment": "explain.sql #3",
-    "stmt": "create function pg_temp.mysin(float8) returns float8 language plpgsql\nas 'begin return sin($1); end'"
+    "stmt": "create function pg_temp.mysin(float8) returns float8 language plpgsql\nas 'begin return sin($1); end'",
+    "reject": "creating objects in pg_temp via schema qualification is not supported"
   },
   {
     "comment": "expressions.sql #1",

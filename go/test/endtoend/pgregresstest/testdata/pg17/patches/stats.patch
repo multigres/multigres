@@ -1,10 +1,21 @@
 # Accepted transaction-pooling divergence: PostgreSQL's stats test assumes one
 # physical backend per psql session and that reconnecting terminates the old
 # backend. Multigateway intentionally pools those sessions, so backend-local
-# statistics and temporary-buffer state differ. This normalized output was
-# byte-identical across five consecutive compatibility runs (29553711574,
-# 29567488706, 29580021380, 29631323414, and 29716362029); SQL still runs
-# through multigateway rather than directly against PostgreSQL.
+# statistics differ. Backend-selection-sensitive counters are normalized by the
+# pg_regress verifier; SQL still runs through multigateway rather than directly
+# against PostgreSQL.
+#
+# The trunc_stats_test*/tenk2 hunks record cumulative-stats VISIBILITY lag, not
+# wrong accounting: since PG 15 each backend holds pending stats and flushes
+# them at idle, throttled to once per second, and pg_stat_force_next_flush()
+# only arms the one backend that executes it. Under pooling the explicit
+# transactions run on reserved backends and the enable_bitmapscan=off indexscan
+# runs on a different settings-bucket backend, so their pending counters are
+# still unflushed (idle in the pool, inside the throttle window) when the test
+# reads pg_stat_user_tables moments later; they arrive ~1s after the assertions
+# have run. The per-transaction truncate/subxact semantics themselves are
+# correct because each transaction is pinned to a single backend. A future fix
+# is fanning pg_stat_force_next_flush() out to idle pooled backends.
 --- a
 +++ b
 @@ -116,10 +116,10 @@
@@ -158,82 +169,3 @@
  (1 row)
  
  -- Test pg_stat_checkpointer checkpointer-related stats, together with pg_stat_wal
-@@ -1385,6 +1385,8 @@
- \c
- SET temp_buffers TO 100;
- CREATE TEMPORARY TABLE test_io_local(a int, b TEXT);
-+ERROR: invalid value for parameter "temp_buffers": 100
-+DETAIL: "temp_buffers" cannot be changed after any temporary tables have been accessed in the session.
- SELECT sum(extends) AS extends, sum(evictions) AS evictions, sum(writes) AS writes
- FROM pg_stat_io
- WHERE context = 'normal' AND object = 'temp relation' \gset io_sum_local_before_
-@@ -1392,22 +1394,21 @@
- -- Insert enough values that we need to reuse and write out dirty local
- -- buffers, generating evictions and writes.
- INSERT INTO test_io_local SELECT generate_series(1, 5000) as id, repeat('a', 200);
-+ERROR: relation "test_io_local" does not exist
-+LINE 1: INSERT INTO test_io_local SELECT generate_series(1, 5000) as...
-+^
- -- Ensure the table is large enough to exceed our temp_buffers setting.
- SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 > 100;
--?column?
------------
--t
--(1 row)
--
-+ERROR: relation "test_io_local" does not exist
-+LINE 1: SELECT pg_relation_size('test_io_local') / current_setting('...
-+^
- SELECT sum(reads) AS io_sum_local_before_reads
- FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation' \gset
- -- Read in evicted buffers, generating reads.
- SELECT COUNT(*) FROM test_io_local;
--count
---------
--5000
--(1 row)
--
-+ERROR: relation "test_io_local" does not exist
-+LINE 1: SELECT COUNT(*) FROM test_io_local;
-+^
- SELECT pg_stat_force_next_flush();
- pg_stat_force_next_flush
- --------------------------
-@@ -1426,13 +1427,14 @@
- :io_sum_local_after_extends > :io_sum_local_before_extends;
- ?column? | ?column? | ?column? | ?column?
- ----------+----------+----------+----------
--t | t | t | t
-+f | f | f | f
- (1 row)
- 
- -- Change the tablespaces so that the temporary table is rewritten to other
- -- local buffers, exercising a different codepath than standard local buffer
- -- writes.
- ALTER TABLE test_io_local SET TABLESPACE regress_tblspace;
-+ERROR: relation "test_io_local" does not exist
- SELECT pg_stat_force_next_flush();
- pg_stat_force_next_flush
- --------------------------
-@@ -1444,7 +1446,7 @@
- SELECT :io_sum_local_new_tblspc_writes > :io_sum_local_after_writes;
- ?column?
- ----------
--t
-+f
- (1 row)
- 
- RESET temp_buffers;
-@@ -1571,11 +1573,7 @@
- -- then send its stats before dying.
- \c -
- SELECT wait_for_hot_stats();
--wait_for_hot_stats
----------------------
--
--(1 row)
--
-+ERROR: canceling statement due to statement timeout
- SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid);
- pg_stat_get_tuples_hot_updated
- --------------------------------

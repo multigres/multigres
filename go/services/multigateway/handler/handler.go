@@ -114,6 +114,13 @@ type MultigatewayHandler struct {
 	// new connection states target replicas so the planner routes queries there.
 	targetReplica bool
 
+	// slotBasedReplicationEnabled reports, read live, whether the
+	// slot-based-replication feature is on. When true the replication preamble
+	// admits a non-temporary logical slot registered for failover (otherwise
+	// every non-temporary slot is rejected). Dynamic so it tracks config
+	// reloads; nil reads as disabled. Set via SetSlotBasedReplicationEnabled.
+	slotBasedReplicationEnabled func() bool
+
 	// normalQueryLogSampleRate controls 1/N sampling for normal-path query
 	// logs. 0 disables sampling (handler level alone governs emission); 1
 	// emits every normal query; N>1 emits every Nth. Normal queries always
@@ -154,6 +161,20 @@ func (h *MultigatewayHandler) SetNormalQueryLogSampleRate(rate uint64) {
 // target replicas. Must be called before connections are accepted.
 func (h *MultigatewayHandler) SetTargetReplica(target bool) {
 	h.targetReplica = target
+}
+
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates admitting
+// non-temporary failover replication slots in the replication preamble. Must be
+// called before connections are accepted. A nil getter (the default) keeps the
+// feature off, rejecting every non-temporary slot as before.
+func (h *MultigatewayHandler) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	h.slotBasedReplicationEnabled = enabled
+}
+
+// admitsFailoverSlots reports whether the replication preamble should admit a
+// non-temporary logical failover slot, reading the dynamic gate live.
+func (h *MultigatewayHandler) admitsFailoverSlots() bool {
+	return h.slotBasedReplicationEnabled != nil && h.slotBasedReplicationEnabled()
 }
 
 // SetQueryRegistry attaches a per-query-shape registry to the handler.

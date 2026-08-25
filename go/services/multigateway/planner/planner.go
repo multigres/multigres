@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -271,7 +272,7 @@ func (p *Planner) Plan(
 
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
-		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
@@ -347,7 +348,8 @@ func isUnloggedCreate(stmt ast.Stmt) bool {
 	case *ast.CreateTableAsStmt:
 		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	case *ast.SelectStmt:
-		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+		into := s.LeafIntoClause()
+		return into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	}
 	return false
 }
@@ -356,6 +358,95 @@ func isUnloggedCreate(stmt ast.Stmt) bool {
 func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
 	s, ok := stmt.(*ast.CreateSeqStmt)
 	return ok && s.Sequence != nil && s.Sequence.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+}
+
+// checkTempSchemaQualifiedCreate rejects CREATE-type statements whose target is
+// schema-qualified into the temporary namespace without the TEMP keyword
+// (CREATE TABLE pg_temp.t, CREATE FUNCTION/DOMAIN/TYPE pg_temp.x ...).
+// PostgreSQL resolves the persistence of such
+// objects during parse analysis, not in the raw grammar this AST mirrors, so
+// keyword-based temp detection (RELPERSISTENCE_TEMP) never sees them — the
+// object would be created as a genuine temp table on an arbitrary pooled
+// backend and be invisible to the session's next statement. CREATE TEMP TABLE
+// pg_temp.t stays allowed: the keyword routes it through planTempTableCreation.
+// pg_temp_N (a concrete backend namespace, meaningless to a pooled client) is
+// covered by the prefix match. Runs pre-dispatch via analyzeStatement, wrapped
+// EXPLAIN [ANALYZE] forms included.
+func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
+	if es, ok := stmt.(*ast.ExplainStmt); ok {
+		if inner, ok := es.Query.(ast.Stmt); ok {
+			stmt = inner
+		}
+	}
+	// Relations carry a RangeVar (whose TEMP keyword exempts them); functions,
+	// domains, and types carry a qualified-name NodeList and have no TEMP
+	// spelling at all — pg_temp qualification is their only temp-creating form.
+	var rel *ast.RangeVar
+	var qualified *ast.NodeList
+	switch s := stmt.(type) {
+	case *ast.CreateStmt:
+		rel = s.Relation
+	case *ast.CreateTableAsStmt:
+		if s.Into != nil {
+			rel = s.Into.Rel
+		}
+	case *ast.CreateSeqStmt:
+		rel = s.Sequence
+	case *ast.ViewStmt:
+		rel = s.View
+	case *ast.SelectStmt:
+		if into := s.LeafIntoClause(); into != nil {
+			rel = into.Rel
+		}
+	case *ast.CreateForeignTableStmt:
+		// A distinct type wrapping CreateStmt — the exact-type case above
+		// never matches it. pg_temp qualification is its only temp form.
+		if s.Base != nil {
+			rel = s.Base.Relation
+		}
+	case *ast.CreateFunctionStmt:
+		qualified = s.FuncName
+	case *ast.CreateDomainStmt:
+		qualified = s.Domainname
+	case *ast.CompositeTypeStmt:
+		rel = s.Typevar
+	case *ast.CreateEnumStmt:
+		qualified = s.TypeName
+	case *ast.CreateRangeStmt:
+		qualified = s.TypeName
+	case *ast.CreateStatsStmt:
+		qualified = s.DefNames
+	case *ast.CreateOpClassStmt:
+		qualified = s.OpClassName
+	case *ast.CreateOpFamilyStmt:
+		qualified = s.OpFamilyName
+	case *ast.CreateConversionStmt:
+		qualified = s.ConversionName
+	case *ast.DefineStmt:
+		// Covers CREATE OPERATOR / AGGREGATE / COLLATION / base TYPE and the
+		// text-search object family in one case.
+		qualified = s.DefNames
+	default:
+		return nil
+	}
+
+	schema := ""
+	switch {
+	case rel != nil:
+		if rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return nil
+		}
+		schema = rel.SchemaName
+	case qualified != nil && qualified.Len() >= 2:
+		if s, ok := qualified.Items[qualified.Len()-2].(*ast.String); ok {
+			schema = s.SVal
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(schema), "pg_temp") {
+		return mterrors.NewFeatureNotSupported(
+			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead")
+	}
+	return nil
 }
 
 // planTempTableCreation creates a plan that routes through a reserved

@@ -152,6 +152,34 @@ func TestShouldPropagateLeaderInfo(t *testing.T) {
 // ReplicationPrimary, so a reconcile tick immediately after doesn't
 // needlessly re-send the same SetPrimary before the pooler's own streamed
 // health update reports it back (see shouldPropagateLeaderInfo).
+func TestReconcileFollowerSlots(t *testing.T) {
+	leader := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p0"},
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		},
+		LastSeen: timestamppb.Now(),
+	}, nil)
+
+	t.Run("calls ReconcileFollowers on the leader when the set is non-empty", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		re := &Engine{rpcClient: fake, logger: slog.Default()}
+		ids := []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "s1"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "s2"},
+		}
+		re.reconcileFollowerSlots(t.Context(), leader, ids)
+		require.Equal(t, []string{"ReconcileFollowers(multipooler-zone1-p0)"}, fake.GetCallLog())
+	})
+
+	t.Run("no-op when the eligible set is empty", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		re := &Engine{rpcClient: fake, logger: slog.Default()}
+		re.reconcileFollowerSlots(t.Context(), leader, nil)
+		require.Empty(t, fake.GetCallLog(), "must not call ReconcileFollowers with an empty set")
+	})
+}
+
 func TestPropagateLeaderInfoToPooler_CachesSuccessfulSetPrimary(t *testing.T) {
 	fake := rpcclient.NewFakeClient()
 	re := &Engine{rpcClient: fake, logger: slog.Default()}

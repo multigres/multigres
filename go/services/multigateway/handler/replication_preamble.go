@@ -15,7 +15,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -27,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
@@ -110,9 +110,9 @@ func parseNullTerminatedString(body []byte) (string, bool) {
 // machine for a case nothing in practice exercises. Anything other than
 // Query is rejected outright instead.
 func runReplicationPreamble(
-	ctx context.Context,
 	conn *server.Conn,
 	stream multipoolerservice.MultipoolerService_StreamReplicationClient,
+	admitFailoverSlots bool,
 ) (streaming bool, leftover []byte, err error) {
 	for {
 		// 1. Read one full frontend message off the still-attached client
@@ -155,14 +155,14 @@ func runReplicationPreamble(
 		// command, so this connection can reach that function same as any
 		// other), and reject either before the pooler/postgres ever see it.
 		if cmd, ok := parseNullTerminatedString(body); ok {
-			if rejectErr := nonTemporaryCreateReplicationSlotError(cmd); rejectErr != nil {
+			if rejectErr := nonTemporaryCreateReplicationSlotError(cmd, admitFailoverSlots); rejectErr != nil {
 				// The pooler/postgres never see the rejected command.
 				if werr := conn.WriteError(rejectErr); werr != nil {
 					return false, nil, werr
 				}
 				return false, nil, rejectErr
 			}
-			if rejectErr := nonTemporaryReplicationSlotSQLFuncError(cmd); rejectErr != nil {
+			if rejectErr := nonTemporaryReplicationSlotSQLFuncError(cmd, admitFailoverSlots); rejectErr != nil {
 				if werr := conn.WriteError(rejectErr); werr != nil {
 					return false, nil, werr
 				}
@@ -226,22 +226,33 @@ func runReplicationPreamble(
 // the extended query protocol isn't supported here.
 func unsupportedPreambleMessageError(msgType byte) error {
 	return mterrors.NewFeatureNotSupported(
-		fmt.Sprintf("message type %q is not supported on a replication connection before streaming begins: only the simple query protocol is supported here", string(msgType)))
+		fmt.Sprintf("message type %q is not supported on a replication connection before streaming begins: only the simple query protocol is supported here", string(msgType)),
+	)
 }
 
 // nonTemporaryCreateReplicationSlotError returns a rejection error if cmd is
 // a CREATE_REPLICATION_SLOT command that does not request a TEMPORARY slot,
-// or nil if cmd is anything else / already requests TEMPORARY. Multigres
-// cannot yet transition a replication slot's position across a primary
-// failover, so only ephemeral (client-lifetime) slots are safe.
+// or nil if cmd is anything else / already requests TEMPORARY. A non-temporary
+// slot could not previously be carried across a primary failover, so only
+// ephemeral (client-lifetime) slots were safe.
+//
+// When admitFailoverSlots is true (the slot-based-replication feature is on) a
+// non-temporary LOGICAL slot registered for failover is also admitted: such a
+// slot is synced to standbys and can be transitioned across a promotion. This
+// is exactly the command a real PostgreSQL 17 subscriber sends for
+// CREATE SUBSCRIPTION ... WITH (failover = true) — the FAILOVER option rides in
+// the CREATE_REPLICATION_SLOT command itself (verified in
+// go/test/endtoend/subscriptionwire), so no ALTER_REPLICATION_SLOT follow-up
+// needs to be tracked.
 //
 // No grammar exists in this codebase for the replication protocol's command
 // language (see go/common/parser/ast/replication.go — the AST nodes exist
 // but nothing constructs them), so this is deliberately a lightweight
 // tokenizer, not a parser: CREATE_REPLICATION_SLOT slot_name [TEMPORARY]
-// {PHYSICAL|LOGICAL ...} — TEMPORARY, if present, appears between the slot
-// name and the PHYSICAL/LOGICAL keyword, so stop scanning there.
-func nonTemporaryCreateReplicationSlotError(cmd string) error {
+// {PHYSICAL | LOGICAL output_plugin [ ( option [, ...] ) ]}. TEMPORARY, if
+// present, appears between the slot name and the PHYSICAL/LOGICAL keyword; the
+// FAILOVER option appears in the parenthesized list after the plugin.
+func nonTemporaryCreateReplicationSlotError(cmd string, admitFailoverSlots bool) error {
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 || !strings.EqualFold(fields[0], "CREATE_REPLICATION_SLOT") {
 		return nil
@@ -250,16 +261,64 @@ func nonTemporaryCreateReplicationSlotError(cmd string) error {
 		return mterrors.NewNonTemporaryReplicationSlotError("CREATE_REPLICATION_SLOT", "TEMPORARY")
 	}
 	// fields[1] is the slot name — skip it, or a client naming its slot
-	// "temporary" would have that name misread as the keyword.
-	for _, f := range fields[2:] {
-		if strings.EqualFold(f, "TEMPORARY") {
+	// "temporary" would have that name misread as the keyword. TEMPORARY, if
+	// present, appears before the PHYSICAL/LOGICAL keyword.
+	kindIdx := -1
+	for i := 2; i < len(fields); i++ {
+		if strings.EqualFold(fields[i], "TEMPORARY") {
 			return nil
 		}
-		if strings.EqualFold(f, "PHYSICAL") || strings.EqualFold(f, "LOGICAL") {
+		if strings.EqualFold(fields[i], "PHYSICAL") || strings.EqualFold(fields[i], "LOGICAL") {
+			kindIdx = i
 			break
 		}
 	}
+	// Non-temporary. Admit only a LOGICAL failover slot, and only when the
+	// feature is enabled.
+	if admitFailoverSlots && kindIdx >= 0 && strings.EqualFold(fields[kindIdx], "LOGICAL") &&
+		createReplicationSlotHasFailover(fields[kindIdx+1:]) {
+		return nil
+	}
 	return mterrors.NewNonTemporaryReplicationSlotError("CREATE_REPLICATION_SLOT", "TEMPORARY")
+}
+
+// createReplicationSlotHasFailover reports whether the tokens following the
+// LOGICAL keyword of a CREATE_REPLICATION_SLOT command request failover. The
+// first token is the output plugin; its options follow in PostgreSQL 17's
+// parenthesized, comma-separated list — e.g. `pgoutput (FAILOVER, SNAPSHOT
+// 'nothing')`. Parentheses and commas are normalized to spaces so an option
+// glued to a paren or comma is still seen as its own token. A bare FAILOVER
+// means true; an explicit boolean value (FAILOVER false/off/no/0/...) is
+// interpreted with sqltypes.ParseBool, which mirrors PostgreSQL's own
+// parse_bool_with_len.
+//
+// It is conservative in the safe direction: it admits only when a FAILOVER
+// option is unambiguously present and not set false, so a parse it doesn't
+// understand rejects (never wrongly admits a non-failover, non-temporary slot).
+// The only false positive would be an output plugin literally named "failover",
+// which does not exist.
+func createReplicationSlotHasFailover(tokens []string) bool {
+	normalized := strings.Map(func(r rune) rune {
+		if r == '(' || r == ')' || r == ',' {
+			return ' '
+		}
+		return r
+	}, strings.Join(tokens, " "))
+	opts := strings.Fields(normalized)
+	for i, opt := range opts {
+		if strings.EqualFold(opt, "FAILOVER") {
+			// A bare FAILOVER means true; if an explicit boolean value follows,
+			// honor it. A following token that isn't a boolean (another option,
+			// or end of list) leaves FAILOVER at its bare "true".
+			if i+1 < len(opts) {
+				if v, ok := sqltypes.ParseBool(strings.Trim(opts[i+1], "'\"")); ok {
+					return v
+				}
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // nonTemporaryReplicationSlotSQLFuncError returns a rejection error if cmd
@@ -270,6 +329,11 @@ func nonTemporaryCreateReplicationSlotError(cmd string) error {
 // START_REPLICATION, which nonTemporaryCreateReplicationSlotError already
 // handles above and which never parses as SQL).
 //
+// When admitFailoverSlots is true, a non-temporary logical slot created with
+// failover => true is also admitted, mirroring the command-form guard — for the
+// case where the slot is created by a plain `SELECT
+// pg_create_logical_replication_slot(...)` rather than the walsender command.
+//
 // This exists because postgres's walsender falls through to the normal SQL
 // executor for any query on a replication=database connection that isn't a
 // recognized replication command (exec_replication_command returning false
@@ -277,14 +341,21 @@ func nonTemporaryCreateReplicationSlotError(cmd string) error {
 // reaches the same function the planner already guards on ordinary
 // connections (go/services/multigateway/planner/unsafe_funccall.go), and
 // must be guarded here too.
-func nonTemporaryReplicationSlotSQLFuncError(cmd string) error {
+func nonTemporaryReplicationSlotSQLFuncError(cmd string, admitFailoverSlots bool) error {
 	// A parse error means cmd isn't SQL at all — most likely one of the
 	// replication-protocol commands nonTemporaryCreateReplicationSlotError
 	// already handled above. Nothing to check.
 	stmts, err := parser.ParseSQL(cmd)
 	if err == nil {
 		for _, stmt := range stmts {
-			if name, found := ast.FindNonTemporaryReplicationSlotCall(stmt); found {
+			var name string
+			var found bool
+			if admitFailoverSlots {
+				name, found = ast.FindNonTemporaryNonFailoverReplicationSlotCall(stmt)
+			} else {
+				name, found = ast.FindNonTemporaryReplicationSlotCall(stmt)
+			}
+			if found {
 				return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
 			}
 		}

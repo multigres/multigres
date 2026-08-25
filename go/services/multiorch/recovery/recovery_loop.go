@@ -267,7 +267,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	}
 
 	// Force re-poll to validate the problem still exists
-	stillExists, err := re.recheckProblem(ctx, problem)
+	rechecked, err := re.recheckProblem(ctx, problem)
 	if err != nil {
 		span.SetAttributes(attribute.String("result", "recheck_failed"))
 		re.logger.WarnContext(ctx, "failed to validate problem, skipping recovery",
@@ -277,7 +277,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		)
 		return
 	}
-	if !stillExists {
+	if rechecked == nil {
 		span.SetAttributes(attribute.String("result", "problem_resolved"))
 		re.logger.DebugContext(ctx, "problem no longer exists after re-poll, skipping recovery",
 			"problem_code", problem.Code,
@@ -292,7 +292,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 
 	startTime := time.Now()
 
-	err = problem.RecoveryAction.Execute(ctx, problem)
+	err = problem.RecoveryAction.Execute(ctx, *rechecked)
 	durationMs := float64(time.Since(startTime).Milliseconds())
 
 	if err != nil {
@@ -322,8 +322,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 // streams, so no explicit force-poll is needed. We simply re-generate the
 // shard analysis from the current store and re-run the analyzer.
 //
-// Returns (stillExists bool, error).
-func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bool, error) {
+// Returns nil (with a nil error) if the problem is no longer detected — the
+// caller should skip recovery. Otherwise returns the redetected problem
+// bundled with the shard's highest known consensus position as of this
+// recheck (the same snapshot the analyzer just re-verified it against), so
+// Execute anchors its CAS on exactly what was just judged safe rather than
+// re-deriving the rule itself and risking a second, independently-read
+// snapshot that could in principle disagree.
+func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*types.RecheckedProblem, error) {
 	entityID := problem.EntityID()
 
 	re.logger.DebugContext(ctx, "validating problem still exists",
@@ -338,8 +344,9 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	generator := analysis.NewAnalysisGenerator(re.poolerCache, re.makePolicyLookup(ctx))
 	shardAnalysis, err := generator.GenerateShardAnalysis(problem.ShardKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
+		return nil, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
 	}
+	rule := shardAnalysis.HighestPosition
 
 	// Re-run the analyzer that originally detected this problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
@@ -350,7 +357,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
 				)
-				return false, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
+				return nil, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
 			}
 
 			// Check if the same problem is still detected.
@@ -365,7 +372,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 						"entity_id", entityID,
 						"problem_code", problem.Code,
 					)
-					return true, nil
+					return &types.RecheckedProblem{Problem: p, HighestKnownRule: rule}, nil
 				}
 			}
 
@@ -374,11 +381,11 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 				"entity_id", entityID,
 				"problem_code", problem.Code,
 			)
-			return false, nil
+			return nil, nil
 		}
 	}
 
-	return false, fmt.Errorf("analyzer %s not found", problem.CheckName)
+	return nil, fmt.Errorf("analyzer %s not found", problem.CheckName)
 }
 
 // makePolicyLookup returns a closure that fetches the bootstrap durability policy

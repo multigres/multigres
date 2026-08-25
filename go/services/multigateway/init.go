@@ -65,6 +65,9 @@ type Multigateway struct {
 	pgTLSKeyFile viperutil.Value[string]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
+	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
+	// slots in the replication preamble (default off, dynamic/reloadable).
+	slotBasedReplicationEnabled viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -222,6 +225,12 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_REQUIRE_SSL"},
 		}),
+		slotBasedReplicationEnabled: viperutil.Configure(reg, "enable-slot-based-replication", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-slot-based-replication",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
+		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "pg-replica-port",
@@ -278,6 +287,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
+	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
@@ -286,7 +296,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
-	viperutil.BindFlags(fs,
+	viperutil.BindFlags(
+		fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
@@ -296,6 +307,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 		mg.pgRequireSSL,
+		mg.slotBasedReplicationEnabled,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
@@ -431,7 +443,8 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// retries with jitter until two racing gateways converge on different prefixes.
 	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer regCancel()
-	mg.tr, err = toporeg.RegisterSynchronous(regCtx,
+	mg.tr, err = toporeg.RegisterSynchronous(
+		regCtx,
 		func(ctx context.Context) error {
 			if multigateway.PidPrefix == 0 {
 				prefix, err := mg.findUnusedPrefix(ctx)
@@ -476,6 +489,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	mg.pgHandler = handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
+	mg.pgHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
 
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
@@ -526,6 +540,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		replicaHandler.SetTargetReplica(true)
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
+		replicaHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:               replicaAddr,
@@ -604,7 +619,8 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		}()
 	}
 
-	logger.InfoContext(ctx, "multigateway starting up",
+	logger.InfoContext(
+		ctx, "multigateway starting up",
 		"cell", mg.cell.Get(),
 		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),

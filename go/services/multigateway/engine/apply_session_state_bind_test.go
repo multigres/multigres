@@ -92,6 +92,39 @@ func TestApplySessionState_BoundValueResolves(t *testing.T) {
 	assert.Equal(t, "public,extensions", settings["search_path"])
 }
 
+// TestApplySessionState_BoundSearchPathPgTempRejected pins the execute-time
+// half of the pg_temp guard: a bound search_path value naming the temp
+// namespace must error during bind resolution (aborting the Sequence before
+// the paired Route reaches a backend) and leave the tracker untouched.
+func TestApplySessionState_BoundSearchPathPgTempRejected(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("pg_temp, public")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("search_path", "__bind_$1__"),
+		&BoundSetConfigRefs{
+			ValueParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.ErrorContains(t, err, "pg_temp")
+	assert.Empty(t, settings, "rejected search_path must not reach SessionSettings")
+}
+
+// TestTrackedSetActionRejectsPgTempSearchPath pins the tracked-settings
+// backstop: prepareTrackedSetActionWithBackendPreview is the funnel every
+// tracked SET/set_config write passes through, so a pg_temp search_path must
+// error there regardless of which resolver produced it.
+func TestTrackedSetActionRejectsPgTempSearchPath(t *testing.T) {
+	state := &handler.MultigatewayConnectionState{}
+	_, err := prepareTrackedSetAction(nil, state, "search_path", "pg_temp, public", false)
+	require.ErrorContains(t, err, "pg_temp")
+
+	action, err := prepareTrackedSetAction(nil, state, "search_path", "public", false)
+	require.NoError(t, err)
+	action()
+	assert.Equal(t, "public", state.SessionSettings["search_path"])
+}
+
 // TestApplySessionState_BoundNameResolves covers the symmetric case: name
 // bound, value literal. Confirms the per-slot decode is independent.
 func TestApplySessionState_BoundNameResolves(t *testing.T) {
@@ -126,6 +159,115 @@ func TestApplySessionState_BoundNameResolvingToGatewayManagedRejected(t *testing
 	settings, tags, err := runBindExecute(t, prim, portalInfo)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gateway-managed")
+	assert.Empty(t, settings)
+	assert.Nil(t, tags)
+}
+
+// syntheticSetLocalForTest is syntheticSetForTest with IsLocal set, matching
+// what planner.syntheticSetStmt emits for a vet-only is_local=true call.
+func syntheticSetLocalForTest(name, value string) *ast.VariableSetStmt {
+	s := syntheticSetForTest(name, value)
+	s.IsLocal = true
+	return s
+}
+
+// TestApplySessionState_VetOnlyIsLocalTrue pins the vet-only disposition for
+// the PostgREST hot path `set_config($1, $2, true)`: the resolved slots are
+// vetted during the Sequence's prepare phase — a name resolving to
+// search_path gets its value checked for pg_temp, a restricted GUC is
+// rejected — and an accepted call tracks nothing (transaction-scoped, owned
+// by PG via the paired Route).
+func TestApplySessionState_VetOnlyIsLocalTrue(t *testing.T) {
+	const sql = "SELECT set_config($1, $2, true)"
+	newPrim := func() *ApplySessionState {
+		return NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("__bind_$1__", "__bind_$2__"),
+			&BoundSetConfigRefs{
+				NameParam:  &ast.ParamRef{Number: 1},
+				ValueParam: &ast.ParamRef{Number: 2},
+			})
+	}
+	textPair := func(name, value string) *preparedstatement.PortalInfo {
+		return buildBoundPortalInfo(t, sql,
+			[]uint32{uint32(ast.TEXTOID), uint32(ast.TEXTOID)},
+			[][]byte{[]byte(name), []byte(value)}, []int16{0, 0})
+	}
+
+	t.Run("benign custom GUC passes untracked", func(t *testing.T) {
+		settings, tags, err := runBindExecute(t, newPrim(), textPair("request.jwt.claims", `{"sub":"x"}`))
+		require.NoError(t, err)
+		assert.Nil(t, tags)
+		assert.Empty(t, settings, "vet-only call must not touch SessionSettings")
+	})
+
+	t.Run("name resolving to search_path with pg_temp value rejected", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("search_path", "pg_temp, public"))
+		require.ErrorContains(t, err, "pg_temp")
+		assert.Empty(t, settings)
+	})
+
+	t.Run("name resolving to search_path with benign value passes untracked", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("search_path", "public"))
+		require.NoError(t, err)
+		assert.Empty(t, settings, "is_local=true search_path is PG-scoped, not tracked")
+	})
+
+	t.Run("name resolving to restricted GUC rejected", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("synchronous_commit", "off"))
+		require.ErrorContains(t, err, "synchronous_commit")
+		assert.Empty(t, settings)
+	})
+}
+
+// TestApplySessionState_VetOnlyBoundSearchPathValue pins the narrower vet-only
+// shape: literal search_path name, bound value, literal is_local=true.
+func TestApplySessionState_VetOnlyBoundSearchPathValue(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	newPrim := func() *ApplySessionState {
+		return NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+			&BoundSetConfigRefs{
+				ValueParam: &ast.ParamRef{Number: 1},
+			})
+	}
+
+	t.Run("pg_temp value rejected", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("pg_temp")}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.ErrorContains(t, err, "pg_temp")
+		assert.Empty(t, settings)
+	})
+
+	t.Run("benign value passes untracked", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("tenant_a")}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.NoError(t, err)
+		assert.Empty(t, settings)
+	})
+
+	// A NULL value resets search_path to its server/admin default rather than
+	// applying a client string, so the pg_temp vet has nothing to check and
+	// must not reject the statement.
+	t.Run("null value skips the vet and passes untracked", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.NoError(t, err)
+		assert.Empty(t, settings)
+	})
+}
+
+// TestApplySessionState_BoundNameRestrictedGUCRejected pins the execute-time
+// restricted-GUC re-check on the tracked (is_local=false) path too: the
+// plan-time guard only sees literal names.
+func TestApplySessionState_BoundNameRestrictedGUCRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, 'off', false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("synchronous_commit")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "off"),
+		&BoundSetConfigRefs{
+			NameParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, tags, err := runBindExecute(t, prim, portalInfo)
+	require.ErrorContains(t, err, "synchronous_commit")
 	assert.Empty(t, settings)
 	assert.Nil(t, tags)
 }
@@ -192,11 +334,14 @@ func TestApplySessionState_BoundAllThree(t *testing.T) {
 	assert.Equal(t, "schema1, schema2", settings["search_path"])
 }
 
-// TestApplySessionState_NullBindRejected — PG's set_config is STRICT,
-// NULL input means no-op. If we silently tracked an empty string while PG
-// did nothing, gateway tracker and PG state would diverge. Reject
-// explicitly so the client sees the contract violation immediately.
-func TestApplySessionState_NullBindRejected(t *testing.T) {
+// TestApplySessionState_NullBindResetsTracking pins PostgreSQL's actual
+// set_config NULL semantics. set_config is NOT strict (pg_proc.proisstrict =
+// false): set_config(name, NULL, false) clears the parameter and returns the
+// restored default — verified against PostgreSQL 17, where it is
+// indistinguishable from RESET. So a NULL bind must REMOVE the tracked entry,
+// not error: erroring diverges from PG, and tracking an empty string would
+// make pool replay assert a value PostgreSQL never set.
+func TestApplySessionState_NullBindResetsTracking(t *testing.T) {
 	const sql = "SELECT set_config('search_path', $1, false)"
 	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
 
@@ -205,10 +350,106 @@ func TestApplySessionState_NullBindRejected(t *testing.T) {
 			ValueParam: &ast.ParamRef{Number: 1},
 		})
 
+	state := &handler.MultigatewayConnectionState{}
+	state.SetSessionVariable("search_path", "stale_value")
+	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err, "a NULL value is a reset, not an error")
+	assert.NotContains(t, state.SessionSettings, "search_path",
+		"a NULL value must drop the tracked entry so pool replay stops asserting the stale value")
+}
+
+// TestApplySessionState_NullBindOnGatewayManagedRejected pins the deliberate
+// carve-out: the gateway owns a gateway-managed variable's value and has no
+// per-variable reset primitive for it, so a NULL stays fail-closed rather than
+// leaving gateway state guessing.
+func TestApplySessionState_NullBindOnGatewayManagedRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, $2, false)"
+	portalInfo := buildBoundPortalInfo(t, sql,
+		[]uint32{uint32(ast.TEXTOID), uint32(ast.TEXTOID)},
+		[][]byte{[]byte("statement_timeout"), nil}, []int16{0, 0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "__bind_$2__"),
+		&BoundSetConfigRefs{
+			NameParam:  &ast.ParamRef{Number: 1},
+			ValueParam: &ast.ParamRef{Number: 2},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.Error(t, err)
+	assert.Empty(t, settings)
+}
+
+// TestApplySessionState_NullNameRejected — PostgreSQL rejects a NULL name too
+// ("SET requires parameter name"), so this is a rejection either way.
+func TestApplySessionState_NullNameRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, 'public', false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "public"),
+		&BoundSetConfigRefs{
+			NameParam: &ast.ParamRef{Number: 1},
+		})
+
 	settings, _, err := runBindExecute(t, prim, portalInfo)
 	require.Error(t, err)
 	assertFeatureErrBind(t, err, "cannot be NULL")
-	assert.Empty(t, settings, "tracker must not be updated on bind error")
+	assert.Empty(t, settings)
+}
+
+// TestApplySessionState_UnknownOidIsDecodedAndVetted pins the PostgREST shape:
+// an untyped bound parameter arrives as OID 705 (unknown), which PostgreSQL
+// coerces to text natively. Refusing it broke real clients — the vet-only
+// disposition routes set_config('search_path', $1, true) into the decoder, so
+// an unknown-typed value failed the statement outright.
+//
+// Accepting it is the safe direction, and this test pins that: the value is
+// DECODED AND VETTED, not waved through. pg_temp in any position must still be
+// rejected; only a benign value passes.
+func TestApplySessionState_UnknownOidIsDecodedAndVetted(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	run := func(t *testing.T, value string) error {
+		t.Helper()
+		prim := NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+			&BoundSetConfigRefs{ValueParam: &ast.ParamRef{Number: 1}})
+		portalInfo := buildBoundPortalInfo(t, sql,
+			[]uint32{uint32(ast.UNKNOWNOID)}, [][]byte{[]byte(value)}, []int16{0})
+		_, _, err := runBindExecute(t, prim, portalInfo)
+		return err
+	}
+
+	t.Run("benign value is accepted", func(t *testing.T) {
+		require.NoError(t, run(t, "public, extensions"))
+	})
+	t.Run("pg_temp is still rejected", func(t *testing.T) {
+		require.ErrorContains(t, run(t, "pg_temp"), "pg_temp")
+	})
+	t.Run("trailing pg_temp is still rejected", func(t *testing.T) {
+		require.ErrorContains(t, run(t, "nosuch, pg_temp"), "pg_temp")
+	})
+}
+
+// TestApplySessionState_UnsupportedOidStaysFailClosed guards the security
+// property behind the OID restriction: the declared parameter OID is
+// CLIENT-controlled, so "cannot decode it, let PostgreSQL handle it" would let
+// a client bind a policy-relevant argument under an exotic-but-coercible OID
+// (NAMEOID here) to skip the gateway's guards while PostgreSQL coerces and
+// applies it — reopening the pg_temp bypass. The statement must be refused,
+// never passed through unvetted.
+func TestApplySessionState_UnsupportedOidStaysFailClosed(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	const oidName uint32 = 19 // NAMEOID — PostgreSQL would happily coerce name -> text
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{oidName}, [][]byte{[]byte("pg_temp")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+		&BoundSetConfigRefs{
+			ValueParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.Error(t, err, "an undecodable OID must abort, never fall through to PostgreSQL unvetted")
+	assertFeatureErrBind(t, err, "unsupported type oid=19")
+	assert.Empty(t, settings)
 }
 
 // TestApplySessionState_UnsupportedOidRejected — gateway never invents

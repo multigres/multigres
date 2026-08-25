@@ -1446,6 +1446,32 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	assert.False(t, result)
 }
 
+func TestLatestCompleteBackup_PicksFirstCompleteInNewestFirstOrder(t *testing.T) {
+	// ListBackups now returns backups newest-first, so latestCompleteBackup
+	// must pick the first COMPLETE entry -- not the last -- skipping over
+	// any newer INCOMPLETE ones. Getting this backwards would restore from
+	// the oldest complete backup instead of the newest.
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "newest-incomplete", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+		{BackupId: "newest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+		{BackupId: "oldest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+	}
+
+	got := latestCompleteBackup(backups)
+
+	require.NotNil(t, got)
+	assert.Equal(t, "newest-complete", got.BackupId)
+}
+
+func TestLatestCompleteBackup_NilWhenNoneComplete(t *testing.T) {
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "b1", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+	}
+
+	assert.Nil(t, latestCompleteBackup(backups))
+	assert.Nil(t, latestCompleteBackup(nil))
+}
+
 func TestStartPostgres_Success(t *testing.T) {
 	ctx := t.Context()
 
@@ -1800,7 +1826,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:   true,
-			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
+			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase,
 			matchPassfile: true,
 			want:          false,
 		},
@@ -1815,7 +1841,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase,
 			want:         true,
 		},
 		{
@@ -1827,7 +1853,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " passfile=/stale/path/pgpass",
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase + " passfile=/stale/path/pgpass",
 			want:         true,
 		},
 		{
@@ -1944,7 +1970,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 
 // TestConnInfoDrifted is the single-comparison-site guard: it asserts drift is
 // detected for a mismatch in EVERY field the builder emits (host, port, user,
-// application_name, passfile) and NOT detected when every field matches. If a
+// application_name, passfile, dbname) and NOT detected when every field matches. If a
 // future field is added to buildPrimaryConnInfo / expectedPrimaryConnInfo but
 // not to connInfoDrifted, the "all match" round-trip stays green while the new
 // per-field case must be added here — forcing the field through the comparison.
@@ -1958,6 +1984,7 @@ func TestConnInfoDrifted(t *testing.T) {
 		User:            "postgres",
 		ApplicationName: "zone1_test-pooler",
 		Passfile:        "/var/lib/pgpass",
+		Dbname:          "postgres",
 	}
 
 	// clone returns a fresh copy of expected so each mutator starts from a
@@ -1969,6 +1996,7 @@ func TestConnInfoDrifted(t *testing.T) {
 			User:            expected.User,
 			ApplicationName: expected.ApplicationName,
 			Passfile:        expected.Passfile,
+			Dbname:          expected.Dbname,
 		}
 	}
 
@@ -2032,6 +2060,15 @@ func TestConnInfoDrifted(t *testing.T) {
 			}(),
 			want: true,
 		},
+		{
+			name: "DbnameDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.Dbname = "otherdb"
+				return a
+			}(),
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2044,7 +2081,7 @@ func TestConnInfoDrifted(t *testing.T) {
 	// per-field mismatch case above. This is a soft tripwire — if a new field is
 	// added to PrimaryConnInfo and the builder starts emitting it, add a case.
 	// (Raw is not builder-emitted; it is the parser's redacted round-trip copy.)
-	const managedFieldCases = 5 // host, port, user, application_name, passfile
+	const managedFieldCases = 6 // host, port, user, application_name, passfile, dbname
 	mismatchCases := 0
 	for _, tt := range tests {
 		if tt.want && tt.actual != nil {
@@ -2067,6 +2104,20 @@ func TestConnInfoDrifted(t *testing.T) {
 		noPassfile := clone()
 		noPassfile.Passfile = ""
 		assert.False(t, connInfoDrifted(noPassfile, exp))
+	})
+
+	// The dbname comparison is asymmetric for the same reason: an empty expected
+	// dbname means "nothing to reconcile toward yet", so any actual dbname is
+	// tolerated.
+	t.Run("UnknownExpectedDbnameToleratesAny", func(t *testing.T) {
+		exp := clone()
+		exp.Dbname = ""
+		withDbname := clone()
+		withDbname.Dbname = "whatever"
+		assert.False(t, connInfoDrifted(withDbname, exp))
+		noDbname := clone()
+		noDbname.Dbname = ""
+		assert.False(t, connInfoDrifted(noDbname, exp))
 	})
 }
 

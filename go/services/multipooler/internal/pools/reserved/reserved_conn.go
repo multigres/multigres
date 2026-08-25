@@ -72,6 +72,20 @@ type Conn struct {
 	// released indicates whether this connection has been released.
 	released atomic.Bool
 
+	// closeOnRelease marks this backend as no longer safe to hand to another
+	// logical session: at release it is closed rather than recycled into the
+	// pool. It is one-way — nothing clears it — because the conditions that
+	// set it are ones no cleanup statement can reliably undo.
+	//
+	// Temporary-object access is currently the only thing that sets it (via
+	// MarkTempTainted), and it is set only after a temp-reason statement
+	// SUCCEEDS: a rejected statement leaves no temp objects behind (an aborted
+	// creating transaction rolls back even the namespace instantiation), so it
+	// must not cost the backend its life. That case is also why the flag is
+	// one-way — DISCARD TEMP drops the objects but cannot unfreeze
+	// temp_buffers. Other reasons to retire a backend can set it the same way.
+	closeOnRelease atomic.Bool
+
 	// txnStartTime is when the current transaction began. Set by the begin
 	// paths (BeginWithQuery / SnapshotTxnState), cleared when the transaction is
 	// concluded by Commit/Rollback. Used to compute mg.pooler.txn.duration.
@@ -409,12 +423,36 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 
 // AddReservationReason adds a reason to the reservation bitmask.
 // Creates reservedProps if needed (sets StartTime to now).
+//
+// Deliberately does NOT set closeOnRelease for the temp reason: reasons are
+// applied before the statement runs and unwound by the executor when
+// PostgreSQL rejects it — the taint is applied separately by MarkTempTainted
+// on the success path.
 func (c *Conn) AddReservationReason(reason uint32) {
 	if c.reservedProps == nil {
 		c.reservedProps = NewReservationProperties(reason)
 	} else {
 		c.reservedProps.AddReason(reason)
 	}
+}
+
+// MarkTempTainted records that a temp-reason statement succeeded on this
+// backend, so it must be closed (not recycled) at release. Called by the
+// executor after PostgreSQL accepts the statement — never on the add-reasons
+// path, where a subsequent rejection would leave a needless taint. Idempotent
+// and one-way: a later failed temp statement (e.g. duplicate name, which
+// implies this backend already holds the temp table) must not clear it, and
+// neither does DISCARD TEMP, which cannot unfreeze temp_buffers.
+//
+// A FAILED temp statement can also freeze temp_buffers (the local-buffer
+// latch is not transactional), but that recycled residue is deliberately not
+// tainted here — it is repaired lazily, only when it actually bites, by the
+// pool's checkout-time recovery (connpool.applySettingsWithReconnect and the
+// regular pool's QueryStreamingWithRetry, both keyed on
+// mterrors.IsTempBuffersFreeze). Tainting on failure would instead close a
+// healthy backend for every rejected temp statement, mostly unfrozen ones.
+func (c *Conn) MarkTempTainted() {
+	c.closeOnRelease.Store(true)
 }
 
 // RemoveReservationReason removes a reason from the reservation bitmask.
