@@ -72,6 +72,20 @@ func sessionStateQuery(customNames []string) string {
 	return b.String()
 }
 
+// SessionStateChecker is the connpool.ConnChecker that verifies a
+// connection's session GUC state; it delegates to VerifySessionState. It is
+// registered on every regular pool at construction — the pool's
+// ScrubInterval decides whether the scrub worker actually runs.
+type SessionStateChecker struct{}
+
+// Name implements connpool.ConnChecker.
+func (SessionStateChecker) Name() string { return "session_state" }
+
+// Check implements connpool.ConnChecker.
+func (SessionStateChecker) Check(ctx context.Context, conn *Conn) (connpool.Divergence, error) {
+	return conn.VerifySessionState(ctx)
+}
+
 // VerifySessionState compares this connection's tracked settings label
 // against the backend's real session GUC state and reports any divergence.
 //
@@ -88,8 +102,8 @@ func sessionStateQuery(customNames []string) string {
 // statement's implicit transaction ends.
 //
 // The returned divergence carries GUC names only, never values.
-func (c *Conn) VerifySessionState(ctx context.Context) (connpool.SessionDivergence, error) {
-	var div connpool.SessionDivergence
+func (c *Conn) VerifySessionState(ctx context.Context) (connpool.Divergence, error) {
+	var div connpool.Divergence
 
 	// Idle pool connections are never mid-transaction; refuse to probe one
 	// that is, rather than misread transaction-local state as session state.
@@ -199,7 +213,7 @@ func (c *Conn) VerifySessionState(ctx context.Context) (connpool.SessionDivergen
 	if len(candidates) > 0 {
 		mismatched, err := c.confirmValueMismatches(ctx, candidates, tracked, sessionVars)
 		if err != nil {
-			return connpool.SessionDivergence{}, err
+			return connpool.Divergence{}, err
 		}
 		div.Mismatched = append(div.Mismatched, mismatched...)
 	}
@@ -213,7 +227,7 @@ func (c *Conn) VerifySessionState(ctx context.Context) (connpool.SessionDivergen
 // compareIdentity checks the two GUC_NO_SHOW_ALL identity GUCs against the
 // label. Role names have no display normalization, so value differences are
 // divergence outright.
-func (c *Conn) compareIdentity(div *connpool.SessionDivergence, tracked, identity map[string]string) {
+func (c *Conn) compareIdentity(div *connpool.Divergence, tracked, identity map[string]string) {
 	// current_setting('role') reports 'none' when no SET ROLE is in effect.
 	realRole := identity["role"]
 	trackedRole, hasRole := tracked["role"]

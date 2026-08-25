@@ -200,10 +200,10 @@ func (s ScrubMetrics) RecordCheck(ctx context.Context, poolType string) {
 	s.checked.Add(ctx, 1, metric.WithAttributes(attribute.String("pool_type", poolType)))
 }
 
-// RecordDivergence records the diverged GUC names of one divergent
-// connection, attributed by divergence kind. Only counts are recorded, never
-// names or values.
-func (s ScrubMetrics) RecordDivergence(ctx context.Context, poolType string, div SessionDivergence) {
+// RecordDivergence records one checker's diverged names on a divergent
+// connection, attributed by checker and divergence kind. Only counts are
+// recorded, never names or values.
+func (s ScrubMetrics) RecordDivergence(ctx context.Context, poolType, checker string, div Divergence) {
 	if s.divergence == nil {
 		return
 	}
@@ -217,17 +217,21 @@ func (s ScrubMetrics) RecordDivergence(ctx context.Context, poolType string, div
 		}
 		s.divergence.Add(ctx, int64(len(names)), metric.WithAttributes(
 			attribute.String("pool_type", poolType),
+			attribute.String("checker", checker),
 			attribute.String("kind", kind),
 		))
 	}
 }
 
-// RecordError records a scrub probe that failed to produce a verdict.
-func (s ScrubMetrics) RecordError(ctx context.Context, poolType string) {
+// RecordError records a checker run that failed to produce a verdict.
+func (s ScrubMetrics) RecordError(ctx context.Context, poolType, checker string) {
 	if s.errors == nil {
 		return
 	}
-	s.errors.Add(ctx, 1, metric.WithAttributes(attribute.String("pool_type", poolType)))
+	s.errors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("pool_type", poolType),
+		attribute.String("checker", checker),
+	))
 }
 
 // openErrorReason maps a connection-establishment error to a bounded reason

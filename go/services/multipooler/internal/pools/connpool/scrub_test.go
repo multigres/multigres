@@ -27,17 +27,28 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 )
 
-// scrubMockConnection is a mockConnection that also implements
-// SessionStateVerifier with an injectable verdict.
+// scrubMockConnection is a mockConnection carrying an injectable per-conn
+// verdict that mockChecker reports.
 type scrubMockConnection struct {
 	mockConnection
-	div           SessionDivergence
+	div           Divergence
 	verifyErr     error
 	closeOnVerify bool // simulate the probe killing a dead socket
 	verifyCalls   atomic.Int64
 }
 
-func (m *scrubMockConnection) VerifySessionState(ctx context.Context) (SessionDivergence, error) {
+// mockChecker is a registered ConnChecker that reports whatever verdict the
+// probed connection carries.
+type mockChecker struct{ name string }
+
+func (c mockChecker) Name() string {
+	if c.name == "" {
+		return "mock"
+	}
+	return c.name
+}
+
+func (mockChecker) Check(ctx context.Context, m *scrubMockConnection) (Divergence, error) {
 	m.verifyCalls.Add(1)
 	if m.closeOnVerify {
 		m.closed.Store(true)
@@ -52,6 +63,7 @@ func newScrubTestPool(t *testing.T, capacity int64, connect Connector[*scrubMock
 		Capacity:     capacity,
 		MaxIdleCount: capacity,
 	})
+	pool.RegisterChecker(mockChecker{})
 	if connect == nil {
 		connect = func(ctx context.Context, poolCtx context.Context) (*scrubMockConnection, error) {
 			return &scrubMockConnection{}, nil
@@ -94,7 +106,7 @@ func TestScrubCleanConnReturnsToPool(t *testing.T) {
 func TestScrubDivergentConnReplaced(t *testing.T) {
 	pool := newScrubTestPool(t, 2, nil)
 	conn := recycleIdle(t, pool, nil)
-	conn.div = SessionDivergence{Untracked: []string{"work_mem"}}
+	conn.div = Divergence{Untracked: []string{"work_mem"}}
 
 	cursor := 0
 	assert.True(t, pool.scrubOne(&cursor))
@@ -115,7 +127,7 @@ func TestScrubDivergentConnInSettingsStack(t *testing.T) {
 	pool := newScrubTestPool(t, 2, nil)
 	settings := connstate.NewSettings(map[string]string{"work_mem": "64MB"}, 3)
 	conn := recycleIdle(t, pool, settings)
-	conn.div = SessionDivergence{Mismatched: []string{"work_mem"}}
+	conn.div = Divergence{Mismatched: []string{"work_mem"}}
 
 	// One scrub pass finds the connection regardless of which settings
 	// bucket it sits in.
@@ -192,9 +204,9 @@ func TestScrubEmptyPoolNoop(t *testing.T) {
 	assert.EqualValues(t, 0, pool.Metrics.ScrubCheckedCount())
 }
 
-func TestScrubStopsOnNonVerifierConn(t *testing.T) {
-	// newTestPool's mockConnection does not implement SessionStateVerifier;
-	// the scrubber must stop rather than spin, and must not lose the conn.
+func TestScrubNoopWithoutCheckers(t *testing.T) {
+	// A pool with no registered checkers has nothing to verify: scrubOne
+	// must not touch any connection (and open() never starts the worker).
 	pool := newTestPool(2)
 	defer pool.Close()
 
@@ -204,13 +216,49 @@ func TestScrubStopsOnNonVerifierConn(t *testing.T) {
 	pooled.Recycle()
 
 	cursor := 0
-	assert.False(t, pool.scrubOne(&cursor))
+	assert.True(t, pool.scrubOne(&cursor))
 	assert.EqualValues(t, 0, pool.Metrics.ScrubCheckedCount())
 
 	got, err := pool.Get(context.Background())
 	require.NoError(t, err)
 	assert.Same(t, conn, got.Conn)
 	got.Recycle()
+}
+
+func TestScrubRunsAllRegisteredCheckers(t *testing.T) {
+	// Findings from multiple checkers merge onto one replacement, and a
+	// checker error after an earlier checker's finding still fails closed.
+	pool := NewPool[*scrubMockConnection](context.Background(), &Config{
+		Name:         "scrub-multi-test",
+		Capacity:     2,
+		MaxIdleCount: 2,
+	})
+	pool.RegisterChecker(mockChecker{name: "first"})
+	pool.RegisterChecker(erroringChecker{})
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*scrubMockConnection, error) {
+		return &scrubMockConnection{}, nil
+	}, nil)
+	defer pool.Close()
+
+	conn := recycleIdle(t, pool, nil)
+	conn.div = Divergence{Untracked: []string{"work_mem"}}
+
+	cursor := 0
+	assert.True(t, pool.scrubOne(&cursor))
+
+	assert.EqualValues(t, 1, conn.verifyCalls.Load(), "first checker ran")
+	assert.True(t, conn.IsClosed(), "finding before the error must still replace the backend")
+	assert.EqualValues(t, 1, pool.Metrics.ScrubDivergentCount())
+	assert.EqualValues(t, 1, pool.Metrics.ScrubErrorCount())
+	assert.EqualValues(t, 1, pool.Active())
+}
+
+// erroringChecker always fails to produce a verdict.
+type erroringChecker struct{}
+
+func (erroringChecker) Name() string { return "erroring" }
+func (erroringChecker) Check(ctx context.Context, m *scrubMockConnection) (Divergence, error) {
+	return Divergence{}, errors.New("no verdict")
 }
 
 func TestScrubWorkerReplacesDivergentConn(t *testing.T) {
@@ -223,11 +271,12 @@ func TestScrubWorkerReplacesDivergentConn(t *testing.T) {
 		MaxIdleCount:  2,
 		ScrubInterval: 10 * time.Millisecond,
 	})
+	pool.RegisterChecker(mockChecker{})
 	pool.Open(func(ctx context.Context, poolCtx context.Context) (*scrubMockConnection, error) {
 		conn := &scrubMockConnection{}
 		if created.Add(1) == 1 {
 			// Only the first connection carries hidden session state.
-			conn.div = SessionDivergence{Untracked: []string{"work_mem"}}
+			conn.div = Divergence{Untracked: []string{"work_mem"}}
 		}
 		return conn, nil
 	}, nil)

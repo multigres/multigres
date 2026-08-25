@@ -228,6 +228,11 @@ type Pool[C Connection] struct {
 
 	// scrubMetrics records session-state scrub outcomes. Provided via Config.
 	scrubMetrics ScrubMetrics
+
+	// checkers verify idle connections' real backend state against tracked
+	// state; run by the scrub worker. Populated via RegisterChecker before
+	// Open, read-only afterwards.
+	checkers []ConnChecker[C]
 }
 
 // NewPool creates a new connection pool with the given Config.
@@ -320,7 +325,7 @@ func (pool *Pool[C]) open() {
 		})
 	}
 
-	if scrubInterval := pool.config.scrubInterval; scrubInterval > 0 {
+	if scrubInterval := pool.config.scrubInterval; scrubInterval > 0 && len(pool.checkers) > 0 {
 		// The scrub worker probes one idle connection per tick for divergence
 		// between its tracked settings label and the backend's real session
 		// state, replacing connections that diverged. See scrub.go.
@@ -346,6 +351,14 @@ func (pool *Pool[C]) open() {
 			return true
 		})
 	}
+}
+
+// RegisterChecker adds a state checker for the scrub worker to run against
+// idle connections. Must be called before Open (pool constructors register
+// checkers; the worker reads the slice without locking). Scrubbing runs only
+// when Config.ScrubInterval is set AND at least one checker is registered.
+func (pool *Pool[C]) RegisterChecker(c ConnChecker[C]) {
+	pool.checkers = append(pool.checkers, c)
 }
 
 // Open starts the background workers that manage the pool and gets it ready
