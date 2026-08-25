@@ -268,6 +268,42 @@ func (l *lexer) declareExceptionVars() {
 	}
 }
 
+// seed pre-declares function-scope names before the body is parsed. This is the
+// Go analogue of PG's do_compile (pl_comp.c): after plpgsql_ns_init() PG does
+// plpgsql_ns_push(proname, LABEL_BLOCK) to open an outermost namespace level
+// "named after the function itself" that "contains function parameters and other
+// special variables", populates it (parameters as $N plus their names via
+// add_parameter_name; a trigger's NEW/OLD as records and the TG_* set as vars),
+// and only then runs the grammar over the body. We replicate just the naming so
+// the resolution-based dispatch works when we parse a body in isolation.
+//
+// We open one outer LABEL_BLOCK level so a name declared in the body's own
+// DECLARE section shadows a parameter of the same name, exactly as in PG; that
+// level is intentionally left un-popped (the parse ends inside it, and PG
+// likewise discards the function scope with its compile context). Records
+// register as REC entries so a rec.field target resolves; everything else as a
+// scalar. Unlike PG's add_parameter_name we do NOT run the duplicate-name check
+// (pl_comp.c raises "parameter name used more than once"): a real signature was
+// already validated at CREATE time, and a spurious duplicate must not reject an
+// otherwise-valid body. A nil/empty seed is a no-op — the body then parses in
+// isolation, exactly as before.
+func (l *lexer) seed(s *ParseSeed) {
+	if s == nil || (len(s.Scalars) == 0 && len(s.Records) == 0) {
+		return
+	}
+	l.ns.push("", labelBlock)
+	for _, name := range s.Records {
+		r := plpgsqlast.NewPLpgSQL_rec(name)
+		l.addDatum(r)
+		l.ns.additem(nsTypeRec, r.DatumNo(), name)
+	}
+	for _, name := range s.Scalars {
+		v := plpgsqlast.NewPLpgSQL_var(name)
+		l.addDatum(v)
+		l.ns.additem(nsTypeVar, v.DatumNo(), name)
+	}
+}
+
 // checkExit validates an EXIT/CONTINUE against the namespace, the Go port of the
 // namespace checks in PG's stmt_exit action. A labelled EXIT/CONTINUE requires
 // the label to exist in an enclosing block or loop, and CONTINUE may target only

@@ -1,9 +1,22 @@
-# Known divergence (by design): foreign-data wrapper/server/table operations are
-# blocked through the connection pooler, so dependent extended-statistics checks
-# and cleanup output differ.
+# Known divergences (by design):
+# - foreign-data wrapper/server/table operations are blocked through the pooler,
+#   so dependent extended-statistics checks and cleanup output differ.
+# - the check_estimated_rows helper runs a dynamic EXECUTE the pooler cannot vet,
+#   so its runtime CREATE is rejected. It is pre-seeded on the primary
+#   (testdata/pg17/regress_preseed.sql) so the estimation checks still run; the
+#   remaining reject is the inline CREATE STATISTICS DO block (not a reusable
+#   function to seed).
 --- a
 +++ b
-@@ -304,8 +304,11 @@
+@@ -24,6 +24,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- Verify failures
+ CREATE TABLE ext_stats_test (x text, y int, z int);
+ CREATE STATISTICS tst;
+@@ -304,8 +305,11 @@
  CREATE MATERIALIZED VIEW tststats.mv AS SELECT * FROM tststats.t;
  CREATE TYPE tststats.ty AS (a int, b int, c text);
  CREATE FOREIGN DATA WRAPPER extstats_dummy_fdw;
@@ -15,7 +28,7 @@
  CREATE TABLE tststats.pt (a int, b int, c text) PARTITION BY RANGE (a, b);
  CREATE TABLE tststats.pt1 PARTITION OF tststats.pt FOR VALUES FROM (-10, -10) TO (10, 10);
  CREATE STATISTICS tststats.s1 ON a, b FROM tststats.t;
-@@ -323,6 +326,7 @@
+@@ -323,6 +327,7 @@
  ERROR: cannot define statistics for relation "ty"
  DETAIL: This operation is not supported for composite types.
  CREATE STATISTICS tststats.s7 ON a, b FROM tststats.f;
@@ -23,9 +36,12 @@
  CREATE STATISTICS tststats.s8 ON a, b FROM tststats.pt;
  CREATE STATISTICS tststats.s9 ON a, b FROM tststats.pt1;
  DO $$
-@@ -336,16 +340,15 @@
+@@ -334,18 +339,17 @@
+ RAISE NOTICE 'stats on toast table not created';
+ END;
  $$;
- NOTICE: stats on toast table not created
+-NOTICE: stats on toast table not created
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
  DROP SCHEMA tststats CASCADE;
 -NOTICE: drop cascades to 7 other objects
 +NOTICE: drop cascades to 6 other objects

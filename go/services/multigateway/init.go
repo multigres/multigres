@@ -107,6 +107,11 @@ type Multigateway struct {
 	authenticationTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
+	// unsafePoolerMode, when true, disables the unsafe-statement rejections
+	// (Tier 1 PL/pgSQL body analysis, the Tier 2 statement blocklist, the
+	// restricted-GUC guard, and the expression-level function blocklist). Off by
+	// default; for trusted, single-tenant deployments that accept the risk.
+	unsafePoolerMode viperutil.Value[bool]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
 	// tracking (0 disables fingerprint labeling and the registry RPCs).
 	queryMetricsMemory viperutil.Value[int]
@@ -177,6 +182,12 @@ func NewMultigateway() *Multigateway {
 			FlagName: "plan-cache-memory",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
+		}),
+		unsafePoolerMode: viperutil.Configure(reg, "unsafe-pooler-mode", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "unsafe-pooler-mode",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_UNSAFE_POOLER_MODE"},
 		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
 			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
@@ -281,6 +292,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
+	fs.Bool("unsafe-pooler-mode", mg.unsafePoolerMode.Default(), "disable unsafe-statement rejections (PL/pgSQL body analysis, the statement blocklist, the restricted-GUC guard, and the dangerous-function filter). Only for trusted, single-tenant deployments that accept the risk.")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
@@ -300,6 +312,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
 		mg.planCacheMemory,
+		mg.unsafePoolerMode,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
 		mg.queryLogSampleRate,
@@ -376,6 +389,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	mg.executor.SetUnsafePoolerMode(mg.unsafePoolerMode.Get())
 
 	// Initialize gateway-wide OTel metrics up front so the credential
 	// provider and listener can share the same sink. Failures here are

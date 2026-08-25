@@ -9,9 +9,9 @@
  CREATE FOREIGN DATA WRAPPER fdw_heap2 VALIDATOR postgresql_fdw_validator;
 +ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
  CREATE SERVER fs_heap2 FOREIGN DATA WRAPPER fdw_heap2 ;
-+ERROR: current transaction is aborted, commands ignored until end of transaction block
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
  CREATE FOREIGN table tableam_fdw_heapx () SERVER fs_heap2;
-+ERROR: current transaction is aborted, commands ignored until end of transaction block
++ERROR: server "fs_heap2" does not exist
  -- Verify that new AM was used for tables, matviews, but not for sequences, views and fdws
  SELECT
  pc.relkind,

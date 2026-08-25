@@ -1,0 +1,15 @@
+# Known divergence (by design): a single-variant topology test helper runs a
+# dynamic EXECUTE the gateway cannot vet, so its CREATE is rejected. The helper is
+# re-seeded per test (postgis_preseed.sql) so the checks run; only the rejected
+# CREATE remains.
+--- a
++++ b
+@@ -1,6 +1,8 @@
+ ERROR: SQL/MM Spatial exception - invalid topology name
+ ERROR: SQL/MM Spatial exception - invalid topology name
+ ERROR: SQL/MM Spatial exception - null argument
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ ERROR: SQL/MM Spatial exception - null argument
+ ERROR: Geometry SRID (0) does not match topology SRID (4326)
+ T1|POINT(0 0)

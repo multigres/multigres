@@ -351,7 +351,9 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		if err != nil {
 			// If we're in an active transaction and the query failed,
 			// transition to aborted state. The client must ROLLBACK to recover.
-			if conn.TxnStatus() == protocol.TxnStatusInBlock {
+			// A gateway policy rejection (feature_not_supported) never reached the
+			// backend, so its transaction is still open — leave the session in-block.
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 		}
@@ -461,7 +463,9 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// transaction, where those locks would be released before the next statement.
 	if conn.TxnStatus() == protocol.TxnStatusInBlock {
 		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
-			if conn.TxnStatus() == protocol.TxnStatusInBlock {
+			// A gateway policy rejection never reached the backend, so its
+			// transaction is still open — leave the session in-block.
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return err
@@ -576,7 +580,9 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, includeDescribe, countingCallback)
 	if err != nil {
-		if conn.TxnStatus() == protocol.TxnStatusInBlock {
+		// A gateway policy rejection never reached the backend, so its transaction
+		// is still open — leave the session in-block.
+		if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
 	}

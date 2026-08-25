@@ -1,0 +1,10 @@
+--- a
++++ b
+@@ -316,6 +316,7 @@
+ END LOOP;
+ END;
+ $x$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ RESET enable_seqscan;
+ RESET enable_bitmapscan;
+ INSERT INTO brintest_multi SELECT

@@ -179,14 +179,35 @@ func (d *PgDiagnostic) Validate() error {
 	return nil
 }
 
-// NewFeatureNotSupported returns a PgDiagnostic error with SQLSTATE 0A000 (feature_not_supported).
-func NewFeatureNotSupported(message string) *PgDiagnostic {
-	return &PgDiagnostic{
+// GatewayRejection is an error multigres raised itself — a gateway policy
+// rejection (feature_not_supported) produced before the statement reached the
+// backend — as opposed to a diagnostic parsed from a PostgreSQL backend
+// ErrorResponse. It wraps the diagnostic delivered to the client; callers that
+// need the diagnostic reach it via errors.As (through Unwrap), and callers that
+// only need to know a rejection is gateway-originated use IsGatewayRejection.
+//
+// The distinction matters at the transaction-abort decision: because a gateway
+// rejection never reached the backend, the backend transaction is still open, so
+// the session must not be marked aborted for it.
+type GatewayRejection struct {
+	*PgDiagnostic
+}
+
+// Unwrap exposes the wrapped diagnostic so errors.As(err, **PgDiagnostic) and the
+// wire/proto paths continue to work through the wrapper.
+func (g *GatewayRejection) Unwrap() error { return g.PgDiagnostic }
+
+// NewFeatureNotSupported returns a gateway policy rejection with SQLSTATE 0A000
+// (feature_not_supported). It is a *GatewayRejection: every feature we refuse
+// through the connection pooler is, by construction, raised by the gateway
+// before the statement reaches the backend.
+func NewFeatureNotSupported(message string) *GatewayRejection {
+	return &GatewayRejection{&PgDiagnostic{
 		MessageType: 'E',
 		Severity:    "ERROR",
 		Code:        "0A000",
 		Message:     message,
-	}
+	}}
 }
 
 // NewNonTemporaryReplicationSlotError returns a PgDiagnostic error rejecting
@@ -199,7 +220,7 @@ func NewFeatureNotSupported(message string) *PgDiagnostic {
 // rationale is shared by every enforcement point that creates a slot —
 // the planner's function-call check and the replication-protocol preamble
 // — so they can't drift out of sync.
-func NewNonTemporaryReplicationSlotError(subject, requirement string) *PgDiagnostic {
+func NewNonTemporaryReplicationSlotError(subject, requirement string) *GatewayRejection {
 	return NewFeatureNotSupported(fmt.Sprintf(
 		"%s requires %s: Multigres cannot yet migrate a replication slot across a primary failover, so only temporary (session-scoped) slots are supported",
 		subject, requirement))
