@@ -325,6 +325,12 @@ func (c *Conn) ServerParams() map[string]string {
 	return c.serverParams
 }
 
+// User returns the PostgreSQL user this connection was configured to
+// authenticate as.
+func (c *Conn) User() string {
+	return c.config.User
+}
+
 // TxnStatus returns the current transaction status.
 func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.txnStatus

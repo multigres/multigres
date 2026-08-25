@@ -26,16 +26,27 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 )
 
-// addSessionState scripts the session-source probe to report the given
-// name/value pairs as the backend's real session GUC state.
-func addSessionState(server *fakepgserver.Server, vars [][]any) {
-	server.AddQuery(sessionSourceQuery, fakepgserver.MakeResult([]string{"name", "current_setting"}, vars))
+// identityRows is the backend's identity state for a connection with no SET
+// ROLE / SET SESSION AUTHORIZATION in effect: role reports 'none' and
+// session_user is the fakepgserver login user ("test").
+func identityRows() [][]any {
+	return [][]any{
+		{"role", "none", "identity"},
+		{"session_authorization", "test", "identity"},
+	}
+}
+
+// scriptProbe scripts the session-state probe for the given tracked custom
+// GUC names, reporting the given (name, value, src) rows.
+func scriptProbe(server *fakepgserver.Server, customNames []string, rows [][]any) {
+	server.AddQuery(sessionStateQuery(customNames),
+		fakepgserver.MakeResult([]string{"name", "current_setting", "src"}, rows))
 }
 
 func TestVerifySessionStateClean(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, nil)
+	scriptProbe(server, nil, identityRows())
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -48,7 +59,10 @@ func TestVerifySessionStateClean(t *testing.T) {
 func TestVerifySessionStateMatchingLabel(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, [][]any{{"work_mem", "64MB"}, {"search_path", "app, public"}})
+	scriptProbe(server, nil, append([][]any{
+		{"work_mem", "64MB", "session"},
+		{"search_path", "app, public", "session"},
+	}, identityRows()...))
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -67,7 +81,10 @@ func TestVerifySessionStateUntracked(t *testing.T) {
 	defer server.Close()
 	// A hidden set_config left work_mem session state on a backend whose
 	// label only knows search_path.
-	addSessionState(server, [][]any{{"work_mem", "123MB"}, {"search_path", "app"}})
+	scriptProbe(server, nil, append([][]any{
+		{"work_mem", "123MB", "session"},
+		{"search_path", "app", "session"},
+	}, identityRows()...))
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -83,7 +100,9 @@ func TestVerifySessionStateUntracked(t *testing.T) {
 func TestVerifySessionStateUntrackedOnCleanLabel(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, [][]any{{"work_mem", "123MB"}})
+	scriptProbe(server, nil, append([][]any{
+		{"work_mem", "123MB", "session"},
+	}, identityRows()...))
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -96,16 +115,16 @@ func TestVerifySessionStateUntrackedOnCleanLabel(t *testing.T) {
 func TestVerifySessionStatePhantom(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, nil)
+	scriptProbe(server, nil, identityRows())
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
-	conn.State().SetSettings(connstate.NewSettings(map[string]string{"app.tenant": "acme"}, 1))
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"work_mem": "64MB"}, 1))
 
 	div, err := conn.VerifySessionState(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, div.Untracked)
-	assert.Equal(t, []string{"app.tenant"}, div.Phantom)
+	assert.Equal(t, []string{"work_mem"}, div.Phantom)
 	assert.Empty(t, div.Mismatched)
 }
 
@@ -115,7 +134,9 @@ func TestVerifySessionStateNormalizationEqual(t *testing.T) {
 	// Tracked '65536' vs displayed '64MB' is a spelling difference, not
 	// divergence: the normalization probe maps the tracked value to the same
 	// display form.
-	addSessionState(server, [][]any{{"work_mem", "64MB"}})
+	scriptProbe(server, nil, append([][]any{
+		{"work_mem", "64MB", "session"},
+	}, identityRows()...))
 	server.AddQuery(
 		"SELECT n, pg_catalog.set_config(n, v, true) FROM (VALUES ('work_mem', '65536')) AS t(n, v)",
 		fakepgserver.MakeResult([]string{"n", "set_config"}, [][]any{{"work_mem", "64MB"}}),
@@ -133,7 +154,9 @@ func TestVerifySessionStateNormalizationEqual(t *testing.T) {
 func TestVerifySessionStateValueMismatch(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, [][]any{{"work_mem", "123MB"}})
+	scriptProbe(server, nil, append([][]any{
+		{"work_mem", "123MB", "session"},
+	}, identityRows()...))
 	server.AddQuery(
 		"SELECT n, pg_catalog.set_config(n, v, true) FROM (VALUES ('work_mem', '64MB')) AS t(n, v)",
 		fakepgserver.MakeResult([]string{"n", "set_config"}, [][]any{{"work_mem", "64MB"}}),
@@ -150,27 +173,12 @@ func TestVerifySessionStateValueMismatch(t *testing.T) {
 	assert.Equal(t, []string{"work_mem"}, div.Mismatched)
 }
 
-func TestVerifySessionStateIdentityMismatchSkipsProbe(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	// role/session_authorization never go through the normalization probe:
-	// a differing role name is divergence outright. No set_config query is
-	// scripted, so reaching the probe would fail the test.
-	addSessionState(server, [][]any{{"role", "bob"}})
-
-	conn := newTestDirectConn(t, server)
-	defer conn.Close()
-	conn.State().SetSettings(connstate.NewSettings(map[string]string{"role": "alice"}, 1))
-
-	div, err := conn.VerifySessionState(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, []string{"role"}, div.Mismatched)
-}
-
 func TestVerifySessionStateNormalizationProbeFailureFailsClosed(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	addSessionState(server, [][]any{{"temp_buffers", "16MB"}})
+	scriptProbe(server, nil, append([][]any{
+		{"temp_buffers", "16MB", "session"},
+	}, identityRows()...))
 	// The backend rejects re-applying the tracked value (e.g. the
 	// temp_buffers freeze). The probe cannot prove equivalence, so the name
 	// is reported as mismatched rather than silently cleared.
@@ -191,11 +199,170 @@ func TestVerifySessionStateNormalizationProbeFailureFailsClosed(t *testing.T) {
 func TestVerifySessionStateProbeErrorPropagates(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	server.AddRejectedQuery(sessionSourceQuery, errors.New("backend on fire"))
+	server.AddRejectedQuery(sessionStateQuery(nil), errors.New("backend on fire"))
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
 
 	_, err := conn.VerifySessionState(context.Background())
 	require.Error(t, err)
+}
+
+// --- Identity (role / session_authorization) ---
+//
+// Both are GUC_NO_SHOW_ALL: they never appear in pg_settings, so the probe
+// reads them explicitly and compares them against the label without the
+// phantom logic used for ordinary GUCs.
+
+func TestVerifySessionStateTrackedRoleMatches(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, nil, [][]any{
+		{"role", "alice", "identity"},
+		{"session_authorization", "test", "identity"},
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"role": "alice"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.False(t, div.IsDiverged())
+}
+
+func TestVerifySessionStateUntrackedRole(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// A hidden SET ROLE on a clean-labeled backend.
+	scriptProbe(server, nil, [][]any{
+		{"role", "sneaky", "identity"},
+		{"session_authorization", "test", "identity"},
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"role"}, div.Untracked)
+}
+
+func TestVerifySessionStatePhantomRole(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// The label claims a role but the backend has none in effect.
+	scriptProbe(server, nil, identityRows())
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"role": "alice"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"role"}, div.Phantom)
+}
+
+func TestVerifySessionStateRoleValueMismatch(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, nil, [][]any{
+		{"role", "bob", "identity"},
+		{"session_authorization", "test", "identity"},
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"role": "alice"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"role"}, div.Mismatched)
+}
+
+func TestVerifySessionStateSessionAuthDivergence(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// session_user differs from the login user with nothing tracked: a
+	// hidden SET SESSION AUTHORIZATION.
+	scriptProbe(server, nil, [][]any{
+		{"role", "none", "identity"},
+		{"session_authorization", "other", "identity"},
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"session_authorization"}, div.Untracked)
+}
+
+func TestVerifySessionStateTrackedSessionAuthMatches(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, nil, [][]any{
+		{"role", "none", "identity"},
+		{"session_authorization", "alice", "identity"},
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"session_authorization": "alice"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.False(t, div.IsDiverged())
+}
+
+// --- Custom (placeholder) GUCs ---
+//
+// Placeholder GUCs are hidden from pg_settings until an extension defines
+// them, so tracked custom names are probed explicitly with
+// current_setting(name, missing_ok := true).
+
+func TestVerifySessionStateCustomGucMatches(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, []string{"my.tenant"}, append(identityRows(),
+		[]any{"my.tenant", "acme", "custom"}))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"my.tenant": "acme"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.False(t, div.IsDiverged())
+}
+
+func TestVerifySessionStateCustomGucPhantom(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// NULL from current_setting(name, true): the session never saw the GUC.
+	scriptProbe(server, []string{"my.tenant"}, append(identityRows(),
+		[]any{"my.tenant", nil, "custom"}))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"my.tenant": "acme"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"my.tenant"}, div.Phantom)
+}
+
+func TestVerifySessionStateCustomGucMismatch(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, []string{"my.tenant"}, append(identityRows(),
+		[]any{"my.tenant", "evil", "custom"}))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"my.tenant": "acme"}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"my.tenant"}, div.Mismatched)
 }
