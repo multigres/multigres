@@ -151,6 +151,12 @@ func (c *Conn) VerifySessionState(ctx context.Context) (connpool.SessionDivergen
 		}
 	}
 
+	// The identity rows are part of the constant probe; their absence means
+	// the result cannot be trusted.
+	if len(identity) != 2 {
+		return div, errors.New("session state probe returned no identity rows")
+	}
+
 	// Ordinary GUCs: compare the session-source rows against the label.
 	var candidates []string
 	for name, realValue := range sessionVars {
