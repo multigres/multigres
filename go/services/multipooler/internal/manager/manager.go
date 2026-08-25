@@ -482,43 +482,11 @@ func (pm *MultipoolerManager) DoUpdateRule(ctx context.Context, update *consensu
 	return pm.consensusMgr.Rules().UpdateRule(ruleWriteCtx, update)
 }
 
-// query executes a query using the internal query service and returns the result.
-// This is a convenience method for internal manager operations.
-func (pm *MultipoolerManager) query(ctx context.Context, sql string) (*sqltypes.Result, error) {
-	queryService := pm.internalQueryService()
-	if queryService == nil {
-		return nil, errors.New("internal query service not available")
-	}
-	return queryService.Query(ctx, sql)
-}
-
-// exec executes a command that doesn't return rows.
-// This is a convenience method for internal manager operations.
-func (pm *MultipoolerManager) exec(ctx context.Context, sql string) error {
-	_, err := pm.query(ctx, sql)
-	return err
-}
-
-// queryArgs executes a parameterized query using the internal query service and returns the result.
-// This is a convenience method for internal manager operations that helps prevent SQL injection.
-func (pm *MultipoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
-	queryService := pm.internalQueryService()
-	if queryService == nil {
-		return nil, errors.New("internal query service not available")
-	}
-	return queryService.QueryArgs(ctx, sql, args...)
-}
-
-// execArgs executes a parameterized command that doesn't return rows.
-// This is a convenience method for internal manager operations that helps prevent SQL injection.
-func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...any) error {
-	_, err := pm.queryArgs(ctx, sql, args...)
-	return err
-}
-
 // adminQuery executes a query on the admin (true-superuser) pool via the
-// InternalQueryService's QueryAdmin method and returns the result. Use for
-// reads/writes of the multigres sidecar schema.
+// InternalQueryService's QueryAdmin method. Every manager query is
+// control-plane work (recovery probes, replication and consensus control,
+// promotion, sidecar schema), which must not queue behind saturated user
+// pools — so these admin-pool helpers are the only query path the manager has.
 func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -528,14 +496,14 @@ func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqlt
 }
 
 // adminExec executes a command that doesn't return rows on the admin
-// (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+// (true-superuser) pool.
 func (pm *MultipoolerManager) adminExec(ctx context.Context, sql string) error {
 	_, err := pm.adminQuery(ctx, sql)
 	return err
 }
 
 // adminQueryArgs executes a parameterized query on the admin (true-superuser)
-// pool and returns the result. Use for reads/writes of the multigres sidecar schema.
+// pool and returns the result. Parameterization helps prevent SQL injection.
 func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -544,8 +512,8 @@ func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, ar
 	return queryService.QueryAdminArgs(ctx, sql, args...)
 }
 
-// adminExecArgs executes a parameterized command that doesn't return rows on the
-// admin (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+// adminExecArgs executes a parameterized command that doesn't return rows on
+// the admin (true-superuser) pool.
 func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, args ...any) error {
 	_, err := pm.adminQueryArgs(ctx, sql, args...)
 	return err
@@ -1289,7 +1257,7 @@ func (pm *MultipoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 		  AND query NOT ILIKE 'ROLLBACK%'
 		  AND query != '<IDLE>'`
 
-	result, err := pm.query(ctx, sql)
+	result, err := pm.adminQuery(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -1327,7 +1295,7 @@ func (pm *MultipoolerManager) terminateWriteConnections(ctx context.Context) (in
 
 	// Terminate each write connection
 	for _, pid := range pids {
-		if err := pm.execArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
+		if err := pm.adminExecArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
 			pm.logger.WarnContext(ctx, "failed to terminate write connection", "pid", pid, "error", err)
 		}
 	}
@@ -1446,7 +1414,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.broadcastHealth()
 	}()
 
-	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
+	if err := pm.adminExec(ctx, "SELECT pg_promote()"); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to call pg_promote()", "error", err)
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
@@ -1476,7 +1444,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// it observes the completed checkpoint.
 	checkpointCtx := pm.ctx
 	go func() {
-		if err := pm.exec(checkpointCtx, "CHECKPOINT"); err != nil {
+		if err := pm.adminExec(checkpointCtx, "CHECKPOINT"); err != nil {
 			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until Postgres's own checkpoint completes", "error", err)
 			return
 		}
@@ -1561,7 +1529,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		  AND c.relkind = 'r'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
 
-	result, err := pm.query(ctx, listSQL)
+	result, err := pm.adminQuery(ctx, listSQL)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "failed to list unlogged tables after promotion; skipping drop", "error", err)
 		return
@@ -1581,7 +1549,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		if name == "multigres.backend_vpid" {
 			continue
 		}
-		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
+		if err := pm.adminExec(ctx, "DROP TABLE "+name); err != nil {
 			pm.logger.WarnContext(ctx, "best-effort drop of unlogged table after promotion failed; table left empty",
 				"table", name, "error", err)
 			continue

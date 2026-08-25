@@ -936,6 +936,14 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to drop stale managed physical slots (non-fatal)", "error", err)
 	}
+	// Also drop any logical failover slots this node still owns as un-synced
+	// originals from when it was primary. Left in place they collide with the
+	// synced copy slot-sync would create, freeze, and invalidate — making this
+	// node an unusable failover target. Dropping them lets slot-sync recreate
+	// proper synced copies.
+	if err := pm.dropOrphanedFailoverSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop orphaned logical failover slots (non-fatal)", "error", err)
+	}
 	if err := pm.resetSynchronizedStandbySlots(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to clear synchronized_standby_slots (non-fatal)", "error", err)
 	}

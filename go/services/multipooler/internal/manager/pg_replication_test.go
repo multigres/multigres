@@ -668,6 +668,41 @@ func TestPostgresMode(t *testing.T) {
 	}
 }
 
+// TestControlPlaneQueriesUseAdminPool pins the pool routing of the manager's
+// control-plane queries: everything issued via the adminQuery/adminExec helper
+// family must go to the admin (true-superuser) pool, never the regular pool,
+// so failover-path work cannot starve behind saturated user traffic. Each
+// query consumes exactly one mock pattern and increments AdminQueryCount, so
+// AdminQueryCount == pattern count proves none went to the regular pool.
+func TestControlPlaneQueriesUseAdminPool(t *testing.T) {
+	pm, queryService := newTestManagerWithMock(t, "default", "0-inf")
+	queryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	queryService.AddQueryPatternOnce("timeline_id FROM pg_control_checkpoint", mock.MakeQueryResult([]string{"ready"}, [][]any{{"t"}}))
+	queryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000000"}}))
+	queryService.AddQueryPatternOnce("primary_conninfo", mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"host=primary"}}))
+	queryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/3000000"}}))
+
+	ctx := context.Background()
+	mode, err := pm.postgresMode(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, pgmode.Primary, mode)
+	ready, err := pm.rewindSourceReady(ctx)
+	require.NoError(t, err)
+	assert.True(t, ready)
+	lsn, err := pm.getStandbyReplayLSN(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0/2000000", lsn)
+	connInfo, err := pm.readPrimaryConnInfo(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "host=primary", connInfo)
+	primaryLSN, err := pm.getPrimaryLSN(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0/3000000", primaryLSN)
+
+	assert.Equal(t, 5, queryService.AdminQueryCount())
+	assert.NoError(t, queryService.ExpectationsWereMet())
+}
+
 func TestGetPrimaryLSN(t *testing.T) {
 	tests := []struct {
 		name        string

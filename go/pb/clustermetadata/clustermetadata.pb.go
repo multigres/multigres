@@ -636,7 +636,10 @@ type Cell struct {
 	ServerAddresses []string `protobuf:"bytes,2,rep,name=server_addresses,json=serverAddresses,proto3" json:"server_addresses,omitempty"`
 	// root is the namespace or directory path within the topology service
 	// where this cell's metadata is stored. Used only when connecting to server_addresses.
-	Root          string `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
+	Root string `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
+	// metadata is an opaque document describing this cell, supplied by whatever
+	// deployed it: an operator, a provisioning tool, or a human.
+	Metadata      string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -688,6 +691,13 @@ func (x *Cell) GetServerAddresses() []string {
 func (x *Cell) GetRoot() string {
 	if x != nil {
 		return x.Root
+	}
+	return ""
+}
+
+func (x *Cell) GetMetadata() string {
+	if x != nil {
+		return x.Metadata
 	}
 	return ""
 }
@@ -2924,11 +2934,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x10GlobalTopoConfig\x12&\n" +
 	"\x0eimplementation\x18\x01 \x01(\tR\x0eimplementation\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"Y\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"u\n" +
 	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"\xe1\x01\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\x12\x1a\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xe1\x01\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
 	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12\x14\n" +
