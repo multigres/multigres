@@ -1,0 +1,168 @@
+# Known divergence, by design: multigres rejects CREATE FOREIGN DATA WRAPPER
+# (Tier-2 — foreign data wrappers / foreign tables are not supported through the
+# connection pooler; see go/services/multigateway/planner/unsafe_stmt.go). hastap
+# builds an FDW inside a helper function (test_fdw) via a constant EXECUTE, so the
+# gateway rejects that helper's CREATE FUNCTION; the missing helper then breaks the
+# file's single wrapping transaction, truncating everything after it. That tail
+# bundles the foreign-table assertions (has_foreign_table, has_relation on the
+# foreign table) together with some general has_* checks the helper also emits
+# (materialized view, partitioned table); all are lost together. The ~862
+# assertions before the helper run and stay verified — including the general
+# has_* functions on ordinary objects — so only these bundled instances are lost.
+--- a
++++ b
+@@ -863,153 +863,4 @@
+ ok 861 - domain_type_isnt(type, type, desc) should fail
+ ok 862 - domain_type_isnt(type, type, desc) should have the proper description
+ ok 863 - domain_type_isnt(type, type, desc) should have the proper diagnostics
+-ok 864 - has_relation(non-existent relation) should fail
+-ok 865 - has_relation(non-existent relation) should have the proper description
+-ok 866 - has_relation(non-existent relation) should have the proper diagnostics
+-ok 867 - has_relation(non-existent schema, tab) should fail
+-ok 868 - has_relation(non-existent schema, tab) should have the proper description
+-ok 869 - has_relation(non-existent schema, tab) should have the proper diagnostics
+-ok 870 - has_relation(sch, non-existent relation, desc) should fail
+-ok 871 - has_relation(sch, non-existent relation, desc) should have the proper description
+-ok 872 - has_relation(sch, non-existent relation, desc) should have the proper diagnostics
+-ok 873 - has_relation(tab, desc) should pass
+-ok 874 - has_relation(tab, desc) should have the proper description
+-ok 875 - has_relation(tab, desc) should have the proper diagnostics
+-ok 876 - has_relation(sch, tab, desc) should pass
+-ok 877 - has_relation(sch, tab, desc) should have the proper description
+-ok 878 - has_relation(sch, tab, desc) should have the proper diagnostics
+-ok 879 - has_relation(sch, view, desc) should pass
+-ok 880 - has_relation(sch, view, desc) should have the proper description
+-ok 881 - has_relation(sch, view, desc) should have the proper diagnostics
+-ok 882 - has_relation(type, desc) should pass
+-ok 883 - has_relation(type, desc) should have the proper description
+-ok 884 - has_relation(type, desc) should have the proper diagnostics
+-ok 885 - hasnt_relation(non-existent relation) should pass
+-ok 886 - hasnt_relation(non-existent relation) should have the proper description
+-ok 887 - hasnt_relation(non-existent relation) should have the proper diagnostics
+-ok 888 - hasnt_relation(non-existent schema, tab) should pass
+-ok 889 - hasnt_relation(non-existent schema, tab) should have the proper description
+-ok 890 - hasnt_relation(non-existent schema, tab) should have the proper diagnostics
+-ok 891 - hasnt_relation(sch, non-existent tab, desc) should pass
+-ok 892 - hasnt_relation(sch, non-existent tab, desc) should have the proper description
+-ok 893 - hasnt_relation(sch, non-existent tab, desc) should have the proper diagnostics
+-ok 894 - hasnt_relation(tab, desc) should fail
+-ok 895 - hasnt_relation(tab, desc) should have the proper description
+-ok 896 - hasnt_relation(tab, desc) should have the proper diagnostics
+-ok 897 - hasnt_relation(sch, tab, desc) should fail
+-ok 898 - hasnt_relation(sch, tab, desc) should have the proper description
+-ok 899 - hasnt_relation(sch, tab, desc) should have the proper diagnostics
+-ok 900 - has_foreign_table(non-existent table) should fail
+-ok 901 - has_foreign_table(non-existent table) should have the proper description
+-ok 902 - has_foreign_table(non-existent table) should have the proper diagnostics
+-ok 903 - has_foreign_table(non-existent schema, tab) should fail
+-ok 904 - has_foreign_table(non-existent schema, tab) should have the proper description
+-ok 905 - has_foreign_table(non-existent schema, tab) should have the proper diagnostics
+-ok 906 - has_foreign_table(non-existent table, desc) should fail
+-ok 907 - has_foreign_table(non-existent table, desc) should have the proper description
+-ok 908 - has_foreign_table(non-existent table, desc) should have the proper diagnostics
+-ok 909 - has_foreign_table(sch, non-existent table, desc) should fail
+-ok 910 - has_foreign_table(sch, non-existent table, desc) should have the proper description
+-ok 911 - has_foreign_table(sch, non-existent table, desc) should have the proper diagnostics
+-ok 912 - has_foreign_table(tab, desc) should pass
+-ok 913 - has_foreign_table(tab, desc) should have the proper description
+-ok 914 - has_foreign_table(tab, desc) should have the proper diagnostics
+-ok 915 - has_foreign_table(sch, tab, desc) should pass
+-ok 916 - has_foreign_table(sch, tab, desc) should have the proper description
+-ok 917 - has_foreign_table(sch, tab, desc) should have the proper diagnostics
+-ok 918 - has_foreign_table(sch, view, desc) should fail
+-ok 919 - has_foreign_table(sch, view, desc) should have the proper description
+-ok 920 - has_foreign_table(sch, view, desc) should have the proper diagnostics
+-ok 921 - has_foreign_table(type, desc) should fail
+-ok 922 - has_foreign_table(type, desc) should have the proper description
+-ok 923 - has_foreign_table(type, desc) should have the proper diagnostics
+-ok 924 - hasnt_foreign_table(non-existent table) should pass
+-ok 925 - hasnt_foreign_table(non-existent table) should have the proper description
+-ok 926 - hasnt_foreign_table(non-existent table) should have the proper diagnostics
+-ok 927 - hasnt_foreign_table(non-existent schema, tab) should pass
+-ok 928 - hasnt_foreign_table(non-existent schema, tab) should have the proper description
+-ok 929 - hasnt_foreign_table(non-existent schema, tab) should have the proper diagnostics
+-ok 930 - hasnt_foreign_table(non-existent table, desc) should pass
+-ok 931 - hasnt_foreign_table(non-existent table, desc) should have the proper description
+-ok 932 - hasnt_foreign_table(non-existent table, desc) should have the proper diagnostics
+-ok 933 - hasnt_foreign_table(sch, non-existent tab, desc) should pass
+-ok 934 - hasnt_foreign_table(sch, non-existent tab, desc) should have the proper description
+-ok 935 - hasnt_foreign_table(sch, non-existent tab, desc) should have the proper diagnostics
+-ok 936 - hasnt_foreign_table(tab, desc) should fail
+-ok 937 - hasnt_foreign_table(tab, desc) should have the proper description
+-ok 938 - hasnt_foreign_table(tab, desc) should have the proper diagnostics
+-ok 939 - hasnt_foreign_table(sch, tab, desc) should fail
+-ok 940 - hasnt_foreign_table(sch, tab, desc) should have the proper description
+-ok 941 - hasnt_foreign_table(sch, tab, desc) should have the proper diagnostics
+-ok 942 - has_materialized_view(non-existent materialized_view) should fail
+-ok 943 - has_materialized_view(non-existent materialized_view) should have the proper description
+-ok 944 - has_materialized_view(non-existent materialized_view) should have the proper diagnostics
+-ok 945 - has_materialized_view(non-existent materialized_view, desc) should fail
+-ok 946 - has_materialized_view(non-existent materialized_view, desc) should have the proper description
+-ok 947 - has_materialized_view(non-existent materialized_view, desc) should have the proper diagnostics
+-ok 948 - has_materialized_view(sch, non-existent materialized_view, desc) should fail
+-ok 949 - has_materialized_view(sch, non-existent materialized_view, desc) should have the proper description
+-ok 950 - has_materialized_view(sch, non-existent materialized_view, desc) should have the proper diagnostics
+-ok 951 - has_materialized_view(materialized_view, desc) should pass
+-ok 952 - has_materialized_view(materialized_view, desc) should have the proper description
+-ok 953 - has_materialized_view(materialized_view, desc) should have the proper diagnostics
+-ok 954 - has_materialized_view(sch, materialized_view, desc) should pass
+-ok 955 - has_materialized_view(sch, materialized_view, desc) should have the proper description
+-ok 956 - has_materialized_view(sch, materialized_view, desc) should have the proper diagnostics
+-ok 957 - hasnt_materialized_view(non-existent materialized_view) should pass
+-ok 958 - hasnt_materialized_view(non-existent materialized_view) should have the proper description
+-ok 959 - hasnt_materialized_view(non-existent materialized_view) should have the proper diagnostics
+-ok 960 - hasnt_materialized_view(non-existent materialized_view, desc) should pass
+-ok 961 - hasnt_materialized_view(non-existent materialized_view, desc) should have the proper description
+-ok 962 - hasnt_materialized_view(non-existent materialized_view, desc) should have the proper diagnostics
+-ok 963 - hasnt_materialized_view(sch, non-existent materialized_view, desc) should pass
+-ok 964 - hasnt_materialized_view(sch, non-existent materialized_view, desc) should have the proper description
+-ok 965 - hasnt_materialized_view(sch, non-existent materialized_view, desc) should have the proper diagnostics
+-ok 966 - hasnt_materialized_view(materialized_view, desc) should fail
+-ok 967 - hasnt_materialized_view(materialized_view, desc) should have the proper description
+-ok 968 - hasnt_materialized_view(materialized_view, desc) should have the proper diagnostics
+-ok 969 - hasnt_materialized_view(sch, materialized_view, desc) should fail
+-ok 970 - hasnt_materialized_view(sch, materialized_view, desc) should have the proper description
+-ok 971 - hasnt_materialized_view(sch, materialized_view, desc) should have the proper diagnostics
+-ok 972 - is_partitioned(non-existent part) should fail
+-ok 973 - is_partitioned(non-existent part) should have the proper description
+-ok 974 - is_partitioned(non-existent part) should have the proper diagnostics
+-ok 975 - is_partitioned(non-existent part, desc) should fail
+-ok 976 - is_partitioned(non-existent part, desc) should have the proper description
+-ok 977 - is_partitioned(non-existent part, desc) should have the proper diagnostics
+-ok 978 - is_partitioned(sch, non-existent part, desc) should fail
+-ok 979 - is_partitioned(sch, non-existent part, desc) should have the proper description
+-ok 980 - is_partitioned(sch, non-existent part, desc) should have the proper diagnostics
+-ok 981 - is_partitioned(sch, part, desc) should pass
+-ok 982 - is_partitioned(sch, part, desc) should have the proper description
+-ok 983 - is_partitioned(sch, part, desc) should have the proper diagnostics
+-ok 984 - is_partitioned(sch, part) should pass
+-ok 985 - is_partitioned(sch, part) should have the proper description
+-ok 986 - is_partitioned(sch, part) should have the proper diagnostics
+-ok 987 - is_partitioned(part, desc) should pass
+-ok 988 - is_partitioned(part, desc) should have the proper description
+-ok 989 - is_partitioned(part, desc) should have the proper diagnostics
+-ok 990 - is_partitioned(part) should pass
+-ok 991 - is_partitioned(part) should have the proper description
+-ok 992 - is_partitioned(part) should have the proper diagnostics
+-ok 993 - isnt_partitioned(non-existent part) should pass
+-ok 994 - isnt_partitioned(non-existent part) should have the proper description
+-ok 995 - isnt_partitioned(non-existent part) should have the proper diagnostics
+-ok 996 - isnt_partitioned(non-existent part, desc) should pass
+-ok 997 - isnt_partitioned(non-existent part, desc) should have the proper description
+-ok 998 - isnt_partitioned(non-existent part, desc) should have the proper diagnostics
+-ok 999 - isnt_partitioned(sch, non-existent part, desc) should pass
+-ok 1000 - isnt_partitioned(sch, non-existent part, desc) should have the proper description
+-ok 1001 - isnt_partitioned(sch, non-existent part, desc) should have the proper diagnostics
+-ok 1002 - isnt_partitioned(sch, part, desc) should fail
+-ok 1003 - isnt_partitioned(sch, part, desc) should have the proper description
+-ok 1004 - isnt_partitioned(sch, part, desc) should have the proper diagnostics
+-ok 1005 - isnt_partitioned(sch, part) should fail
+-ok 1006 - isnt_partitioned(sch, part) should have the proper description
+-ok 1007 - isnt_partitioned(sch, part) should have the proper diagnostics
+-ok 1008 - isnt_partitioned(part, desc) should fail
+-ok 1009 - isnt_partitioned(part, desc) should have the proper description
+-ok 1010 - isnt_partitioned(part, desc) should have the proper diagnostics
+-ok 1011 - isnt_partitioned(part) should fail
+-ok 1012 - isnt_partitioned(part) should have the proper description
+-ok 1013 - isnt_partitioned(part) should have the proper diagnostics
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler

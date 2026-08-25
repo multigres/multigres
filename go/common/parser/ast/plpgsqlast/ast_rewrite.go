@@ -28,6 +28,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_case_when(parent, node, replacer)
 	case *PLpgSQL_condition:
 		return a.rewriteRefOfPLpgSQL_condition(parent, node, replacer)
+	case *PLpgSQL_cursor_arg:
+		return a.rewriteRefOfPLpgSQL_cursor_arg(parent, node, replacer)
 	case *PLpgSQL_diag_item:
 		return a.rewriteRefOfPLpgSQL_diag_item(parent, node, replacer)
 	case *PLpgSQL_exception:
@@ -263,6 +265,40 @@ func (a *application) rewriteRefOfPLpgSQL_condition(parent Node, node *PLpgSQL_c
 			a.cur.parent = parent
 			a.cur.node = node
 		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_cursor_arg(parent Node, node *PLpgSQL_cursor_arg, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.Value, func(newNode, parent Node) {
+		parent.(*PLpgSQL_cursor_arg).Value = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
 		if !a.post(&a.cur) {
 			return false
 		}
@@ -1393,10 +1429,14 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_open(parent Node, node *PLpgSQL_s
 			return true
 		}
 	}
-	if !a.rewriteRefOfPLpgSQL_expr(node, node.Argquery, func(newNode, parent Node) {
-		parent.(*PLpgSQL_stmt_open).Argquery = newNode.(*PLpgSQL_expr)
-	}) {
-		return false
+	for x, el := range node.Args {
+		if !a.rewriteRefOfPLpgSQL_cursor_arg(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_stmt_open).Args[x] = newNode.(*PLpgSQL_cursor_arg)
+			}
+		}(x)) {
+			return false
+		}
 	}
 	if !a.rewriteRefOfPLpgSQL_expr(node, node.Query, func(newNode, parent Node) {
 		parent.(*PLpgSQL_stmt_open).Query = newNode.(*PLpgSQL_expr)

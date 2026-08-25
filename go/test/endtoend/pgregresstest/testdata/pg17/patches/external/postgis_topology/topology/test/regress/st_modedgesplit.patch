@@ -1,0 +1,16 @@
+# Known divergence (by design): this test's helper runs a dynamic EXECUTE the
+# gateway cannot vet, so its CREATE is rejected. The helper is re-seeded directly
+# per test (postgis_preseed.sql, applied by the patched run_test.pl); where its
+# signature would collide with another file's overload it is renamed per file
+# (patchPostGISConflictingHelpers) so seeding stays unambiguous. Only the rejected
+# CREATE remains, plus any "at character N" cursor-offset shifts on geometry
+# messages.
+--- a
++++ b
+@@ -1,5 +1,6 @@
+ max|node|22
+ max|edge|26
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ ERROR: geometry has too many points at character 53
+ ERROR: SQL/MM Spatial exception - point not on edge
+ ERROR: SQL/MM Spatial exception - invalid topology name

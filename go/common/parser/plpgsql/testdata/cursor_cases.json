@@ -10,6 +10,21 @@
     "deparse": "BEGIN\nOPEN c(1, 2);\nEND"
   },
   {
+    "comment": "OPEN bound cursor with named args (labels retained; can't reorder without cursor decl)",
+    "body": "BEGIN OPEN c(p2 := 21, p1 := 20); END",
+    "deparse": "BEGIN\nOPEN c(p2 := 21, p1 := 20);\nEND"
+  },
+  {
+    "comment": "OPEN bound cursor mixing positional and named args",
+    "body": "BEGIN OPEN c(20, p2 := 21); END",
+    "deparse": "BEGIN\nOPEN c(20, p2 := 21);\nEND"
+  },
+  {
+    "comment": "OPEN bound cursor with a function call in a named arg value",
+    "body": "BEGIN OPEN c(p1 := f(x), 2); END",
+    "deparse": "BEGIN\nOPEN c(p1 := f(x), 2);\nEND"
+  },
+  {
     "comment": "OPEN FOR query",
     "body": "BEGIN OPEN c FOR SELECT * FROM t; END",
     "deparse": "BEGIN\nOPEN c FOR SELECT * FROM t;\nEND"

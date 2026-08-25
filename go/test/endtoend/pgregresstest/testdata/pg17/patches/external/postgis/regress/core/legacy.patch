@@ -1,0 +1,11 @@
+# Known divergence (by design): a test helper runs a dynamic EXECUTE the gateway
+# cannot vet, so its CREATE is rejected. The dependent output is a small residual;
+# the helper is not re-seeded here.
+--- a
++++ b
+@@ -1,3 +1,5 @@
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ Starting up MapServer/Geoserver tests...
+ Setting up the data table...
+ public.wmstest.pt SRID:4326 TYPE:POLYGON DIMS:2

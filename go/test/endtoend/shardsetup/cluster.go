@@ -80,6 +80,14 @@ type ShardSetup struct {
 	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
 	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
+	// Second, on-demand multigateway started with --unsafe-pooler-mode by
+	// StartUnsafeMultigateway. It shares this cluster's topology and poolers and
+	// exists so a handful of external extension tests whose scaffolding is
+	// (correctly) rejected by the enforcing gateway can still run. nil until
+	// started; torn down by Cleanup or StopUnsafeMultigateway.
+	unsafeMultigateway       *ProcessInstance
+	unsafeMultigatewayPgPort int
+
 	// Multiadmin instance (optional, enabled via WithMultiadmin).
 	// The HTTP port is what the Next.js web UI in web/multiadmin/ talks to;
 	// point it via MULTIADMIN_API_URL=http://localhost:<MultiadminHttpPort>.
@@ -479,6 +487,14 @@ func (s *ShardSetup) CreateMultiadminInstance(t *testing.T, name string, httpPor
 // This typically takes a few seconds but can be longer under load or slow CI environments.
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
+	s.waitForMultigatewayQueryServingOnPort(t, s.MultigatewayPgPort)
+}
+
+// waitForMultigatewayQueryServingOnPort is WaitForMultigatewayQueryServing
+// parameterized by port, so a second gateway (e.g. the unsafe-pooler-mode
+// gateway from StartUnsafeMultigateway) can share the same readiness probe.
+func (s *ShardSetup) waitForMultigatewayQueryServingOnPort(t *testing.T, pgPort int) {
+	t.Helper()
 
 	// When TLS is configured on the gateway, use sslmode=require so this
 	// readiness probe still works under --pg-require-ssl=true. The probe
@@ -488,7 +504,7 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	if s.MultigatewayTLSCertPaths != nil {
 		sslMode = "sslmode=require"
 	}
-	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, sslMode, "connect_timeout=2")
+	connStr := GetTestUserDSN("localhost", pgPort, sslMode, "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -552,6 +568,9 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	}
 	if s.Multigateway != nil {
 		s.Multigateway.TerminateGracefully(logf, 5*time.Second)
+	}
+	if s.unsafeMultigateway != nil {
+		s.unsafeMultigateway.TerminateGracefully(logf, 5*time.Second)
 	}
 	if s.Multiadmin != nil {
 		s.Multiadmin.TerminateGracefully(logf, 5*time.Second)

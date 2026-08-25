@@ -631,7 +631,7 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	// capacity exhaustion (connected followers == max_wal_senders) is visible.
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx,
+	result, err := pm.adminQuery(queryCtx,
 		"SELECT current_setting('synchronous_standby_names'), current_setting('synchronous_commit'), current_setting('max_wal_senders')")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication settings")
@@ -829,6 +829,13 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// any followers. Best-effort — a later demote / the monitor can retry.
 	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to drop managed physical slots after demote (non-fatal)", "error", err)
+	}
+	// Likewise drop any logical failover slots this node still owns as un-synced
+	// originals from when it was primary: slot-sync cannot replace a same-named
+	// original, so it would freeze and invalidate, disqualifying this node as a
+	// failover target. Dropping them lets slot-sync recreate synced copies.
+	if err := pm.dropOrphanedFailoverSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop orphaned logical failover slots after demote (non-fatal)", "error", err)
 	}
 
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next

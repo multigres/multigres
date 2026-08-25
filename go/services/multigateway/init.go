@@ -68,6 +68,12 @@ type Multigateway struct {
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
 	// slots in the replication preamble (default off, dynamic/reloadable).
 	slotBasedReplicationEnabled viperutil.Value[bool]
+	// keepTransactionOnGatewayRejection, when enabled, leaves an open explicit
+	// transaction in-block after a gateway policy rejection (feature_not_supported)
+	// instead of aborting it. Off by default so clients see PostgreSQL's contract
+	// (any wire error aborts the transaction); opt-in for pg_regress and associated
+	// suites (default off, dynamic/reloadable).
+	keepTransactionOnGatewayRejection viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -107,6 +113,11 @@ type Multigateway struct {
 	authenticationTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
+	// unsafePoolerMode, when true, disables the unsafe-statement rejections
+	// (Tier 1 PL/pgSQL body analysis, the Tier 2 statement blocklist, the
+	// restricted-GUC guard, and the expression-level function blocklist). Off by
+	// default; for trusted, single-tenant deployments that accept the risk.
+	unsafePoolerMode viperutil.Value[bool]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
 	// tracking (0 disables fingerprint labeling and the registry RPCs).
 	queryMetricsMemory viperutil.Value[int]
@@ -178,6 +189,12 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
+		unsafePoolerMode: viperutil.Configure(reg, "unsafe-pooler-mode", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "unsafe-pooler-mode",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_UNSAFE_POOLER_MODE"},
+		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
 			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
 			FlagName: "query-metrics-memory",
@@ -219,6 +236,12 @@ func NewMultigateway() *Multigateway {
 			FlagName: "enable-slot-based-replication",
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
+		}),
+		keepTransactionOnGatewayRejection: viperutil.Configure(reg, "keep-transaction-on-gateway-rejection", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "keep-transaction-on-gateway-rejection",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_KEEP_TRANSACTION_ON_GATEWAY_REJECTION"},
 		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
@@ -277,10 +300,12 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
+	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
+	fs.Bool("unsafe-pooler-mode", mg.unsafePoolerMode.Default(), "disable unsafe-statement rejections (PL/pgSQL body analysis, the statement blocklist, the restricted-GUC guard, and the dangerous-function filter). Only for trusted, single-tenant deployments that accept the risk.")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
@@ -296,10 +321,12 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSKeyFile,
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
+		mg.keepTransactionOnGatewayRejection,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
 		mg.planCacheMemory,
+		mg.unsafePoolerMode,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
 		mg.queryLogSampleRate,
@@ -376,6 +403,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	mg.executor.SetUnsafePoolerMode(mg.unsafePoolerMode.Get())
 
 	// Initialize gateway-wide OTel metrics up front so the credential
 	// provider and listener can share the same sink. Failures here are
@@ -476,6 +504,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 	mg.pgHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
@@ -527,6 +556,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 		replicaHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+		replicaHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:               replicaAddr,

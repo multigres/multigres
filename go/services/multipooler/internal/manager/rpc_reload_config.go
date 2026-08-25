@@ -173,7 +173,7 @@ func (pm *MultipoolerManager) checkExpectedSettings(
 	// their context reads as NULL (empty, treated as non-postmaster).
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
-	result, err := qs.Query(queryCtx, `SELECT fs.name, fs.setting, fs.applied, fs.error, s.context
+	result, err := qs.QueryAdmin(queryCtx, `SELECT fs.name, fs.setting, fs.applied, fs.error, s.context
 FROM pg_file_settings fs
 LEFT JOIN pg_settings s ON s.name = fs.name
 ORDER BY fs.seqno`)

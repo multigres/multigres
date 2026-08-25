@@ -1,0 +1,56 @@
+# Known divergence, by design: multigateway rejects a dynamic EXECUTE inside a
+# PL/pgSQL body because the runtime-built statement text cannot be vetted for
+# unsafe session-state changes (see go/services/multigateway/planner/
+# unsafe_funccall.go). The profiler test builds a function whose body runs
+# EXECUTE 'update ' || t1 ..., so multigres rejects its CREATE where stock PG
+# defers. The function never exists, so the profiler reads that follow
+# (select f1(); plpgsql_profiler_function_tb('f1()')) report "does not exist".
+# The rejection is the intended pooler behavior; the cascade is its consequence.
+--- a
++++ b
+@@ -139,6 +139,7 @@
+ EXECUTE 'delete from ' || t1;
+ end;
+ $$ language plpgsql;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ select plpgsql_profiler_reset_all();
+ plpgsql_profiler_reset_all
+ ----------------------------
+@@ -152,24 +153,12 @@
+ (1 row)
+ 
+ select f1();
+-f1
+-----
+-
+-(1 row)
+-
++ERROR: function f1() does not exist
++LINE 1: select f1();
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ select queryids, lineno, stmt_lineno, exec_stmts, source from plpgsql_profiler_function_tb('f1()');
+-queryids | lineno | stmt_lineno | exec_stmts | source
+-----------+--------+-------------+------------+------------------------------------------------
+-| 1 | | |
+-| 2 | | | declare
+-| 3 | | | t1 text = 't1';
+-| 4 | 4 | {1} | begin
+-{3} | 5 | 5 | {1} | insert into t1 values(10,20);
+-{2} | 6 | 6 | {1} | EXECUTE 'update ' || 't1' || ' set a = 10';
+-{4} | 7 | 7 | {1} | EXECUTE 'delete from ' || t1;
+-| 8 | | | end;
+-(8 rows)
+-
++ERROR: function "f1()" does not exist
+ select plpgsql_profiler_remove_fake_queryid_hook();
+ plpgsql_profiler_remove_fake_queryid_hook
+ -------------------------------------------
+@@ -177,6 +166,7 @@
+ (1 row)
+ 
+ drop function f1();
++ERROR: function f1() does not exist
+ -- don't crash on empty dynamic query
+ create or replace function f1()
+ returns void as $$
