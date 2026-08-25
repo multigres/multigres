@@ -195,7 +195,7 @@ case "$1" in
         
         if [ -n "$DATADIR" ]; then
             # Start a background process to pass isProcessRunning check
-            sleep 3600 &
+            sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
@@ -239,7 +239,7 @@ case "$1" in
             echo "server stopped"
 
             # Start a new background process
-            sleep 3600 &
+            sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
