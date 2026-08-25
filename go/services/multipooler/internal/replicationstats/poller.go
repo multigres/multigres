@@ -47,7 +47,7 @@ SELECT
   r.sent_lsn::text,
   EXTRACT(EPOCH FROM r.replay_lag)::text AS replay_lag_seconds,
   s.slot_name,
-  pg_wal_lsn_diff(pg_current_wal_lsn(), s.restart_lsn)::bigint AS retained_wal_bytes
+  COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), s.restart_lsn), 0)::bigint AS retained_wal_bytes
 FROM pg_stat_replication r
 LEFT JOIN pg_replication_slots s ON s.active_pid = r.pid
 WHERE r.application_name LIKE '` + constants.LogicalReplicationConnAppNamePrefix + `%'
