@@ -33,12 +33,15 @@ var errTxFinished = errors.New("transaction already finished")
 // pools:
 //
 //   - Query / QueryArgs / QueryMultiStatement / Begin run on the regular pool (as
-//     the configured PgUser). Use for routine internal work that may safely share
-//     capacity with user traffic.
+//     the configured PgUser). Use only for internal work that may safely share
+//     capacity — and queue behind — user traffic.
 //   - QueryAdmin / QueryAdminArgs / QueryAdminMultiStatement run on the admin
-//     (true-superuser) pool. Use for control-plane recovery probes that must run
-//     when the regular pool is saturated, and for the locked-down multigres
-//     sidecar schema, which customer roles on the regular pool cannot reach.
+//     (true-superuser) pool. Use for all control-plane work: recovery probes,
+//     replication and consensus control, promotion, and the locked-down
+//     multigres sidecar schema. Control-plane queries must never starve on a
+//     saturated regular pool — that is exactly the failover moment they exist
+//     for — so everything the manager, consensus, and heartbeat components run
+//     goes through these methods.
 //
 // Choosing the pool at the call site keeps the required isolation visible where
 // the query is written.
