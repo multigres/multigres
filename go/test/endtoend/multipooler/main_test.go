@@ -93,9 +93,11 @@ func TestMain(m *testing.M) {
 	if exitCode != 0 {
 		filesystemSetupManager.DumpLogs()
 		s3SetupManager.DumpLogs()
+		replStatsSetupManager.DumpLogs()
 	}
 	filesystemSetupManager.Cleanup()
 	s3SetupManager.Cleanup()
+	replStatsSetupManager.Cleanup()
 
 	// Stop shared s3mock server if it was created
 	if sharedS3MockServer != nil {

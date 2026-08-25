@@ -19,21 +19,33 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
 // logicalReplicationClientConfig returns a copy of base with the `replication`
-// startup parameter set to `database`, requesting a logical-replication-
-// capable backend. The base config is not modified; the Parameters map is
-// copied so callers can keep using base for non-replication connections.
-func logicalReplicationClientConfig(base client.Config) client.Config {
+// startup parameter set to `database` (requesting a logical-replication-
+// capable backend) and `application_name` tagged with connID via
+// constants.LogicalReplicationConnAppNamePrefix, so the replicationstats
+// poller can correlate pg_stat_replication rows back to this connection. We
+// tag this ourselves rather than relying on the backend PID: PIDs come from
+// a potentially small OS/container PID namespace and connection churn from
+// query-serving traffic on the same instance means reuse can happen within
+// seconds under load — a narrow but real misattribution risk during the gap
+// between a walsender disconnecting and the poller's next tick noticing.
+// The base config is not modified; the Parameters map is copied so callers
+// can keep using base for non-replication connections. Tagging deliberately
+// overwrites any existing application_name for the same reason.
+func logicalReplicationClientConfig(base client.Config, connID int64) client.Config {
 	cfg := base
-	cfg.Parameters = make(map[string]string, len(base.Parameters)+1)
+	cfg.Parameters = make(map[string]string, len(base.Parameters)+2)
 	maps.Copy(cfg.Parameters, base.Parameters)
 	cfg.Parameters["replication"] = "database"
+	cfg.Parameters["application_name"] = constants.LogicalReplicationConnAppNamePrefix + strconv.FormatInt(connID, 10)
 	return cfg
 }
 
@@ -98,7 +110,11 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	// the slot accounted for.
 	pooled.Conn.Close()
 
-	cfg := logicalReplicationClientConfig(*p.config.RegularPoolConfig.ClientConfig)
+	// Generated before dialing (unlike NewConn's ordinary path) so it can be
+	// tagged into application_name for replicationstats correlation.
+	connID := p.lastID.Add(1)
+
+	cfg := logicalReplicationClientConfig(*p.config.RegularPoolConfig.ClientConfig, connID)
 	clientConn, err := client.Connect(ctx, p.ctx, &cfg)
 	if err != nil {
 		pooled.Taint()
@@ -112,7 +128,6 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	// capacity-accounted for its full lifetime.
 	pooled.TaintOnRecycle()
 
-	connID := p.lastID.Add(1)
 	c := newConn(pooled, connID, p, nil)
 	c.AddReservationReason(protoutil.ReasonLogicalReplication)
 

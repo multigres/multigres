@@ -15,13 +15,7 @@
 package metrics
 
 import (
-	"bufio"
 	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -67,7 +61,7 @@ func TestPoolerMetricsExposed(t *testing.T) {
 	poolerPort, ok := setup.MetricsPorts[primary.Name]
 	require.True(t, ok, "no metrics port for primary %s", primary.Name)
 
-	poolerMetrics := scrapeMetrics(t, poolerPort)
+	poolerMetrics := utils.ScrapeMetrics(t, poolerPort)
 
 	// Verify multipooler metrics are present.
 	// OTel converts dots to underscores in Prometheus export.
@@ -94,7 +88,7 @@ func TestPoolerMetricsExposed(t *testing.T) {
 	gatewayPort, ok := setup.MetricsPorts["multigateway"]
 	require.True(t, ok, "no metrics port for multigateway")
 
-	gatewayMetrics := scrapeMetrics(t, gatewayPort)
+	gatewayMetrics := utils.ScrapeMetrics(t, gatewayPort)
 
 	// Verify multigateway metrics are present.
 	assert.Contains(t, gatewayMetrics, "mg_gateway_client_connections",
@@ -138,50 +132,50 @@ func TestPoolerMetricValues(t *testing.T) {
 	// Scrape multipooler metrics from the primary.
 	primary := setup.GetPrimary(t)
 	poolerPort := setup.MetricsPorts[primary.Name]
-	poolerText := scrapeMetrics(t, poolerPort)
-	poolerVals := parseMetrics(poolerText)
+	poolerText := utils.ScrapeMetrics(t, poolerPort)
+	poolerVals := utils.ParseMetrics(poolerText)
 
 	// Pooler health: should be up.
-	assertMetricValue(t, poolerVals, "mg_pooler_up", nil, 1)
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_up", nil, 1)
 
 	// Database count: always 1 per multipooler instance.
-	assertMetricValue(t, poolerVals, "mg_pooler_databases", nil, 1)
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_databases", nil, 1)
 
 	// Global capacity: default is 100.
-	assertMetricValue(t, poolerVals, "mg_pooler_config_max_server_connections", nil, 100)
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_config_max_server_connections", nil, 100)
 
 	// Pool count: at least 1 user pool (the test user).
-	assertMetricGE(t, poolerVals, "mg_pooler_pools", nil, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_pools", nil, 1)
 
 	// User count: matches pool count.
-	assertMetricGE(t, poolerVals, "mg_pooler_users", nil, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_users", nil, 1)
 
 	// Queries pooled: we executed 3 queries, so total borrows should be >= 3.
 	// Other setup queries (CREATE TABLE from multigateway readiness check) may also contribute.
-	assertMetricGE(t, poolerVals, "mg_pooler_queries_pooled_total", nil, 3)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_queries_pooled_total", nil, 3)
 
 	// Server connections: should have some idle connections after queries complete.
-	assertMetricGE(t, poolerVals, "mg_pooler_server_connections", map[string]string{"state": "idle"}, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_server_connections", map[string]string{"state": "idle"}, 1)
 
 	// No clients should be waiting (no contention in this test).
-	assertMetricValue(t, poolerVals, "mg_pooler_client_waiting_connections", nil, 0)
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_client_waiting_connections", nil, 0)
 
 	// No active reserved connections (we're not in a transaction).
-	assertMetricValue(t, poolerVals, "mg_pooler_reserved_active_connections", nil, 0)
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_reserved_active_connections", nil, 0)
 
 	// Per-user capacity: should be > 0 for the test user.
-	assertMetricGE(t, poolerVals, "mg_pooler_pool_capacity", map[string]string{"user": shardsetup.DefaultTestUser}, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_pool_capacity", map[string]string{"user": shardsetup.DefaultTestUser}, 1)
 
 	// Per-user current connections: should be > 0 (pool has open connections).
-	assertMetricGE(t, poolerVals, "mg_pooler_pool_current_connections", map[string]string{"user": shardsetup.DefaultTestUser}, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_pool_current_connections", map[string]string{"user": shardsetup.DefaultTestUser}, 1)
 
 	// Scrape multigateway metrics.
 	gatewayPort := setup.MetricsPorts["multigateway"]
-	gatewayText := scrapeMetrics(t, gatewayPort)
-	gatewayVals := parseMetrics(gatewayText)
+	gatewayText := utils.ScrapeMetrics(t, gatewayPort)
+	gatewayVals := utils.ParseMetrics(gatewayText)
 
 	// Gateway client connections: our connection should be counted.
-	assertMetricGE(t, gatewayVals, "mg_gateway_client_connections", nil, 1)
+	utils.AssertMetricGE(t, gatewayVals, "mg_gateway_client_connections", nil, 1)
 
 	// Clean up test table.
 	_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS metrics_test")
@@ -240,7 +234,7 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 	primary := setup.GetPrimary(t)
 	poolerPort, ok := setup.MetricsPorts[primary.Name]
 	require.True(t, ok, "no metrics port for primary %s", primary.Name)
-	poolerMetrics := scrapeMetrics(t, poolerPort)
+	poolerMetrics := utils.ScrapeMetrics(t, poolerPort)
 
 	// Histograms export as <name>_bucket/_sum/_count; counters as <name>_total.
 	// OTel maps dots to underscores and appends _seconds for the "s" unit.
@@ -262,14 +256,14 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 
 	// Value checks: the COMMIT we issued is counted, and the failing query is
 	// counted as a pooler-side error.
-	poolerVals := parseMetrics(poolerMetrics)
-	assertMetricGE(t, poolerVals, "mg_pooler_txn_outcomes_total", map[string]string{"outcome": "commit"}, 1)
-	assertMetricGE(t, poolerVals, "mg_pooler_query_errors_total", map[string]string{"error_source": "backend"}, 1)
+	poolerVals := utils.ParseMetrics(poolerMetrics)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_txn_outcomes_total", map[string]string{"outcome": "commit"}, 1)
+	utils.AssertMetricGE(t, poolerVals, "mg_pooler_query_errors_total", map[string]string{"error_source": "backend"}, 1)
 
 	// Scrape multigateway metrics and verify the phase-latency histograms.
 	gatewayPort, ok := setup.MetricsPorts["multigateway"]
 	require.True(t, ok, "no metrics port for multigateway")
-	gatewayMetrics := scrapeMetrics(t, gatewayPort)
+	gatewayMetrics := utils.ScrapeMetrics(t, gatewayPort)
 	gatewayExpected := []string{
 		"mg_gateway_query_parse_duration_seconds",
 		"mg_gateway_query_plan_duration_seconds",
@@ -326,127 +320,13 @@ func TestResourceMetricsExposed(t *testing.T) {
 	require.True(t, ok, "no metrics port for multigateway")
 
 	for name, port := range map[string]int{primary.Name: poolerPort, "multigateway": gatewayPort} {
-		text := scrapeMetrics(t, port)
+		text := utils.ScrapeMetrics(t, port)
 		for _, series := range resourceMetricSeries {
 			assert.Containsf(t, text, series, "%s should expose %s", name, series)
 		}
 
 		// Resident set size must be positive for a live process.
-		vals := parseMetrics(text)
-		assertMetricGE(t, vals, "process_memory_usage_bytes", nil, 1)
+		vals := utils.ParseMetrics(text)
+		utils.AssertMetricGE(t, vals, "process_memory_usage_bytes", nil, 1)
 	}
-}
-
-// scrapeMetrics fetches the Prometheus text format from the given port and returns it as a string.
-func scrapeMetrics(t *testing.T, port int) string {
-	t.Helper()
-
-	url := fmt.Sprintf("http://localhost:%d/metrics", port)
-	resp, err := http.Get(url) //nolint:gosec // test-only code with localhost URL
-	require.NoError(t, err, "failed to scrape metrics from %s", url)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode, "metrics endpoint returned non-200")
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "failed to read metrics response body")
-
-	return string(body)
-}
-
-// metricSample represents a single Prometheus metric sample.
-type metricSample struct {
-	name   string
-	labels map[string]string
-	value  float64
-}
-
-// parseMetrics parses Prometheus text format into a slice of metricSamples.
-func parseMetrics(text string) []metricSample {
-	var samples []metricSample
-	scanner := bufio.NewScanner(strings.NewReader(text))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		s := metricSample{labels: make(map[string]string)}
-
-		// Split "metric_name{labels} value" or "metric_name value"
-		nameEnd := strings.IndexAny(line, "{ ")
-		if nameEnd == -1 {
-			continue
-		}
-		s.name = line[:nameEnd]
-
-		rest := line[nameEnd:]
-		if strings.HasPrefix(rest, "{") {
-			labelEnd := strings.Index(rest, "}")
-			if labelEnd == -1 {
-				continue
-			}
-			labelStr := rest[1:labelEnd]
-			for pair := range strings.SplitSeq(labelStr, ",") {
-				kv := strings.SplitN(pair, "=", 2)
-				if len(kv) == 2 {
-					s.labels[kv[0]] = strings.Trim(kv[1], "\"")
-				}
-			}
-			rest = rest[labelEnd+1:]
-		}
-
-		valStr := strings.TrimSpace(rest)
-		val, err := strconv.ParseFloat(valStr, 64)
-		if err != nil {
-			continue
-		}
-		s.value = val
-
-		samples = append(samples, s)
-	}
-	return samples
-}
-
-// findMetric returns the value of a metric matching the name and optional label filters.
-// Returns (value, true) if found, (0, false) if not.
-func findMetric(samples []metricSample, name string, labels map[string]string) (float64, bool) {
-	for _, s := range samples {
-		if s.name != name {
-			continue
-		}
-		match := true
-		for k, v := range labels {
-			if s.labels[k] != v {
-				match = false
-				break
-			}
-		}
-		if match {
-			return s.value, true
-		}
-	}
-	return 0, false
-}
-
-// assertMetricValue asserts that a metric has exactly the expected value.
-func assertMetricValue(t *testing.T, samples []metricSample, name string, labels map[string]string, expected float64) {
-	t.Helper()
-	val, ok := findMetric(samples, name, labels)
-	if !ok {
-		t.Errorf("metric %s%v not found", name, labels)
-		return
-	}
-	assert.Equal(t, expected, val, "metric %s%v", name, labels)
-}
-
-// assertMetricGE asserts that a metric value is >= the expected minimum.
-func assertMetricGE(t *testing.T, samples []metricSample, name string, labels map[string]string, minExpected float64) {
-	t.Helper()
-	val, ok := findMetric(samples, name, labels)
-	if !ok {
-		t.Errorf("metric %s%v not found", name, labels)
-		return
-	}
-	assert.GreaterOrEqual(t, val, minExpected, "metric %s%v", name, labels)
 }
