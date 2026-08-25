@@ -121,6 +121,19 @@ type MultigatewayHandler struct {
 	// reloads; nil reads as disabled. Set via SetSlotBasedReplicationEnabled.
 	slotBasedReplicationEnabled func() bool
 
+	// keepTxnOnGatewayRejection reports, read live, whether a gateway policy
+	// rejection (a *mterrors.GatewayRejection, e.g. feature_not_supported) should
+	// leave an open explicit transaction in-block rather than aborting it. The
+	// rejection never reached the backend, so the backend transaction is still
+	// open; keeping the session in-block lets the client continue. Off by default
+	// so clients see PostgreSQL's contract — any error on the wire aborts the
+	// transaction. Opt-in for pg_regress and associated suites, which drive long
+	// transactions that create functions the gateway refuses and would otherwise
+	// cascade into "current transaction is aborted" noise. Dynamic so it tracks
+	// config reloads; nil reads as disabled. Set via
+	// SetKeepTransactionOnGatewayRejection.
+	keepTxnOnGatewayRejection func() bool
+
 	// normalQueryLogSampleRate controls 1/N sampling for normal-path query
 	// logs. 0 disables sampling (handler level alone governs emission); 1
 	// emits every normal query; N>1 emits every Nth. Normal queries always
@@ -175,6 +188,32 @@ func (h *MultigatewayHandler) SetSlotBasedReplicationEnabled(enabled func() bool
 // non-temporary logical failover slot, reading the dynamic gate live.
 func (h *MultigatewayHandler) admitsFailoverSlots() bool {
 	return h.slotBasedReplicationEnabled != nil && h.slotBasedReplicationEnabled()
+}
+
+// SetKeepTransactionOnGatewayRejection wires the dynamic getter that controls
+// whether a gateway policy rejection leaves an open explicit transaction
+// in-block instead of aborting it. Must be called before connections are
+// accepted. A nil getter (the default) keeps the feature off, so gateway
+// rejections abort the transaction like any other wire error.
+func (h *MultigatewayHandler) SetKeepTransactionOnGatewayRejection(enabled func() bool) {
+	h.keepTxnOnGatewayRejection = enabled
+}
+
+// keepsTransactionOnGatewayRejection reports whether a gateway policy rejection
+// should leave an open explicit transaction in-block, reading the dynamic gate
+// live.
+func (h *MultigatewayHandler) keepsTransactionOnGatewayRejection() bool {
+	return h.keepTxnOnGatewayRejection != nil && h.keepTxnOnGatewayRejection()
+}
+
+// abortsTransactionOnError reports whether an error returned while a statement
+// executed in an open explicit transaction (TxnStatusInBlock) should transition
+// the session to the aborted state. Any backend error aborts. A gateway policy
+// rejection never reached the backend, so it aborts too by default (matching
+// PostgreSQL's "any wire error ends the transaction" contract) unless
+// keep-transaction-on-gateway-rejection is enabled.
+func (h *MultigatewayHandler) abortsTransactionOnError(err error) bool {
+	return !(h.keepsTransactionOnGatewayRejection() && mterrors.IsGatewayRejection(err))
 }
 
 // SetQueryRegistry attaches a per-query-shape registry to the handler.
@@ -352,8 +391,9 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 			// If we're in an active transaction and the query failed,
 			// transition to aborted state. The client must ROLLBACK to recover.
 			// A gateway policy rejection (feature_not_supported) never reached the
-			// backend, so its transaction is still open — leave the session in-block.
-			if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
+			// backend, so with keep-transaction-on-gateway-rejection enabled we
+			// leave the session in-block instead of aborting.
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 		}
@@ -463,9 +503,10 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// transaction, where those locks would be released before the next statement.
 	if conn.TxnStatus() == protocol.TxnStatusInBlock {
 		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
-			// A gateway policy rejection never reached the backend, so its
-			// transaction is still open — leave the session in-block.
-			if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
+			// A gateway policy rejection never reached the backend, so with
+			// keep-transaction-on-gateway-rejection enabled we leave the session
+			// in-block instead of aborting.
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return err
@@ -580,9 +621,10 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, includeDescribe, countingCallback)
 	if err != nil {
-		// A gateway policy rejection never reached the backend, so its transaction
-		// is still open — leave the session in-block.
-		if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(err) {
+		// A gateway policy rejection never reached the backend, so with
+		// keep-transaction-on-gateway-rejection enabled we leave the session
+		// in-block instead of aborting.
+		if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
 	}

@@ -57,7 +57,10 @@ func (s *ShardSetup) StartUnsafeMultigateway(t *testing.T) int {
 		LogFile:     filepath.Join(s.TempDir, "multigateway-unsafe.log"),
 		Environment: os.Environ(),
 		// Disable the unsafe-statement rejections for this gateway only.
-		ExtraArgs: []string{"--unsafe-pooler-mode"},
+		// Keep transactions open on a gateway rejection too, matching the primary
+		// pg_regress gateway so the same long transaction scripts don't cascade
+		// into aborted-transaction errors when routed here.
+		ExtraArgs: []string{"--unsafe-pooler-mode", "--keep-transaction-on-gateway-rejection"},
 	}
 	if s.MultigatewayTLSCertPaths != nil {
 		inst.TLSCertFile = s.MultigatewayTLSCertPaths.ServerCertFile

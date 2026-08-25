@@ -171,6 +171,18 @@ func WithMultigateway() SetupOption {
 	}
 }
 
+// WithMultigatewayExtraArgs adds extra CLI flags to the multigateway process
+// in the test setup. Implies WithMultigateway(). Use for gateway tuning that has
+// no dedicated option yet, e.g. shardsetup.WithMultigatewayExtraArgs(
+// "--keep-transaction-on-gateway-rejection"). Flags are appended last, so they
+// override the multigateway defaults.
+func WithMultigatewayExtraArgs(args ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, args...)
+	}
+}
+
 // WithMultiadmin enables multiadmin in the test setup (default: disabled).
 // Multiadmin is started after shard bootstrap and exposes HTTP + gRPC APIs
 // against the same etcd topology used by the rest of the cluster. The
