@@ -631,7 +631,7 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	// capacity exhaustion (connected followers == max_wal_senders) is visible.
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx,
+	result, err := pm.adminQuery(queryCtx,
 		"SELECT current_setting('synchronous_standby_names'), current_setting('synchronous_commit'), current_setting('max_wal_senders')")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication settings")

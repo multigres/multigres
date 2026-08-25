@@ -198,7 +198,7 @@ func (pm *MultipoolerManager) EnsureLogicalSlot(ctx context.Context, name, plugi
 	// into the statement. temporary=false and twophase=false; failover is
 	// caller-controlled (the PostgreSQL slot-sync flag that lets a standby
 	// maintain a copy of this slot).
-	if err := pm.execArgs(execCtx,
+	if err := pm.adminExecArgs(execCtx,
 		"SELECT pg_create_logical_replication_slot($1, $2, false, false, $3)",
 		name, plugin, failover); err != nil {
 		return mterrors.Wrap(err, "failed to create logical replication slot")
@@ -212,7 +212,7 @@ func (pm *MultipoolerManager) DropLogicalSlot(ctx context.Context, name string) 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
 	// Bind the slot name as a parameter rather than interpolating it.
-	if err := pm.execArgs(execCtx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
+	if err := pm.adminExecArgs(execCtx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
 		return mterrors.Wrap(err, "failed to drop replication slot")
 	}
 	return nil
@@ -236,7 +236,7 @@ func (pm *MultipoolerManager) EnsurePhysicalSlot(ctx context.Context, name strin
 		defer cancel()
 		// immediately_reserve=true retains WAL from slot creation (before the standby
 		// attaches); temporary=false so the slot survives reconnects.
-		if err := pm.execArgs(execCtx,
+		if err := pm.adminExecArgs(execCtx,
 			"SELECT pg_create_physical_replication_slot($1, true, false)", name); err != nil {
 			return mterrors.Wrap(err, "failed to create physical replication slot")
 		}
@@ -331,7 +331,7 @@ func (pm *MultipoolerManager) dropManagedPhysicalSlots(ctx context.Context) erro
 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
-	if err := pm.execArgs(execCtx, dropManagedPhysicalSlotsSQL, logicalSlotNamePrefix); err != nil {
+	if err := pm.adminExecArgs(execCtx, dropManagedPhysicalSlotsSQL, logicalSlotNamePrefix); err != nil {
 		return mterrors.Wrap(err, "failed to drop managed physical replication slots")
 	}
 
@@ -388,7 +388,7 @@ func (pm *MultipoolerManager) ReconcileFollowers(ctx context.Context, followerID
 
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.queryArgs(queryCtx, listManagedPhysicalSlotsSQL, logicalSlotNamePrefix)
+	result, err := pm.adminQueryArgs(queryCtx, listManagedPhysicalSlotsSQL, logicalSlotNamePrefix)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to list managed physical replication slots")
 	}
@@ -425,7 +425,7 @@ SELECT count(*), coalesce(string_agg(slot_name, ', '), '')
 func (pm *MultipoolerManager) unreadyFailoverSlots(ctx context.Context) (int, string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.query(queryCtx, unreadyFailoverSlotsSQL)
+	result, err := pm.adminQuery(queryCtx, unreadyFailoverSlotsSQL)
 	if err != nil {
 		return 0, "", mterrors.Wrap(err, "failed to query failover-slot readiness")
 	}
@@ -480,7 +480,7 @@ SELECT
 func (pm *MultipoolerManager) failoverSlotReadiness(ctx context.Context) (ready int, total int, err error) {
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.query(queryCtx, failoverSlotReadinessSQL)
+	result, err := pm.adminQuery(queryCtx, failoverSlotReadinessSQL)
 	if err != nil {
 		return 0, 0, mterrors.Wrap(err, "failed to query failover-slot readiness")
 	}
@@ -506,7 +506,7 @@ func (pm *MultipoolerManager) GetSlotState(ctx context.Context, name string) (*L
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
 	// Bind the slot name as a parameter rather than interpolating it.
-	result, err := pm.queryArgs(queryCtx, fetchLogicalSlotStateSQL, name)
+	result, err := pm.adminQueryArgs(queryCtx, fetchLogicalSlotStateSQL, name)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read replication slot state")
 	}
@@ -544,7 +544,7 @@ func (pm *MultipoolerManager) LogicalSlotExists(ctx context.Context, name string
 	// EXISTS(...) returns exactly one boolean row and lets the planner stop at
 	// the first matching row; it's the existence-check idiom used elsewhere in
 	// this package (see querySchemaExists).
-	result, err := pm.queryArgs(queryCtx, "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", name)
+	result, err := pm.adminQueryArgs(queryCtx, "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", name)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check replication slot existence")
 	}
