@@ -378,7 +378,7 @@ func (pm *MultipoolerManager) dropOrphanedFailoverSlots(ctx context.Context) err
 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
-	if err := pm.execArgs(execCtx, dropOrphanedFailoverSlotsSQL); err != nil {
+	if err := pm.adminExecArgs(execCtx, dropOrphanedFailoverSlotsSQL); err != nil {
 		return mterrors.Wrap(err, "failed to drop orphaned logical failover slots")
 	}
 
