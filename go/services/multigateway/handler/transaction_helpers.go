@@ -284,15 +284,16 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.
 				rollbackImplicit()
-			} else if conn.TxnStatus() == protocol.TxnStatusInBlock && !mterrors.IsGatewayRejection(execErr) {
+			} else if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(execErr) {
 				// Explicit transaction: enter aborted state only if the failing
 				// statement left the transaction open. Transaction-ending statements
 				// such as failed PREPARE TRANSACTION can return an error after the
 				// backend has already gone idle; their primitive owns that transition.
 				//
 				// A gateway policy rejection (feature_not_supported) never reached the
-				// backend, so the backend transaction is still open — leave the session
-				// in-block so the client can keep working, matching backend state.
+				// backend, so with keep-transaction-on-gateway-rejection enabled we
+				// leave the session in-block so the client can keep working, matching
+				// backend state.
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return execErr

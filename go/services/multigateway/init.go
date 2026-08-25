@@ -68,6 +68,12 @@ type Multigateway struct {
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
 	// slots in the replication preamble (default off, dynamic/reloadable).
 	slotBasedReplicationEnabled viperutil.Value[bool]
+	// keepTransactionOnGatewayRejection, when enabled, leaves an open explicit
+	// transaction in-block after a gateway policy rejection (feature_not_supported)
+	// instead of aborting it. Off by default so clients see PostgreSQL's contract
+	// (any wire error aborts the transaction); opt-in for pg_regress and associated
+	// suites (default off, dynamic/reloadable).
+	keepTransactionOnGatewayRejection viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -231,6 +237,12 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
+		keepTransactionOnGatewayRejection: viperutil.Configure(reg, "keep-transaction-on-gateway-rejection", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "keep-transaction-on-gateway-rejection",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_KEEP_TRANSACTION_ON_GATEWAY_REJECTION"},
+		}),
 		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "pg-replica-port",
@@ -288,6 +300,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
+	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
 	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
 	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
 	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
@@ -308,6 +321,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSKeyFile,
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
+		mg.keepTransactionOnGatewayRejection,
 		mg.pgReplicaPort,
 		mg.pgReplicaLowLagMs,
 		mg.pgReplicaHighLagToleranceMs,
@@ -490,6 +504,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 	mg.pgHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
 	// Wire LISTEN/NOTIFY notification manager.
 	// Uses a lazy client getter that resolves the primary pooler connection
@@ -541,6 +556,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 		replicaHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+		replicaHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 		replicaAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), replicaPort)
 		mg.pgReplicaListener, err = server.NewListener(server.ListenerConfig{
 			Address:               replicaAddr,

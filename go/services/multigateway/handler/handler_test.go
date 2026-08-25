@@ -628,6 +628,67 @@ func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }
 
+// TestHandleQuery_GatewayRejectionInTransactionAbortsByDefault verifies that,
+// with keep-transaction-on-gateway-rejection off (the default), a gateway policy
+// rejection aborts the open transaction like any other wire error — matching
+// PostgreSQL's contract that clients expect.
+func TestHandleQuery_GatewayRejectionInTransactionAbortsByDefault(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{streamExecuteErr: mterrors.NewFeatureNotSupported("nope")}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestHandleQuery_GatewayRejectionKeepsTransactionWhenEnabled verifies that,
+// with keep-transaction-on-gateway-rejection enabled, a gateway policy rejection
+// leaves the transaction in-block (the backend never saw it, so it is still
+// open). Other errors still abort — see the guard on the backend-error case.
+func TestHandleQuery_GatewayRejectionKeepsTransactionWhenEnabled(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{streamExecuteErr: mterrors.NewFeatureNotSupported("nope")}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	h.SetKeepTransactionOnGatewayRejection(func() bool { return true })
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+}
+
+// TestHandleQuery_BackendErrorAbortsEvenWhenKeepEnabled verifies that enabling
+// keep-transaction-on-gateway-rejection does not change the abort behavior for
+// real backend errors — only gateway rejections are spared.
+func TestHandleQuery_BackendErrorAbortsEvenWhenKeepEnabled(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	h.SetKeepTransactionOnGatewayRejection(func() bool { return true })
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
 // TestHandleQuery_ErrorOutsideTransactionStaysIdle tests that a query error
 // outside a transaction does not change the transaction state.
 func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
