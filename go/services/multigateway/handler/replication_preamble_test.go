@@ -305,6 +305,10 @@ func TestCreateReplicationSlotHasFailover(t *testing.T) {
 		{"failover off unquoted", []string{"pgoutput", "(FAILOVER", "off)"}, false},
 		{"no options", []string{"pgoutput"}, false},
 		{"other options only", []string{"pgoutput", "(TWO_PHASE,", "SNAPSHOT", "'use')"}, false},
+		// The output plugin token is dropped before scanning, so a plugin named
+		// "failover" is not mistaken for the option.
+		{"plugin named failover, no failover option", []string{"failover", "(SNAPSHOT", "'nothing')"}, false},
+		{"plugin named failover, with failover option", []string{"failover", "(FAILOVER)"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -378,6 +382,11 @@ func TestRewriteCreateReplicationSlotAddFailover(t *testing.T) {
 		{"physical unchanged", "CREATE_REPLICATION_SLOT s1 PHYSICAL", "", false},
 		{"non-CRS command unchanged", "START_REPLICATION SLOT s1 LOGICAL 0/0", "", false},
 		{"malformed no plugin unchanged", "CREATE_REPLICATION_SLOT s1 LOGICAL", "", false},
+		// Regression: an output plugin literally named "failover" (client-
+		// controlled) must not be misread as an already-enabled option — the
+		// slot must still be auto-marked.
+		{"plugin named failover still auto-marked", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (SNAPSHOT 'nothing')", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (FAILOVER, SNAPSHOT 'nothing')", true},
+		{"plugin named failover no options still auto-marked", "CREATE_REPLICATION_SLOT s1 LOGICAL failover", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (FAILOVER)", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

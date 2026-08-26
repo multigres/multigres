@@ -334,34 +334,34 @@ const (
 	failoverDisabled                       // FAILOVER <false-ish>
 )
 
-// createReplicationSlotFailover classifies the FAILOVER option in the tokens
-// following the LOGICAL keyword of a CREATE_REPLICATION_SLOT command. The first
-// token is the output plugin; its options follow in PostgreSQL 17's
-// parenthesized, comma-separated list — e.g. `pgoutput (FAILOVER, SNAPSHOT
-// 'nothing')`. Parentheses and commas are normalized to spaces so an option
-// glued to a paren or comma is still seen as its own token. A bare FAILOVER
-// means enabled; an explicit boolean value (FAILOVER false/off/no/0/...) is
-// interpreted with sqltypes.ParseBool, which mirrors PostgreSQL's own
-// parse_bool_with_len. A value it can't parse leaves the option enabled (the
-// conservative direction — never silently disables). The three states let the
-// caller tell an absent option (auto-marked) apart from a deliberate opt-out
-// (rejected). The only misread would be an output plugin literally named
-// "failover", which does not exist.
-func createReplicationSlotFailover(tokens []string) failoverOption {
+// slotOptionTokens splits a replication-command option list into individual
+// option tokens. Parentheses and commas are normalized to spaces so an option
+// glued to a paren or comma — e.g. the glued form `pgoutput(FAILOVER)` or
+// `(FAILOVER,SNAPSHOT ...)` — still separates into its own token, then the
+// result is whitespace-split.
+func slotOptionTokens(tokens []string) []string {
 	normalized := strings.Map(func(r rune) rune {
 		if r == '(' || r == ')' || r == ',' {
 			return ' '
 		}
 		return r
 	}, strings.Join(tokens, " "))
-	opts := strings.Fields(normalized)
+	return strings.Fields(normalized)
+}
+
+// failoverFromOptions classifies the FAILOVER option within an already-split
+// option list (no output plugin among the tokens). A bare FAILOVER means
+// enabled; an explicit boolean value (FAILOVER false/off/no/0/...) is
+// interpreted with sqltypes.ParseBool, which mirrors PostgreSQL's own
+// parse_bool_with_len. A value it can't parse leaves the option enabled (the
+// conservative direction — never silently disables). The three states let a
+// caller tell an absent option (auto-marked) apart from a deliberate opt-out
+// (rejected).
+func failoverFromOptions(opts []string) failoverOption {
 	for i, opt := range opts {
 		if !strings.EqualFold(opt, "FAILOVER") {
 			continue
 		}
-		// A bare FAILOVER means enabled; if an explicit boolean value follows,
-		// honor it. A following token that isn't a boolean (another option) or
-		// the end of the list leaves FAILOVER at its bare, enabled meaning.
 		if i+1 < len(opts) {
 			if v, ok := sqltypes.ParseBool(strings.Trim(opts[i+1], "'\"")); ok {
 				if v {
@@ -373,6 +373,22 @@ func createReplicationSlotFailover(tokens []string) failoverOption {
 		return failoverEnabled
 	}
 	return failoverAbsent
+}
+
+// createReplicationSlotFailover classifies the FAILOVER option in the tokens
+// following the LOGICAL keyword of a CREATE_REPLICATION_SLOT command, e.g.
+// `pgoutput (FAILOVER, SNAPSHOT 'nothing')` or the glued form
+// `pgoutput(FAILOVER)`. The first option token is the required output_plugin
+// argument, not an option, so it is dropped before scanning — otherwise a
+// plugin literally named "failover" (client-controlled) would be misread as an
+// already-enabled option and wrongly suppress auto-marking. Dropping the plugin
+// after normalization handles both the spaced and glued forms.
+func createReplicationSlotFailover(tokens []string) failoverOption {
+	opts := slotOptionTokens(tokens)
+	if len(opts) == 0 {
+		return failoverAbsent
+	}
+	return failoverFromOptions(opts[1:]) // opts[0] is the output_plugin
 }
 
 // createReplicationSlotHasFailover reports whether the option list requests
@@ -455,15 +471,16 @@ func rewriteCreateReplicationSlotAddFailover(cmd string) (string, bool) {
 // command fully enforces that an auto-marked slot stays a failover slot.
 // Enabling failover, or changing only TWO_PHASE, is left alone.
 //
-// The option list follows the slot name (fields[1]); createReplicationSlotFailover
-// classifies the FAILOVER option within it (a physical slot has no FAILOVER
-// option and so is never disabled here).
+// The option list follows the slot name (fields[1]) and — unlike the CREATE
+// form — has no output_plugin, so it is classified directly with
+// failoverFromOptions (not createReplicationSlotFailover, which would drop the
+// first real option as if it were a plugin).
 func alterReplicationSlotDisablesFailover(cmd string) bool {
 	fields := strings.Fields(cmd)
 	if len(fields) < 2 || !strings.EqualFold(fields[0], "ALTER_REPLICATION_SLOT") {
 		return false
 	}
-	return createReplicationSlotFailover(fields[2:]) == failoverDisabled
+	return failoverFromOptions(slotOptionTokens(fields[2:])) == failoverDisabled
 }
 
 // nonTemporaryReplicationSlotSQLFuncError returns a rejection error if cmd
