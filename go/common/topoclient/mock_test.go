@@ -15,6 +15,7 @@
 package topoclient
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,24 @@ func (m *mockConn) Update(ctx context.Context, filePath string, contents []byte,
 	m.data[filePath] = contents
 	m.mu.Unlock()
 	return &mockVersion{version: "2"}, nil
+}
+
+func (m *mockConn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	_, err := m.Update(ctx, filePath, contents, nil)
+	return err
+}
+
+func (m *mockConn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	if err := m.checkError(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.data[filePath]; ok && !bytes.Equal(existing, contents) {
+		return &TopoError{Code: NodeExists}
+	}
+	m.data[filePath] = contents
+	return nil
 }
 
 func (m *mockConn) Get(ctx context.Context, filePath string) ([]byte, Version, error) {

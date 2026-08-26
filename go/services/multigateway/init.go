@@ -24,11 +24,11 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
@@ -138,6 +138,17 @@ type Multigateway struct {
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
+	// prefixLost is set when a re-assertion finds this gateway's PID
+	// prefix claim held by another gateway (possible only after the claim
+	// expired during a topology outage). A live gateway cannot safely
+	// renumber, so the loss is fatal: it fails the readiness check (to
+	// drain new connections) and triggers shutdownOnPrefixLoss.
+	prefixLost atomic.Bool
+	// shutdownOnPrefixLoss initiates the gateway's graceful shutdown when
+	// its PID prefix claim is lost; the supervisor then restarts the
+	// process, which claims a fresh prefix. A field so tests can observe
+	// the trigger instead of terminating the test process.
+	shutdownOnPrefixLoss func()
 	// shutdownCtx is cancelled during Shutdown to propagate cancellation
 	// to all long-running goroutines (health streams, discovery, etc.)
 	shutdownCtx    context.Context
@@ -275,6 +286,7 @@ func NewMultigateway() *Multigateway {
 			},
 		},
 	}
+	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
 }
@@ -445,38 +457,34 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
 	}
 
-	// Reuse existing PID prefix on re-registration.
-	existingGW, err := mg.ts.GetMultigateway(context.TODO(), multigateway.Id)
-	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
-		multigateway.PidPrefix = existingGW.GetPidPrefix()
-	}
-
 	// Register gateway in topo with a unique PID prefix for cross-gateway
-	// cancel routing. The register function assigns the prefix, registers the
-	// full record, and verifies no collision. On collision, RegisterSynchronous
-	// retries with jitter until two racing gateways converge on different prefixes.
+	// cancel routing. The prefix is claimed atomically before the record is
+	// written; the claim file, not the record, is what makes the prefix
+	// exclusively ours. Each process claims fresh — a restarted gateway has
+	// no live connections whose cancel routing could be worth preserving.
 	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer regCancel()
 	mg.tr, err = toporeg.RegisterSynchronous(
 		regCtx,
 		func(ctx context.Context) error {
 			if multigateway.PidPrefix == 0 {
-				prefix, err := mg.findUnusedPrefix(ctx)
+				prefix, err := mg.claimUnusedPrefix(ctx, multigateway.Id)
 				if err != nil {
-					return fmt.Errorf("finding unused prefix: %w", err)
+					return err
 				}
 				multigateway.PidPrefix = prefix
-			}
-			if err := mg.ts.RegisterMultigateway(ctx, multigateway, true); err != nil {
+			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
 				return err
 			}
-			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, multigateway.Id) {
-				multigateway.PidPrefix = 0 // Reset for next retry.
-				return errors.New("PID prefix collision detected")
-			}
-			return nil
+			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
 		},
+		// The prefix claim is deliberately NOT released here: lease expiry
+		// is its only release path, so a gateway can never delete a claim
+		// that has passed to another gateway (e.g. when a prefix-lost
+		// restart shuts this process down after a competitor legitimately
+		// claimed the prefix).
 		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+		toporeg.WithReassert(),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register gateway: %w", err)
@@ -648,9 +656,12 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 
-	// The gateway is ready only when both conditions are met:
+	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
 	// 2. At least one pooler has been discovered (can actually serve queries)
+	// 3. It still holds its PID prefix claim. A lost claim also initiates
+	//    the gateway's own graceful shutdown (see refreshPrefixClaim);
+	//    failing readiness here drains new connections during that window.
 	mg.senv.RegisterReadyCheck(func() error {
 		mg.serverStatus.mu.Lock()
 		defer mg.serverStatus.mu.Unlock()
@@ -659,6 +670,9 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		}
 		if mg.poolerGateway.PoolerCount() == 0 {
 			return errors.New("no poolers discovered")
+		}
+		if mg.prefixLost.Load() {
+			return errors.New("PID prefix claim lost to another gateway; restart required to claim a fresh prefix")
 		}
 		return nil
 	})
@@ -738,10 +752,17 @@ func (mg *Multigateway) Shutdown() {
 	mg.ts.Close()
 }
 
-// findUnusedPrefix scans all cells for used PID prefixes and returns a random
-// unused one. Randomization reduces the chance of two gateways starting
-// simultaneously and picking the same prefix.
-func (mg *Multigateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
+// claimUnusedPrefix atomically claims a PID prefix for this gateway and
+// returns it. Ownership is decided by ClaimGatewayPrefix's atomic create —
+// two gateways racing for the same candidate cannot both win, so there is no
+// post-registration collision check.
+//
+// The scan of gateway records is a mixed-version courtesy: gateways from
+// before prefix claims advertise a prefix without holding a claim file, so
+// their prefixes are avoided by reading their records. Once the whole fleet
+// writes claim files the scan narrows nothing — a claimed prefix fails the
+// atomic claim regardless.
+func (mg *Multigateway) claimUnusedPrefix(ctx context.Context, id *clustermetadatapb.ID) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
@@ -760,38 +781,56 @@ func (mg *Multigateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 		}
 	}
 
-	// Collect all unused prefixes and pick one at random.
 	unused := make([]uint32, 0, pid.MaxPrefix-len(usedPrefixes))
 	for prefix := uint32(1); prefix <= pid.MaxPrefix; prefix++ {
 		if !usedPrefixes[prefix] {
 			unused = append(unused, prefix)
 		}
 	}
-	if len(unused) == 0 {
-		return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", pid.MaxPrefix)
+
+	// Claim random candidates until one wins. Losing a claim race
+	// (NodeExists) just means another gateway got there first — remove the
+	// candidate and try another.
+	for len(unused) > 0 {
+		i := rand.IntN(len(unused))
+		candidate := unused[i]
+		unused[i] = unused[len(unused)-1]
+		unused = unused[:len(unused)-1]
+
+		err := mg.ts.ClaimGatewayPrefix(ctx, candidate, id)
+		if err == nil {
+			return candidate, nil
+		}
+		if !errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
+			return 0, fmt.Errorf("claiming PID prefix %d: %w", candidate, err)
+		}
 	}
-	return unused[rand.IntN(len(unused))], nil
+	return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", pid.MaxPrefix)
 }
 
-// hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
-func (mg *Multigateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownID *clustermetadatapb.ID) bool {
-	cells, err := mg.ts.GetCellNames(ctx)
-	if err != nil {
-		return false
-	}
-
-	for _, c := range cells {
-		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
-		if err != nil {
-			continue
+// refreshPrefixClaim re-asserts ownership of the gateway's claimed PID
+// prefix. NodeExists means the claim expired during a topology outage and
+// another gateway took the prefix — that loss is fatal: a live gateway
+// cannot renumber (its prefix is baked into the listeners and cancel
+// manager, and clients hold PIDs stamped with it), so the only repair is a
+// fresh process claiming a fresh prefix. On first detection the gateway
+// fails its readiness check (draining new connections) and initiates its
+// own graceful shutdown; the supervisor — Kubernetes restartPolicy,
+// systemd, docker-compose — restarts the process regardless of probe
+// configuration. Any other error is transient and left to the next
+// re-assertion.
+func (mg *Multigateway) refreshPrefixClaim(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error {
+	err := mg.ts.ClaimGatewayPrefix(ctx, prefix, id)
+	if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
+		if mg.prefixLost.CompareAndSwap(false, true) {
+			servenv.GetLogger().ErrorContext(ctx,
+				"PID prefix claim lost to another gateway; shutting down so a fresh process claims a fresh prefix",
+				"pid_prefix", prefix)
+			mg.shutdownOnPrefixLoss()
 		}
-		for _, gw := range gateways {
-			if gw.GetPidPrefix() == prefix && !proto.Equal(gw.GetId(), ownID) {
-				return true
-			}
-		}
+		return fmt.Errorf("PID prefix %d claim lost to another gateway", prefix)
 	}
-	return false
+	return err
 }
 
 // buildPGTLSConfig validates TLS flag combinations and loads the certificate.

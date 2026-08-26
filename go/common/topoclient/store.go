@@ -106,6 +106,10 @@ const (
 	GatewaysPath  = "gateways"
 	PoolersPath   = "poolers"
 	OrchsPath     = "orchs"
+	// GatewayPrefixesPath holds one claim file per PID prefix, in the
+	// global topology: prefixes route query-cancels across cells, so the
+	// namespace must be unique cluster-wide.
+	GatewayPrefixesPath = "gateway_prefixes"
 )
 
 // Factory is a factory interface to create Conn objects.
@@ -180,6 +184,7 @@ type CellStore interface {
 	UpdateMultigatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.Multigateway) error) (*clustermetadatapb.Multigateway, error)
 	UnregisterMultigateway(ctx context.Context, id *clustermetadatapb.ID) error
 	RegisterMultigateway(ctx context.Context, multigateway *clustermetadatapb.Multigateway, allowUpdate bool) error
+	ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error
 
 	// Multiorch CRUD operations
 	GetMultiorch(ctx context.Context, id *clustermetadatapb.ID) (*MultiorchInfo, error)
