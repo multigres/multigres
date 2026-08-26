@@ -584,7 +584,7 @@ against the backend's real session GUC state in one round trip:
 which `pg_settings` also hides. Value spellings are normalized through a
 statement-local `set_config(..., is_local := true)` probe so `'65536'` vs
 `'64MB'` never counts as divergence. Findings carry GUC names only, never
-values. One blind spot remains: an *untracked* custom GUC set behind
+values. One blind spot remains: an _untracked_ custom GUC set behind
 tracking's back is unenumerable from SQL; the creation-time rejection gates
 are the defense for that class. Future checkers (prepared statements vs
 `pg_prepared_statements`, residual advisory locks, temp-schema leftovers)

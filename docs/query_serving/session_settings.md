@@ -140,7 +140,7 @@ Gateway-managed variables are described in
   backends, alarmed via metrics, and repaired by replacing the backend —
   bounding the leak window to roughly one scrub sweep rather than the
   backend's lifetime. The scrubber is a sampling net, not the fix: untracked
-  *custom* (placeholder) GUCs remain invisible to it, and the rejection gates
+  _custom_ (placeholder) GUCs remain invisible to it, and the rejection gates
   remain the correctness boundary.
 - Row-limited portal fetches (`Execute` with `maxRows`) on statements that
   combine a gateway-managed `set_config` bound value or a gateway-managed
