@@ -1524,7 +1524,15 @@ func (l *lexer) readCursorArgs() []*plpgsqlast.PLpgSQL_cursor_arg {
 
 		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ')')
 		args = append(args, plpgsqlast.NewPLpgSQL_cursor_arg(name, expr))
-		if endtoken == ')' {
+		if endtoken != ',' {
+			// Only ',' continues the list. Any other terminator ends it — but the
+			// list must close on ')'. On end of input (or a lexical error)
+			// readSQLConstruct returns tok 0 through the non-fatal l.Error, so
+			// require ')' explicitly rather than looping forever on the EOF token.
+			if endtoken != ')' {
+				l.Error("syntax error, expected \")\"")
+				return args
+			}
 			break
 		}
 	}
