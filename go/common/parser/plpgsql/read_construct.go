@@ -760,12 +760,32 @@ func (l *lexer) readExecSQLIntoTarget() (strict bool, target string, endPos int)
 		strict = true
 		tok = l.scanNext()
 	}
+	if tok.tok == 0 {
+		// End of input (or a lexical error) right after INTO [STRICT], with no
+		// target name. Push the terminator back so the caller's scan loop reports
+		// the unterminated statement, rather than slicing with the EOF token's
+		// zero position below. -1 endPos keeps the caller off the INTO slice path.
+		l.pushBack(tok)
+		return strict, "", -1
+	}
 	targetStart := tok.pos
 	for {
 		next := l.scanNext()
 		if next.tok == ',' {
-			l.scanNext() // consume the next target name and continue the list
+			// Consume the next target name and continue the list; a comma with no
+			// name after it (end of input, lexical error) is an unterminated list.
+			if name := l.scanNext(); name.tok == 0 {
+				l.pushBack(name)
+				return strict, "", -1
+			}
 			continue
+		}
+		if next.tok == 0 {
+			// Terminator is end-of-input (or a lexical error): the statement never
+			// closed. Push it back for the caller's scan loop, which flags the
+			// unterminated statement instead of slicing with next's zero position.
+			l.pushBack(next)
+			return strict, "", -1
 		}
 		l.pushBack(next)
 		target = strings.TrimRight(l.input[targetStart:next.pos], " \t\r\n")
@@ -1504,7 +1524,15 @@ func (l *lexer) readCursorArgs() []*plpgsqlast.PLpgSQL_cursor_arg {
 
 		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ')')
 		args = append(args, plpgsqlast.NewPLpgSQL_cursor_arg(name, expr))
-		if endtoken == ')' {
+		if endtoken != ',' {
+			// Only ',' continues the list. Any other terminator ends it — but the
+			// list must close on ')'. On end of input (or a lexical error)
+			// readSQLConstruct returns tok 0 through the non-fatal l.Error, so
+			// require ')' explicitly rather than looping forever on the EOF token.
+			if endtoken != ')' {
+				l.Error("syntax error, expected \")\"")
+				return args
+			}
 			break
 		}
 	}

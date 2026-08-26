@@ -592,29 +592,40 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 	// atomicity and argument type checking. Reject those shapes instead of trying
 	// to emulate them.
 	if targetListAllSetConfig(stmt, allowedSetConfigs) && slices.ContainsFunc(accepted, setConfigNeedsDynamic) {
-		if err := validateDynamicSetConfigShape(stmt, accepted); err != nil {
+		err := validateDynamicSetConfigShape(stmt, accepted)
+		if err != nil && reject {
 			return nil, err
 		}
-		// A cluster-managed GUC is still rejected when the name is a literal;
-		// the only supported dynamic name is pg_settings.name. Suppressed in
-		// unsafe-pooler-mode.
-		if reject {
-			for _, fc := range accepted {
-				if name, ok := constStringArg(fc.Args.Items[0]); ok {
-					if err := restrictedGUCError(name); err != nil {
-						return nil, err
+		if err == nil {
+			// A cluster-managed GUC is still rejected when the name is a literal;
+			// the only supported dynamic name is pg_settings.name. Suppressed in
+			// unsafe-pooler-mode.
+			if reject {
+				for _, fc := range accepted {
+					if name, ok := constStringArg(fc.Args.Items[0]); ok {
+						if err := restrictedGUCError(name); err != nil {
+							return nil, err
+						}
 					}
 				}
 			}
+			result.DynamicSetConfig = true
+			return result, nil
 		}
-		result.DynamicSetConfig = true
-		return result, nil
+		// unsafe-pooler-mode with an unsupported dynamic shape: don't reject and
+		// don't synthesize the resolve-and-apply plan. Fall through to the
+		// per-call loop, which lets each set_config pass to PG untracked.
 	}
 
 	for _, fc := range accepted {
 		setCfg, err := validateAcceptedSetConfig(fc, reject)
 		if err != nil {
-			return nil, err
+			if reject {
+				return nil, err
+			}
+			// unsafe-pooler-mode: an untrackable set_config is not rejected; it
+			// goes to PG as written, just untracked.
+			continue
 		}
 		if setCfg != nil {
 			result.SetConfigs = append(result.SetConfigs, *setCfg)

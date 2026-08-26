@@ -113,5 +113,15 @@
     "comment": "FETCH INTO STRICT is rejected (unlike EXECUTE INTO STRICT)",
     "body": "BEGIN FETCH c INTO STRICT x; END",
     "error": "syntax error"
+  },
+  {
+    "comment": "OPEN cursor arg list unterminated at end of input (must not loop forever)",
+    "body": "BEGIN OPEN c(1",
+    "error": "unterminated SQL fragment"
+  },
+  {
+    "comment": "OPEN cursor arg list with trailing comma at end of input",
+    "body": "BEGIN OPEN c(1,",
+    "error": "unterminated SQL fragment"
   }
 ]
