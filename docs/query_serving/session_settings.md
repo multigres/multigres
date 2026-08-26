@@ -134,6 +134,14 @@ Gateway-managed variables are described in
   work); `go/test/endtoend/queryserving/session_state_leak_test.go` is the
   skipped acceptance test for that gate. The same applies to state-mutating
   calls reachable through views, triggers, casts, and C extensions.
+  Since the pool's session-state scrubber (see
+  [connection_pooling.md](./connection_pooling.md#session-state-scrubber))
+  landed, such leaks on defined GUCs and identity are detected on idle pooled
+  backends, alarmed via metrics, and repaired by replacing the backend —
+  bounding the leak window to roughly one scrub sweep rather than the
+  backend's lifetime. The scrubber is a sampling net, not the fix: untracked
+  *custom* (placeholder) GUCs remain invisible to it, and the rejection gates
+  remain the correctness boundary.
 - Row-limited portal fetches (`Execute` with `maxRows`) on statements that
   combine a gateway-managed `set_config` bound value or a gateway-managed
   `current_setting` read lose portal suspension: those statements run through
