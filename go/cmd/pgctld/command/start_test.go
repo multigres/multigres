@@ -15,11 +15,13 @@
 package command
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -660,7 +662,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.NoError(t, err)
 	})
 
@@ -695,9 +697,53 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
+	})
+
+	t.Run("context cancelled stops the wait before the configured timeout", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_wait_cancel_test")
+		defer cleanup()
+
+		testutil.CreateDataDir(t, baseDir, true)
+
+		// Mock pg_isready that always fails, so the loop keeps polling until
+		// something stops it.
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", binDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
+		// A long timeout: if cancellation isn't honored, the test would have
+		// to wait out this whole duration instead of returning promptly.
+		config, err := pgctld.NewPostgresCtlConfig(
+			5432,
+			"postgres",
+			"postgres",
+			30, // 30 second timeout
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
+			baseDir,
+			"localhost",
+			pgctld.PostgresSocketDir(baseDir),
+		)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		start := time.Now()
+		err = waitForPostgreSQLWithConfig(ctx, logger, config)
+		elapsed := time.Since(start)
+
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Less(t, elapsed, 5*time.Second,
+			"cancellation should stop the wait long before the 30s configured timeout")
 	})
 }
 
@@ -735,7 +781,7 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "crashed")
 	})

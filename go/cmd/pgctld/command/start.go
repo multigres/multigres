@@ -175,7 +175,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartRe
 
 	// Wait for server to be ready
 	logger.InfoContext(ctx, "waiting for Postgres to be ready")
-	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
+	if err := waitForPostgreSQLWithConfig(ctx, logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
@@ -349,7 +349,7 @@ func readLogTail(logPath string, lines int) string {
 	return strings.Join(allLines[len(allLines)-lines:], "\n")
 }
 
-func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
+func waitForPostgreSQLWithConfig(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	logPath := filepath.Join(config.PostgresDataDir, "postgresql.log")
 	var lastOutput string
@@ -362,6 +362,9 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 
 	for {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
 		case <-timeout:
 			// On timeout, include diagnostic information
 			logTail := readLogTail(logPath, 20)
@@ -419,7 +422,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 
 			// Log progress every 5 seconds
 			if attempt > 0 && attempt%5 == 0 {
-				logger.Info("still waiting for Postgres to be ready",
+				logger.InfoContext(ctx, "still waiting for Postgres to be ready",
 					"attempt", attempt,
 					"timeout", config.Timeout,
 					"pg_isready_output", lastOutput,
