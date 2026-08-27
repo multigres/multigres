@@ -22,7 +22,7 @@ These are live counts published by the nightly run (see
 means **zero un-accounted-for failures**: every test either produces
 byte-identical output to upstream, or a difference that matches a committed,
 human-reviewed patch describing a divergence we accept. It does **not** mean
-multigres is byte-for-byte PostgreSQL — the accepted divergences are real and
+multigres is byte-for-byte PostgreSQL - the accepted divergences are real and
 are enumerated in full in [Known divergences](#known-divergences-the-complete-list).
 
 ## Why a proxy diverges at all
@@ -33,16 +33,16 @@ properties of that path make multigres behave differently from a bare
 
 - **Transaction pooling.** A logical client session is not pinned to one
   physical backend; between statements the pooler can hand it a different one.
-  Anything stored in _backend-local_ memory — a temp namespace, a PRNG seed,
+  Any value stored in _backend-local_ memory - a temp namespace, a PRNG seed,
   pending statistics, a hypothetical index, a `pg_prepared_statements` row, the
-  physical backend PID — can be invisible to, or different for, the next
+  physical backend PID - can be invisible to, or different for, the next
   statement unless multigres explicitly manages it.
 - **Query rewriting.** The gateway normalizes every query (literals become
   `$1, $2, …` for the plan cache) and sends the reconstructed SQL to the
   backend, never the client's original bytes. That shifts byte-level artifacts
   such as error-cursor caret positions even when the result is identical.
 - **A safety boundary.** To keep a shared, pooled, multi-tenant fleet safe, the
-  gateway _rejects_ some statements outright — outbound connections, database
+  gateway _rejects_ some statements outright - outbound connections, database
   provisioning, filesystem access, and session state hidden inside procedural
   bodies it cannot faithfully replay onto the next client. A rejection is
   correct behavior, but it changes a test's output.
@@ -50,7 +50,8 @@ properties of that path make multigres behave differently from a bare
 We handle the resulting divergences three ways: some we **fix** so multigres
 behaves like Postgres; some we **accept and document** because they are cosmetic
 or semantically equivalent; and some are the safety boundary **working as
-designed**. This doc draws those lines explicitly.
+designed**. This doc draws those lines explicitly. To measure these divergences,
+we run a comprehensive suite of PostgreSQL's own tests.
 
 ## The compatibility suites
 
@@ -60,12 +61,12 @@ its [README](../../go/test/endtoend/pgregresstest/README.md)).
 
 | Suite          | What it runs                                                                                               | Flag                |
 | -------------- | ---------------------------------------------------------------------------------------------------------- | ------------------- |
-| **Regression** | PostgreSQL's `pg_regress` core suite — the same 222 files stock PG runs.                                   | `RUN_PGREGRESS=1`   |
+| **Regression** | PostgreSQL's `pg_regress` core suite - the same 222 files stock PG runs.                                   | `RUN_PGREGRESS=1`   |
 | **Isolation**  | The `pg_isolation_regress` multi-connection concurrency tests (deadlocks, tuple locks, SSI).               | `RUN_PGISOLATION=1` |
 | **Contrib**    | The regression suites bundled with core contrib extensions.                                                | `RUN_PGCONTRIB=1`   |
 | **External**   | Out-of-tree extensions run through their own upstream suites (`postgis`, `pgtap`, `pgvector`, `pg_cron`…). | `RUN_PGEXTERNAL=1`  |
 
-`RUN_EXTENDED_QUERY_SERVING_TESTS=1` runs all four — this is what CI runs. The
+`RUN_EXTENDED_QUERY_SERVING_TESTS=1` runs all four - this is what CI runs. The
 cluster is fully reinitialized between suites, and **external always runs last**,
 because its preloaded libraries are not inert (e.g. `plpgsql_check` emits
 cursor-leak warnings that would pollute earlier suites).
@@ -89,7 +90,7 @@ cluster, and several build/config choices are load-bearing:
 --enable-tap-tests=no --without-icu`. Suites add flags on demand:
   `--with-lz4` (regression compression test), `--with-uuid` and
   `--with-ssl=openssl` (contrib `uuid-ossp` and `pgcrypto`). **`--with-libxml`
-  is deliberately omitted** — this is why `xml`/`xmlmap` compare against
+  is deliberately omitted** - this is why `xml`/`xmlmap` compare against
   PostgreSQL's own no-libxml `_1.out` baselines rather than the canonical files.
 - **`initdb`.** Run with `--no-locale --encoding=UTF8`: a C locale for
   deterministic collation/currency output, but UTF-8 kept so unicode / collate /
@@ -101,7 +102,7 @@ cluster, and several build/config choices are load-bearing:
 - **Planner GUCs per session.** `PGOPTIONS` pins `work_mem=4MB`,
   `random_page_cost=4.0`, `effective_cache_size=4GB`,
   `max_parallel_workers_per_gather=2` so the planner picks upstream plan shapes
-  despite pgctld's tuned defaults — without changing those defaults.
+  despite pgctld's tuned defaults - without changing those defaults.
 - **Topology.** Two multipoolers (a primary + a standby); multipooler runs with
   `--connpool-global-capacity=50`, under the generated `max_connections=60`.
 - **`--keep-transaction-on-gateway-rejection`.** The compatibility cluster
@@ -110,24 +111,24 @@ cluster, and several build/config choices are load-bearing:
   "current transaction is aborted". Normal clients still get abort-on-error;
   this is scoped to the suites.
 
-## What "pass" means — the patch pipeline
+## What "pass" means - the patch pipeline
 
 For each test the harness compares the actual output against the upstream
 `expected/<name>.out`. It first tries PostgreSQL's own stock numbered
-alternatives (`<name>_0.out … _9.out`) — a match there is a plain compatible
+alternatives (`<name>_0.out … _9.out`) - a match there is a plain compatible
 pass. If output still differs, it applies a committed **accepted-divergence
 patch** (`testdata/pg17/patches/<name>.patch`) to the expected file and
 re-compares. Every result is therefore one of three buckets:
 
-- **`pass`, no patch** — byte-identical (after normalization) to upstream.
+- **`pass`, no patch** - byte-identical (after normalization) to upstream.
   Genuinely compatible.
-- **`pass`, with patch** — output differs, but matches a reviewed, committed
+- **`pass`, with patch** - output differs, but matches a reviewed, committed
   patch describing a divergence we accept. Counted as a pass.
-- **`fail`** — output differs in a way no patch explains. A genuine residual.
+- **`fail`** - output differs in a way no patch explains. A genuine residual.
 
 There are **130 committed patch files** today (69 core, 4 contrib, 51 external,
 6 isolation); a meaningful share of every suite is `pass`-with-patch. Those
-files _are_ the reviewable list of divergences — [Known
+files _are_ the reviewable list of divergences - [Known
 divergences](#known-divergences-the-complete-list) is their inventory.
 
 The harness **replaces** `pg_regress`'s own strict-diff verdict: it recomputes
@@ -136,7 +137,7 @@ pass/fail per test from the normalized comparison plus the patch, and overrides
 generate; generate mode also deletes stale patches that no longer apply.
 
 **CI caveat:** the Go test wrapper logs residual failures but only fails the Go
-test when a suite produced _zero_ tests. A green Go check is not the signal —
+test when a suite produced _zero_ tests. A green Go check is not the signal -
 read the pass count in the compatibility report / badges, not the verdict.
 
 ### Guardrails that keep the patch set honest
@@ -146,18 +147,18 @@ the rest are review discipline (spelled out in the patches directory
 [README](../../go/test/endtoend/pgregresstest/testdata/pg17/README.md)), and a
 patch is reviewed like any other diff.
 
-- **Cosmetic or semantically-equivalent only** _(review)_ — reworded errors, a
+- **Cosmetic or semantically-equivalent only** _(review)_ - reworded errors, a
   dropped/shifted error caret, `postgres`-vs-`regression` catalog naming, an
   added unlogged-table warning, or the single "rejected by the pooler" line from
   a by-design block. A patch **must never absorb a wrong result row, a flipped
-  success/error, or a changed column type** — those are bugs.
+  success/error, or a changed column type** - those are bugs.
 - **Every safety/security divergence patch carries a `# Known divergence (by
 design)` preamble** _(review)_ naming the blocked capability and any
   deterministic fallout. Comment lines are stripped before the diff applies, so
   the preamble never affects matching. All 130 patches currently carry a
   preamble.
 - **Pooling-caused differences must be stable across ≥3 consecutive runs**
-  _(review)_ before acceptance — a flaky difference is a bug, not a divergence.
+  _(review)_ before acceptance - a flaky difference is a bug, not a divergence.
 - **A patch applies to the current upstream file or the test fails**
   _(mechanically enforced)_. When a future PG point release changes a test, its
   stale patch stops applying and the suite goes red, forcing re-review.
@@ -168,12 +169,12 @@ Full green is not a one-way ratchet of piling on patches. Two forces act on it:
 
 - **Real fixes _remove_ patches.** Backend-local state (temp namespaces, pending
   stats) once leaked across pooled backends and was papered over with large
-  patches. Fixing it — destroying a reserved backend after temporary-object
+  patches. Fixing it - destroying a reserved backend after temporary-object
   access so its state can't leak, and pinning namespace/seed-instantiating calls
-  to a reserved connection — let `temp`, `stats`, and `sysviews` pass for real.
+  to a reserved connection - let `temp`, `stats`, and `sysviews` pass for real.
   The `stats` patch shrank ~100 lines because the divergence stopped existing.
 - **New safety policy _adds_ patches.** Closing the "unsafe statement inside a
-  procedural body" gap (the gateway now parses `DO` / `CREATE FUNCTION` bodies —
+  procedural body" gap (the gateway now parses `DO` / `CREATE FUNCTION` bodies -
   see [Unsafe Statement Rejection](unsafe_statement_rejection.md)) is a security
   win that, by construction, makes some tests emit a rejection where stock PG
   runs the statement. Each is recorded as a `by design` patch whose only delta is
@@ -182,7 +183,7 @@ Full green is not a one-way ratchet of piling on patches. Two forces act on it:
 ## Output normalization
 
 Before comparing, the verifier normalizes **both** the expected and actual
-output identically — so a normalizer can never manufacture a false match, it can
+output identically - so a normalizer can never manufacture a false match, it can
 only remove non-determinism symmetrically. The chain (applied in this order) is:
 
 1. **NOTIFY source PID** → `PostgreSQL backend PID`. `LISTEN`/`NOTIFY` delivery
@@ -190,21 +191,21 @@ only remove non-determinism symmetrically. The chain (applied in this order) is:
    gateway virtual PID (see [VPIDs](#virtual-pids-vpids)), so the raw number
    varies per run and per pooled backend. Matches both the isolationtester trace
    form and psql's `received from server process with PID N`.
-2. **Whitespace** — every run of spaces/tabs collapses to one space and each
+2. **Whitespace** - every run of spaces/tabs collapses to one space and each
    line is trimmed (newlines and trailing-newline presence preserved). This lets
    the harness drop `diff -b` (which drifts between BSD and GNU), and it is what
-   makes a pure **error-cursor caret shift** — the `^` under a `LINE n:` context
-   sitting one column off — collapse to identical text and pass with _no patch_.
-3. **Per-run paths** — `/private/tmp`→`/tmp` (macOS symlink) and timestamped
+   makes a pure **error-cursor caret shift** - the `^` under a `LINE n:` context
+   sitting one column off - collapse to identical text and pass with _no patch_.
+3. **Per-run paths** - `/private/tmp`→`/tmp` (macOS symlink) and timestamped
    build dirs `builds/<YYYYMMDD-HHMMSS.n>`→`builds/[RUN]`, which otherwise leak
    into client output (e.g. a rejected `lo_export`'s error path).
-4. **Name-keyed masking** — applied only to specific tests:
+4. **Name-keyed masking** - applied only to specific tests:
    - `pg_prepared_statements` result blocks are replaced with a single marker
      (`<pooler internal prepared statements>` for `prepare`/`guc`,
      `<pg_prepared_statements result>` for `stats`/`sysviews`) because the view
      reflects whichever pooled backend served the query.
    - The pooler's internal prepared-statement names `ppstmt<N>` → `ppstmt<ID>`
-     (`prepare`, `guc`, `psql`) — the integer suffix is scheduling-dependent.
+     (`prepare`, `guc`, `psql`) - the integer suffix is scheduling-dependent.
    - Isolation `stats`: `test_stat_func` call counters → `<calls>` and the
      `seq_scan`/`seq_tup_read` columns → placeholders, because those depend on
      which pooled backend ran `pg_stat_force_next_flush()`. Stable counters
@@ -215,13 +216,13 @@ only remove non-determinism symmetrically. The chain (applied in this order) is:
 
 Diffs are generated with stable `--label a/--label b` headers so patch files
 embed no absolute paths or timestamps. All masking is in-code Go, dispatched by
-test name — not driven by patch preambles.
+test name - not driven by patch preambles.
 
 ## Harness accommodations
 
 These are the "gnarly" things the harness does beyond "send the SQL through the
 gateway and diff." Every one is **test-harness only** and is listed here in full.
-The guiding line: an accommodation may only let a test's _real subject_ run — it
+The guiding line: an accommodation may only let a test's _real subject_ run - it
 never makes a blocked operation appear to succeed. The test's own attempt at the
 blocked thing still gets rejected, and that rejection is what the patch records.
 
@@ -232,19 +233,19 @@ blocks `DROP`/`CREATE DATABASE` by design, so the harness runs the entire suite
 on the single pre-existing `postgres` database via `EXTRA_REGRESS_OPTS=--use-existing
 --dbname=postgres` (and `CONTRIB_TESTDB=postgres` / `ISOLATION_TESTDB=postgres`
 for those suites). Upstream fixtures that hard-code the `regression` database
-name therefore diverge only in that name — recorded as output-only patches, never
+name therefore diverge only in that name - recorded as output-only patches, never
 by rewriting input SQL.
 
 ### Pre-seeded helper functions (created directly on the primary)
 
 Many regression tests define their own helper functions whose bodies use dynamic
-`EXECUTE` — exactly the shape the gateway's PL/pgSQL body analysis rejects at
+`EXECUTE` - exactly the shape the gateway's PL/pgSQL body analysis rejects at
 `CREATE`. Left alone, that one rejection cascades into thousands of "function
 does not exist" errors that bury the real question the test asks. The harness
 opens a **direct** connection to the primary (bypassing the gateway) and creates
 these benign helpers from `testdata/pg17/regress_preseed.sql` before the suite
 runs; the DDL replicates to standbys, so every pooled backend sees them. The
-test's _own_ `CREATE` still hits the gateway and is still rejected — so the single
+test's _own_ `CREATE` still hits the gateway and is still rejected - so the single
 honest rejection line remains the only recorded divergence.
 
 | Helper (from `regress_preseed.sql`)                                            | Serves test        |
@@ -262,7 +263,7 @@ honest rejection line remains the only recorded divergence.
 
 (`find_hash` is the lone helper with no dynamic `EXECUTE`; it is seeded only so
 `hash_join_batches`' body resolves at seed time.) External extensions have their
-own primary-side preseeds — currently `hypopg`'s `do_explain`, and the PostGIS
+own primary-side preseeds - currently `hypopg`'s `do_explain`, and the PostGIS
 helpers below.
 
 ### Public-schema reset and scratch databases
@@ -277,7 +278,7 @@ stock grants. Extensions that install into their own schema (`pg_partman`→
 `pg_cron` is the one extension whose tests need real databases to exist for
 catalog/ACL checks; the harness creates its `ScratchDatabases` directly on the
 primary as pure catalog metadata. This is a test accommodation, explicitly **not**
-a product capability — the gateway still blocks `CREATE DATABASE` for clients.
+a product capability - the gateway still blocks `CREATE DATABASE` for clients.
 
 `CREATE EXTENSION` for preloaded extensions is deliberately routed _through the
 gateway_ (not the primary), both to exercise the pooled path and to avoid a
@@ -307,7 +308,7 @@ The `http` (pgsql-http) and `pg_net` extensions make real libcurl calls, so the
 harness runs a local httpbin-compatible server on **127.0.0.1:9080** for the
 duration of those suites. The port is fixed by pgsql-http's own
 `SET http.server_host = 'http://localhost:9080'`, which falls back to the live
-`httpbin.org` only when nothing answers locally — a fallback the harness must
+`httpbin.org` only when nothing answers locally - a fallback the harness must
 never hit, so it **fails loudly if :9080 is already taken**. It serves
 `/anything`, `/get`, `/status/N`, `/response-headers`, `/delay/N`, `/redirect-to`,
 and `/image/png` (exactly 8090 NUL-free ASCII bytes, because the expected file
@@ -348,9 +349,9 @@ a test device.
 - **The mapping table.** `multigres.backend_vpid` is an **unlogged** sidecar
   table `(backend_pid, vpid, updated_at)`. Multipooler upserts a row at
   hand-off points (fresh backend checkout / new reservation) through the **admin
-  pool** — independent of the borrowed backend's role, transaction, or GUC state,
+  pool** - independent of the borrowed backend's role, transaction, or GUC state,
   so the mapping survives `RESET ALL`/`DISCARD ALL` and is not rolled back with
-  client work — and deletes it on release/recycle (closing the backend if a
+  client work - and deletes it on release/recycle (closing the backend if a
   clean idle state can't be confirmed). It is the one sidecar table customer
   roles may `SELECT` (writes are admin-only), and it is preserved across
   leader-promotion sidecar sweeps. Writing is gated by
@@ -360,19 +361,19 @@ a test device.
 ### Isolationtester: session mapping and the lock-wait shim
 
 `pg_isolation_regress` runs multiple named sessions and asks the server "is
-session A blocked by session B?" — which through a pooler means mapping VPIDs
+session A blocked by session B?" - which through a pooler means mapping VPIDs
 back to real backends. The harness patches `isolationtester.c` (idempotently, via
 `git checkout` first):
 
 - **Clears `PGAPPNAME`** and skips the per-session `set_config('application_name',
-…)` — upstream sets a unique `application_name` per session, and that
+…)` - upstream sets a unique `application_name` per session, and that
   high-cardinality backend state would exhaust the pool before it resets.
 - **Retargets the wait probe** from the C builtin
   `pg_isolation_test_session_is_blocked($1, '{…}')` to a plpgsql shim
   `public.multigres_test_session_is_blocked($1::int4, '{…}'::int4[])` (explicit
   casts are required because isolationtester prepares with null param types).
 - **Routes the control connection** (`conns[0]`, which runs global setup/teardown
-  and the lock-wait watchdog — trusted scaffolding) directly at the primary via
+  and the lock-wait watchdog - trusted scaffolding) directly at the primary via
   `ISOLATION_CONTROL_CONNINFO`, bypassing gateway body-analysis; the sessions
   under test still go through the gateway.
 
@@ -381,7 +382,7 @@ primary in the `postgres` database. It joins `multigres.backend_vpid` to
 `pg_stat_activity` to translate the VPIDs it receives into real backend PIDs,
 then runs `pg_blocking_pids` / `pg_safe_snapshot_blocking_pids` over **every**
 real backend mapped to the VPID (aggregating, not picking one). It has a
-direct-PID fallback that fires only when no mapping is found — guarded, because a
+direct-PID fallback that fires only when no mapping is found - guarded, because a
 VPID can coincidentally equal an unrelated real backend PID. Every invocation
 logs to `public.isolation_debug_log`, dumped after the run. The spec
 `detach-partition-concurrently-4` is additionally rewritten to `pg_advisory_lock`
@@ -411,7 +412,7 @@ single-tenant deployments that accept the risk.
 | **`CREATE LANGUAGE`**                                                                                                                                                         | Installs a procedural language handler into the shared fleet.                                                                                                                                                                                                       | `alter_generic`                                                                                                                                                                                                                     |
 | **`LOAD` / shared libraries**                                                                                                                                                 | Loading a `.so` into a pooled backend leaks state onto every later client.                                                                                                                                                                                          | `create_function_c`, `guc`                                                                                                                                                                                                          |
 | **Server filesystem access** (`pg_read_file`, `pg_stat_file`, `pg_ls_dir`, `lo_import`/`lo_export`, libpq fast-path FunctionCall)                                             | Reaches the server's disk / raw protocol.                                                                                                                                                                                                                           | `misc_functions`, `privileges`, `largeobject`                                                                                                                                                                                       |
-| **Session state in opaque bodies** — `SET`/`RESET`/`DISCARD`/`LISTEN`, non-local `set_config`, or dynamic `EXECUTE` the pooler can't vet, inside a `DO`/function/trigger body | Can't be faithfully mirrored onto the next pooled client. Self-reverting forms (`SET LOCAL`, `SET TRANSACTION`, `set_config(…, is_local:=true)`) and injection-safe dynamic `EXECUTE` are allowed. See [Unsafe Statement Rejection](unsafe_statement_rejection.md). | `brin_bloom`, `brin_multi`, `select_parallel`, `gin`, `guc`, `oidjoins`, `explain`, `alter_table`, `incremental_sort`, `join_hash`, `memoize`, `merge`, `partition_prune`, `interval`, `triggers`, `plpgsql`, `create_function_sql` |
+| **Session state in opaque bodies** - `SET`/`RESET`/`DISCARD`/`LISTEN`, non-local `set_config`, or dynamic `EXECUTE` the pooler can't vet, inside a `DO`/function/trigger body | Can't be faithfully mirrored onto the next pooled client. Self-reverting forms (`SET LOCAL`, `SET TRANSACTION`, `set_config(…, is_local:=true)`) and injection-safe dynamic `EXECUTE` are allowed. See [Unsafe Statement Rejection](unsafe_statement_rejection.md). | `brin_bloom`, `brin_multi`, `select_parallel`, `gin`, `guc`, `oidjoins`, `explain`, `alter_table`, `incremental_sort`, `join_hash`, `memoize`, `merge`, `partition_prune`, `interval`, `triggers`, `plpgsql`, `create_function_sql` |
 | **Restricted GUCs** (`synchronous_commit`)                                                                                                                                    | Durability is a cluster property, not a client's to change.                                                                                                                                                                                                         | `test_setup`                                                                                                                                                                                                                        |
 | **Schema-qualified temp namespace** (`pg_temp.x`, `pg_temp` in `search_path`)                                                                                                 | The temp namespace belongs to a pooled backend, not the session. `CREATE TEMP` is supported.                                                                                                                                                                        | `temp`, `window`                                                                                                                                                                                                                    |
 | **Persistent replication slots**                                                                                                                                              | Slot position isn't yet migratable across failover.                                                                                                                                                                                                                 | contrib `pg_walinspect` (below)                                                                                                                                                                                                     |
@@ -453,12 +454,12 @@ block rather than pretend a single global value exists (see [Output
 normalization](#output-normalization)); where it is a stable property, it is
 patched.
 
-- **`pg_prepared_statements` / pooler `ppstmt` names** — masked. `prepare`, `guc`,
+- **`pg_prepared_statements` / pooler `ppstmt` names** - masked. `prepare`, `guc`,
   `psql`, `stats`, `sysviews`, and `plancache` (plan counters + generic/custom
   plan transition are backend-local through the consolidator).
-- **`pg_stat` counters** — masked or patched where flush-visibility lags per
+- **`pg_stat` counters** - masked or patched where flush-visibility lags per
   backend. `stats`, isolation `stats`.
-- **`LISTEN`/`NOTIFY` source PID** — normalized to a placeholder; delivery is
+- **`LISTEN`/`NOTIFY` source PID** - normalized to a placeholder; delivery is
   preserved but the PID is the physical backend's, not the VPID. isolation
   `async-notify`.
 - **PG17 login event triggers** fire once per pooled-backend creation, not per
@@ -475,11 +476,11 @@ patched.
 Consequences of the single-`postgres`-database, no-libxml, single-tenant harness
 rather than of multigres behavior.
 
-- **Single-database fallout** — `GRANT`/`REVOKE` on the absent default
+- **Single-database fallout** - `GRANT`/`REVOKE` on the absent default
   `regression` database, and schema/ownership/cleanup knock-on: `dependency`,
   `publication`, isolation `intra-grant-inplace-db`.
-- **No libxml** — `xmlmap` compares against the `_1.out` no-libxml baseline.
-- **Per-run paths** — masked (see normalization).
+- **No libxml** - `xmlmap` compares against the `_1.out` no-libxml baseline.
+- **Per-run paths** - masked (see normalization).
 
 ### Extension divergences
 
@@ -492,7 +493,7 @@ same classes as above; the table names the specific cause.
 | **pg_walinspect** (contrib) |       2 | Persistent (non-temporary) replication slot rejected; failed drop is fallout.                                                                                                                                                                                                                  |
 | **pgstattuple** (contrib)   |       1 | FDW/`SERVER` blocked → dummy foreign-table checks become "does not exist".                                                                                                                                                                                                                     |
 | **hypopg**                  |       2 | Hypothetical indexes live in backend-local memory; a later statement on another pooled backend can't see them. `do_explain` dynamic `EXECUTE` also rejected (preseeded). Tracked, `partial`.                                                                                                   |
-| **pg_graphql**              |       1 | Backend-local schema cache goes stale on a reused backend for rolled-back in-transaction DDL — same class as hypopg, not a bug.                                                                                                                                                                |
+| **pg_graphql**              |       1 | Backend-local schema cache goes stale on a reused backend for rolled-back in-transaction DDL - same class as hypopg, not a bug.                                                                                                                                                                |
 | **pg_cron**                 |       1 | `CREATE`/`DROP DATABASE` blocked through the pooler.                                                                                                                                                                                                                                           |
 | **http**                    |       1 | `SET http.server_host` in a `DO` exception handler rejected (dead code; local httpbin used) + statement-timeout cancel wording.                                                                                                                                                                |
 | **plpgsql_check**           |       4 | `LOAD` rejected (lib is preloaded instead) + PL/pgSQL bodies PG only rejects at runtime + dynamic `EXECUTE` rejected.                                                                                                                                                                          |
@@ -508,11 +509,11 @@ Tracked in a living catalog (`ExtensionCatalog` in `extensions.go`) with an
 explicit status per extension; the Extension Coverage table in every report is
 generated from it, so it can't drift from reality. Statuses:
 
-- **covered** — full upstream suite runs through the gateway.
-- **partial** — runs with documented drop-in gaps (narrow patches).
-- **build-only** — built, preloaded, and smoke-loaded with `CREATE EXTENSION`,
+- **covered** - full upstream suite runs through the gateway.
+- **partial** - runs with documented drop-in gaps (narrow patches).
+- **build-only** - built, preloaded, and smoke-loaded with `CREATE EXTENSION`,
   but its suite is not a valid pass/fail signal yet.
-- **unsupported** — cannot be covered by this harness; carries a reason so the
+- **unsupported** - cannot be covered by this harness; carries a reason so the
   table shows _why_, not a blank.
 
 | Extension                          | Kind     | Status          | Note                                                                                                                                                                                                  |
@@ -541,7 +542,7 @@ generated from it, so it can't drift from reality. Statuses:
 | pg_partman                         | external | covered         | pgTAP via psql; runs transaction-wrapped tests only (see exclusions).                                                                                                                                 |
 | pgjwt                              | external | covered         | pure-SQL; pgTAP; pinned to a commit (never tagged). Depends on pgcrypto + pgtap.                                                                                                                      |
 | pgmq                               | external | covered         | pure-SQL PGXS; partitioned-queue tests depend on pg_partman.                                                                                                                                          |
-| pgsodium                           | external | covered         | libsodium; pgTAP keyless mode — server-key/TCE tests self-skip.                                                                                                                                       |
+| pgsodium                           | external | covered         | libsodium; pgTAP keyless mode - server-key/TCE tests self-skip.                                                                                                                                       |
 | pgtap                              | external | covered         | own pg_regress suite, every test `BEGIN…ROLLBACK`-wrapped. Test dep of others.                                                                                                                        |
 | plpgsql_check                      | external | covered         | linter/profiler; needs preload; gateway-blocked `LOAD`s are patched.                                                                                                                                  |
 | postgis (+ raster/sfcgal/topology) | external | covered         | PostGIS 3.6.3 via `run_test.pl`; see harness rewrites and divergences.                                                                                                                                |
@@ -558,15 +559,15 @@ generated from it, so it can't drift from reality. Statuses:
 
 ### Suite exclusions (named, not silently dropped)
 
-- **pg_partman** — `test_bgw/`, `test_tablespace/`, `test_nonsuperuser/`, and
+- **pg_partman** - `test_bgw/`, `test_tablespace/`, `test_nonsuperuser/`, and
   `test_procedure/` subfolders run pgTAP in **autocommit** (their procedures
   `COMMIT`, so they can't be `BEGIN…ROLLBACK`-wrapped); `plan()`'s session-temp
   table then leaks onto an unpinned pooled backend → "You tried to plan twice!".
   A hard limit of pgTAP through a transaction pooler, not a harness bug. One more
   file (`test-time-monthly-source-generated`) is excluded because it asserts a
-  row count calibrated to a specific run date — it fails identically with and
+  row count calibrated to a specific run date - it fails identically with and
   without the gateway.
-- **pgtap** — `performs_ok`, `performs_within`, `resultset`, `valueset`, `privs`
+- **pgtap** - `performs_ok`, `performs_within`, `resultset`, `valueset`, `privs`
   are excluded: their whole subject is passing a SQL-level prepared-statement name
   or a runtime-built `SET search_path` into an `EXECUTE` inside a function body,
   which the gateway can't see; a patch would have to absorb the entire file and
@@ -577,19 +578,19 @@ generated from it, so it can't drift from reality. Statuses:
 
 The `pg_regress` suites prove we match Postgres's output on a single session. A
 separate family of tests in `go/test/endtoend/queryserving/` proves the _proxy
-layer_ specifically — including the multi-tenant isolation the single-user
+layer_ specifically - including the multi-tenant isolation the single-user
 regression suite can't reach:
 
-- **`pgparity`** — a differential suite: the same `.slt` corpus runs against
+- **`pgparity`** - a differential suite: the same `.slt` corpus runs against
   direct `postgres` and against `multigateway` pointed at the _same_ backend, so
   any divergence is provably proxy-introduced. Runs on every PR.
   See [pgparity](testing/pgparity.md).
-- **`sqllogictest`** — large-scale query-result verification via the sqllogictest
+- **`sqllogictest`** - large-scale query-result verification via the sqllogictest
   corpus.
-- **`postgrest` / `pgbouncer` differential suites** — real-world client
+- **`postgrest` / `pgbouncer` differential suites** - real-world client
   ecosystems (PostgREST's hspec, PgBouncer's suite) run through the gateway,
   differentially against direct PG.
-- **Targeted proxy tests** — session-state leakage across pooled sessions,
+- **Targeted proxy tests** - session-state leakage across pooled sessions,
   reserved-connection lifecycle, temp-table timeout, prepared-statement handling,
   transaction failover, query cancellation, `LISTEN`/`NOTIFY`, replica reads.
   This is where multi-tenant isolation is actually proven.
@@ -618,7 +619,7 @@ regression suite can't reach:
 
 A full green across regression, isolation, contrib, and external means every
 PostgreSQL test we run either matches upstream exactly or matches a difference we
-have deliberately reviewed and written down — and this document, together with
+have deliberately reviewed and written down - and this document, together with
 the 130 patch files, is that written record in full. It is not a claim that
 multigres is indistinguishable from PostgreSQL. The blocked-by-design operations,
 the cosmetic and pooling divergences, and the tracked limitations above are the
