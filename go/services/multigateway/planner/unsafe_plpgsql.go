@@ -462,8 +462,17 @@ func safeExecuteSkeleton(exprText string) (string, []ast.Node, bool) {
 // returns false the moment it meets anything that could inject arbitrary
 // structure — a raw `||` operand, a %s, a bare variable/param, any function other
 // than the trusted quoting builtins — so a true result proves the whole payload
-// is structurally fixed. The quoting builtins are matched unqualified (the
-// pg_catalog names); a schema-qualified same-named function is treated as unknown.
+// is structurally fixed.
+//
+// KNOWN LIMITATION: the quoting builtins are matched by unqualified name only, so
+// this trust is not proof the call resolves to the pg_catalog implementation. A
+// tenant can shadow it — reorder search_path ahead of pg_catalog for quote_ident
+// / quote_literal, or define an exact-signature format(text, text) which beats
+// pg_catalog.format(text, VARIADIC "any") even under the default path — and have
+// it return arbitrary statement text that the skeleton then accepts as safe.
+// Closing this needs catalog/search_path resolution the plan-time analyzer does
+// not have; matching pg_catalog.<name> only would instead reject the ubiquitous
+// unqualified idiom. Accepted as-is for now.
 func reduceSafeExpr(node ast.Node, sb *strings.Builder, values *[]ast.Node) bool {
 	switch v := node.(type) {
 	case *ast.A_Const:

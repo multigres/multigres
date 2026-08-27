@@ -128,5 +128,20 @@
     "comment": "UPDATE RETURNING INTO",
     "body": "BEGIN UPDATE t SET a = 1 WHERE id = 2 RETURNING a INTO x; END",
     "deparse": "BEGIN\nUPDATE t SET a = 1 WHERE id = 2 RETURNING a INTO x;\nEND"
+  },
+  {
+    "comment": "INTO target then end of input (must not slice past the source)",
+    "body": "BEGIN SELECT a INTO x",
+    "error": "unexpected end of function definition"
+  },
+  {
+    "comment": "INTO target then trailing comma at end of input",
+    "body": "BEGIN SELECT a INTO x,",
+    "error": "unexpected end of function definition"
+  },
+  {
+    "comment": "INTO STRICT then end of input (no target)",
+    "body": "BEGIN SELECT a INTO STRICT",
+    "error": "unexpected end of function definition"
   }
 ]

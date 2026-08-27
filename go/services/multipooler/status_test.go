@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/web"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 )
 
 func renderPoolerIndex(t *testing.T, status *Status) string {
@@ -132,4 +133,93 @@ func TestPoolerIndex_BackupsSection_WithBackup(t *testing.T) {
 	assert.Contains(t, html, "boom (2026-06-10T11:00:00Z)", "should show last failure")
 	assert.NotContains(t, html, "never")
 	assert.Contains(t, html, "Last refreshed 2026-06-10T14:00:00Z (12s ago)", "should show the last-refreshed note")
+}
+
+func TestBuildReplicationStatsView_WithConnections(t *testing.T) {
+	status := replicationstats.PollerStatus{
+		Open:       true,
+		Polls:      42,
+		PollErrors: 1,
+		Connections: []replicationstats.ConnStats{
+			{
+				User: "replicator", ConnID: "7",
+				ReplayLag: 1.5, HaveReplayLag: true,
+				LastAckAge: 2.5, HaveAck: true,
+				LastMsgAge: 3.5, HaveMsgAge: true,
+				SlotName: "sub1", HaveSlot: true, RetainedWAL: 4096,
+			},
+			{
+				// No ack/lag/slot yet — a connection observed for the first time.
+				User: "replicator", ConnID: "8",
+			},
+		},
+	}
+
+	view := buildReplicationStatsView(status)
+	assert.True(t, view.Open)
+	assert.EqualValues(t, 42, view.Polls)
+	assert.EqualValues(t, 1, view.PollErrors)
+	require.Len(t, view.Connections, 2)
+
+	assert.Equal(t, "7", view.Connections[0].ConnID)
+	assert.Equal(t, "1.5s", view.Connections[0].ReplayLag)
+	assert.Equal(t, "2.5s", view.Connections[0].LastAckAge)
+	assert.Equal(t, "3.5s", view.Connections[0].LastMsgAge)
+	assert.Equal(t, "sub1", view.Connections[0].SlotName)
+	assert.Equal(t, "4096 bytes", view.Connections[0].RetainedWAL)
+
+	assert.Equal(t, "8", view.Connections[1].ConnID)
+	assert.Equal(t, unknownValue, view.Connections[1].ReplayLag, "unset fields must render as unknown, not a zero value")
+	assert.Equal(t, unknownValue, view.Connections[1].LastAckAge)
+	assert.Equal(t, unknownValue, view.Connections[1].LastMsgAge)
+	assert.Equal(t, unknownValue, view.Connections[1].SlotName)
+	assert.Equal(t, unknownValue, view.Connections[1].RetainedWAL)
+}
+
+func TestBuildReplicationStatsView_NoConnections(t *testing.T) {
+	view := buildReplicationStatsView(replicationstats.PollerStatus{})
+	assert.False(t, view.Open)
+	assert.Empty(t, view.Connections)
+}
+
+func TestReplicationStatsView_NilManagerDuringStartup(t *testing.T) {
+	// Before the pooler manager is constructed (early startup), the view must
+	// render the zero state rather than panicking on a nil manager.
+	mp := &Multipooler{}
+	view := mp.replicationStatsView()
+	assert.False(t, view.Open)
+	assert.Empty(t, view.Connections)
+}
+
+func TestPoolerIndex_ReplicationStatsSection_NoConnections(t *testing.T) {
+	status := &Status{
+		Title:            "pooler",
+		ReplicationStats: ReplicationStatsView{Open: false, Polls: 0, PollErrors: 0},
+	}
+	html := renderPoolerIndex(t, status)
+
+	assert.Contains(t, html, "<h4>Replication Stats</h4>")
+	assert.Contains(t, html, "0 / 0", "should show poll/error counts even when never polled")
+}
+
+func TestPoolerIndex_ReplicationStatsSection_WithConnections(t *testing.T) {
+	status := &Status{
+		Title: "pooler",
+		ReplicationStats: ReplicationStatsView{
+			Open: true, Polls: 12, PollErrors: 0,
+			Connections: []ReplicationConnView{
+				{
+					ConnID: "7", User: "replicator",
+					ReplayLag: "1.5s", LastAckAge: "2.5s", LastMsgAge: "3.5s",
+					SlotName: "sub1", RetainedWAL: "4096 bytes",
+				},
+			},
+		},
+	}
+	html := renderPoolerIndex(t, status)
+
+	assert.Contains(t, html, "sub1")
+	assert.Contains(t, html, "4096 bytes")
+	assert.Contains(t, html, "1.5s")
+	assert.Contains(t, html, "replicator")
 }

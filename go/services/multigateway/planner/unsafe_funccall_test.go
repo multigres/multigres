@@ -872,6 +872,43 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_SetConfigUnsafePoolerMode confirms the operator
+// opt-out actually lets every untrackable set_config shape through: the same
+// statements the enforced path rejects (dynamic-shape and per-call shape errors)
+// must analyze without error and produce no tracking (empty SetConfigs, no
+// DynamicSetConfig), so they route to PostgreSQL as written and untracked. This
+// is the contract in docs/query_serving/unsafe_statement_rejection.md.
+func TestInspectExpressionFuncCalls_SetConfigUnsafePoolerMode(t *testing.T) {
+	sqls := []string{
+		// Dynamic-shape rejections (reach validateDynamicSetConfigShape).
+		"SELECT set_config(name, '256MB', false) FROM gucs",
+		"SELECT set_config('work_mem', v, false) FROM pg_settings",
+		"SELECT set_config('work_mem', '256MB', islocal) FROM pg_settings",
+		"SELECT set_config(name, '256MB', $1) FROM pg_settings",
+		"SELECT set_config(name, 100, false) FROM pg_settings",
+		"SELECT set_config('work_mem', now(), false)",
+		"SELECT set_config(name, '256MB', false) FROM pg_settings WHERE nextval('s') > 0",
+		"SELECT set_config(lower(name), '256MB', false) FROM pg_settings",
+		// Per-call shape rejection that skips the dynamic path (all args static):
+		// a bound is_local on an ordinary variable.
+		"SELECT set_config('work_mem', '1GB', $1)",
+	}
+	for _, sql := range sqls {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			// Enforced: rejected.
+			_, err := analyzeFunctionCalls(stmt, true)
+			require.Error(t, err, "expected rejection when enforced")
+			// unsafe-pooler-mode: accepted and untracked.
+			result, err := analyzeFunctionCalls(parseOne(t, sql), false)
+			require.NoError(t, err, "unsafe-pooler-mode must not reject")
+			require.NotNil(t, result)
+			assert.False(t, result.DynamicSetConfig, "must not synthesize a dynamic set_config plan")
+			assert.Empty(t, result.SetConfigs, "untrackable set_config must not be tracked")
+		})
+	}
+}
+
 // TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered pins the cases
 // that must NOT take the resolve-and-apply path: all-literal/bound calls keep
 // the fast path, and a literal is_local=true call (even with a dynamic name)
