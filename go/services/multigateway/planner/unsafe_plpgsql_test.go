@@ -364,6 +364,81 @@ func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
 	})
 }
 
+// TestAnalyzeDynamicExecute_VarDataflow covers the intra-body dataflow that lets
+// a bare-variable EXECUTE payload (`EXECUTE v` / `RETURN QUERY EXECUTE v`) be
+// checked against the expressions the variable can hold. Acceptance is sound:
+// every assignment to the variable must reduce to a safe skeleton, and a variable
+// written by any form we cannot reduce (SELECT/EXECUTE … INTO, a loop variable, a
+// self-referential build, or with no assignment at all) is rejected.
+func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
+	accept := map[string]string{
+		"const concat into var":    `DO $$ DECLARE v text; BEGIN v := 'SELECT 1 FROM t WHERE x = ' || '5'; EXECUTE v; END $$`,
+		"format %I into var":       `DO $$ DECLARE v text; c text; BEGIN v := format('CREATE TABLE %I AS SELECT 1', c); EXECUTE v; END $$`,
+		"RETURN QUERY EXECUTE var": `CREATE FUNCTION f() RETURNS SETOF int AS $$ DECLARE v text; c text; BEGIN v := format('SELECT * FROM %I', c); RETURN QUERY EXECUTE v; END $$ LANGUAGE plpgsql`,
+		"transitive w := v":        `DO $$ DECLARE v text; w text; BEGIN v := 'SELECT 1'; w := v; EXECUTE w; END $$`,
+		"FOR .. IN EXECUTE var":    `DO $$ DECLARE r record; v text; BEGIN v := 'SELECT 1 FROM t WHERE bucket_id = $1' ; FOR r IN EXECUTE v USING 1 LOOP NULL; END LOOP; END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false)
+			require.NoError(t, err)
+		})
+	}
+
+	reject := map[string]string{
+		"format %s into var":         `DO $$ DECLARE v text; x text; BEGIN v := format('SELECT * FROM t WHERE %s', x); EXECUTE v; END $$`,
+		"unsafe concat into var":     `DO $$ DECLARE v text; x text; BEGIN v := 'DROP TABLE ' || x; EXECUTE v; END $$`,
+		"var from SELECT INTO":       `DO $$ DECLARE v text; BEGIN SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
+		"var also assigned via INTO": `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
+		"var is loop variable":       `DO $$ DECLARE v text; BEGIN FOR v IN SELECT relname FROM pg_class LOOP EXECUTE v; END LOOP; END $$`,
+		"self-referential build":     `DO $$ DECLARE v text := ''; c text; BEGIN v := v || ' ' || c; EXECUTE v; END $$`,
+		"bare param, no assignment":  `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE q; END $$ LANGUAGE plpgsql`,
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false)
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestAnalyzeDynamicExecute_ConstrainedFormatS covers the constrained-%s handling:
+// a top-level format() whose %s conversions are fed by a bounded set of constant
+// string values (a literal, a CASE whose branches are all literals, or a variable
+// proven to hold only such values) is expanded into every concrete statement it
+// can produce, each analyzed as a static statement. It stays sound because a
+// hostile constant is re-analyzed after substitution; and %s fed by anything whose
+// value set cannot be bounded (a bare parameter, a lower()/guard-narrowed variable,
+// a CASE without ELSE) is rejected.
+func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
+	accept := map[string]string{
+		"literal %s":                      `DO $$ BEGIN EXECUTE format('SELECT * FROM t ORDER BY name %s', 'asc'); END $$`,
+		"CASE-of-const var %s":            `DO $$ DECLARE d text; c text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; EXECUTE format('SELECT * FROM t ORDER BY %I %s', c, d); END $$`,
+		"two %s same const var":           `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; EXECUTE format('SELECT a %s, b %s FROM t', d, d); END $$`,
+		"const %s built then EXECUTE var": `CREATE FUNCTION f() RETURNS SETOF int AS $$ DECLARE v text; d text; c text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; v := format('SELECT * FROM t ORDER BY %I %s', c, d); RETURN QUERY EXECUTE v; END $$ LANGUAGE plpgsql`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false)
+			require.NoError(t, err)
+		})
+	}
+
+	reject := map[string]string{
+		"%s fed by lower(param)":      `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"%s fed by bare param":        `CREATE FUNCTION f(d text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"%s fed by CASE without ELSE": `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' END; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"injected set_config via %s":  `DO $$ DECLARE d text; BEGIN d := 'x); SELECT set_config(''work_mem'',''1GB'',false'; EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', d); END $$`,
+		"%s var tainted by INTO":      `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false)
+			require.Error(t, err)
+		})
+	}
+}
+
 // TestAnalyzeProceduralBody_TransactionScopedSet covers the transaction-scoped
 // SET allowance: SET LOCAL and SET TRANSACTION inside a body revert at
 // transaction end and are allowed, while the session-persisting forms — plain
