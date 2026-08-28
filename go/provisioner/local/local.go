@@ -1075,6 +1075,9 @@ func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisio
 	if interval, ok := multiorchConfig["recovery_cycle_interval"].(string); ok && interval != "" {
 		args = append(args, "--recovery-cycle-interval", interval)
 	}
+	if allow, ok := multiorchConfig["allow_unsafe_initial_cohort"].(bool); ok && allow {
+		args = append(args, "--allow-unsafe-initial-cohort")
+	}
 
 	// Start multiorch process
 	multiorchCmd := executil.Command(ctx, multiorchBinary, args...)

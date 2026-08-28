@@ -404,6 +404,7 @@ func (s *ShardSetup) CreateMultiorchInstance(t *testing.T, name string, watchTar
 		Environment:                        os.Environ(),
 		LeaderFailoverGracePeriodBase:      config.LeaderFailoverGracePeriodBase,
 		LeaderFailoverGracePeriodMaxJitter: config.LeaderFailoverGracePeriodMaxJitter,
+		AllowUnsafeInitialCohort:           !config.RequireFailureSafeInitialCohort,
 		LogLevel:                           config.LogLevel,
 	}
 
