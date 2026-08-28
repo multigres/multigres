@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -67,6 +68,9 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 		runner:       runner,
 	}
 }
+
+// Compile-time check that Writer implements switcher.Toggleable.
+var _ switcher.Toggleable = (*Writer)(nil)
 
 // Open starts the heartbeat writer.
 func (w *Writer) Open() {

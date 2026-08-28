@@ -75,7 +75,8 @@ func NewShardInitAction(
 }
 
 // Execute performs the initial cohort establishment for a bootstrapped shard.
-func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *ShardInitAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing shard init action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,
@@ -116,6 +117,18 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"insufficient initialized poolers for initial cohort (have %d): %v", len(initializedPoolers), err)
 	}
+	// Require the candidate cohort to be failure-safe (survive losing any
+	// single member) before claiming anything — a cohort that's merely large
+	// enough to satisfy the policy today has no margin for the very next
+	// failure. Waiting here is resolved by starting another pooler for this
+	// shard; it never resolves itself by waiting alone. Tests that
+	// specifically exercise a minimum-size cohort opt out via
+	// --allow-unsafe-initial-cohort.
+	if !a.allowUnsafeInitialCohort() && !commonconsensus.CohortSurvivesAnyMemberLoss(durabilityPolicy, initializedIDs) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"initialized poolers (%d) satisfy the durability policy but aren't failure-safe; add another pooler to this shard",
+			len(initializedPoolers))
+	}
 
 	a.logger.InfoContext(ctx, "quorum of initialized poolers available",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
@@ -149,6 +162,20 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 			"insufficient committed cohort poolers reachable (have %d of %d): %v",
 			len(committedCohort), len(committedIDs), err)
 	}
+	if !a.allowUnsafeInitialCohort() && !commonconsensus.CohortSurvivesAnyMemberLoss(durabilityPolicy, committedCohortIDs) {
+		// The committed cohort is fixed and can never grow (see
+		// ClaimShardInitialization), so if all its members are already
+		// reachable, no new pooler can help — only an externally-certified
+		// rule change can bootstrap the shard at that point.
+		if len(committedCohort) < len(committedIDs) {
+			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"committed cohort (%d of %d reachable) satisfies the durability policy but isn't failure-safe while a member is unreachable; waiting for it to return",
+				len(committedCohort), len(committedIDs))
+		}
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"committed cohort (%d members, all reachable) satisfies the durability policy but isn't failure-safe and is fixed for this shard's init claim; bootstrap via an externally-certified rule change (multiadmin) instead",
+			len(committedCohort))
+	}
 
 	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey, committedCohort); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
@@ -157,6 +184,11 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	a.logger.InfoContext(ctx, "shard init action completed successfully",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 	return nil
+}
+
+// allowUnsafeInitialCohort reports the --allow-unsafe-initial-cohort config value.
+func (a *ShardInitAction) allowUnsafeInitialCohort() bool {
+	return a.config.GetAllowUnsafeInitialCohort()
 }
 
 // getInitializedPoolers reads fresh pooler state from the store (already refreshed by the
@@ -221,6 +253,12 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
+// GracePeriod is nil: bootstrapping an uninitialized shard has no working
+// state to protect, so there's no reason to wait once a failure-safe cohort
+// is available. Collision-avoidance against another coordinator's concurrent
+// attempt is handled by the shared rule-change pipeline's collective
+// recruitment backoff (AppointInitialLeader runs through the same
+// newRuleChange path as ordinary failover), not by this action.
 func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	"math"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -60,8 +61,17 @@ import (
 
 // GrpcServer holds all gRPC server configuration and the server instance
 type GrpcServer struct {
-	// auth specifies which auth plugin to use. Currently only "static" and "mtls" are supported.
+	// auth specifies which auth plugin to use. Currently "mtls" and "jwt"
+	// are supported.
 	auth viperutil.Value[string]
+
+	// httpOnlyAuth, when true, still resolves the configured auth plugin (so
+	// AuthPlugin()/HTTP/Connect/REST can use it) but prevents interceptors()
+	// from ever attaching it to the gRPC server - gRPC stays exactly as
+	// unauthenticated as if no auth mode were configured at all. Deliberately
+	// not a flag: set programmatically via SetHTTPOnlyAuth by callers (e.g.
+	// Multiadmin's --enable-auth) that want gRPC left open for now.
+	httpOnlyAuth bool
 
 	// port is the port to listen on for gRPC. If zero, don't listen.
 	port viperutil.Value[int]
@@ -114,8 +124,13 @@ type GrpcServer struct {
 	// Server is the actual gRPC server instance
 	Server *grpc.Server
 
-	// authPlugin is the authenticator plugin
-	authPlugin Authenticator
+	// authPluginBox holds the resolved authenticator plugin, if any (see
+	// resolveAuthPlugin). Boxed behind an atomic.Pointer, rather than a plain
+	// Authenticator field, because it is written once by resolveAuthPlugin
+	// but read concurrently by HTTP/Connect request handlers that may run
+	// before resolveAuthPlugin completes (see AuthPlugin) - a plain field
+	// would be a data race.
+	authPluginBox atomic.Pointer[authenticatorBox]
 
 	// socketFile is the named socket for RPCs
 	socketFile viperutil.Value[string]
@@ -219,7 +234,7 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 
 // RegisterFlags registers all gRPC server flags with the given FlagSet
 func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("grpc-auth-mode", g.auth.Default(), "gRPC auth plugin to use (e.g., 'static', 'mtls')")
+	fs.String("grpc-auth-mode", g.auth.Default(), "gRPC auth plugin to use (e.g., 'mtls', 'jwt')")
 	fs.Int("grpc-port", g.port.Default(), "Port to listen on for gRPC calls. If zero, do not listen.")
 	fs.String("grpc-bind-address", g.bindAddress.Default(), "Bind address for gRPC calls. If empty, listen on all addresses.")
 	fs.Duration("grpc-max-connection-age", g.maxConnectionAge.Default(), "Maximum age of a client connection before GoAway is sent.")
@@ -306,6 +321,16 @@ func (g *GrpcServer) IsEnabled() bool {
 // Create creates the gRPC server instance.
 // It has to be called after flags are parsed, but before services register themselves.
 func (g *GrpcServer) Create() error {
+	// Resolve the configured auth plugin (if any) before the IsEnabled()
+	// gate below. Some deployments run with gRPC serving disabled
+	// (grpc-port=0, HTTP-only) but still want servenv's own HTTP endpoints
+	// (see ServEnv.SetAuthPlugin) or a service's HTTP routes to gate on it -
+	// those must not silently see an unresolved plugin just because the
+	// gRPC listener itself is off.
+	if err := g.resolveAuthPlugin(); err != nil {
+		return fmt.Errorf("resolve auth plugin: %w", err)
+	}
+
 	// skip if not enabled
 	if !g.IsEnabled() {
 		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
@@ -337,9 +362,12 @@ func (g *GrpcServer) Create() error {
 		slog.Info("gRPC TLS enabled", "cert", g.cert.Get(), "mtls", g.ca.Get() != "")
 	}
 
-	// Validate that mTLS auth mode is not used without transport TLS.
+	// Validate that mtls auth is not used without transport TLS. Without
+	// this, --grpc-auth-mode=mtls would silently reject every caller (the
+	// certificate check can never succeed with no TLS handshake to inspect)
+	// instead of failing loudly at startup.
 	if g.auth.Get() == "mtls" && tlsConfig == nil {
-		return errors.New("--grpc-auth-mode=mtls requires --grpc-cert and --grpc-key for transport TLS")
+		return fmt.Errorf("--grpc-auth-mode=%s requires --grpc-cert and --grpc-key for transport TLS", g.auth.Get())
 	}
 
 	// Override the default max message size for both send and receive
@@ -378,11 +406,7 @@ func (g *GrpcServer) Create() error {
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
 	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 
-	interceptorOpts, err := g.interceptors()
-	if err != nil {
-		return fmt.Errorf("grpc interceptors: %w", err)
-	}
-	opts = append(opts, interceptorOpts...)
+	opts = append(opts, g.interceptors()...)
 
 	g.Server = grpc.NewServer(opts...)
 	return nil
@@ -412,21 +436,57 @@ func (g *GrpcServer) keepaliveServerParameters() keepalive.ServerParameters {
 	}
 }
 
-// interceptors builds the list of interceptors for the gRPC server
-func (g *GrpcServer) interceptors() ([]grpc.ServerOption, error) {
+// resolveAuthPlugin resolves the configured --grpc-auth-mode plugin (if any)
+// and stores it in g.authPluginBox. Deliberately independent of
+// IsEnabled()/gRPC server construction - see the call site in Create() - and
+// independent of whether the eventual gRPC server ever gets built, since
+// HTTP-only gating (ServEnv.SetAuthPlugin) also depends on this having run.
+func (g *GrpcServer) resolveAuthPlugin() error {
+	if g.auth.Get() == "" {
+		return nil
+	}
+	slog.Info("enabling auth plugin", "plugin", g.auth.Get())
+	pluginInitializer, err := GetAuthenticator(g.auth.Get())
+	if err != nil {
+		return fmt.Errorf("get auth plugin %q: %w", g.auth.Get(), err)
+	}
+	authPluginImpl, err := pluginInitializer()
+	if err != nil {
+		return fmt.Errorf("initialize auth plugin %q: %w", g.auth.Get(), err)
+	}
+	if _, ok := authPluginImpl.(TokenVerifier); !ok {
+		// Not necessarily a misconfiguration - e.g. --grpc-auth-mode=mtls has
+		// no HTTP/Connect/REST equivalent by design - but worth a loud,
+		// one-time signal at startup, since the practical effect is that
+		// Multiadmin's HTTP/Connect/REST/pprof surface rejects every request
+		// (see AuthenticateBearer, which fails closed rather than passing
+		// requests through) for as long as this mode is configured.
+		slog.Warn("auth plugin does not support HTTP/Connect/REST bearer-token verification; that surface will reject all requests", "plugin", g.auth.Get())
+	}
+	g.authPluginBox.Store(&authenticatorBox{authenticator: authPluginImpl})
+	return nil
+}
+
+// SetAuthMode programmatically selects the same --grpc-auth-mode value a
+// flag would set. For callers (e.g. Multiadmin's --enable-auth) that want to
+// choose a plugin without exposing an independent, generic CLI flag for it -
+// pair with SetHTTPOnlyAuth to keep gRPC itself unauthenticated.
+func (g *GrpcServer) SetAuthMode(mode string) {
+	g.auth.Set(mode)
+}
+
+// SetHTTPOnlyAuth sets httpOnlyAuth; see the field doc for behavior. Must be
+// called before Create().
+func (g *GrpcServer) SetHTTPOnlyAuth(httpOnly bool) {
+	g.httpOnlyAuth = httpOnly
+}
+
+// interceptors builds the list of interceptors for the gRPC server. Assumes
+// resolveAuthPlugin has already run (see Create()).
+func (g *GrpcServer) interceptors() []grpc.ServerOption {
 	interceptors := &serverInterceptorBuilder{}
 
-	if g.auth.Get() != "" {
-		slog.Info("enabling auth plugin", "plugin", g.auth.Get())
-		pluginInitializer, err := GetAuthenticator(g.auth.Get())
-		if err != nil {
-			return nil, fmt.Errorf("get auth plugin %q: %w", g.auth.Get(), err)
-		}
-		authPluginImpl, err := pluginInitializer()
-		if err != nil {
-			return nil, fmt.Errorf("initialize auth plugin %q: %w", g.auth.Get(), err)
-		}
-		g.authPlugin = authPluginImpl
+	if !g.httpOnlyAuth && g.resolvedAuthPlugin() != nil {
 		interceptors.Add(
 			func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 				return g.authenticatingStreamInterceptor(srv, stream, info, handler)
@@ -437,7 +497,7 @@ func (g *GrpcServer) interceptors() ([]grpc.ServerOption, error) {
 		)
 	}
 
-	return interceptors.Build(), nil
+	return interceptors.Build()
 }
 
 // Serve starts the gRPC server and begins listening for requests
@@ -502,11 +562,12 @@ func (g *GrpcServer) CheckServiceMap(name string, sv *ServEnv) bool {
 }
 
 func (g *GrpcServer) authenticatingStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if g.authPlugin == nil {
+	authPlugin := g.resolvedAuthPlugin()
+	if authPlugin == nil {
 		return handler(srv, stream)
 	}
 
-	newCtx, err := g.authPlugin.Authenticate(stream.Context(), info.FullMethod)
+	newCtx, err := authPlugin.Authenticate(stream.Context(), info.FullMethod)
 	if err != nil {
 		return err
 	}
@@ -517,11 +578,12 @@ func (g *GrpcServer) authenticatingStreamInterceptor(srv any, stream grpc.Server
 }
 
 func (g *GrpcServer) authenticatingUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if g.authPlugin == nil {
+	authPlugin := g.resolvedAuthPlugin()
+	if authPlugin == nil {
 		return handler(ctx, req)
 	}
 
-	newCtx, err := g.authPlugin.Authenticate(ctx, info.FullMethod)
+	newCtx, err := authPlugin.Authenticate(ctx, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}

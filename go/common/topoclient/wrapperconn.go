@@ -258,6 +258,35 @@ func (c *WrapperConn) Delete(ctx context.Context, filePath string, version Versi
 	return err
 }
 
+// PutEphemeral creates or updates a process-liveness-bound file.
+//
+// A reconnection replaces the underlying Conn, and the replacement carries
+// its own liveness binding — anything written through the old one expires.
+// This wrapper does not track or re-create those files; the component that
+// owns the registration re-asserts it (see servenv/toporeg).
+func (c *WrapperConn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	err = conn.PutEphemeral(ctx, filePath, contents)
+	c.handleConnectionError(conn, err)
+	return err
+}
+
+// ClaimEphemeral atomically claims or refreshes a process-liveness-bound
+// file; see Conn.ClaimEphemeral. Like PutEphemeral, the wrapper keeps no
+// record — the owner re-asserts the claim (toporeg.WithReassert).
+func (c *WrapperConn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	err = conn.ClaimEphemeral(ctx, filePath, contents)
+	c.handleConnectionError(conn, err)
+	return err
+}
+
 // Lock acquires a distributed lock on the specified directory path.
 func (c *WrapperConn) Lock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()

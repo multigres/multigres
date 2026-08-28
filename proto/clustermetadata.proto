@@ -57,6 +57,10 @@ message Cell {
   // root is the namespace or directory path within the topology service
   // where this cell's metadata is stored. Used only when connecting to server_addresses.
   string root = 3;
+
+  // metadata is an opaque document describing this cell, supplied by whatever
+  // deployed it: an operator, a provisioning tool, or a human.
+  string metadata = 4;
 }
 
 message Database {

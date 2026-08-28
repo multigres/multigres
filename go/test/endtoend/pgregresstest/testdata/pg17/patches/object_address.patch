@@ -1,3 +1,11 @@
+# Known divergence (by design): multigateway blocks CREATE FOREIGN DATA WRAPPER,
+# CREATE SERVER, and CREATE SUBSCRIPTION — all pooler-unsafe (outbound / foreign
+# server connections and replication subscriptions). Every difference below is
+# deterministic fallout: the foreign-data wrapper, servers, foreign table, user
+# mapping, and subscription never exist, so the object-address enumeration and
+# the CASCADE DROPs that reference them lose exactly those rows and drop-cascade
+# notices. No other object class in this test is affected.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -10,7 +10,9 @@

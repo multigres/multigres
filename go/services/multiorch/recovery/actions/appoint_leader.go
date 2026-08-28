@@ -70,7 +70,8 @@ func NewAppointLeaderAction(
 }
 
 // Execute performs leader appointment by running the coordinator's consensus protocol
-func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *AppointLeaderAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 

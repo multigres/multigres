@@ -117,6 +117,19 @@ set_pg_user() {
   sed -i "s/^\([[:space:]]*pg-user: \).*\$/\1${user}/" "${file}"
 }
 
+# allow_unsafe_initial_cohort inserts allow-unsafe-initial-cohort: true into
+# every cell's multiorch block. multiorch refuses to bootstrap a shard whose
+# cohort can't survive losing any single member; this demo's 2-3 total
+# poolers all share one shard, so that can never be true here regardless of
+# NUM_CELLS. The flag exists precisely for topologies like this one that
+# trade real HA for a minimal footprint.
+allow_unsafe_initial_cohort() {
+  local file="$1"
+  sed -i '/^[[:space:]]*recovery-cycle-interval:/a\
+                allow-unsafe-initial-cohort: true
+' "${file}"
+}
+
 shutdown() {
   echo "==> Received shutdown signal, stopping Multigres cluster..."
   multigres cluster stop --config-path "${CONFIG_PATH}" || true
@@ -161,6 +174,7 @@ if [ ! -f "${CONFIG_PATH}/multigres.yaml" ]; then
   multigres cluster init --config-path "${CONFIG_PATH}"
   trim_cells "${CONFIG_PATH}/multigres.yaml" "${NUM_CELLS}"
   set_gateway_ports "${CONFIG_PATH}/multigres.yaml" "${GATEWAY_PG_PORT}" "${NUM_CELLS}"
+  allow_unsafe_initial_cohort "${CONFIG_PATH}/multigres.yaml"
   if [ "${PG_SUPERUSER}" != "postgres" ]; then
     set_pg_user "${CONFIG_PATH}/multigres.yaml" "${PG_SUPERUSER}"
   fi

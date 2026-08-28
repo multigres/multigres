@@ -95,7 +95,7 @@ type trackingRecoveryAction struct {
 	executionOrderMu *sync.Mutex
 }
 
-func (t *trackingRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
+func (t *trackingRecoveryAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	t.executionOrderMu.Lock()
 	*t.executionOrder = append(*t.executionOrder, t.label)
 	t.executionOrderMu.Unlock()
@@ -131,9 +131,9 @@ type mockRecoveryAction struct {
 	gracePeriod *types.GracePeriodConfig
 }
 
-func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
+func (m *mockRecoveryAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	if m.executeFn != nil {
-		return m.executeFn(ctx, problem)
+		return m.executeFn(ctx, rechecked.Problem)
 	}
 	m.executed.Store(true)
 	return m.executeErr
@@ -360,10 +360,10 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 		Priority:  types.PriorityEmergency,
 	}
 
-	stillExists, err := engine.recheckProblem(t.Context(), problem)
+	rechecked, err := engine.recheckProblem(t.Context(), problem)
 
 	require.Error(t, err, "should return error when shard not found")
-	assert.False(t, stillExists)
+	assert.Nil(t, rechecked)
 	assert.Contains(t, err.Error(), "shard not found")
 }
 

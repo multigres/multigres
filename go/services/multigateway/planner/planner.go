@@ -39,6 +39,13 @@ type Planner struct {
 	// txnMetrics is injected into TransactionPrimitive at creation time
 	// for recording transaction duration and count.
 	txnMetrics *engine.TransactionMetrics
+
+	// unsafePoolerMode, when true, suppresses every unsafe-statement rejection
+	// (Tier 1 PL/pgSQL body analysis, the Tier 2 statement blocklist, the
+	// restricted-GUC guard, and the expression-level function blocklist) for
+	// operators who accept the risk. Planning signals are still gathered so
+	// routing stays correct; only the rejections are relaxed. Default false.
+	unsafePoolerMode bool
 }
 
 // NewPlanner creates a new query planner.
@@ -163,7 +170,7 @@ func (p *Planner) Plan(
 	// construction already analyzed and safe. The normalizer is configured to
 	// preserve literals inside set_config calls so its args remain A_Const at
 	// this point.
-	analysis, err := analyzeStatement(stmt)
+	analysis, err := analyzeStatement(stmt, p.unsafePoolerMode)
 	if err != nil {
 		return nil, err
 	}
@@ -564,6 +571,13 @@ func (p *Planner) SetDefaultTableGroup(tableGroup string) {
 // GetDefaultTableGroup returns the current default tablegroup.
 func (p *Planner) GetDefaultTableGroup() string {
 	return p.defaultTableGroup
+}
+
+// SetUnsafePoolerMode toggles the operator opt-out that suppresses the
+// unsafe-statement rejections (see the Planner.unsafePoolerMode field). It is
+// set once at startup from configuration.
+func (p *Planner) SetUnsafePoolerMode(enabled bool) {
+	p.unsafePoolerMode = enabled
 }
 
 // planType returns the observability label for a plan. Temp-table and

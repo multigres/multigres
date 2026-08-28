@@ -54,6 +54,15 @@ const (
 // by the sqllogictest differential harness.
 type PostgresBuilder struct {
 	*pgbuilder.Builder
+
+	// UnsafeGatewayProvider, when set, lazily starts (and returns the PG port of)
+	// a second multigateway running with --unsafe-pooler-mode, sharing the same
+	// cluster. runExternalPgTAP calls it only for files listed in an extension's
+	// UnsafePoolerGlobs — pgTAP tests whose scaffolding the enforcing gateway
+	// (correctly) rejects. It must be idempotent (repeat calls return the same
+	// port). Wired by the test layer to ShardSetup.StartUnsafeMultigateway; nil in
+	// contexts that never need it.
+	UnsafeGatewayProvider func(t *testing.T) int
 }
 
 // TestResults contains the results from running PostgreSQL regression tests.
@@ -385,6 +394,23 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			}
 		}
 
+		// Seed any test-helper the gateway rejects by design (a dynamic EXECUTE in
+		// the helper body) directly on the primary, after the public-schema reset so
+		// it isn't wiped. The suite's own CREATE is still rejected and recorded as a
+		// divergence; the seed just lets the helper's callers resolve. See
+		// ExternalExtension.PreseedFile.
+		if ext.PreseedFile != "" {
+			seed, ok := externalPreseeds[ext.PreseedFile]
+			if !ok {
+				return merged, fmt.Errorf("external/%s: unknown PreseedFile %q (add it to externalPreseeds)", ext.Name, ext.PreseedFile)
+			}
+			if err := execOnPrimary(directPgPort, password, seed); err != nil {
+				t.Logf("external/%s: warning: preseed %q failed: %v", ext.Name, ext.PreseedFile, err)
+			} else {
+				t.Logf("external/%s: pre-seeded %s on primary (port %d)", ext.Name, ext.PreseedFile, directPgPort)
+			}
+		}
+
 		var (
 			res *TestResults
 			err error
@@ -593,6 +619,9 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 	if err := patchPostGISRunnerDatabase(filepath.Join(cloneDir, "regress", "run_test.pl")); err != nil {
 		return nil, err
 	}
+	if err := patchPostGISConflictingHelpers(cloneDir); err != nil {
+		return nil, err
+	}
 
 	// Pre-install the PostGIS components directly on the primary (directPgPort),
 	// NOT through the gateway. CREATE EXTENSION postgis_topology runs
@@ -664,6 +693,13 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 	}
 	args = append(args, tests...)
 
+	// Write the per-test helper preseed where the patched run_test.pl can psql it
+	// directly onto the primary before each test. See patchPostGISRunnerDatabase.
+	preseedPath := filepath.Join(tmpDir, "mg_postgis_preseed.sql")
+	if err := os.WriteFile(preseedPath, []byte(postgisPreseedSQL), 0o644); err != nil {
+		return testResultsFromSynthetic(synthetic), fmt.Errorf("write postgis preseed: %w", err)
+	}
+
 	t.Logf("Running external/%s run_test.pl (%d tests) against multigateway...", ext.Name, len(tests))
 	cmd := executil.Command(ctx, "perl", args...).WithProcessGroup().SetDir(cloneDir)
 	cmd.SetWaitDelay(10 * time.Second)
@@ -677,6 +713,13 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 		"POSTGIS_REGRESS_DB=postgres",
 		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
 		"PGIS_REG_TMPDIR="+tmpDir,
+		// Per-test helper re-seed: the patched run_test.pl runs this SQL on the
+		// direct primary port before each test (PGPASSWORD above authenticates it).
+		"MG_POSTGIS_PRESEED_FILE="+preseedPath,
+		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres", directPgPort),
+		// Normalize planner GUCs to PostgreSQL defaults so index scan-type checks
+		// (qnodes) match PostGIS's expected output despite pgctld's tuned GUCs.
+		"PGOPTIONS=-c work_mem=4MB -c random_page_cost=4.0 -c effective_cache_size=4GB -c max_parallel_workers_per_gather=2",
 	)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -728,6 +771,47 @@ func extensionControlExists(installDir, name string) bool {
 	return false
 }
 
+// patchPostGISConflictingHelpers renames PostGIS test helpers that are defined
+// across multiple test files with clashing signatures, so they can be pre-seeded
+// without "function is not unique" ambiguity. Each of these helpers has a
+// dynamic-EXECUTE body the gateway rejects, so it must be seeded; but the shared
+// preseed can't hold, for example, both check_changes(text) and
+// check_changes(text, boolean DEFAULT true) — a 1-arg call would match both. We
+// give the colliding variant a per-file unique name here and seed it under that
+// same name (see postgis_preseed.sql). The rename is a pure local identifier
+// substitution in the test's own file; it changes no test behavior.
+func patchPostGISConflictingHelpers(cloneDir string) error {
+	renames := []struct{ file, from, to string }{
+		// check_changes(text, boolean DEFAULT true) collides with check_changes(text).
+		{"topology/test/regress/topogeo_addpolygon.sql", "check_changes", "check_changes_ap"},
+		// runTest is defined with the same signature but different bodies in these two.
+		{"topology/test/regress/topogeo_addlinestring_robust.sql", "runTest", "runtest_alr"},
+		{"topology/test/regress/topogeo_addpoint_merge_edges.sql", "runTest", "runtest_apme"},
+		// make_test_raster is defined in ~23 raster files; only tickets.sql's copy
+		// runs a dynamic EXECUTE (so only it is rejected and needs seeding). Rename
+		// just that one so its seed doesn't collide with the 22 self-created copies.
+		{"raster/test/regress/tickets.sql", "make_test_raster", "make_test_raster_tickets"},
+	}
+	for _, r := range renames {
+		path := filepath.Join(cloneDir, filepath.FromSlash(r.file))
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read postgis test file %q: %w", r.file, err)
+		}
+		// Whole-identifier, case-insensitive rename (PostgreSQL folds unquoted
+		// identifiers, so "runTest" and "runtest" refer to the same function).
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(r.from) + `\b`)
+		patched := re.ReplaceAll(raw, []byte(r.to))
+		if bytes.Equal(patched, raw) {
+			return fmt.Errorf("postgis test file %q: %q not found to rename (PG version drift?)", r.file, r.from)
+		}
+		if err := os.WriteFile(path, patched, 0o644); err != nil {
+			return fmt.Errorf("write postgis test file %q: %w", r.file, err)
+		}
+	}
+	return nil
+}
+
 func patchPostGISRunnerDatabase(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -737,6 +821,20 @@ func patchPostGISRunnerDatabase(path string) error {
 	patched = strings.ReplaceAll(patched,
 		`    sql("ALTER DATABASE \"$DB\" SET test.executor_slow_factor = $test_executor_slow_factor");`,
 		`    # Multigres runs PostGIS against an existing database through the gateway; ALTER DATABASE is intentionally blocked.`,
+	)
+	// Re-seed the test-helper functions directly on the primary before every
+	// test. PostGIS test files each CREATE OR REPLACE their own helpers (qnodes,
+	// etc.) — rejected by the gateway's body analysis — and DROP them at the end,
+	// so a single pre-seed is dropped by the first test that runs. Seeding
+	// directly (bypassing the gateway) before each test keeps them present. The
+	// direct conninfo + SQL file are passed in via MG_POSTGIS_PRESEED_*.
+	patched = strings.ReplaceAll(patched,
+		"\tstart_test($TEST);\n\t$TEST_OBJ_COUNT_PRE = count_postgis_objects();",
+		"\t# Multigres patch: re-seed gateway-rejected test helpers directly on the primary.\n"+
+			"\tif ($ENV{MG_POSTGIS_PRESEED_FILE} && $ENV{MG_POSTGIS_PRESEED_CONNINFO}) {\n"+
+			"\t\tsystem(\"psql \\\"$ENV{MG_POSTGIS_PRESEED_CONNINFO}\\\" -Xq -f \\\"$ENV{MG_POSTGIS_PRESEED_FILE}\\\" >/dev/null 2>&1\");\n"+
+			"\t}\n\n"+
+			"\tstart_test($TEST);\n\t$TEST_OBJ_COUNT_PRE = count_postgis_objects();",
 	)
 	if patched == string(raw) {
 		return nil

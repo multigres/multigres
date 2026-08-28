@@ -455,6 +455,14 @@ export class Cell extends Message<Cell> {
    */
   root = "";
 
+  /**
+   * metadata is an opaque document describing this cell, supplied by whatever
+   * deployed it: an operator, a provisioning tool, or a human.
+   *
+   * @generated from field: string metadata = 4;
+   */
+  metadata = "";
+
   constructor(data?: PartialMessage<Cell>) {
     super();
     proto3.util.initPartial(data, this);
@@ -466,6 +474,7 @@ export class Cell extends Message<Cell> {
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "server_addresses", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 3, name: "root", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "metadata", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Cell {

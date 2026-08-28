@@ -141,13 +141,49 @@ func TestApplySessionState_BoundNameResolves(t *testing.T) {
 	assert.Equal(t, "public", settings["search_path"])
 }
 
-// TestApplySessionState_BoundNameResolvingToGatewayManagedRejected pins the
-// fail-closed guard: a parameter-bound name is invisible to the planner's
-// gateway-managed rewrite, so the real set_config would execute on the
-// backend. Resolution runs in the Sequence's prepare phase — before the Route
-// child is sent — so the rejection aborts the statement with the backend
-// untouched and no gateway state mutated.
-func TestApplySessionState_BoundNameResolvingToGatewayManagedRejected(t *testing.T) {
+// TestApplySessionState_BoundNameGatewayManagedLocalApplied pins the MUL-1468
+// fix: a parameter-bound name resolving to a gateway-managed variable with
+// is_local=true (PostgREST's role-setting form, inside a transaction) is no
+// longer rejected — the gateway applies it as a transaction-local override. The
+// paired Route runs the real set_config on the backend transaction-locally
+// (reverting, so no pool leak), while this primitive owns the value so SHOW and
+// the gateway's own deadline enforcement stay correct. The value lives in
+// gateway-managed state, never in SessionSettings.
+func TestApplySessionState_BoundNameGatewayManagedLocalApplied(t *testing.T) {
+	const sql = "SELECT set_config($1, $2, true)"
+	portalInfo := buildBoundPortalInfo(t, sql,
+		[]uint32{uint32(ast.TEXTOID), uint32(ast.TEXTOID)},
+		[][]byte{[]byte("statement_timeout"), []byte("5s")}, []int16{0, 0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("__bind_$1__", "__bind_$2__"),
+		&BoundSetConfigRefs{
+			NameParam:  &ast.ParamRef{Number: 1},
+			ValueParam: &ast.ParamRef{Number: 2},
+		})
+
+	state := &handler.MultigatewayConnectionState{}
+	state.InitStatementTimeout(30 * time.Second)
+	var tags []string
+	err := prim.PortalStreamExecute(context.Background(), nil, txnConn(t), state, portalInfo, 0, false, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			tags = append(tags, r.CommandTag)
+			return nil
+		})
+	require.NoError(t, err)
+	assert.Nil(t, tags, "SilentTracking must suppress the SET CommandComplete; the paired Route owns the response")
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout(), "transaction-local GMV override must be applied to gateway state")
+	_, exists := state.GetSessionVariable("statement_timeout")
+	assert.False(t, exists, "a gateway-managed variable must never land in SessionSettings")
+}
+
+// TestApplySessionState_BoundNameGatewayManagedSessionRejected pins the
+// deliberate limitation: a parameter-bound name resolving to a gateway-managed
+// variable with is_local=false is rejected. On a pinned session the verbatim
+// call would persist on the reserved backend and could drift from the gateway on
+// a later change, and forcing the reverted route there needs plumbing we don't
+// have yet — so fail closed (a literal name is the supported session-scoped
+// spelling). PostgREST always uses is_local=true, so it is unaffected.
+func TestApplySessionState_BoundNameGatewayManagedSessionRejected(t *testing.T) {
 	const sql = "SELECT set_config($1, '5s', false)"
 	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("statement_timeout")}, []int16{0})
 
@@ -158,7 +194,7 @@ func TestApplySessionState_BoundNameResolvingToGatewayManagedRejected(t *testing
 
 	settings, tags, err := runBindExecute(t, prim, portalInfo)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "gateway-managed")
+	assert.Contains(t, err.Error(), "only supported with is_local=true")
 	assert.Empty(t, settings)
 	assert.Nil(t, tags)
 }

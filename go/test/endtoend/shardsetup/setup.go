@@ -77,6 +77,7 @@ type SetupConfig struct {
 	DeferMultipoolerStart              bool     // Start pgctld only; test starts multipooler itself
 	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (default: "0s" for tests)
 	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
+	RequireFailureSafeInitialCohort    bool     // Reject bootstrapping a cohort that can't survive losing any member (default: false — tests allow it for speed/small pooler counts)
 	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                     string   // S3 region
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
@@ -171,6 +172,18 @@ func WithMultigateway() SetupOption {
 	}
 }
 
+// WithMultigatewayExtraArgs adds extra CLI flags to the multigateway process
+// in the test setup. Implies WithMultigateway(). Use for gateway tuning that has
+// no dedicated option yet, e.g. shardsetup.WithMultigatewayExtraArgs(
+// "--keep-transaction-on-gateway-rejection"). Flags are appended last, so they
+// override the multigateway defaults.
+func WithMultigatewayExtraArgs(args ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, args...)
+	}
+}
+
 // WithMultiadmin enables multiadmin in the test setup (default: disabled).
 // Multiadmin is started after shard bootstrap and exposes HTTP + gRPC APIs
 // against the same etcd topology used by the rest of the cluster. The
@@ -245,6 +258,18 @@ func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
 		c.LeaderFailoverGracePeriodBase = base
 		c.LeaderFailoverGracePeriodMaxJitter = maxJitter
+	}
+}
+
+// WithRequireFailureSafeInitialCohort rejects bootstrapping a shard whose
+// initial cohort can't survive losing any single member, matching production
+// behavior. Tests default to allowing it (e.g. a 2-pooler AT_LEAST_2 setup
+// that's merely policy-satisfying, not failure-safe) so most tests don't pay
+// for a 3rd pooler just to get past bootstrap; opt into this for tests that
+// specifically verify the safety gate.
+func WithRequireFailureSafeInitialCohort() SetupOption {
+	return func(c *SetupConfig) {
+		c.RequireFailureSafeInitialCohort = true
 	}
 }
 
@@ -1743,6 +1768,15 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	if s.Multigateway != nil {
 		s.Multigateway.TerminateGracefully(t.Logf, gracePeriod)
 		t.Logf("ReinitializeCluster: stopped multigateway")
+	}
+	// Also stop the on-demand unsafe-pooler-mode gateway if one is running: it
+	// points at the cluster being torn down, so a later StartUnsafeMultigateway
+	// must spin up a fresh one against the reinitialized topology.
+	if s.unsafeMultigateway != nil {
+		s.unsafeMultigateway.TerminateGracefully(t.Logf, gracePeriod)
+		s.unsafeMultigateway = nil
+		s.unsafeMultigatewayPgPort = 0
+		t.Logf("ReinitializeCluster: stopped unsafe multigateway")
 	}
 
 	// 2. Stop multiorch instances
