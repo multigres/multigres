@@ -477,7 +477,7 @@ func (pm *MultipoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	return resp, err
 }
 
-func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (resp *consensusdatapb.PromoteResponse, err error) {
 	proposal := req.GetProposal()
 	revocation := proposal.GetTermRevocation()
 	proposalLeader := proposal.GetProposalLeader()
@@ -591,6 +591,19 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		pm.logUnreadyFailoverSlots(hookCtx)
 		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
 	}
+
+	// The hook above clears resignation optimistically before promotion is
+	// confirmed, to shrink the window where other coordinators still see this
+	// node as needing replacement. If promotion then fails, re-establish it
+	// here — otherwise this node is stuck silently unpromoted and no longer
+	// signaling for replacement either.
+	defer func() {
+		if err != nil {
+			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {
+				pm.logger.ErrorContext(ctx, "failed to re-set resigned primary term after failed promote", "error", resignErr)
+			}
+		}
+	}()
 
 	ruleUpdate := consensus.NewRuleUpdate(
 		revokedBelowTerm,
