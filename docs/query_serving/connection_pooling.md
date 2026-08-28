@@ -590,6 +590,13 @@ are the defense for that class. Future checkers (prepared statements vs
 `pg_prepared_statements`, residual advisory locks, temp-schema leftovers)
 register the same way.
 
+The untracked rule imposes a bootstrap invariant: connection setup must not
+create session-source GUC state outside the settings label — bootstrap
+settings must arrive via startup-packet parameters (`source='client'`) or be
+reflected in the label, or the scrubber would replace every connection each
+sweep. The e2e scrubber test asserts zero divergence from normal traffic as
+the canary for this invariant.
+
 Operationally: `--connpool-session-scrub-interval` (default 10s, `0`
 disables) controls the tick on both the regular pool and the reserved pool's
 underlying pool. Outcomes are exported as

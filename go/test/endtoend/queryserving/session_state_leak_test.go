@@ -122,6 +122,26 @@ func TestSessionScrubberReplacesHiddenState(t *testing.T) {
 	require.NoError(t, err)
 	defer primary.Close()
 
+	// Canary: before contaminating anything, normal traffic must produce
+	// ZERO divergence. The untracked rule assumes connection bootstrap
+	// leaves no session-source GUC state outside the settings label (see
+	// the invariant note in regular.Pool.Open); a future bootstrap-time SET
+	// that bypasses the label would make the scrubber replace every backend
+	// each sweep and trip this assertion. Warm the pool, wait for at least
+	// one scrub sweep (default interval 10s), then assert a quiet log. In
+	// full-suite runs this also covers all scrub sweeps during the earlier
+	// tests' traffic.
+	warmup, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	var one int
+	require.NoError(t, warmup.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	require.NoError(t, warmup.Close())
+	time.Sleep(15 * time.Second)
+	quietLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	require.NoError(t, err)
+	require.NotContains(t, string(quietLog), "session-state divergence detected",
+		"normal traffic must not diverge: connection bootstrap created session state outside the settings label")
+
 	// Install directly so the mutation is absent from the client's top-level SQL.
 	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_set()
 		RETURNS text LANGUAGE sql AS $$SELECT set_config('work_mem', '123MB', false)$$`)
