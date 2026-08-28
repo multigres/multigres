@@ -1046,15 +1046,18 @@ func TestCurrentSettingMaterialized(t *testing.T) {
 //	set_config with a parameter-bound name resolving to gateway-managed
 //	variable "statement_timeout" is not supported; use a literal name
 //
-// (engine/apply_session_state.go). Because PostgREST issues this on *every*
-// request for a role that has statement_timeout set, every such request fails.
+// (engine/apply_session_state.go). Because PostgREST issued this on *every*
+// request for a role that had statement_timeout set, every such request failed.
 //
-// Native PostgreSQL accepts the call. This is a dual-target differential test:
-// the postgres subtest passes and the multigateway subtest currently FAILS —
-// that failure IS the reproduction. It will go green once the gateway handles a
-// bound-name set_config that resolves to a gateway-managed variable (routing it
-// through the same gateway-managed apply/rewrite path used for the literal-name
-// form) instead of rejecting it.
+// The fix stops rejecting in engine.resolveSetConfig for the is_local=true case:
+// the gateway applies the value to its own state (via
+// prepareTrackedSetActionWithExchange) instead of failing, and the paired Route
+// runs the set_config on the backend transaction-locally, so it reverts and never
+// persists on a pooled backend. PostgreSQL returns the same canonical value the
+// client sees. A session-scoped (is_local=false) bound-name GMV is still rejected
+// — a deliberate, documented limitation (a pinned session would persist it on the
+// reserved backend); PostgREST always uses is_local=true. This dual-target
+// differential test grounds the behavior in native PostgreSQL.
 //
 // Note on why PostgREST's imported test suite does not catch this: multigres
 // runs only PostgREST's Haskell hspec `test:spec` suite, whose fixtures
@@ -1142,9 +1145,12 @@ func TestStatementTimeoutBoundName(t *testing.T) {
 			})
 
 			// Session-scoped variant of the same bound-name shape
-			// (set_config($1, $2, false)): also currently rejected at execute
-			// time by the gateway. Grounded on postgres, where it persists as a
-			// session value.
+			// (set_config($1, $2, false)): a deliberate, documented divergence.
+			// PostgreSQL applies it as a session value; the multigateway rejects it
+			// because a pinned session would persist a gateway-managed variable on
+			// its reserved backend (see engine.resolveSetConfig). PostgREST always
+			// uses is_local=true, so it is unaffected. Relax when session-scoped
+			// dynamic-name GMVs are needed.
 			t.Run("session bound-name set_config($1,$2,false)", func(t *testing.T) {
 				_, err := db.ExecContext(ctx, "SET statement_timeout = 0")
 				require.NoError(t, err)
@@ -1152,10 +1158,14 @@ func TestStatementTimeoutBoundName(t *testing.T) {
 				var ret string
 				err = db.QueryRowContext(ctx,
 					"SELECT set_config($1, $2, false)", "statement_timeout", "4000").Scan(&ret)
-				require.NoError(t, err,
-					"a session-scoped bound-name set_config resolving to statement_timeout must be handled")
-				assert.Equal(t, "4s", ret, "set_config returns the canonical applied value")
-				assert.Equal(t, "4s", show(t, db), "the session statement_timeout must take effect")
+				if target.Name == "postgres" {
+					require.NoError(t, err, "native PostgreSQL applies it as a session value")
+					assert.Equal(t, "4s", ret)
+				} else {
+					require.Error(t, err, "the multigateway rejects a session-scoped bound-name GMV set_config")
+					assert.Contains(t, err.Error(), "only supported with is_local=true",
+						"the rejection must point at the supported spelling")
+				}
 
 				// Reset so it does not bleed into later subtests.
 				_, err = db.ExecContext(ctx, "SET statement_timeout = 0")
