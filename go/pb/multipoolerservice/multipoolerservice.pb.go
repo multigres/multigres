@@ -126,6 +126,15 @@ const (
 	// residual-state gap is accepted since it only affects the statistical
 	// freshness of an unrelated session's random() sequence.
 	ReservationReason_RESERVATION_REASON_SET_SEED ReservationReason = 128 // 0b10000000
+	// Connection is a direct connection (the per-connection mode that gives the
+	// client its own dedicated backend and suppresses the unsafe-statement
+	// rejections). Such a connection may run statements that change untracked
+	// backend session state, so its backend must never be returned to the shared
+	// pool where the change would leak to another client. Pinned to a single
+	// backend for the session's lifetime and, like SET_SEED, sticky: it survives
+	// DISCARD ALL and is released only at the connection's real teardown, when the
+	// tainted backend is discarded.
+	ReservationReason_RESERVATION_REASON_DIRECT_CONNECTION ReservationReason = 256 // 0b100000000
 )
 
 // Enum value maps for ReservationReason.
@@ -140,6 +149,7 @@ var (
 		32:  "RESERVATION_REASON_LOGICAL_REPLICATION",
 		64:  "RESERVATION_REASON_SESSION_ADVISORY_LOCK",
 		128: "RESERVATION_REASON_SET_SEED",
+		256: "RESERVATION_REASON_DIRECT_CONNECTION",
 	}
 	ReservationReason_value = map[string]int32{
 		"RESERVATION_REASON_UNSPECIFIED":           0,
@@ -151,6 +161,7 @@ var (
 		"RESERVATION_REASON_LOGICAL_REPLICATION":   32,
 		"RESERVATION_REASON_SESSION_ADVISORY_LOCK": 64,
 		"RESERVATION_REASON_SET_SEED":              128,
+		"RESERVATION_REASON_DIRECT_CONNECTION":     256,
 	}
 )
 
@@ -2628,7 +2639,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready*R\n" +
 	"\x0fReplicationMode\x12 \n" +
 	"\x1cREPLICATION_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
-	"\x19REPLICATION_MODE_DATABASE\x10\x01*\xd5\x02\n" +
+	"\x19REPLICATION_MODE_DATABASE\x10\x01*\x80\x03\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +
@@ -2638,7 +2649,8 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x19RESERVATION_REASON_LISTEN\x10\x10\x12*\n" +
 	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 \x12,\n" +
 	"(RESERVATION_REASON_SESSION_ADVISORY_LOCK\x10@\x12 \n" +
-	"\x1bRESERVATION_REASON_SET_SEED\x10\x80\x01*\x87\x01\n" +
+	"\x1bRESERVATION_REASON_SET_SEED\x10\x80\x01\x12)\n" +
+	"$RESERVATION_REASON_DIRECT_CONNECTION\x10\x80\x02*\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +
