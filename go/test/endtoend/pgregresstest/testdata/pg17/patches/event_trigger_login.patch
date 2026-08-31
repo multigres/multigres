@@ -1,10 +1,11 @@
 # Known divergence (by design): PostgreSQL 17 login event triggers fire when a
 # backend process starts a session. Under connection pooling that is once per
-# pooled-backend creation (as the pooler's session), never per client
-# connection — so the per-\c NOTICEs are absent and the login counter stays 0.
-# The gateway warns at CREATE EVENT TRIGGER ... ON login time (the WARNING +
-# HINT below). There is no faithful emulation: event trigger functions cannot
-# be invoked from SQL.
+# pooled-backend creation (the pooler's own session), never per client
+# connection — so the per-\c NOTICEs are absent, and the user_logins counter
+# reflects pooled-backend logins after the trigger is enabled (one here) rather
+# than the per-client 1, 2 that vanilla PostgreSQL produces. The gateway warns
+# at CREATE EVENT TRIGGER ... ON login time (the WARNING + HINT below). There is
+# no faithful emulation: event trigger functions cannot be invoked from SQL.
 --- a
 +++ b
 @@ -8,21 +8,21 @@
@@ -19,8 +20,7 @@
  SELECT COUNT(*) FROM user_logins;
  count
  -------
--1
-+0
+ 1
  (1 row)
  
  \c
@@ -29,7 +29,7 @@
  count
  -------
 -2
-+0
++1
  (1 row)
  
  -- Check dathasloginevt in system catalog
