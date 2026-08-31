@@ -21,6 +21,12 @@ const (
 	// and never forwards it to a backend.
 	MultigresServerVersionVariable = "multigres.server_version"
 
+	// DirectConnectionParam is the connect-time option / GUC name that requests a
+	// direct connection for a client connection (e.g. options=-c
+	// multigres.direct_connection=on, or `SET multigres.direct_connection = on`).
+	// It is a gateway-only property, never forwarded to a backend.
+	DirectConnectionParam = "multigres.direct_connection"
+
 	// MultigresSchema is the schema used to namespace gateway-provided functions
 	// (e.g. `multigres.version()`) so they do not shadow PostgreSQL's own
 	// built-ins of the same name.
