@@ -296,9 +296,9 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 	}
 }
 
-// TestAnalyzeProceduralBody_UnsafePoolerMode confirms the operator opt-out disables
+// TestAnalyzeProceduralBody_DirectConnection confirms the operator opt-out disables
 // the body analysis: a body that would otherwise be rejected is allowed.
-func TestAnalyzeProceduralBody_UnsafePoolerMode(t *testing.T) {
+func TestAnalyzeProceduralBody_DirectConnection(t *testing.T) {
 	unsafe := []string{
 		"DO $$ BEGIN PERFORM set_config('work_mem','10GB',false); END $$",
 		"DO $$ BEGIN SET work_mem = '10GB'; END $$",
@@ -310,7 +310,7 @@ func TestAnalyzeProceduralBody_UnsafePoolerMode(t *testing.T) {
 			// Enforced: rejected.
 			_, err := analyzeStatement(parseOne(t, sql), false)
 			require.Error(t, err)
-			// unsafe-pooler-mode: allowed.
+			// direct-connection: allowed.
 			_, err = analyzeStatement(parseOne(t, sql), true)
 			require.NoError(t, err)
 		})

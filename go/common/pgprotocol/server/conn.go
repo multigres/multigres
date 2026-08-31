@@ -193,6 +193,16 @@ type Conn struct {
 	// authenticated role; the post-auth verifier enforces that.
 	replicationMode ReplicationMode
 
+	// directConnection is the per-connection direct-connection opt-out. When true
+	// the planner suppresses the unsafe-statement rejections for this connection
+	// and the backend is pinned and quarantined (ReasonDirectConnection). It is a
+	// one-way latch: it can be turned on — at connect time via the
+	// `multigres.direct_connection` option, or mid-session via
+	// `SET multigres.direct_connection = on` — but never off, since a connection
+	// that has run under it may hold untracked backend state. The backend is
+	// discarded at teardown.
+	directConnection bool
+
 	// SCRAM-SHA-256 keys extracted during the client handshake, used for
 	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
 	// sessions. Zeroized in Close.
@@ -467,6 +477,19 @@ func (c *Conn) Database() string {
 // connection (or sent replication=false).
 func (c *Conn) ReplicationMode() ReplicationMode {
 	return c.replicationMode
+}
+
+// DirectConnection reports whether this connection is running in unsafe-pooler
+// mode (see Conn.directConnection). Once latched on it never turns off.
+func (c *Conn) DirectConnection() bool {
+	return c.directConnection
+}
+
+// LatchDirectConnection turns direct connection on for this connection. It is a
+// one-way latch (never turned off). Idempotent. Called from the connect-time
+// option handling and the `SET multigres.direct_connection` primitive.
+func (c *Conn) LatchDirectConnection() {
+	c.directConnection = true
 }
 
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the

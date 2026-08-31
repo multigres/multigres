@@ -67,12 +67,6 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	}
 }
 
-// SetUnsafePoolerMode forwards the operator opt-out to the planner, which
-// suppresses the unsafe-statement rejections when enabled. Set once at startup.
-func (e *Executor) SetUnsafePoolerMode(enabled bool) {
-	e.planner.SetUnsafePoolerMode(enabled)
-}
-
 // StreamExecute executes a query and streams results back via the callback function.
 //
 // For cacheable statements (SELECT, INSERT, UPDATE, DELETE), the executor
@@ -142,7 +136,12 @@ func (e *Executor) resolvePlan(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	if !isCacheable(astStmt) {
+	// A direct connection is kept off the shared plan cache: its
+	// planning depends on the per-connection opt-out (accept/reject decisions and
+	// the ReasonDirectConnection pin), so a plan built for it must never be served to
+	// another connection. Route it through the non-cacheable path with State, like
+	// any other statement whose plan depends on live connection state.
+	if !isCacheable(astStmt) || conn.DirectConnection() {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err

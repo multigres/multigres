@@ -39,13 +39,6 @@ type Planner struct {
 	// txnMetrics is injected into TransactionPrimitive at creation time
 	// for recording transaction duration and count.
 	txnMetrics *engine.TransactionMetrics
-
-	// unsafePoolerMode, when true, suppresses every unsafe-statement rejection
-	// (Tier 1 PL/pgSQL body analysis, the Tier 2 statement blocklist, the
-	// restricted-GUC guard, and the expression-level function blocklist) for
-	// operators who accept the risk. Planning signals are still gathered so
-	// routing stays correct; only the rejections are relaxed. Default false.
-	unsafePoolerMode bool
 }
 
 // NewPlanner creates a new query planner.
@@ -162,6 +155,14 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
+	// directConnection is the per-connection opt-out. It suppresses the
+	// unsafe-statement rejections and pins+quarantines the backend. Because it
+	// varies per connection, a statement planned under it must never be served
+	// from the shared plan cache to another connection — the executor keeps
+	// direct-connection sessions off the cache (see resolvePlan), so reading it
+	// here stays sound.
+	directConnection := conn != nil && conn.DirectConnection()
+
 	// Analyze the statement before dispatch: reject unsupported constructs
 	// (Tier 2 statement types and blocklisted/misplaced FuncCalls) and gather
 	// the planning signals — tracked set_config calls, advisory-lock pinning —
@@ -170,7 +171,7 @@ func (p *Planner) Plan(
 	// construction already analyzed and safe. The normalizer is configured to
 	// preserve literals inside set_config calls so its args remain A_Const at
 	// this point.
-	analysis, err := analyzeStatement(stmt, p.unsafePoolerMode)
+	analysis, err := analyzeStatement(stmt, directConnection)
 	if err != nil {
 		return nil, err
 	}
@@ -571,13 +572,6 @@ func (p *Planner) SetDefaultTableGroup(tableGroup string) {
 // GetDefaultTableGroup returns the current default tablegroup.
 func (p *Planner) GetDefaultTableGroup() string {
 	return p.defaultTableGroup
-}
-
-// SetUnsafePoolerMode toggles the operator opt-out that suppresses the
-// unsafe-statement rejections (see the Planner.unsafePoolerMode field). It is
-// set once at startup from configuration.
-func (p *Planner) SetUnsafePoolerMode(enabled bool) {
-	p.unsafePoolerMode = enabled
 }
 
 // planType returns the observability label for a plan. Temp-table and
