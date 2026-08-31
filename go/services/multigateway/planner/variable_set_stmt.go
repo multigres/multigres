@@ -69,7 +69,7 @@ func (p *Planner) planVariableSetStmt(
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, error) {
 	// multigres.direct_connection is a gateway control, not a backend GUC: a
-	// superuser-gated, one-way latch handled entirely here.
+	// one-way latch handled entirely here.
 	if strings.EqualFold(stmt.Name, constants.DirectConnectionParam) {
 		return p.planDirectConnectionSet(sql, stmt)
 	}

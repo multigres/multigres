@@ -29,14 +29,13 @@ import (
 // direct connection (a one-way switch — see server.Conn.LatchDirectConnection)
 // and replies with a bare "SET" CommandComplete. It never touches a backend: the
 // flag is a gateway control, and every subsequent statement reads it to suppress
-// the unsafe-statement rejections and pin+quarantine the backend. The planner
-// builds this only after the superuser gate passes.
+// the unsafe-statement rejections and pin+quarantine the backend.
 type EnableDirectConnection struct {
 	sql string
 }
 
-// NewEnableDirectConnection creates the latch primitive for a validated,
-// superuser-authorized `SET multigres.direct_connection = on`.
+// NewEnableDirectConnection creates the latch primitive for a validated
+// `SET multigres.direct_connection = on`.
 func NewEnableDirectConnection(sql string) *EnableDirectConnection {
 	return &EnableDirectConnection{sql: sql}
 }
