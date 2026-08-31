@@ -53,6 +53,22 @@ type Multiadmin struct {
 	// Init, where this is wired to grpcServer via SetAuthMode/SetHTTPOnlyAuth
 	// rather than exposing --grpc-auth-mode/mechanism choice directly.
 	enableAuth viperutil.Value[bool]
+
+	// enableHTTPMTLSAuth gates Multiadmin's HTTP listener behind client-cert
+	// authentication, reusing --grpc-auth-mtls-allowed-substrings for the
+	// allow-list rather than introducing a second one. Independent of
+	// enableAuth above: Multiadmin supports one HTTP auth mechanism at a
+	// time, so operators choose either this or --enable-auth, not both. Does
+	// not touch gRPC's own auth mode - see Init.
+	//
+	// A verified chain alone doesn't prove tenant isolation, since certs are
+	// issued through shared infrastructure - the allow-list substrings must
+	// cover both Envoy (the shared gateway) and this deployment's own
+	// namespace, not be copied verbatim across tenants. They also have to be
+	// anchored against extension by a neighbouring tenant's subject; see
+	// servenv.certSubjectMatches for what the matching does and does not
+	// guarantee.
+	enableHTTPMTLSAuth viperutil.Value[bool]
 }
 
 func (ma *Multiadmin) RunDefault() error {
@@ -87,6 +103,11 @@ func NewMultiadmin() *Multiadmin {
 			FlagName: "enable-auth",
 			Dynamic:  false,
 		}),
+		enableHTTPMTLSAuth: viperutil.Configure(reg, "enable-http-mtls-auth", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-http-mtls-auth",
+			Dynamic:  false,
+		}),
 		serverStatus: Status{
 			Title: "Multiadmin",
 			Links: []Link{
@@ -107,20 +128,32 @@ func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.topoConfig.RegisterFlags(fs)
 
 	fs.Bool("enable-auth", ma.enableAuth.Default(), "Require JWT bearer-token authentication on multiadmin's HTTP/Connect/REST/pprof surface. gRPC is unaffected and stays unauthenticated. Requires --grpc-auth-jwt-issuer and --grpc-auth-jwt-jwks-uri.")
-	viperutil.BindFlags(fs, ma.enableAuth)
+	fs.Bool("enable-http-mtls-auth", ma.enableHTTPMTLSAuth.Default(), "Require a verified TLS client certificate on multiadmin's HTTP listener, matched against --grpc-auth-mtls-allowed-substrings. gRPC's own auth mode is unaffected. Requires --http-cert, --http-key and --http-ca; kubelet probe paths stay exempt.")
+	viperutil.BindFlags(fs, ma.enableAuth, ma.enableHTTPMTLSAuth)
 }
 
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *Multiadmin) Init(ctx context.Context) error {
-	// --enable-auth is the only auth-related flag multiadmin exposes: it
-	// picks JWT for HTTP/Connect/REST/pprof and leaves gRPC untouched. Which
-	// plugin backs it, and that gRPC is excluded, are internal wiring
-	// decisions, not something operators configure directly.
+	// --enable-auth picks JWT for HTTP/Connect/REST/pprof and leaves gRPC
+	// untouched. Which plugin backs it, and that gRPC is excluded, are
+	// internal wiring decisions, not something operators configure directly.
 	if ma.enableAuth.Get() {
 		ma.grpcServer.SetAuthMode("jwt")
 		ma.grpcServer.SetHTTPOnlyAuth(true)
+	}
+
+	// --enable-http-mtls-auth is independent of --enable-auth above: it
+	// gates per-route client-cert enforcement on the HTTP listener, not the
+	// Authenticator chain, so it's wired directly to ServEnv rather than
+	// through grpcServer.
+	if ma.enableHTTPMTLSAuth.Get() {
+		substrings, err := servenv.ParseCertSubstrings(servenv.ClientCertSubstrings())
+		if err != nil {
+			return fmt.Errorf("--enable-http-mtls-auth: %w", err)
+		}
+		ma.senv.RequireHTTPClientCert(substrings)
 	}
 
 	// Let built-in servenv HTTP endpoints (currently just /debug/pprof/*) be

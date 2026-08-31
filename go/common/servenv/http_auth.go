@@ -15,6 +15,7 @@
 package servenv
 
 import (
+	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -94,4 +95,52 @@ func RequireBearerAuth(authPlugin func() Authenticator, next http.HandlerFunc) h
 		}
 		next(w, r)
 	}
+}
+
+// clientCertAuthorized reports whether r's verified TLS client certificate
+// chain contains a leaf certificate matching one of substrings, via the
+// same certSubjectMatches logic the gRPC mtls Authenticator uses
+// (grpc_server_auth_mtls.go).
+//
+// It checks the leaf certificate only, deliberately stricter than the gRPC
+// path, which matches against every certificate in the chain (including
+// intermediates) - a real behavioral difference between the two transports,
+// not an oversight.
+//
+// It reads r.TLS.VerifiedChains rather than r.TLS.PeerCertificates, so the
+// check stays correct if this listener is ever configured with
+// tls.RequestClientCert instead of tls.VerifyClientCertIfGiven, where
+// PeerCertificates may be populated without having been verified against
+// any CA.
+func clientCertAuthorized(r *http.Request, substrings []string) bool {
+	if r.TLS == nil {
+		return false
+	}
+	leaves := make([]*x509.Certificate, 0, len(r.TLS.VerifiedChains))
+	for _, chain := range r.TLS.VerifiedChains {
+		if len(chain) > 0 {
+			leaves = append(leaves, chain[0])
+		}
+	}
+	return certSubjectMatches(leaves, substrings)
+}
+
+// requireClientCert wraps next so that every request must present a
+// verified TLS client certificate matching one of substrings, except the
+// probe/version paths in unauthenticatedHTTPPaths (pages.go) - see there
+// and HTTPServe (http.go) for why those paths and the handshake itself
+// must tolerate a caller with no certificate.
+func requireClientCert(substrings []string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if unauthenticatedHTTPPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !clientCertAuthorized(r, substrings) {
+			slog.Warn("client-cert auth: rejected request", "path", r.URL.Path)
+			http.Error(w, authFailedMessage, http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
