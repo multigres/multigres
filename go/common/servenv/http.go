@@ -17,7 +17,9 @@
 package servenv
 
 import (
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +27,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // HTTPHandle registers the given handler for the internal servenv mux.
@@ -58,15 +62,36 @@ func corsMiddleware(next http.Handler) http.Handler {
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	slog.Info("listening for HTTP calls on port", "http_port", sv.httpPort.Get())
 
-	// Wrap the mux with CORS middleware and OpenTelemetry instrumentation
+	// Client-cert enforcement sits outside CORS so preflights are gated too,
+	// and inside the otelhttp span so rejections are traced.
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
-	handler := otelhttp.NewHandler(corsMiddleware(sv.mux), "http-server")
+	handler := corsMiddleware(sv.mux)
+	if sv.httpClientCertRequired {
+		handler = requireClientCert(sv.httpClientCertSubstrings, handler)
+	}
+	handler = otelhttp.NewHandler(handler, "http-server")
 
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	err := server.Serve(l)
+
+	// VerifyClientCertIfGiven, not RequireAndVerifyClientCert: kubelet probes
+	// share this port and present no certificate, so the handshake must
+	// succeed without one. requireClientCert enforces identity per-route.
+	tlsConfig, err := grpccommon.BuildServerTLSConfigWithClientAuth(
+		sv.httpCert.Get(), sv.httpKey.Get(), sv.httpCA.Get(), "", tls.VerifyClientCertIfGiven,
+	)
+	if err != nil {
+		return fmt.Errorf("http tls config: %w", err)
+	}
+
+	if tlsConfig != nil {
+		server.TLSConfig = tlsConfig
+		err = server.ServeTLS(l, "", "")
+	} else {
+		err = server.Serve(l)
+	}
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}

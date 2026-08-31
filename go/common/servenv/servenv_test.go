@@ -51,6 +51,21 @@ func TestGenerateRandomServiceID(t *testing.T) {
 	})
 }
 
+func TestPopulateListeningURL_Scheme(t *testing.T) {
+	t.Run("no http-cert - scheme stays http", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.PopulateListeningURL(8080)
+		require.Equal(t, "http", se.listeningURL.Scheme)
+	})
+
+	t.Run("http-cert set - scheme becomes https", func(t *testing.T) {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.httpCert.Set("/some/cert.pem")
+		se.PopulateListeningURL(8080)
+		require.Equal(t, "https", se.listeningURL.Scheme)
+	})
+}
+
 func TestRegisterReadyCheck(t *testing.T) {
 	newSE := func() *ServEnv {
 		se := NewServEnv(viperutil.NewRegistry())

@@ -15,6 +15,8 @@
 package servenv
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -128,6 +130,110 @@ func TestRequireBearerAuth(t *testing.T) {
 				// as an oracle to probe why a request was rejected.
 				assert.Equal(t, authFailedMessage+"\n", rec.Body.String())
 			}
+		})
+	}
+}
+
+func TestClientCertAuthorized(t *testing.T) {
+	certA := generateTestPeerCert(t, "client-a")
+	certB := generateTestPeerCert(t, "client-b")
+
+	tests := []struct {
+		name       string
+		tlsState   *tls.ConnectionState
+		substrings []string
+		want       bool
+	}{
+		{name: "no TLS at all", tlsState: nil, substrings: []string{"client-a"}, want: false},
+		{
+			name:       "leaf matches",
+			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certA}}},
+			substrings: []string{"client-a"},
+			want:       true,
+		},
+		{
+			name:       "leaf does not match",
+			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certB}}},
+			substrings: []string{"client-a"},
+			want:       false,
+		},
+		{
+			name:       "TLS present but no verified chains (e.g. RequestClientCert, no cert offered)",
+			tlsState:   &tls.ConnectionState{VerifiedChains: nil},
+			substrings: []string{"client-a"},
+			want:       false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.TLS = tt.tlsState
+			assert.Equal(t, tt.want, clientCertAuthorized(req, tt.substrings))
+		})
+	}
+}
+
+func TestRequireClientCert(t *testing.T) {
+	certA := generateTestPeerCert(t, "client-a")
+	certB := generateTestPeerCert(t, "client-b")
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	request := func(path string, tlsState *tls.ConnectionState) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.TLS = tlsState
+		return req
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		tlsState   *tls.ConnectionState
+		wantStatus int
+		wantCalled bool
+	}{
+		{
+			name:       "accepted cert",
+			path:       "/proxy/",
+			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certA}}},
+			wantStatus: http.StatusOK,
+			wantCalled: true,
+		},
+		{
+			name:       "rejected cert",
+			path:       "/proxy/",
+			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certB}}},
+			wantStatus: http.StatusUnauthorized,
+			wantCalled: false,
+		},
+		{
+			name:       "no cert presented at all",
+			path:       "/proxy/",
+			tlsState:   nil,
+			wantStatus: http.StatusUnauthorized,
+			wantCalled: false,
+		},
+		{
+			name:       "exempt path reached with no cert",
+			path:       "/live",
+			tlsState:   nil,
+			wantStatus: http.StatusOK,
+			wantCalled: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called = false
+			handler := requireClientCert([]string{"client-a"}, next)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, request(tt.path, tt.tlsState))
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantCalled, called)
 		})
 	}
 }

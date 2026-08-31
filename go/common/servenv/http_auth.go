@@ -15,6 +15,7 @@
 package servenv
 
 import (
+	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -94,4 +95,40 @@ func RequireBearerAuth(authPlugin func() Authenticator, next http.HandlerFunc) h
 		}
 		next(w, r)
 	}
+}
+
+// clientCertAuthorized reports whether r presents a verified client
+// certificate whose leaf matches one of substrings. Leaf only - deliberately
+// stricter than the gRPC path, which matches the whole chain.
+//
+// Reads VerifiedChains, not PeerCertificates: the latter can be populated
+// without CA verification under tls.RequestClientCert.
+func clientCertAuthorized(r *http.Request, substrings []string) bool {
+	if r.TLS == nil {
+		return false
+	}
+	leaves := make([]*x509.Certificate, 0, len(r.TLS.VerifiedChains))
+	for _, chain := range r.TLS.VerifiedChains {
+		if len(chain) > 0 {
+			leaves = append(leaves, chain[0])
+		}
+	}
+	return certSubjectMatches(leaves, substrings)
+}
+
+// requireClientCert gates every route behind a verified client certificate
+// matching one of substrings, except unauthenticatedHTTPPaths.
+func requireClientCert(substrings []string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if unauthenticatedHTTPPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !clientCertAuthorized(r, substrings) {
+			slog.WarnContext(r.Context(), "client-cert auth: rejected request", "path", r.URL.Path)
+			http.Error(w, authFailedMessage, http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
