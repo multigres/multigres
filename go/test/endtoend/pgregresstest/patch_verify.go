@@ -169,7 +169,49 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 	if name == "stats" || name == "sysviews" {
 		input = normalizePreparedStatementCatalog(input)
 	}
+	if name == "event_trigger_login" {
+		input = normalizeEventTriggerLoginCount(input)
+	}
 	return input
+}
+
+// normalizeEventTriggerLoginCount masks the user_logins row count in the
+// event_trigger_login test. PostgreSQL 17 login event triggers fire once per
+// backend session start; under connection pooling that is once per pooled
+// backend creation, not per client \c reconnect. How many logins the counter
+// has recorded when the test reads it therefore depends on pooled-backend
+// lifecycle timing (observed as 0 or 1 across runs) rather than on client
+// activity, so it is not stable run to run and is masked on both the expected
+// and actual output before comparison. The deterministic divergences (the
+// WARNING/HINT at CREATE EVENT TRIGGER ... ON login and the absent per-\c
+// NOTICEs) are still handled by the patch.
+func normalizeEventTriggerLoginCount(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+	armed := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "SELECT COUNT(*) FROM user_logins;" {
+			armed = true
+			continue
+		}
+		if armed && isAllDigits(trimmed) {
+			lines[i] = "<user_logins_count>"
+			armed = false
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 const poolerPreparedViewMarker = "<pooler internal prepared statements>"
