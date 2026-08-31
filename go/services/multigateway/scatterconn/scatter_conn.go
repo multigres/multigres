@@ -1040,8 +1040,18 @@ func (sc *ScatterConn) CopyOutInitiate(
 		// AND CHAIN signal that the new transaction has not run a statement
 		// yet; clear it now that one has.
 		state.PendingBeginQuery = ""
-	} else if conn.IsInTransaction() {
-		reservationOpts = protoutil.NewTransactionReservationOptions()
+	} else if conn.IsInTransaction() || conn.DirectConnection() {
+		// A transaction needs a reserved connection (with a possibly deferred
+		// BEGIN); a direct connection needs its backend pinned and quarantined even
+		// for a first COPY, so untracked session state a trigger or function changes
+		// mid-COPY is never recycled to another client. Either — or both — reserves.
+		reservationOpts = &querypb.ReservationOptions{}
+		if conn.IsInTransaction() {
+			reservationOpts.Reasons |= protoutil.ReasonTransaction
+		}
+		if conn.DirectConnection() {
+			reservationOpts.Reasons |= protoutil.ReasonDirectConnection
+		}
 		if state.HasTempTableReservation() {
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
 		}
@@ -1197,10 +1207,19 @@ func (sc *ScatterConn) CopyInitiate(
 		// AND CHAIN signal that the new transaction has not run a statement
 		// yet; clear it now that one has.
 		state.PendingBeginQuery = ""
-	} else if conn.IsInTransaction() {
-		// Deferred BEGIN: pass transaction reservation options so the executor
-		// executes BEGIN on the new connection before initiating COPY.
-		reservationOpts = protoutil.NewTransactionReservationOptions()
+	} else if conn.IsInTransaction() || conn.DirectConnection() {
+		// A transaction needs a reserved connection with a (possibly deferred)
+		// BEGIN executed before COPY; a direct connection needs its backend pinned
+		// and quarantined even for a first COPY, so untracked session state a
+		// trigger or function changes mid-COPY is never recycled to another client.
+		// Either — or both — reserves here.
+		reservationOpts = &querypb.ReservationOptions{}
+		if conn.IsInTransaction() {
+			reservationOpts.Reasons |= protoutil.ReasonTransaction
+		}
+		if conn.DirectConnection() {
+			reservationOpts.Reasons |= protoutil.ReasonDirectConnection
+		}
 		if state.HasTempTableReservation() {
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
 		}
