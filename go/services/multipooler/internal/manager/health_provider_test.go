@@ -24,7 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -268,6 +270,88 @@ func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("did not receive heartbeat broadcast within expected interval")
 	}
+}
+
+// setHealthStreamerRole gives pm a fresh healthStreamer already transitioned
+// to the given routing role, for tests exercising role-gated behavior.
+func setHealthStreamerRole(t *testing.T, pm *MultipoolerManager, role servingstate.RoutingRole) {
+	t.Helper()
+	pm.healthStreamer = newHealthStreamer(pm.logger, pm.serviceID, "tg1", "0")
+	require.NoError(t, pm.healthStreamer.OnStateChange(t.Context(), servingstate.State{
+		Routing:       servingstate.RoutingState{Role: role},
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+	}))
+}
+
+// TestShouldPollFailoverSlotReadiness covers the three gating conditions
+// directly, without spinning up the heartbeat loop's ticker.
+func TestShouldPollFailoverSlotReadiness(t *testing.T) {
+	t.Run("false when slot-based replication is disabled", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		setHealthStreamerRole(t, pm, servingstate.RoutingRoleReplica)
+		assert.False(t, pm.shouldPollFailoverSlotReadiness())
+	})
+
+	t.Run("false on the primary", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		setHealthStreamerRole(t, pm, servingstate.RoutingRolePrimary)
+		assert.False(t, pm.shouldPollFailoverSlotReadiness())
+	})
+
+	t.Run("false when there is no health streamer yet", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		assert.False(t, pm.shouldPollFailoverSlotReadiness())
+	})
+
+	t.Run("true on a standby with the flag enabled", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		setHealthStreamerRole(t, pm, servingstate.RoutingRoleReplica)
+		assert.True(t, pm.shouldPollFailoverSlotReadiness())
+	})
+}
+
+// TestRunHealthHeartbeat_SkipsFailoverSlotReadinessOnPrimary verifies the
+// heartbeat loop only queries failoverSlotReadiness on a standby.
+// failoverSlotReadiness's "ready" count requires synced=true, a property the
+// slot-sync worker sets only on a standby's copy of a failover slot — the
+// primary's own failover-slot originals are always synced=false, so sampling
+// it there would always report ready=0 and is skipped instead.
+func TestRunHealthHeartbeat_SkipsFailoverSlotReadinessOnPrimary(t *testing.T) {
+	t.Run("primary: query skipped", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		setHealthStreamerRole(t, pm, servingstate.RoutingRolePrimary)
+		// Nothing registered: if failoverSlotReadiness ran, the mock would
+		// error on the unmatched query, but that error is silently swallowed
+		// by runHealthHeartbeat's best-effort handling — so instead assert no
+		// admin query was attempted at all.
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go pm.runHealthHeartbeat(ctx, 10*time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+
+		assert.Equal(t, 0, m.AdminQueryCount(), "failoverSlotReadiness must not be queried on the primary")
+	})
+
+	t.Run("standby: query runs", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		enableSlotBasedReplication(pm)
+		setHealthStreamerRole(t, pm, servingstate.RoutingRoleReplica)
+		m.AddQueryPattern("slot_type = 'logical'", mock.MakeQueryResult([]string{"ready", "total"}, [][]any{{int64(1), int64(2)}}))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go pm.runHealthHeartbeat(ctx, 10*time.Millisecond)
+
+		require.Eventually(t, func() bool {
+			return m.AdminQueryCount() > 0
+		}, time.Second, 5*time.Millisecond, "failoverSlotReadiness should be queried on a standby")
+	})
 }
 
 // TestHealthStreamer_WaitsForQueryServerOnServing verifies that the health

@@ -569,26 +569,21 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
 			return mterrors.Wrap(err, "failed to clear resigned primary term")
 		}
-		// Slot-based replication (flag-gated): create a physical replication
-		// slot for each follower BEFORE pg_promote, while this node is still a
-		// standby, so a slot failure fails the promotion cleanly rather than
-		// leaving a promoted-but-unrecorded node. No-op when the flag is off.
-		cohortMembers := proposedRule.GetCohortMembers()
-		if err := pm.ensureFollowerPhysicalSlots(hookCtx, cohortMembers); err != nil {
-			return err
+
+		recordMetric := pm.slotBasedReplicationEnabled()
+		slotsStart := time.Now()
+		slotsErr := pm.manageLogicalFailoverSlots(hookCtx, proposedRule.GetCohortMembers())
+		if recordMetric {
+			status := logicalFailoverStatusSuccess
+			if slotsErr != nil {
+				status = logicalFailoverStatusFailure
+			}
+			pm.metrics.recordLogicalFailover(hookCtx, status, time.Since(slotsStart))
 		}
-		// Hold the failover logical slots back to the followers' physical slots so
-		// a standby cannot outrun a slot's catalog_xmin and block slot-sync. Set
-		// before pg_promote so it is in effect the moment this node is primary.
-		if err := pm.setSynchronizedStandbySlots(hookCtx, cohortMembers); err != nil {
-			return err
+		if slotsErr != nil {
+			return slotsErr
 		}
-		// Log any synced failover slots that are not failover-ready before
-		// pg_promote. Durable slot creation guarantees a failover slot is synced and
-		// persistent on the required standbys before its creation is acknowledged, so
-		// a slot that is not ready here is in a terminal state a wait could not fix.
-		// Advisory only — never blocks failover.
-		pm.logUnreadyFailoverSlots(hookCtx)
+
 		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
 	}
 

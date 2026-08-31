@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -38,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -1070,6 +1072,31 @@ func TestPromote(t *testing.T) {
 				assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, status.Signal)
 			},
 		},
+		{
+			// Slot-based replication enabled: a follower physical-slot failure
+			// inside manageLogicalFailoverSlots must abort the promotion before
+			// pg_promote is ever called. No pg_promote-related mocks are
+			// registered here, so reaching that code would fail the mock
+			// expectations check below and prove the abort.
+			name:        "LeaderSlotManagementFailure",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req:         makeLeaderReq(),
+			setupMocks: func(m *mock.QueryService) {
+				expectStandbyReadyMocks(m)
+				// checkPromotionState: standby.
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// manageLogicalFailoverSlots: ensureFollowerPhysicalSlots fails
+				// checking the one follower's slot (self is skipped).
+				m.AddQueryPatternOnceWithError("SELECT EXISTS", errors.New("boom"))
+			},
+			preRun: func(t *testing.T, pm *MultipoolerManager) {
+				enableSlotBasedReplication(pm)
+			},
+			expectError:       true,
+			expectErrContains: "ensure physical slot",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1111,6 +1138,108 @@ func TestPromote(t *testing.T) {
 			}, time.Second, time.Millisecond, "mock expectations not met after promotion")
 		})
 	}
+}
+
+// TestPromote_LogicalFailoverMetricGating verifies that
+// mg.pooler.logical_failover.duration/count are recorded only when
+// slot-based replication is enabled for the promotion — with the flag off,
+// manageLogicalFailoverSlots is a near-instant no-op and must not emit a
+// misleading status=success sample.
+func TestPromote_LogicalFailoverMetricGating(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
+	otherPooler := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+
+	recruitedTerm := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       7,
+		AcceptedCoordinatorId:  coordinatorA,
+		CoordinatorInitiatedAt: recruitTS,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
+	}
+	req := &consensusdatapb.PromoteRequest{
+		Proposal: &consensusdatapb.CoordinatorProposal{
+			TermRevocation: recruitedTerm,
+			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+				CoordinatorId: coordinatorA,
+				CreationTime:  ruleCreatedTS,
+			}},
+		},
+	}
+
+	// collectMetricNames returns the set of OTel metric names that have at
+	// least one recorded data point (a synchronous instrument that was never
+	// Record/Add-ed to does not appear in a collection at all).
+	collectMetricNames := func(t *testing.T, reader interface {
+		Collect(ctx context.Context, rm *metricdata.ResourceMetrics) error
+	},
+	) map[string]bool {
+		t.Helper()
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(t.Context(), &rm))
+		names := map[string]bool{}
+		for _, sm := range rm.ScopeMetrics {
+			for _, mm := range sm.Metrics {
+				names[mm.Name] = true
+			}
+		}
+		return names
+	}
+
+	t.Run("not recorded when slot-based replication is disabled", func(t *testing.T) {
+		setup := telemetry.SetupTestTelemetry(t)
+		require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+		m := mock.NewQueryService()
+		expectLeaderPromoteMocks(m)
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+
+		// Slot-based replication is left disabled (the default).
+		_, err = pm.Promote(t.Context(), req)
+		require.NoError(t, err)
+
+		names := collectMetricNames(t, setup.MetricReader)
+		assert.False(t, names["mg.pooler.logical_failover.duration"],
+			"duration must not be recorded when slot-based replication is disabled")
+		assert.False(t, names["mg.pooler.logical_failover.count"],
+			"count must not be recorded when slot-based replication is disabled")
+	})
+
+	t.Run("recorded when slot-based replication is enabled", func(t *testing.T) {
+		setup := telemetry.SetupTestTelemetry(t)
+		require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+		m := mock.NewQueryService()
+		expectLeaderPromoteMocks(m)
+		// manageLogicalFailoverSlots: ensureFollowerPhysicalSlots (one follower,
+		// self skipped), setSynchronizedStandbySlots, then the advisory
+		// unready-slot check (all ready).
+		m.AddQueryPatternOnce("SELECT EXISTS", mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
+		m.AddQueryPatternOnce("pg_create_physical_replication_slot", mock.MakeQueryResult(nil, nil))
+		m.AddQueryPatternOnce("ALTER SYSTEM SET synchronized_standby_slots", mock.MakeQueryResult(nil, nil))
+		expectReloadConfig(m)
+		m.AddQueryPatternOnce("string_agg", mock.MakeQueryResult([]string{"count", "names"}, [][]any{{"0", ""}}))
+
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		enableSlotBasedReplication(pm)
+
+		_, err = pm.Promote(t.Context(), req)
+		require.NoError(t, err)
+
+		names := collectMetricNames(t, setup.MetricReader)
+		assert.True(t, names["mg.pooler.logical_failover.duration"],
+			"duration must be recorded when slot-based replication is enabled")
+		assert.True(t, names["mg.pooler.logical_failover.count"],
+			"count must be recorded when slot-based replication is enabled")
+	})
 }
 
 // TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table
