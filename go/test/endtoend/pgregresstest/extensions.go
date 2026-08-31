@@ -576,8 +576,8 @@ var externalSpecs = map[string]ExternalExtension{
 		// runtime-built EXECUTE is rejected by the enforcing gateway's PL/pgSQL body
 		// analysis, and ON_ERROR_STOP then aborts the whole file mid-plan (they
 		// pass 221/221 on stock postgres but stop at 167/221 through the enforcing
-		// gateway). They exercise pg_partman for real, so run them with unsafe-pooler
-		// mode rather than dropping them — see DirectConnectionGlobs.
+		// gateway). They exercise pg_partman for real, so run them on a direct
+		// connection rather than dropping them — see DirectConnectionGlobs.
 		DirectConnectionGlobs: []string{
 			"test-time-daily.sql",
 			"test-text-time-daily.sql",

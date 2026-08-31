@@ -250,7 +250,7 @@ func ReasonsString(reasons uint32) string {
 		parts = append(parts, "set_seed")
 	}
 	if HasDirectConnectionReason(reasons) {
-		parts = append(parts, "unsafe_mode")
+		parts = append(parts, "direct_connection")
 	}
 	if len(parts) == 0 {
 		return "unknown"

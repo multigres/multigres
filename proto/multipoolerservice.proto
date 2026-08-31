@@ -575,8 +575,9 @@ message ReleaseReservedConnectionRequest {
   // instead of returning it to the pool if a sticky reservation reason
   // remains after the usual cleanup (rollback, COPY abort, temp table
   // discard, advisory unlock). A sticky reason has no PostgreSQL command
-  // that undoes it (currently only RESERVATION_REASON_SET_SEED), so it can
-  // only be cleared by the connection's real teardown. Real client-disconnect
+  // that undoes it (RESERVATION_REASON_SET_SEED or
+  // RESERVATION_REASON_DIRECT_CONNECTION), so it can only be cleared by the
+  // connection's real teardown. Real client-disconnect
   // cleanup always leaves this false, so a sticky reason never blocks a
   // connection's actual teardown.
   bool keep_sticky_reservations = 4;
