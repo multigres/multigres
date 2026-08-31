@@ -289,7 +289,13 @@ func (e *Executor) resolvePortalPlan(
 	// is built identically regardless of protocol, so a plan cached by one path
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
-	if !isCacheable(astStmt) {
+	//
+	// A direct connection is also forced down this path (mirroring resolvePlan):
+	// its plan is built with the unsafe-statement rejections suppressed, so it
+	// must never enter the shared cache where a normal connection could receive it
+	// as a database-wide hit — that would bypass analyzeStatement's function
+	// blocklist (e.g. a cached SELECT dblink(...) served to another client).
+	if !isCacheable(astStmt) || conn.DirectConnection() {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err
