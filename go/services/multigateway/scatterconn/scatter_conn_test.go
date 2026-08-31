@@ -70,10 +70,15 @@ type mockGateway struct {
 	concludeTransactionErr             error
 
 	// CopyReady tracking
-	copyReadyFormat        int16
-	copyReadyColumnFormats []int16
-	copyReadyReturnState   *querypb.ReservedState
-	copyReadyErr           error
+	copyReadyFormat         int16
+	copyReadyColumnFormats  []int16
+	copyReadyReturnState    *querypb.ReservedState
+	copyReadyReservationOps *querypb.ReservationOptions
+	copyReadyErr            error
+
+	// CopyOutReady tracking
+	copyOutReadyReturnState    *querypb.ReservedState
+	copyOutReadyReservationOps *querypb.ReservationOptions
 
 	// CopyFinalize tracking
 	copyFinalizeResult      *sqltypes.Result
@@ -150,7 +155,8 @@ func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.Prepar
 
 func (m *mockGateway) Close() error { return nil }
 
-func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+func (m *mockGateway) CopyReady(_ context.Context, _ *querypb.Target, _ string, _ *querypb.ExecuteOptions, reservationOpts *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+	m.copyReadyReservationOps = reservationOpts
 	return m.copyReadyFormat, m.copyReadyColumnFormats, m.copyReadyReturnState, m.copyReadyErr
 }
 
@@ -166,8 +172,9 @@ func (m *mockGateway) CopyAbort(_ context.Context, _ *querypb.Target, _ string, 
 	return m.copyAbortReturnState, m.copyAbortErr
 }
 
-func (m *mockGateway) CopyOutReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
-	return 0, nil, nil, nil, nil
+func (m *mockGateway) CopyOutReady(_ context.Context, _ *querypb.Target, _ string, _ *querypb.ExecuteOptions, reservationOpts *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+	m.copyOutReadyReservationOps = reservationOpts
+	return 0, nil, nil, m.copyOutReadyReturnState, nil
 }
 
 func (m *mockGateway) CopyOutStream(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ func(pgClient.CopyOutMessage) error) (*sqltypes.Result, *querypb.ReservedState, error) {
@@ -446,6 +453,80 @@ func TestScatterConn_Case2_SetSeedReservesNewConn(t *testing.T) {
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, uint64(89), ss.ReservedState.GetReservedConnectionId())
+}
+
+// TestScatterConn_DirectConnection_PlainStatementReserves guards the crux of
+// direct connection: even a plain statement (no transaction/temp/lock — what
+// would otherwise take the unreserved Case 3 path) must reserve+quarantine its
+// own backend, carrying ReasonDirectConnection. Without the gate including
+// conn.DirectConnection(), such a statement would run on a shared pooled backend
+// and leak any untracked state it changed.
+func TestScatterConn_DirectConnection_PlainStatementReserves(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 91,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonDirectConnection,
+		},
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn // direct, not in a txn
+
+	// A plain SELECT: no transaction, no temp table, no lock — the one that used
+	// to take the unreserved path.
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+		engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteCalled)
+	require.NotNil(t, gw.streamExecuteReservationOps, "a direct connection must reserve even for a plain statement")
+	require.True(t, protoutil.HasDirectConnectionReason(gw.streamExecuteReservationOps.GetReasons()))
+}
+
+// TestScatterConn_DirectConnection_CopyReserves guards that a first COPY
+// FROM/TO STDIN on a direct connection (no transaction, no prior reservation)
+// still reserves and quarantines its backend with ReasonDirectConnection.
+// Without it, a trigger or function that changes untracked session state during
+// COPY would run on a pooled backend that is then recycled to another client.
+func TestScatterConn_DirectConnection_CopyReserves(t *testing.T) {
+	newDirectConn := func() *server.Conn {
+		return server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn // direct, not in a txn
+	}
+	reservedState := func() *querypb.ReservedState {
+		return &querypb.ReservedState{
+			ReservedConnectionId: 77,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonDirectConnection,
+		}
+	}
+
+	t.Run("COPY FROM STDIN", func(t *testing.T) {
+		gw := &mockGateway{copyReadyReturnState: reservedState()}
+		sc := NewScatterConn(gw, slog.Default())
+		state := handler.NewMultigatewayConnectionState()
+
+		_, _, err := sc.CopyInitiate(context.Background(), newDirectConn(), "tg1", "", "COPY t FROM STDIN", state,
+			func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+		require.NoError(t, err)
+		require.NotNil(t, gw.copyReadyReservationOps, "a direct connection must reserve for a first COPY FROM STDIN")
+		require.True(t, protoutil.HasDirectConnectionReason(gw.copyReadyReservationOps.GetReasons()))
+	})
+
+	t.Run("COPY TO STDOUT", func(t *testing.T) {
+		gw := &mockGateway{copyOutReadyReturnState: reservedState()}
+		sc := NewScatterConn(gw, slog.Default())
+		state := handler.NewMultigatewayConnectionState()
+
+		_, _, _, err := sc.CopyOutInitiate(context.Background(), newDirectConn(), "tg1", "", "COPY t TO STDOUT", state)
+
+		require.NoError(t, err)
+		require.NotNil(t, gw.copyOutReadyReservationOps, "a direct connection must reserve for a first COPY TO STDOUT")
+		require.True(t, protoutil.HasDirectConnectionReason(gw.copyOutReadyReservationOps.GetReasons()))
+	})
 }
 
 // TestScatterConn_ReleaseAllReservedConnections_StickyUpdatesNotClears

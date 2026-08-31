@@ -46,17 +46,17 @@ import (
 //	PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE - connection params
 //
 // Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
-func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
+func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
 	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
 
 	// Pre-seed benign scaffolding helper functions (EXPLAIN wrappers, etc.)
-	// directly on the primary before the suite. Their runtime CREATE is rejected
-	// by the gateway's PL/pgSQL body analysis; seeding them keeps a single test
-	// from cascading into thousands of "function does not exist" errors and lets
-	// the substantive tests run. See preseedRegressHelpers.
-	if err := pb.preseedRegressHelpers(t, directPgPort, password); err != nil {
+	// through a gateway direct connection before the suite. Their runtime CREATE
+	// is rejected by the enforcing gateway's PL/pgSQL body analysis; seeding them
+	// keeps a single test from cascading into thousands of "function does not
+	// exist" errors and lets the substantive tests run. See preseedRegressHelpers.
+	if err := pb.preseedRegressHelpers(t, ctx, multigatewayPort, password); err != nil {
 		t.Logf("Warning: failed to pre-seed regression helpers: %v (dependent tests may cascade)", err)
 	}
 

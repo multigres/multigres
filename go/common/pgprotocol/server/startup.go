@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
@@ -507,6 +508,14 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
+	// multigres.direct_connection is a gateway-only connect-time property, not a
+	// backend GUC. Extract and strip it here so it never reaches a backend (it
+	// would be rejected as unrecognized) and does not trip the restricted-GUC
+	// vetting below. A truthy value latches direct connection for the connection.
+	if err := c.extractDirectConnectionParam(); err != nil {
+		return err
+	}
+
 	// A GUC supplied at connect time (directly or via options=-c ...) flows
 	// through GetStartupParams into the session settings applied to pooled
 	// backends, bypassing the planner's SET guard — so every guard the SET
@@ -539,6 +548,30 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 
 	// Now perform authentication.
 	return c.authenticate()
+}
+
+// extractDirectConnectionParam pulls multigres.direct_connection
+// (constants.DirectConnectionParam) out of the startup parameters and, if
+// truthy, latches direct connection for the connection. It removes the key so it
+// never flows to a backend or trips the restricted-GUC vetting. A malformed
+// Boolean value is a FATAL startup error, matching how PostgreSQL rejects a bad
+// Boolean GUC. Enabling direct connection is not gated on a role privilege — see
+// Conn.directConnection.
+func (c *Conn) extractDirectConnectionParam() error {
+	value, ok := c.params[constants.DirectConnectionParam]
+	if !ok {
+		return nil
+	}
+	delete(c.params, constants.DirectConnectionParam)
+	on, valid := sqltypes.ParseBool(value)
+	if !valid {
+		return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidParameterValue,
+			fmt.Sprintf("parameter %q requires a Boolean value", constants.DirectConnectionParam), "")
+	}
+	if on {
+		c.directConnection = true
+	}
+	return nil
 }
 
 // startupParamError vets one startup parameter against the guards that also

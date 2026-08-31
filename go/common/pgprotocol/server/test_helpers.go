@@ -76,6 +76,11 @@ func WithTestUser(user string) TestConnOption {
 	return func(c *Conn) { c.user = user }
 }
 
+// WithTestDirectConnection latches direct connection on a test connection.
+func WithTestDirectConnection() TestConnOption {
+	return func(c *Conn) { c.directConnection = true }
+}
+
 // WithTestScramKeys sets the SCRAM passthrough keys on a test connection.
 func WithTestScramKeys(clientKey, serverKey []byte) TestConnOption {
 	return func(c *Conn) {

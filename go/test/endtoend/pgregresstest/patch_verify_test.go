@@ -18,6 +18,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
@@ -599,5 +601,33 @@ func TestNormalizeRunPaths(t *testing.T) {
 	// Lines without a run path pass through untouched.
 	if got := string(normalizeRunPaths([]byte("SELECT 1;\n"))); got != "SELECT 1;\n" {
 		t.Fatalf("plain line changed: %q", got)
+	}
+}
+
+// TestNormalizeEventTriggerLoginCount pins the masking of the user_logins row
+// count in the event_trigger_login test. The count reflects pooled-backend
+// logins after the login trigger is enabled — a backend-lifecycle number that
+// varies run to run (observed as 0 or 1) rather than tracking client \c
+// reconnects — so it must collapse to a stable token, or no committed patch
+// could verify across runs.
+func TestNormalizeEventTriggerLoginCount(t *testing.T) {
+	block := func(count int) string {
+		return "SELECT COUNT(*) FROM user_logins;\n count \n-------\n     " +
+			strconv.Itoa(count) + "\n(1 row)\n"
+	}
+	got0 := string(normalizeEventTriggerLoginCount([]byte(block(0))))
+	got1 := string(normalizeEventTriggerLoginCount([]byte(block(1))))
+	got2 := string(normalizeEventTriggerLoginCount([]byte(block(2))))
+	if got0 != got1 || got1 != got2 {
+		t.Fatalf("counts not masked to a stable form:\n0: %q\n1: %q\n2: %q", got0, got1, got2)
+	}
+	if !strings.Contains(got0, "<user_logins_count>") {
+		t.Fatalf("expected masked placeholder, got: %q", got0)
+	}
+
+	// A COUNT result that is NOT the user_logins query must be left intact.
+	other := "SELECT COUNT(*) FROM other;\n count \n-------\n     5\n(1 row)\n"
+	if strings.Contains(string(normalizeEventTriggerLoginCount([]byte(other))), "<user_logins_count>") {
+		t.Fatalf("masked an unrelated COUNT result")
 	}
 }

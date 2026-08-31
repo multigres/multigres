@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -121,21 +122,17 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 		}
 		name := strings.TrimSuffix(rel, ".sql")
 
-		// Most files run against the enforcing gateway. A few (UnsafePoolerGlobs)
+		// Most files run against the enforcing gateway. A few (DirectConnectionGlobs)
 		// have scaffolding the enforcing gateway rejects by design — e.g. a
 		// runtime-built EXECUTE inside a DO block — which, under ON_ERROR_STOP,
-		// aborts the whole file mid-plan. Route just those through a second gateway
-		// started with --unsafe-pooler-mode so they run in full, while every other
-		// file keeps exercising the rejections. See ExternalExtension.UnsafePoolerGlobs.
-		filePort := multigatewayPort
+		// aborts the whole file mid-plan. Those connect to the same gateway but opt
+		// into direct connection per-connection (PGOPTIONS below), so they run in full while
+		// every other file keeps exercising the rejections. See
+		// ExternalExtension.DirectConnectionGlobs.
 		gatewayLabel := "multigateway"
-		if matchesAnyGlob(rel, ext.UnsafePoolerGlobs) {
-			if pb.UnsafeGatewayProvider == nil {
-				t.Logf("external/%s/%s: listed in UnsafePoolerGlobs but no unsafe-gateway provider is wired; running against the enforcing gateway (expect a plan mismatch)", ext.Name, name)
-			} else {
-				filePort = pb.UnsafeGatewayProvider(t)
-				gatewayLabel = "multigateway(unsafe-pooler-mode)"
-			}
+		directConnection := matchesAnyGlob(rel, ext.DirectConnectionGlobs)
+		if directConnection {
+			gatewayLabel = "multigateway(direct-connection)"
 		}
 
 		// Drop the throwaway schemas a pg_partman test file creates, on the primary,
@@ -160,12 +157,17 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 		cmd := executil.Command(ctx, psqlBin, args...).WithProcessGroup().SetDir(testDir)
 		cmd.AddEnv(
 			"PGHOST=localhost",
-			fmt.Sprintf("PGPORT=%d", filePort),
+			fmt.Sprintf("PGPORT=%d", multigatewayPort),
 			"PGUSER=postgres",
 			"PGPASSWORD="+password,
 			"PGDATABASE=postgres",
 			"PGCONNECT_TIMEOUT=10",
 		)
+		// Opt this connection into direct connection for the
+		// files whose scaffolding the enforcing gateway rejects by design.
+		if directConnection {
+			cmd.AddEnv("PGOPTIONS=-c " + constants.DirectConnectionParam + "=on")
+		}
 		cmd.SetWaitDelay(10 * time.Second)
 
 		// Assertion rows and pgTAP diagnostics arrive on stdout; NOTICE/error text
