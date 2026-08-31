@@ -151,6 +151,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 	if err := builder.EnsureSource(t, buildCtx); err != nil {
 		t.Fatalf("Failed to setup PostgreSQL source: %v", err)
 	}
+	if runRegress {
+		if err := builder.PrepareExpectedVariants(buildCtx); err != nil {
+			t.Fatalf("Failed to prepare PostgreSQL expected-output variants: %v", err)
+		}
+	}
 
 	// Phase 2: Build PostgreSQL
 	t.Logf("Phase 2: Building PostgreSQL...")

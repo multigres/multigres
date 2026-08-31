@@ -378,6 +378,51 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 	}
 }
 
+func TestVerifyPatchedVariantsAcceptsPatchedAlternate(t *testing.T) {
+	requirePatchTool(t)
+	root := t.TempDir()
+	regressDir := filepath.Join(root, "regress")
+	patchDir := filepath.Join(root, "patches")
+	expectedDir := filepath.Join(regressDir, "expected")
+	for _, dir := range []string{expectedDir, patchDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const name = "patched_variant"
+	canonical := filepath.Join(expectedDir, name+".out")
+	alternate := filepath.Join(expectedDir, name+"_1.out")
+	actual := filepath.Join(root, name+".out")
+	for path, contents := range map[string]string{
+		canonical: "header\nplan: index only\ncommon\nfooter\n",
+		alternate: "header\nplan: bitmap\ncommon\nfooter\n",
+		actual:    "header\nplan: bitmap\ncommon\nmultigres warning\nfooter\n",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	patch := `--- a
++++ b
+@@ -3,2 +3,3 @@
+ common
++multigres warning
+ footer
+`
+	if err := os.WriteFile(filepath.Join(patchDir, name+".patch"), []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := verifyPatchedVariants(t.Context(), name, actual, regressDir, patchDir, root, []string{canonical, alternate}, PatchModeVerify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != "pass" || !outcome.PatchApplied {
+		t.Fatalf("patched alternate was not accepted: %+v", outcome)
+	}
+}
+
 func TestMarkdownSummaryClassifiesCompatibilityResults(t *testing.T) {
 	pb := &PostgresBuilder{Builder: &pgbuilder.Builder{OutputDir: t.TempDir()}}
 	results := &TestResults{
