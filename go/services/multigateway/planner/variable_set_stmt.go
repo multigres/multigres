@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/pgsettings"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -67,6 +68,12 @@ func (p *Planner) planVariableSetStmt(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, error) {
+	// multigres.direct_connection is a gateway control, not a backend GUC: a
+	// superuser-gated, one-way latch handled entirely here.
+	if strings.EqualFold(stmt.Name, constants.DirectConnectionParam) {
+		return p.planDirectConnectionSet(sql, stmt)
+	}
+
 	// Transaction-only variables are backend state, not replayable session GUCs.
 	// In particular, RESET transaction_isolation/read_only/deferrable must reach
 	// PostgreSQL so it can raise "parameter ... cannot be reset", and SET
@@ -351,6 +358,31 @@ func isGatewayManagedVariable(name string) bool {
 // planGatewayManagedVariable creates a GatewaySessionState primitive for a
 // gateway-managed variable. All parsing and validation happens here at plan
 // time so the primitive's execute path is a simple assignment.
+// planDirectConnectionSet handles `SET multigres.direct_connection = on`. It is
+// a one-way latch: only turning it on is supported (RESET or a falsy value
+// errors), because a connection that has run under direct connection may hold
+// untracked backend state and its backend is discarded at teardown. Enabling it
+// is intentionally not gated on a role privilege (see Conn.directConnection). The
+// returned primitive latches the flag on the connection at execute time; every
+// later statement then reads it to suppress the rejections and pin+quarantine the
+// backend.
+func (p *Planner) planDirectConnectionSet(sql string, stmt *ast.VariableSetStmt) (*engine.Plan, error) {
+	if stmt.Kind != ast.VAR_SET_VALUE {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+			constants.DirectConnectionParam+" cannot be reset once set", "")
+	}
+	on, valid := sqltypes.ParseBool(extractVariableValue(stmt.Args))
+	if !valid {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+			"parameter "+constants.DirectConnectionParam+" requires a Boolean value", "")
+	}
+	if !on {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+			constants.DirectConnectionParam+" cannot be turned off once set", "")
+	}
+	return engine.NewPlan(sql, engine.NewEnableDirectConnection(sql)), nil
+}
+
 func (p *Planner) planGatewayManagedVariable(
 	sql string,
 	stmt *ast.VariableSetStmt,
