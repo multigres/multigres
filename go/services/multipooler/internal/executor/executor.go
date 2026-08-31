@@ -2433,7 +2433,7 @@ func (e *Executor) ReleaseReservedConnection(
 	// instead of returning it to the pool. Only DISCARD ALL passes
 	// keepStickyReservations; real disconnect cleanup always releases fully,
 	// so a sticky reason never blocks a connection's actual teardown.
-	if !cleanupFailed && keepStickyReservations && protoutil.HasSetSeedReason(reservedConn.RemainingReasons()) {
+	if !cleanupFailed && keepStickyReservations && protoutil.HasStickyReason(reservedConn.RemainingReasons()) {
 		e.logger.DebugContext(ctx, "release skipped, sticky reservation remains",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"remaining_reasons", protoutil.ReasonsString(reservedConn.RemainingReasons()))

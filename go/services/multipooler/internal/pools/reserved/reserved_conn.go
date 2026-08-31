@@ -428,11 +428,22 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 // applied before the statement runs and unwound by the executor when
 // PostgreSQL rejects it — the taint is applied separately by MarkTempTainted
 // on the success path.
+//
+// The direct-connection reason IS tainted here, unconditionally: such a
+// connection may change backend session state the gateway does not track, so
+// once used this way the backend is forever suspect — the gateway's settings
+// label can no longer describe it and recycling would leak that state. Unlike
+// temp this is set at add time (not success), because the connection is unsafe
+// for its whole life and even a failed statement may have changed untracked
+// state.
 func (c *Conn) AddReservationReason(reason uint32) {
 	if c.reservedProps == nil {
 		c.reservedProps = NewReservationProperties(reason)
 	} else {
 		c.reservedProps.AddReason(reason)
+	}
+	if reason&protoutil.ReasonDirectConnection != 0 {
+		c.closeOnRelease.Store(true)
 	}
 }
 
