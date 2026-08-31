@@ -709,8 +709,12 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 		// test through a gateway direct connection (options=-c
 		// multigres.direct_connection=on), so the helpers the enforcing gateway
 		// rejects install via the pooled path (PGPASSWORD above authenticates it).
+		// The options value is single-quoted: it contains a space, and libpq's
+		// conninfo parser otherwise treats that space as a pair separator — reading
+		// only `options=-c` and then rejecting `multigres.direct_connection=on` as an
+		// unknown connection keyword, so psql never connects and the seed is skipped.
 		"MG_POSTGIS_PRESEED_FILE="+preseedPath,
-		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres options=-c %s=on",
+		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres options='-c %s=on'",
 			multigatewayPort, constants.DirectConnectionParam),
 		// Normalize planner GUCs to PostgreSQL defaults so index scan-type checks
 		// (qnodes) match PostGIS's expected output despite pgctld's tuned GUCs.
