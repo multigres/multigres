@@ -136,12 +136,12 @@ func (e *Executor) resolvePlan(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	// A direct connection is kept off the shared plan cache: its
+	// A unsafe connection is kept off the shared plan cache: its
 	// planning depends on the per-connection opt-out (accept/reject decisions and
-	// the ReasonDirectConnection pin), so a plan built for it must never be served to
+	// the ReasonUnsafeConnection pin), so a plan built for it must never be served to
 	// another connection. Route it through the non-cacheable path with State, like
 	// any other statement whose plan depends on live connection state.
-	if !isCacheable(astStmt) || conn.DirectConnection() {
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err
@@ -290,12 +290,12 @@ func (e *Executor) resolvePortalPlan(
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
 	//
-	// A direct connection is also forced down this path (mirroring resolvePlan):
+	// A unsafe connection is also forced down this path (mirroring resolvePlan):
 	// its plan is built with the unsafe-statement rejections suppressed, so it
 	// must never enter the shared cache where a normal connection could receive it
 	// as a database-wide hit — that would bypass analyzeStatement's function
 	// blocklist (e.g. a cached SELECT dblink(...) served to another client).
-	if !isCacheable(astStmt) || conn.DirectConnection() {
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err

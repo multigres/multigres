@@ -2335,7 +2335,7 @@ func (e *Executor) DiscardTempTables(
 //
 // keepStickyReservations, when true, leaves the connection reserved instead
 // of returning it to the pool if a sticky reason (ReasonSetSeed or
-// ReasonDirectConnection) remains after the above cleanup — a sticky reason has
+// ReasonUnsafeConnection) remains after the above cleanup — a sticky reason has
 // no PostgreSQL command that undoes it, so it must survive until the
 // connection's real teardown. Real client-disconnect cleanup always passes
 // false, so a sticky reason never blocks the connection's actual teardown.

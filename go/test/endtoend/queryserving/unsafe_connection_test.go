@@ -32,7 +32,7 @@ import (
 // is cluster-managed) but PostgreSQL itself accepts.
 const restrictedProbeSet = "SET synchronous_commit = off"
 
-// TestDirectConnection covers multigres.direct_connection, the per-connection
+// TestUnsafeConnection covers multigres.unsafe_connection, the per-connection
 // opt-out that suppresses the gateway's unsafe-statement rejections and, in
 // exchange, pins and quarantines the connection's backend so any untracked
 // session state it changes can never leak to another client through the shared
@@ -41,7 +41,7 @@ const restrictedProbeSet = "SET synchronous_commit = off"
 //   - the connect-time option and the SET latch both enable it;
 //   - it is a one-way latch (off / RESET / bad value are rejected);
 //   - a bad Boolean at connect time is a FATAL startup error;
-//   - untracked backend state set on a direct connection does not leak to a
+//   - untracked backend state set on an unsafe connection does not leak to a
 //     later pooled client (the quarantine-and-discard guarantee).
 //
 // They share one cluster fixture: the subtests each open their own connections
@@ -50,7 +50,7 @@ const restrictedProbeSet = "SET synchronous_commit = off"
 // cluster-restricted GUC the enforcing gateway rejects, yet a valid USERSET GUC
 // PostgreSQL applies per session and the gateway does not track — so it doubles
 // as both the "rejection suppressed" signal and a genuine untracked-state probe.
-func TestDirectConnection(t *testing.T) {
+func TestUnsafeConnection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end test (short mode)")
 	}
@@ -61,7 +61,7 @@ func TestDirectConnection(t *testing.T) {
 	setup.SetupTest(t)
 
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
-	param := constants.DirectConnectionParam
+	param := constants.UnsafeConnectionParam
 
 	// Baseline: the probe really is rejected on an ordinary (enforcing)
 	// connection — otherwise the suppression subtests below would prove nothing.
@@ -81,11 +81,11 @@ func TestDirectConnection(t *testing.T) {
 		assert.Equal(t, 1, one)
 	})
 
-	// The connect-time option (options=-c multigres.direct_connection=on, sent
+	// The connect-time option (options=-c multigres.unsafe_connection=on, sent
 	// here as a startup RuntimeParam) latches the connection so the otherwise
 	// rejected probe is accepted, and the gateway-only param is stripped (never
 	// forwarded to the backend, which would reject an unknown GUC).
-	t.Run("connect-time option enables direct connection", func(t *testing.T) {
+	t.Run("connect-time option enables unsafe connection", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 60*time.Second)
 		cfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestDirectConnection(t *testing.T) {
 
 		// The restricted SET the enforcing path rejects now goes through to postgres.
 		_, err = conn.Exec(ctx, restrictedProbeSet)
-		require.NoError(t, err, "restricted SET must be accepted on a direct connection")
+		require.NoError(t, err, "restricted SET must be accepted on an unsafe connection")
 
 		var sc string
 		require.NoError(t, conn.QueryRow(ctx, "SHOW synchronous_commit").Scan(&sc))
@@ -127,10 +127,10 @@ func TestDirectConnection(t *testing.T) {
 		assert.Contains(t, pgErr.Message, param)
 	})
 
-	// `SET multigres.direct_connection = on` latches the connection mid-session:
+	// `SET multigres.unsafe_connection = on` latches the connection mid-session:
 	// it replies like a normal SET, and a probe rejected before the latch is
 	// accepted after it.
-	t.Run("SET latch enables direct connection mid-session", func(t *testing.T) {
+	t.Run("SET latch enables unsafe connection mid-session", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 60*time.Second)
 		conn, err := pgx.Connect(ctx, connStr)
 		require.NoError(t, err)
@@ -152,6 +152,38 @@ func TestDirectConnection(t *testing.T) {
 		var sc string
 		require.NoError(t, conn.QueryRow(ctx, "SHOW synchronous_commit").Scan(&sc))
 		assert.Equal(t, "off", sc)
+	})
+
+	// The deprecated multigres.direct_connection alias must keep working — both at
+	// connect time and via SET — until all clients migrate to the new name.
+	t.Run("deprecated direct_connection alias still enables", func(t *testing.T) {
+		ctx := utils.WithTimeout(t, 60*time.Second)
+
+		t.Run("connect-time option", func(t *testing.T) {
+			cfg, err := pgx.ParseConfig(connStr)
+			require.NoError(t, err)
+			cfg.RuntimeParams[constants.DirectConnectionParam] = "on"
+
+			conn, err := pgx.ConnectConfig(ctx, cfg)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			_, err = conn.Exec(ctx, restrictedProbeSet)
+			require.NoError(t, err, "deprecated alias must enable unsafe connection at connect time")
+		})
+
+		t.Run("SET latch", func(t *testing.T) {
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			tag, err := conn.Exec(ctx, "SET "+constants.DirectConnectionParam+" = on")
+			require.NoError(t, err)
+			assert.Equal(t, "SET", tag.String())
+
+			_, err = conn.Exec(ctx, restrictedProbeSet)
+			require.NoError(t, err, "deprecated alias must enable unsafe connection mid-session")
+		})
 	})
 
 	// The latch can only be turned on: turning it off, resetting it, and a
@@ -198,27 +230,27 @@ func TestDirectConnection(t *testing.T) {
 			require.NoError(t, err)
 
 			// The latch is one-way: attempting to turn it off is still an error, and
-			// the connection remains a direct connection (probe still accepted).
+			// the connection remains an unsafe connection (probe still accepted).
 			_, err = conn.Exec(ctx, "SET "+param+" = off")
 			_ = utils.RequirePgError(t, err, "0A000")
 
 			_, err = conn.Exec(ctx, restrictedProbeSet)
-			require.NoError(t, err, "connection must remain a direct connection after a failed off attempt")
+			require.NoError(t, err, "connection must remain an unsafe connection after a failed off attempt")
 		})
 	})
 
-	// Quarantine, observed directly by backend PID. A direct connection draws a
+	// Quarantine, observed directly by backend PID. A unsafe connection draws a
 	// dedicated *reserved* backend; when it closes, that backend must be closed
 	// (quarantined), not recycled. Since the reserved pool otherwise recycles a
 	// released backend to the next reserved borrower, the check is: the direct
 	// connection's PID must never reappear on a later reserved borrow. The probe
 	// is a plain transaction (BEGIN … pg_backend_pid() … ROLLBACK), a reserved
 	// connection drawing from the same pool. Removing the quarantine (the
-	// closeOnRelease taint on the direct-connection reason) makes this fail.
+	// closeOnRelease taint on the unsafe-connection reason) makes this fail.
 	t.Run("backend is discarded on teardown", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 90*time.Second)
 
-		// The direct connection's dedicated reserved backend PID.
+		// The unsafe connection's dedicated reserved backend PID.
 		var directPID int
 		func() {
 			cfg, err := pgx.ParseConfig(connStr)
@@ -236,7 +268,7 @@ func TestDirectConnection(t *testing.T) {
 		for i := range 12 {
 			pid := reservedBackendPID(t, ctx, connStr)
 			require.NotEqualf(t, directPID, pid,
-				"probe %d reused the direct connection's backend PID %d; it must have been discarded, not recycled",
+				"probe %d reused the unsafe connection's backend PID %d; it must have been discarded, not recycled",
 				i, directPID)
 		}
 	})
@@ -259,7 +291,7 @@ func TestDirectConnection(t *testing.T) {
 		require.NotEmpty(t, baseline)
 		require.NotEqual(t, leakValue, baseline, "baseline unexpectedly equals the leak probe value")
 
-		// Direct connection: create + run a function whose body hides an
+		// Unsafe connection: create + run a function whose body hides an
 		// is_local=false set_config the gateway cannot track, mutating work_mem on
 		// this backend only.
 		func() {
@@ -271,17 +303,17 @@ func TestDirectConnection(t *testing.T) {
 			defer conn.Close(ctx)
 
 			// The CREATE (an is_local=false set_config in the body) is rejected on an
-			// enforcing connection by body analysis; a direct connection accepts it.
+			// enforcing connection by body analysis; an unsafe connection accepts it.
 			_, err = conn.Exec(ctx, `CREATE OR REPLACE FUNCTION mg_dc_hidden_leak() RETURNS text
 				LANGUAGE sql AS $$SELECT set_config('work_mem', '`+leakValue+`', false)$$`)
-			require.NoError(t, err, "hidden-set_config function must be creatable on a direct connection")
+			require.NoError(t, err, "hidden-set_config function must be creatable on an unsafe connection")
 
 			_, err = conn.Exec(ctx, "SELECT mg_dc_hidden_leak()")
 			require.NoError(t, err)
 
 			var got string
 			require.NoError(t, conn.QueryRow(ctx, "SHOW work_mem").Scan(&got))
-			require.Equal(t, leakValue, got, "the untracked value must apply on the direct connection's own backend")
+			require.Equal(t, leakValue, got, "the untracked value must apply on the unsafe connection's own backend")
 		}()
 		// DROP is allowed on an enforcing connection; clean up the catalog object.
 		defer func() {
@@ -298,7 +330,7 @@ func TestDirectConnection(t *testing.T) {
 		for i := range 12 {
 			got := reservedWorkMem(t, ctx, connStr)
 			require.Equalf(t, baseline, got,
-				"probe %d saw work_mem=%q; the direct connection's untracked work_mem=%q leaked through the pool",
+				"probe %d saw work_mem=%q; the unsafe connection's untracked work_mem=%q leaked through the pool",
 				i, got, leakValue)
 		}
 	})

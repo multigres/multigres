@@ -155,13 +155,13 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
-	// directConnection is the per-connection opt-out. It suppresses the
+	// unsafeConnection is the per-connection opt-out. It suppresses the
 	// unsafe-statement rejections and pins+quarantines the backend. Because it
 	// varies per connection, a statement planned under it must never be served
 	// from the shared plan cache to another connection — the executor keeps
-	// direct-connection sessions off the cache (see resolvePlan), so reading it
+	// unsafe-connection sessions off the cache (see resolvePlan), so reading it
 	// here stays sound.
-	directConnection := conn != nil && conn.DirectConnection()
+	unsafeConnection := conn != nil && conn.UnsafeConnection()
 
 	// Analyze the statement before dispatch: reject unsupported constructs
 	// (Tier 2 statement types and blocklisted/misplaced FuncCalls) and gather
@@ -171,7 +171,7 @@ func (p *Planner) Plan(
 	// construction already analyzed and safe. The normalizer is configured to
 	// preserve literals inside set_config calls so its args remain A_Const at
 	// this point.
-	analysis, err := analyzeStatement(stmt, directConnection)
+	analysis, err := analyzeStatement(stmt, unsafeConnection)
 	if err != nil {
 		return nil, err
 	}
