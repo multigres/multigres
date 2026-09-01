@@ -378,7 +378,7 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 	}
 }
 
-func TestVerifyPatchedVariantsAcceptsPatchedAlternate(t *testing.T) {
+func TestVerifyPatchedVariantsAppliesCommonPatchToNumberedAlternative(t *testing.T) {
 	requirePatchTool(t)
 	root := t.TempDir()
 	regressDir := filepath.Join(root, "regress")
