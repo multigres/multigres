@@ -64,6 +64,30 @@ func fixture(t *testing.T, name, expected, actual, patch string) VerifyInput {
 	}
 }
 
+func patchedVariantFixture(t *testing.T) (VerifyInput, []string) {
+	t.Helper()
+	const (
+		name      = "patched_variant"
+		canonical = "header\nplan: index only\ncommon\nfooter\n"
+		alternate = "header\nplan: bitmap\ncommon\nfooter\n"
+		actual    = "header\nplan: bitmap\ncommon\nmultigres warning\nfooter\n"
+		patch     = `--- a
++++ b
+@@ -3,2 +3,3 @@
+ common
++multigres warning
+ footer
+`
+	)
+
+	in := fixture(t, name, canonical, actual, patch)
+	alternatePath := filepath.Join(filepath.Dir(in.ExpectedPath), name+"_1.out")
+	if err := os.WriteFile(alternatePath, []byte(alternate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return in, []string{in.ExpectedPath, alternatePath}
+}
+
 func requirePatchTool(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("patch"); err != nil {
@@ -380,41 +404,9 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 
 func TestVerifyPatchedVariantsAppliesCommonPatchToNumberedAlternative(t *testing.T) {
 	requirePatchTool(t)
-	root := t.TempDir()
-	regressDir := filepath.Join(root, "regress")
-	patchDir := filepath.Join(root, "patches")
-	expectedDir := filepath.Join(regressDir, "expected")
-	for _, dir := range []string{expectedDir, patchDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+	in, variants := patchedVariantFixture(t)
 
-	const name = "patched_variant"
-	canonical := filepath.Join(expectedDir, name+".out")
-	alternate := filepath.Join(expectedDir, name+"_1.out")
-	actual := filepath.Join(root, name+".out")
-	for path, contents := range map[string]string{
-		canonical: "header\nplan: index only\ncommon\nfooter\n",
-		alternate: "header\nplan: bitmap\ncommon\nfooter\n",
-		actual:    "header\nplan: bitmap\ncommon\nmultigres warning\nfooter\n",
-	} {
-		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	patch := `--- a
-+++ b
-@@ -3,2 +3,3 @@
- common
-+multigres warning
- footer
-`
-	if err := os.WriteFile(filepath.Join(patchDir, name+".patch"), []byte(patch), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	outcome, err := verifyPatchedVariants(t.Context(), name, actual, regressDir, patchDir, root, []string{canonical, alternate}, PatchModeVerify)
+	outcome, err := verifyPatchedVariants(t.Context(), in.Name, in.ActualPath, in.RepoRoot, in.PatchDir, in.RepoRoot, variants, PatchModeVerify)
 	if err != nil {
 		t.Fatal(err)
 	}
