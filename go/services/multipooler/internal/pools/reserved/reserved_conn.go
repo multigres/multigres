@@ -429,7 +429,7 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 // PostgreSQL rejects it — the taint is applied separately by MarkTempTainted
 // on the success path.
 //
-// The direct-connection reason IS tainted here, unconditionally: such a
+// The unsafe-connection reason IS tainted here, unconditionally: such a
 // connection may change backend session state the gateway does not track, so
 // once used this way the backend is forever suspect — the gateway's settings
 // label can no longer describe it and recycling would leak that state. Unlike
@@ -442,7 +442,7 @@ func (c *Conn) AddReservationReason(reason uint32) {
 	} else {
 		c.reservedProps.AddReason(reason)
 	}
-	if reason&protoutil.ReasonDirectConnection != 0 {
+	if reason&protoutil.ReasonUnsafeConnection != 0 {
 		c.closeOnRelease.Store(true)
 	}
 }

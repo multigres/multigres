@@ -455,24 +455,24 @@ func TestScatterConn_Case2_SetSeedReservesNewConn(t *testing.T) {
 	require.Equal(t, uint64(89), ss.ReservedState.GetReservedConnectionId())
 }
 
-// TestScatterConn_DirectConnection_PlainStatementReserves guards the crux of
-// direct connection: even a plain statement (no transaction/temp/lock — what
+// TestScatterConn_UnsafeConnection_PlainStatementReserves guards the crux of
+// unsafe connection: even a plain statement (no transaction/temp/lock — what
 // would otherwise take the unreserved Case 3 path) must reserve+quarantine its
-// own backend, carrying ReasonDirectConnection. Without the gate including
-// conn.DirectConnection(), such a statement would run on a shared pooled backend
+// own backend, carrying ReasonUnsafeConnection. Without the gate including
+// conn.UnsafeConnection(), such a statement would run on a shared pooled backend
 // and leak any untracked state it changed.
-func TestScatterConn_DirectConnection_PlainStatementReserves(t *testing.T) {
+func TestScatterConn_UnsafeConnection_PlainStatementReserves(t *testing.T) {
 	gw := &mockGateway{
 		streamExecuteReturnState: &querypb.ReservedState{
 			ReservedConnectionId: 91,
 			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-			ReservationReasons:   protoutil.ReasonDirectConnection,
+			ReservationReasons:   protoutil.ReasonUnsafeConnection,
 		},
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultigatewayConnectionState()
-	conn := server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn // direct, not in a txn
+	conn := server.NewTestConn(&bytes.Buffer{}, server.WithTestUnsafeConnection()).Conn // direct, not in a txn
 
 	// A plain SELECT: no transaction, no temp table, no lock — the one that used
 	// to take the unreserved path.
@@ -482,24 +482,24 @@ func TestScatterConn_DirectConnection_PlainStatementReserves(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, gw.streamExecuteCalled)
-	require.NotNil(t, gw.streamExecuteReservationOps, "a direct connection must reserve even for a plain statement")
-	require.True(t, protoutil.HasDirectConnectionReason(gw.streamExecuteReservationOps.GetReasons()))
+	require.NotNil(t, gw.streamExecuteReservationOps, "an unsafe connection must reserve even for a plain statement")
+	require.True(t, protoutil.HasUnsafeConnectionReason(gw.streamExecuteReservationOps.GetReasons()))
 }
 
-// TestScatterConn_DirectConnection_CopyReserves guards that a first COPY
-// FROM/TO STDIN on a direct connection (no transaction, no prior reservation)
-// still reserves and quarantines its backend with ReasonDirectConnection.
+// TestScatterConn_UnsafeConnection_CopyReserves guards that a first COPY
+// FROM/TO STDIN on an unsafe connection (no transaction, no prior reservation)
+// still reserves and quarantines its backend with ReasonUnsafeConnection.
 // Without it, a trigger or function that changes untracked session state during
 // COPY would run on a pooled backend that is then recycled to another client.
-func TestScatterConn_DirectConnection_CopyReserves(t *testing.T) {
+func TestScatterConn_UnsafeConnection_CopyReserves(t *testing.T) {
 	newDirectConn := func() *server.Conn {
-		return server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn // direct, not in a txn
+		return server.NewTestConn(&bytes.Buffer{}, server.WithTestUnsafeConnection()).Conn // direct, not in a txn
 	}
 	reservedState := func() *querypb.ReservedState {
 		return &querypb.ReservedState{
 			ReservedConnectionId: 77,
 			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-			ReservationReasons:   protoutil.ReasonDirectConnection,
+			ReservationReasons:   protoutil.ReasonUnsafeConnection,
 		}
 	}
 
@@ -512,8 +512,8 @@ func TestScatterConn_DirectConnection_CopyReserves(t *testing.T) {
 			func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 		require.NoError(t, err)
-		require.NotNil(t, gw.copyReadyReservationOps, "a direct connection must reserve for a first COPY FROM STDIN")
-		require.True(t, protoutil.HasDirectConnectionReason(gw.copyReadyReservationOps.GetReasons()))
+		require.NotNil(t, gw.copyReadyReservationOps, "an unsafe connection must reserve for a first COPY FROM STDIN")
+		require.True(t, protoutil.HasUnsafeConnectionReason(gw.copyReadyReservationOps.GetReasons()))
 	})
 
 	t.Run("COPY TO STDOUT", func(t *testing.T) {
@@ -524,8 +524,8 @@ func TestScatterConn_DirectConnection_CopyReserves(t *testing.T) {
 		_, _, _, err := sc.CopyOutInitiate(context.Background(), newDirectConn(), "tg1", "", "COPY t TO STDOUT", state)
 
 		require.NoError(t, err)
-		require.NotNil(t, gw.copyOutReadyReservationOps, "a direct connection must reserve for a first COPY TO STDOUT")
-		require.True(t, protoutil.HasDirectConnectionReason(gw.copyOutReadyReservationOps.GetReasons()))
+		require.NotNil(t, gw.copyOutReadyReservationOps, "an unsafe connection must reserve for a first COPY TO STDOUT")
+		require.True(t, protoutil.HasUnsafeConnectionReason(gw.copyOutReadyReservationOps.GetReasons()))
 	})
 }
 

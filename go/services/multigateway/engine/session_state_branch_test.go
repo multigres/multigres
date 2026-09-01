@@ -23,15 +23,15 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 )
 
-// TestSessionPinned_DirectConnection confirms a direct connection is always
+// TestSessionPinned_UnsafeConnection confirms an unsafe connection is always
 // treated as pinned (its backend is reserved+quarantined per statement), while a
 // plain connection with no transaction/reservation is not.
-func TestSessionPinned_DirectConnection(t *testing.T) {
+func TestSessionPinned_UnsafeConnection(t *testing.T) {
 	plain := server.NewTestConn(&bytes.Buffer{}).Conn
 	assert.False(t, SessionPinned(plain, nil, "tg", "0"),
 		"a plain idle connection is not pinned")
 
-	direct := server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn
+	direct := server.NewTestConn(&bytes.Buffer{}, server.WithTestUnsafeConnection()).Conn
 	assert.True(t, SessionPinned(direct, nil, "tg", "0"),
-		"a direct connection is always pinned")
+		"an unsafe connection is always pinned")
 }

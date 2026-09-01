@@ -40,10 +40,10 @@ func SessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState
 	if conn != nil && conn.IsInTransaction() {
 		return true
 	}
-	// A direct connection pins (and quarantines) its backend on
+	// A unsafe connection pins (and quarantines) its backend on
 	// every statement, so its session is always pinned — a set_config on it
 	// persists for real rather than reverting via pool replay.
-	if conn != nil && conn.DirectConnection() {
+	if conn != nil && conn.UnsafeConnection() {
 		return true
 	}
 	return state != nil && state.HasReservedConnectionFor(tableGroup, shard)

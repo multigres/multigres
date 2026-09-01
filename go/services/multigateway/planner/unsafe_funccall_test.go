@@ -872,13 +872,13 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
 	}
 }
 
-// TestInspectExpressionFuncCalls_SetConfigDirectConnection confirms the operator
+// TestInspectExpressionFuncCalls_SetConfigUnsafeConnection confirms the operator
 // opt-out actually lets every untrackable set_config shape through: the same
 // statements the enforced path rejects (dynamic-shape and per-call shape errors)
 // must analyze without error and produce no tracking (empty SetConfigs, no
 // DynamicSetConfig), so they route to PostgreSQL as written and untracked. This
 // is the contract in docs/query_serving/unsafe_statement_rejection.md.
-func TestInspectExpressionFuncCalls_SetConfigDirectConnection(t *testing.T) {
+func TestInspectExpressionFuncCalls_SetConfigUnsafeConnection(t *testing.T) {
 	sqls := []string{
 		// Dynamic-shape rejections (reach validateDynamicSetConfigShape).
 		"SELECT set_config(name, '256MB', false) FROM gucs",
@@ -899,9 +899,9 @@ func TestInspectExpressionFuncCalls_SetConfigDirectConnection(t *testing.T) {
 			// Enforced: rejected.
 			_, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err, "expected rejection when enforced")
-			// direct-connection: accepted and untracked.
+			// unsafe-connection: accepted and untracked.
 			result, err := analyzeFunctionCalls(parseOne(t, sql), false)
-			require.NoError(t, err, "direct-connection must not reject")
+			require.NoError(t, err, "unsafe-connection must not reject")
 			require.NotNil(t, result)
 			assert.False(t, result.DynamicSetConfig, "must not synthesize a dynamic set_config plan")
 			assert.Empty(t, result.SetConfigs, "untrackable set_config must not be tracked")
