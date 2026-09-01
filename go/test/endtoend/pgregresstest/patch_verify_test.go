@@ -64,6 +64,30 @@ func fixture(t *testing.T, name, expected, actual, patch string) VerifyInput {
 	}
 }
 
+func patchedVariantFixture(t *testing.T) (VerifyInput, []string) {
+	t.Helper()
+	const (
+		name      = "patched_variant"
+		canonical = "header\nplan: index only\ncommon\nfooter\n"
+		alternate = "header\nplan: bitmap\ncommon\nfooter\n"
+		actual    = "header\nplan: bitmap\ncommon\nmultigres warning\nfooter\n"
+		patch     = `--- a
++++ b
+@@ -3,2 +3,3 @@
+ common
++multigres warning
+ footer
+`
+	)
+
+	in := fixture(t, name, canonical, actual, patch)
+	alternatePath := filepath.Join(filepath.Dir(in.ExpectedPath), name+"_1.out")
+	if err := os.WriteFile(alternatePath, []byte(alternate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return in, []string{in.ExpectedPath, alternatePath}
+}
+
 func requirePatchTool(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("patch"); err != nil {
@@ -375,6 +399,19 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 	}
 	if results.PassedTests != 1 || results.FailedTests != 0 || results.Tests[0].PatchApplied {
 		t.Fatalf("alternate core output not accepted cleanly: %+v", results)
+	}
+}
+
+func TestVerifyPatchedVariants_Alternate(t *testing.T) {
+	requirePatchTool(t)
+	in, variants := patchedVariantFixture(t)
+
+	outcome, err := verifyPatchedVariants(t.Context(), in.Name, in.ActualPath, in.RepoRoot, in.PatchDir, in.RepoRoot, variants, PatchModeVerify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != "pass" || !outcome.PatchApplied {
+		t.Fatalf("patched alternate was not accepted: %+v", outcome)
 	}
 }
 

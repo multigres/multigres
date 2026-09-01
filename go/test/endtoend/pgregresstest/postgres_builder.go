@@ -1470,6 +1470,43 @@ func PatchesDir() string {
 	return filepath.Join(pkgDir, "testdata", pgMajorDir(), "patches")
 }
 
+// ExpectedVariantsDir contains compact patches that derive additional valid
+// pg_regress expected .out files from PostgreSQL's canonical output.
+func ExpectedVariantsDir() string {
+	return filepath.Join(filepath.Dir(PatchesDir()), "expected_variants")
+}
+
+// PrepareExpectedVariants materializes numbered pg_regress alternatives such
+// as create_index_1.out from compact, reviewed patches. PostgreSQL then sees
+// them exactly like its own numbered expected-output variants.
+func (pb *PostgresBuilder) PrepareExpectedVariants(ctx context.Context) error {
+	variantPatches, err := filepath.Glob(filepath.Join(ExpectedVariantsDir(), "*_?.patch"))
+	if err != nil {
+		return fmt.Errorf("find expected-output variant patches: %w", err)
+	}
+	expectedDir := filepath.Join(pb.SourceDir, "src", "test", "regress", "expected")
+	for _, patchPath := range variantPatches {
+		variantName := strings.TrimSuffix(filepath.Base(patchPath), ".patch")
+		separator := strings.LastIndexByte(variantName, '_')
+		if separator <= 0 {
+			return fmt.Errorf("invalid expected-output variant patch name %q", filepath.Base(patchPath))
+		}
+		canonicalPath := filepath.Join(expectedDir, variantName[:separator]+".out")
+		canonical, err := os.ReadFile(canonicalPath)
+		if err != nil {
+			return fmt.Errorf("read canonical expected output for %s: %w", variantName, err)
+		}
+		variant, err := suiteutil.ApplyPatch(ctx, canonical, patchPath)
+		if err != nil {
+			return fmt.Errorf("generate expected output %s: %w", variantName, err)
+		}
+		if err := os.WriteFile(filepath.Join(expectedDir, variantName+".out"), variant, 0o644); err != nil {
+			return fmt.Errorf("write expected output %s: %w", variantName, err)
+		}
+	}
+	return nil
+}
+
 // pgMajorDir returns the directory name under testdata/ that holds patches for
 // the PostgreSQL version this test targets. Pinned to pg17 today; add a case
 // when PostgresVersion advances.
