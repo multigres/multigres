@@ -996,3 +996,54 @@ func bytes32(seed byte) []byte {
 	}
 	return out
 }
+
+func TestDeriveGlobalCapacity(t *testing.T) {
+	// max_connections − superuser_reserved − reserved − admin capacity.
+	assert.Equal(t, int64(100), deriveGlobalCapacity(110, 3, 2, 5))
+	// Clamped to 1 when the server budget is smaller than the overheads.
+	assert.Equal(t, int64(1), deriveGlobalCapacity(5, 3, 0, 5))
+}
+
+func TestManager_Open_DerivesGlobalCapacity(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.AddQuery(globalCapacityQuery, fakepgserver.MakeResult(
+		[]string{"max_connections", "superuser_reserved_connections", "reserved_connections"},
+		[][]any{{"200", "3", "2"}},
+	))
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	// 200 − 3 − 2 − 5 (admin capacity default).
+	assert.Equal(t, int64(190), manager.GlobalCapacity())
+	assert.Equal(t, int64(190), manager.regularAllocator.Capacity()+manager.reservedAllocator.Capacity())
+}
+
+func TestManager_Open_DeriveFails_UsesConfigured(t *testing.T) {
+	// No registered query: the derivation query errors and the configured
+	// default must be used.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.Equal(t, int64(100), manager.GlobalCapacity())
+}
+
+func TestManager_Open_ExplicitGlobalCapacity_SkipsDerivation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.AddQuery(globalCapacityQuery, fakepgserver.MakeResult(
+		[]string{"max_connections", "superuser_reserved_connections", "reserved_connections"},
+		[][]any{{"200", "3", "2"}},
+	))
+	t.Setenv("CONNPOOL_GLOBAL_CAPACITY", "42")
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.Equal(t, int64(42), manager.GlobalCapacity())
+	assert.Equal(t, 0, server.GetQueryCalledNum(globalCapacityQuery))
+}

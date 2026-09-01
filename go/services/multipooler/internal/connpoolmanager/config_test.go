@@ -441,3 +441,52 @@ func TestConfig_PgUser_EnvVar(t *testing.T) {
 
 	assert.Equal(t, "multigres", config.PgUser())
 }
+
+func TestConfig_GlobalCapacityExplicit(t *testing.T) {
+	t.Run("default is not explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+
+		assert.False(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("flag set is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		require.NoError(t, cmd.Flags().Set("connpool-global-capacity", "50"))
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("flag set to the default value is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		require.NoError(t, cmd.Flags().Set("connpool-global-capacity", "100"))
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("env var is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		t.Setenv("CONNPOOL_GLOBAL_CAPACITY", "90")
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+}
