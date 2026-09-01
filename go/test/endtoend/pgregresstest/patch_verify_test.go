@@ -402,7 +402,7 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 	}
 }
 
-func TestVerifyPatchedVariantsAppliesCommonPatchToNumberedAlternative(t *testing.T) {
+func TestVerifyPatchedVariants_Alternate(t *testing.T) {
 	requirePatchTool(t)
 	in, variants := patchedVariantFixture(t)
 
