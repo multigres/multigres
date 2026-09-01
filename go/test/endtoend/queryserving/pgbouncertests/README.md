@@ -52,9 +52,11 @@ first); don't run `go test` directly.
 
 ## Known divergences from PostgreSQL
 
-- **Nonexistent connection database:** the gateway authenticates the client and
-  serves its backend database instead of rejecting with `3D000`
-  (guarded by `nonexistent_db_test.go`).
+- **Auth-vs-database error ordering:** for a wrong password on a nonexistent
+  database, PostgreSQL reports the bad password (`28P01`) and the gateway
+  reports the unknown database (`3D000`) — it has nowhere to route the
+  credential lookup, so the database check necessarily comes first. Both reject
+  a nonexistent database with `3D000` (guarded by `nonexistent_db_test.go`).
 - **`DISCARD ALL`** does not run `pg_advisory_unlock_all()` on the backend, so
   session-level advisory locks are not released (a pre-existing pooling
   limitation).
