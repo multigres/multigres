@@ -372,14 +372,16 @@ func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
 // self-referential build, or with no assignment at all) is rejected.
 func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
 	accept := map[string]string{
-		"const concat into var":    `DO $$ DECLARE v text; BEGIN v := 'SELECT 1 FROM t WHERE x = ' || '5'; EXECUTE v; END $$`,
-		"format %I into var":       `DO $$ DECLARE v text; c text; BEGIN v := format('CREATE TABLE %I AS SELECT 1', c); EXECUTE v; END $$`,
-		"RETURN QUERY EXECUTE var": `CREATE FUNCTION f() RETURNS SETOF int AS $$ DECLARE v text; c text; BEGIN v := format('SELECT * FROM %I', c); RETURN QUERY EXECUTE v; END $$ LANGUAGE plpgsql`,
-		"transitive w := v":        `DO $$ DECLARE v text; w text; BEGIN v := 'SELECT 1'; w := v; EXECUTE w; END $$`,
-		"FOR .. IN EXECUTE var":    `DO $$ DECLARE r record; v text; BEGIN v := 'SELECT 1 FROM t WHERE bucket_id = $1' ; FOR r IN EXECUTE v USING 1 LOOP NULL; END LOOP; END $$`,
-		"safe assign, no CALL":     `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
-		"CALL not feeding EXECUTE": `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(v); END $$`,
-		"safe initializer only":    `DO $$ DECLARE v text := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
+		"const concat into var":            `DO $$ DECLARE v text; BEGIN v := 'SELECT 1 FROM t WHERE x = ' || '5'; EXECUTE v; END $$`,
+		"format %I into var":               `DO $$ DECLARE v text; c text; BEGIN v := format('CREATE TABLE %I AS SELECT 1', c); EXECUTE v; END $$`,
+		"RETURN QUERY EXECUTE var":         `CREATE FUNCTION f() RETURNS SETOF int AS $$ DECLARE v text; c text; BEGIN v := format('SELECT * FROM %I', c); RETURN QUERY EXECUTE v; END $$ LANGUAGE plpgsql`,
+		"transitive w := v":                `DO $$ DECLARE v text; w text; BEGIN v := 'SELECT 1'; w := v; EXECUTE w; END $$`,
+		"FOR .. IN EXECUTE var":            `DO $$ DECLARE r record; v text; BEGIN v := 'SELECT 1 FROM t WHERE bucket_id = $1' ; FOR r IN EXECUTE v USING 1 LOOP NULL; END LOOP; END $$`,
+		"safe assign, no CALL":             `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
+		"CALL not feeding EXECUTE":         `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(v); END $$`,
+		"safe initializer only":            `DO $$ DECLARE v text := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
+		"nested-block declare and execute": `DO $$ BEGIN DECLARE v text; BEGIN v := format('SELECT * FROM %I', 't'); EXECUTE v; END; END $$`,
+		"nested execute of outer local":    `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; BEGIN EXECUTE v; END; END $$`,
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {

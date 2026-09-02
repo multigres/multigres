@@ -184,7 +184,7 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 			"the PL/pgSQL body is empty or malformed and cannot be run through the connection pooler")
 	}
 	w := &bodyWalker{resolver: collectVarAssignments(fn)}
-	plpgsqlast.Rewrite(fn, w.visit, nil)
+	plpgsqlast.Rewrite(fn, w.visit, w.leave)
 	return w.err
 }
 
@@ -204,69 +204,63 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 // "tainted" and its bare-variable EXECUTE is rejected, fail-closed.
 //
 // The soundness argument only holds for a variable whose ENTIRE value history is
-// visible in the body: a DECLARE-section local in the top-level block. Two ways a
-// name can hold a value we do not see, both handled here:
+// visible in the body: a DECLARE-section local that is in lexical scope at the
+// EXECUTE. Two ways a name can hold a value we do not see, both handled here:
 //
 //   - A function parameter (or OUT parameter, or an ALIAS for one) enters the body
 //     already holding the caller's value, so a body that assigns it only
 //     conditionally — `IF cond THEN q := 'safe' END IF; EXECUTE q` — would execute
 //     the caller's arbitrary q on the false path. Parameters are never DECLARE'd,
-//     so treating any non-declared EXECUTE'd name as tainted covers them.
-//   - A name declared only in a NESTED sub-block is a different variable in a scope
-//     that does not enclose an outer EXECUTE; trusting it would let the inner
-//     block's safe assignment vouch for an outer-scope parameter of the same name.
-//     Only top-level-block declarations are recorded, so the inner name stays
-//     unresolvable.
+//     so a name that is not in scope at the EXECUTE is treated as unresolvable.
+//   - A name declared only in a SIBLING or NESTED sub-block is a different variable
+//     from an outer name of the same spelling; trusting it would let that block's
+//     safe assignment vouch for an outer-scope parameter of the same name. Scope is
+//     tracked with a stack the walker pushes on block entry and pops on exit, so a
+//     name resolves only when an ENCLOSING block declares it.
 //
-// A DECLARE initializer (`DECLARE v text := <expr>`) is itself one of the values
-// the variable can hold, so it is folded into the assignment set and analyzed like
-// any `:=` — an initializer built from a parameter is rejected just as a body
-// assignment from a parameter would be.
+// The assignment set itself stays flat (collected by name across the whole body).
+// That is sound because a same-named variable in another scope can only ADD
+// assignments to the set, and resolveExecuteVar requires EVERY assignment to be
+// safe — extra ones can only cause a (sound) rejection, never vouch for an unsafe
+// value. A DECLARE initializer (`DECLARE v text := <expr>`) is itself one of the
+// values the variable can hold, so it is folded into the assignment set and
+// analyzed like any `:=` — an initializer built from a parameter is rejected just
+// as a body assignment from a parameter would be.
 type varResolver struct {
 	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
 	tainted   map[string]bool                       // names written by a form we cannot reduce
-	declared  map[string]bool                       // names DECLARE'd as plain locals (not parameters/aliases)
+	scopes    []map[string]bool                     // lexical scope stack of in-scope DECLARE'd locals
 	resolving map[string]bool                       // names on the current resolution stack (cycle guard)
 }
 
 // collectVarAssignments walks the whole function body once, recording every
-// simple `:=` assignment and tainting every variable written by a form whose
-// value we cannot prove (INTO targets, loop variables, FETCH, GET DIAGNOSTICS,
-// non-simple assignment targets, INOUT/OUT arguments of a CALL). It also records
-// which names are DECLARE'd as plain locals, so a function parameter — which is
-// never declared in the body — is not mistaken for a fully-tracked local. See
-// varResolver for the soundness argument.
+// simple `:=` assignment (and every DECLARE initializer) and tainting every
+// variable written by a form whose value we cannot prove (INTO targets, loop
+// variables, FETCH, GET DIAGNOSTICS, non-simple assignment targets, INOUT/OUT
+// arguments of a CALL). Declaration NAMES are not recorded here — lexical scope is
+// tracked by the walker instead (see bodyWalker.visit/leave). See varResolver for
+// the soundness argument.
 func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 	r := &varResolver{
 		assigns:   map[string][]*plpgsqlast.PLpgSQL_expr{},
 		tainted:   map[string]bool{},
-		declared:  map[string]bool{},
 		resolving: map[string]bool{},
-	}
-	// Declarations are collected only from the top-level (outer) block. A name
-	// declared in a nested sub-block is a different variable in a scope that does
-	// not enclose an outer EXECUTE, so promoting it to a global "tracked local"
-	// would let an inner block's safe assignment vouch for an outer-scope
-	// parameter of the same name. Restricting `declared` to the outer block keeps
-	// that name unresolvable (fail-closed). An ALIAS (a body-local name for a `$n`
-	// parameter) is intentionally not recorded: it resolves to a caller-supplied
-	// argument and must stay untracked like any bare parameter.
-	if fn.Action != nil {
-		for _, d := range fn.Action.Decls {
-			switch decl := d.(type) {
-			case *plpgsqlast.PLpgSQL_var:
-				r.declare(decl.Refname)
-				r.recordDefault(decl.Refname, decl.DefaultVal)
-			case *plpgsqlast.PLpgSQL_rec:
-				r.declare(decl.Refname)
-				r.recordDefault(decl.Refname, decl.DefaultVal)
-			case *plpgsqlast.PLpgSQL_row:
-				r.declare(decl.Refname)
-			}
-		}
 	}
 	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
 		switch n := cursor.Node().(type) {
+		case *plpgsqlast.PLpgSQL_stmt_block:
+			// A DECLARE initializer is one of the values the variable can hold, so
+			// fold it into the assignment set like a body `:=`. Names are recorded
+			// for every block regardless of nesting; the walker's scope stack is what
+			// decides whether a name is in scope at a given EXECUTE.
+			for _, d := range n.Decls {
+				switch decl := d.(type) {
+				case *plpgsqlast.PLpgSQL_var:
+					r.recordDefault(decl.Refname, decl.DefaultVal)
+				case *plpgsqlast.PLpgSQL_rec:
+					r.recordDefault(decl.Refname, decl.DefaultVal)
+				}
+			}
 		case *plpgsqlast.PLpgSQL_stmt_call:
 			// CALL proc(v) can write an INOUT/OUT argument, so a variable passed as
 			// a bare identifier argument may hold arbitrary text afterwards. We
@@ -358,11 +352,48 @@ func (r *varResolver) taintList(list string) {
 	}
 }
 
-// declare records name as a plain DECLARE-section local. A blank name is ignored.
-func (r *varResolver) declare(name string) {
-	if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
-		r.declared[name] = true
+// pushScope enters a block, recording the plain scalar/record/row locals it
+// declares as a new lexical scope. An ALIAS (a body-local name for a `$n`
+// parameter) is intentionally not recorded: it resolves to a caller-supplied
+// argument and must stay unresolvable like any bare parameter.
+func (r *varResolver) pushScope(decls []plpgsqlast.Datum) {
+	scope := map[string]bool{}
+	for _, d := range decls {
+		var name string
+		switch decl := d.(type) {
+		case *plpgsqlast.PLpgSQL_var:
+			name = decl.Refname
+		case *plpgsqlast.PLpgSQL_rec:
+			name = decl.Refname
+		case *plpgsqlast.PLpgSQL_row:
+			name = decl.Refname
+		}
+		if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+			scope[name] = true
+		}
 	}
+	r.scopes = append(r.scopes, scope)
+}
+
+// popScope leaves the innermost block.
+func (r *varResolver) popScope() {
+	if len(r.scopes) > 0 {
+		r.scopes = r.scopes[:len(r.scopes)-1]
+	}
+}
+
+// inScope reports whether name is DECLARE'd in the current block or any enclosing
+// one — i.e. it is a local whose whole value history is visible at this point,
+// not a function parameter or a variable from a sibling/nested scope. The stack
+// only ever holds enclosing scopes, so any match means in scope (order does not
+// matter for this membership check).
+func (r *varResolver) inScope(name string) bool {
+	for _, scope := range r.scopes {
+		if scope[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // recordDefault treats a DECLARE initializer (`DECLARE v text := <expr>`) as one
@@ -379,10 +410,10 @@ func (r *varResolver) recordDefault(name string, def *plpgsqlast.PLpgSQL_expr) {
 }
 
 // resolvable reports whether a bare-variable EXECUTE payload named `name` may be
-// resolved from its in-body assignments. It must be a declared local (so its
-// whole value history is visible) and not tainted by an unprovable write.
+// resolved from its in-body assignments. It must be a local in scope at this point
+// (so its whole value history is visible) and not tainted by an unprovable write.
 func (r *varResolver) resolvable(name string) bool {
-	return r.declared[name] && !r.tainted[name]
+	return r.inScope(name) && !r.tainted[name]
 }
 
 // taintCallArgs parses a CALL/DO statement's text and taints every argument that
@@ -509,6 +540,11 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		return false
 	}
 	switch n := cursor.Node().(type) {
+	case *plpgsqlast.PLpgSQL_stmt_block:
+		// Entering a block opens a new lexical scope; leave() pops it. Descend
+		// generically so the block body is analyzed as usual.
+		w.resolver.pushScope(n.Decls)
+		return true
 	case *plpgsqlast.PLpgSQL_stmt_perform:
 		// PERFORM's text is an expression PG runs as `SELECT <expr>` (our port
 		// drops the substituted SELECT); this is where we know to add it back
@@ -556,6 +592,16 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		// above, so a DEFAULT fragment reaching this point is a real statement.
 		w.fragment(n)
 		return true
+	}
+	return true
+}
+
+// leave is the post-order callback: it pops the lexical scope opened by a block in
+// visit. Blocks always descend generically (visit returns true for them), so every
+// pushed scope is popped here, keeping the stack balanced.
+func (w *bodyWalker) leave(cursor *plpgsqlast.Cursor) bool {
+	if _, ok := cursor.Node().(*plpgsqlast.PLpgSQL_stmt_block); ok {
+		w.resolver.popScope()
 	}
 	return true
 }
@@ -624,13 +670,15 @@ func (w *bodyWalker) dynamic(e *plpgsqlast.PLpgSQL_expr) {
 }
 
 // statements re-descends into a nested statement list (a dynamic FOR loop body)
-// that the parent's `return false` excluded from the generic traversal.
+// that the parent's `return false` excluded from the generic traversal. It passes
+// w.leave so any blocks in that list push and pop scopes in balance, just as the
+// top-level traversal does.
 func (w *bodyWalker) statements(list []plpgsqlast.Stmt) {
 	for _, st := range list {
 		if w.err != nil {
 			return
 		}
-		plpgsqlast.Rewrite(st, w.visit, nil)
+		plpgsqlast.Rewrite(st, w.visit, w.leave)
 	}
 }
 
