@@ -413,15 +413,17 @@ func TestReconnect_ClearsPreparedStatements(t *testing.T) {
 	conn.State().StorePreparedStatement(&query.PreparedStatement{
 		Name:  "stmt1",
 		Query: "SELECT $1",
-	})
-	require.NotNil(t, conn.State().GetPreparedStatement("stmt1"))
+	}, 0)
+	_, _, ok := conn.State().GetPreparedStatement("stmt1")
+	require.True(t, ok)
 
 	// Reconnect should reset state.
 	err := conn.Reconnect(context.Background())
 	require.NoError(t, err)
 
 	// Prepared statement should be gone after reconnect.
-	assert.Nil(t, conn.State().GetPreparedStatement("stmt1"))
+	_, _, ok = conn.State().GetPreparedStatement("stmt1")
+	assert.False(t, ok)
 }
 
 func TestReconnect_ReappliesSettings(t *testing.T) {

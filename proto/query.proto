@@ -283,6 +283,14 @@ message PreparedStatement {
   // param_types contains the OIDs of the parameter types.
   // This is sent by the client in the Parse message.
   repeated uint32 param_types = 3;
+
+  // used_tables lists the schema-qualified tables this statement's query
+  // references, as computed by the gateway's own parse (see
+  // ast.ExtractTablesUsed). The multipooler uses this to invalidate a cached
+  // prepared statement when a DDL statement changes one of these tables'
+  // shape, without needing to parse SQL itself. Empty for statements that
+  // don't reference any table.
+  repeated string used_tables = 4;
 }
 
 // ExecuteSqlPreparedStatement carries a SQL-level EXECUTE wrapper whose
@@ -426,6 +434,14 @@ message ExecuteOptions {
   // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
   // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
   bool passthrough_row = 8;
+
+  // ddl_target_relations lists the schema-qualified tables this statement can
+  // change the shape of, as computed by the gateway's own parse (see
+  // ast.DDLTargetRelations). Empty for anything that isn't DDL, or DDL that
+  // can't affect an existing prepared statement's result shape. When
+  // non-empty, the multipooler invalidates any prepared statement it has
+  // cached against these tables after this statement executes successfully.
+  repeated string ddl_target_relations = 9;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

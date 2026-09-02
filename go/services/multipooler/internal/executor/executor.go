@@ -61,8 +61,13 @@ type Executor struct {
 	logger             *slog.Logger
 	poolManager        connpoolmanager.PoolManager
 	poolerConsolidator *preparedstatement.PoolerConsolidator
-	poolerID           *clustermetadatapb.ID
-	metrics            *queryStats
+	// relationInvalidation tracks which relations each canonical prepared
+	// statement depends on, so ensurePrepared can tell a DDL-invalidated
+	// cache entry from a still-valid one without parsing SQL itself. See
+	// RelationInvalidationTracker's doc comment for why this is needed.
+	relationInvalidation *preparedstatement.RelationInvalidationTracker
+	poolerID             *clustermetadatapb.ID
+	metrics              *queryStats
 
 	// backendVpidTrackingEnabled controls whether gateway-vpid/backend-pid
 	// associations are written to multigres.backend_vpid. The table is always
@@ -115,6 +120,7 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 		logger:                     logger,
 		poolManager:                poolManager,
 		poolerConsolidator:         preparedstatement.NewPoolerConsolidator(),
+		relationInvalidation:       preparedstatement.NewRelationInvalidationTracker(),
 		poolerID:                   poolerID,
 		metrics:                    newQueryStats(),
 		backendVpidTrackingEnabled: backendVpidTrackingEnabled,
@@ -272,6 +278,19 @@ func (e *Executor) StreamExecute(
 	}
 	defer func() {
 		e.metrics.recordQuery(ctx, poolType, time.Since(start), rowsStreamed, err)
+	}()
+
+	// If this statement was DDL that can change a table's result shape (see
+	// ast.DDLTargetRelations), bump those relations' invalidation generation
+	// once it executes successfully, regardless of which case below actually
+	// ran it — every case shares this single named return. A cached prepared
+	// statement depending on one of these relations will re-Parse on its
+	// next use instead of silently reusing a now-stale plan (ensurePrepared)
+	// or serving a stale result shape on Describe.
+	defer func() {
+		if err == nil {
+			e.relationInvalidation.InvalidateRelations(options.GetDdlTargetRelations())
+		}
 	}()
 
 	user := e.getUserFromOptions(options)
@@ -1131,17 +1150,22 @@ func (e *Executor) portalExecuteWithReserved(
 	// Bind and execute using the portal's own name and the canonical statement name.
 	// When the protocol layer folded Describe('P') into Execute, fuse the
 	// backend round trip too so the portal description rides on the Execute
-	// response.
+	// response. Heals a stale cached plan transparently the same way the
+	// regular-connection path does: this backend may have been reserved by an
+	// entirely different caller before a DDL invalidated the canonical
+	// statement it left prepared, so a 0A000 here is not necessarily this
+	// caller's fault, and it cannot recover on its own either.
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	var completed bool
 	// Opaque row passthrough for this statement; reset after so the reserved
 	// connection does not carry the mode into later transaction statements.
 	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
-	if includeDescribe {
-		completed, err = reservedConn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
-	} else {
-		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+	bindExecute := func(canonicalName string) (bool, error) {
+		if includeDescribe {
+			return reservedConn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+		}
+		return reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
+	completed, _, err := e.bindExecuteWithCachedPlanRetry(ctx, reservedConn.Conn(), preparedStatement, canonicalName, bindExecute)
 	reservedConn.Conn().SetPassthroughRow(false)
 	if err != nil {
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, addedStatementLocal, err)
@@ -1233,6 +1257,41 @@ func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName s
 	return e.buildReservedState(reservedConn), wrapQueryError(err)
 }
 
+// bindExecuteWithCachedPlanRetry runs bindExecute against canonicalName and
+// heals a stale cached plan transparently. If a DDL changed the result type
+// of the cached plan, PostgreSQL returns 0A000 "cached plan must not change
+// result type". Because prepared statements are shared by canonical name
+// across every caller of this connection, no caller can recover just by
+// re-preparing under its own name (that maps right back to the same stale
+// backend statement), so this closes the stale backend statement, drops the
+// per-connection cache entry, re-Parses against the current schema, and
+// retries once. 0A000 is raised during plan revalidation, before any row is
+// streamed, so retrying is safe.
+//
+// Returns the canonical name actually used (unchanged unless healing
+// occurred) alongside bindExecute's own result.
+func (e *Executor) bindExecuteWithCachedPlanRetry(
+	ctx context.Context,
+	conn *regular.Conn,
+	preparedStatement *query.PreparedStatement,
+	canonicalName string,
+	bindExecute func(canonicalName string) (bool, error),
+) (bool, string, error) {
+	completed, err := bindExecute(canonicalName)
+	if err != nil && mterrors.IsCachedPlanError(err) {
+		_ = conn.CloseStatement(ctx, canonicalName)
+		conn.State().DeletePreparedStatement(canonicalName)
+
+		var perr error
+		canonicalName, perr = e.ensurePrepared(ctx, conn, preparedStatement)
+		if perr != nil {
+			return false, canonicalName, perr
+		}
+		completed, err = bindExecute(canonicalName)
+	}
+	return completed, canonicalName, err
+}
+
 // portalExecuteWithRegular executes a portal using a regular pooled connection.
 // clientKey and serverKey are the SCRAM passthrough keys forwarded by the
 // caller's session; see connpoolmanager.GetRegularConn.
@@ -1263,22 +1322,13 @@ func (e *Executor) portalExecuteWithRegular(
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
-	// Bind and execute, healing a stale cached plan transparently. If a DDL has
-	// changed the result type of the cached plan, PostgreSQL returns 0A000
-	// "cached plan must not change result type". Because prepared statements are
-	// shared by canonical name, the client cannot recover by re-preparing (a new
-	// client name maps back to the same stale backend statement), so we do it
-	// here: close the stale backend statement, drop the per-connection cache
-	// entry, re-Parse against the current schema, and retry once.
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 
-	bindExecute := func(canonicalName string) error {
+	bindExecute := func(canonicalName string) (bool, error) {
 		if includeDescribe {
-			_, err := conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
-			return err
+			return conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
 		}
-		_, err := conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
-		return err
+		return conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	}
 
 	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
@@ -1286,19 +1336,7 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, err
 	}
 
-	err = bindExecute(canonicalName)
-	if err != nil && mterrors.IsCachedPlanError(err) {
-		// 0A000 is raised during plan revalidation, before any row is streamed, so
-		// no partial results reached the callback — retrying is safe.
-		_ = conn.Conn.CloseStatement(ctx, canonicalName)
-		conn.Conn.State().DeletePreparedStatement(canonicalName)
-
-		canonicalName, err = e.ensurePrepared(ctx, conn.Conn, preparedStatement)
-		if err != nil {
-			return nil, err
-		}
-		err = bindExecute(canonicalName)
-	}
+	_, _, err = e.bindExecuteWithCachedPlanRetry(ctx, conn.Conn, preparedStatement, canonicalName, bindExecute)
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
@@ -1496,12 +1534,37 @@ func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, c
 func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
 	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes)
 
-	// Check if this connection already has the statement prepared
+	// Register (or extend) this canonical statement's known table
+	// dependencies, then read the generation those tables are currently at.
+	// A statement that depends on no known table (nil UsedTables, or a
+	// non-table-referencing query) always reports generation 0 — never
+	// invalidated, since there is nothing to invalidate.
+	e.relationInvalidation.RecordDependencies(canonicalName, stmt.UsedTables)
+	currentGeneration := e.relationInvalidation.StatementGeneration(canonicalName)
+
+	// Check if this connection already has the statement prepared, and that
+	// no DDL has invalidated it since. The generation check is what makes
+	// this safe for Describe too, not just Bind/Execute: PostgreSQL does not
+	// revalidate a prepared statement's result shape on Describe (only on
+	// Bind/Execute), so without this check a stale connState entry would
+	// silently hand back the pre-DDL shape instead of erroring.
 	connState := conn.State()
-	existing := connState.GetPreparedStatement(canonicalName)
-	if existing != nil && existing.Query == stmt.Query {
-		// Statement already prepared on this connection, reuse it
+	existing, existingGeneration, ok := connState.GetPreparedStatement(canonicalName)
+	if ok && existing.Query == stmt.Query && existingGeneration == currentGeneration {
+		// Statement already prepared on this connection, and unaffected by any
+		// DDL since — reuse it.
 		return canonicalName, nil
+	}
+
+	if ok {
+		// Either a DDL invalidated this canonical statement since it was
+		// prepared on this connection, or connState's bookkeeping and the
+		// backend have drifted apart — close defensively either way.
+		// PostgreSQL rejects a Parse under a name that's still open, so this
+		// must happen before re-Parsing below (see prepare.c's
+		// StorePreparedStatement "already exists" check).
+		_ = conn.CloseStatement(ctx, canonicalName)
+		connState.DeletePreparedStatement(canonicalName)
 	}
 
 	// Parse the statement on this connection
@@ -1509,12 +1572,13 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 		return "", fmt.Errorf("failed to parse statement: %w", err)
 	}
 
-	// Store in connection state for future reuse
+	// Store in connection state for future reuse, stamped with the
+	// generation it was just prepared against.
 	connState.StorePreparedStatement(&query.PreparedStatement{
 		Name:       canonicalName,
 		Query:      stmt.Query,
 		ParamTypes: stmt.ParamTypes,
-	})
+	}, currentGeneration)
 
 	return canonicalName, nil
 }

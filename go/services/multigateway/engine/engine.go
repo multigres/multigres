@@ -95,6 +95,15 @@ type PlanExecInfo struct {
 	// ALL and is released only at the connection's real teardown.
 	SetSeed bool
 
+	// DDLTargetRelations lists the schema-qualified tables this statement can
+	// change the shape of (see ast.DDLTargetRelations), computed once at plan
+	// build time since it depends only on the static statement text. Set by
+	// planDefault for ALTER TABLE / DROP TABLE / RENAME; nil for anything
+	// else. Forwarded to the multipooler so it can invalidate any prepared
+	// statement it has cached against these tables once this statement
+	// executes successfully.
+	DDLTargetRelations []string
+
 	// Exchange is a per-execution channel for handing runtime-computed data from
 	// one primitive in a Sequence to a later sibling (e.g. ValidateSetting →
 	// ApplySessionState). Sequence creates one per execution and threads the same

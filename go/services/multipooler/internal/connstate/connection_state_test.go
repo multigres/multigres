@@ -33,7 +33,7 @@ func TestConnectionStateClose(t *testing.T) {
 	state := NewConnectionStateWithSettings(NewSettings(map[string]string{"timezone": "UTC"}, 1))
 	state.Close()
 	assert.Nil(t, state.GetSettings())
-	assert.Nil(t, state.PreparedStatements)
+	assert.Nil(t, state.preparedStatements)
 }
 
 func TestConnectionStateNilReceiverSafe(t *testing.T) {

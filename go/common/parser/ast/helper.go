@@ -14,6 +14,8 @@
 
 package ast
 
+import "strings"
+
 // IsBeginStatement returns true if the statement is a BEGIN or START TRANSACTION.
 func IsBeginStatement(stmt Stmt) bool {
 	txStmt, ok := stmt.(*TransactionStmt)
@@ -111,6 +113,77 @@ func ExtractTablesUsed(stmt Stmt) []string {
 	}
 
 	return tables
+}
+
+// DDLTargetRelations returns the deduplicated, schema-qualified table names a
+// DDL statement targets, for the subset of DDL that can change a table's
+// result shape (column count, names, or types) as observed through
+// PostgreSQL's prepared-plan result-type check: ALTER TABLE, DROP TABLE, and
+// ALTER TABLE ... RENAME (table or column rename). Returns nil for anything
+// else, including DDL that targets non-table objects (ALTER INDEX, DROP
+// FUNCTION, ...) or can't affect a table's shape (CREATE TABLE, COMMENT ON,
+// ...).
+//
+// This is intentionally narrow rather than "every DDL statement type": the
+// only thing a caller does with the result is decide which cached prepared
+// statements to invalidate, so a DDL type that provably cannot change what a
+// SELECT against the table returns doesn't need to be recognized here.
+func DDLTargetRelations(stmt Stmt) []string {
+	switch n := stmt.(type) {
+	case *AlterTableStmt:
+		if n.Objtype != OBJECT_TABLE || n.Relation == nil {
+			return nil
+		}
+		return relationNames(n.Relation)
+	case *RenameStmt:
+		// RenameType == OBJECT_TABLE is "ALTER TABLE t RENAME TO t2" (the
+		// table itself); RelationType == OBJECT_TABLE is "ALTER TABLE t
+		// RENAME COLUMN a TO b" (renaming something within the table, tagged
+		// via RelationType rather than RenameType — see postgres.y's
+		// RenameStmt productions).
+		if n.Relation == nil || (n.RenameType != OBJECT_TABLE && n.RelationType != OBJECT_TABLE) {
+			return nil
+		}
+		return relationNames(n.Relation)
+	case *DropStmt:
+		if n.RemoveType != OBJECT_TABLE || n.Objects == nil {
+			return nil
+		}
+		var names []string
+		for _, obj := range n.Objects.Items {
+			nameList, ok := obj.(*NodeList)
+			if !ok {
+				continue
+			}
+			var parts []string
+			for _, part := range nameList.Items {
+				s, ok := part.(*String)
+				if !ok {
+					continue
+				}
+				parts = append(parts, s.SVal)
+			}
+			if len(parts) > 0 {
+				names = append(names, strings.Join(parts, "."))
+			}
+		}
+		return names
+	default:
+		return nil
+	}
+}
+
+// relationNames returns rv's schema-qualified name as a single-element slice,
+// matching ExtractTablesUsed's naming convention.
+func relationNames(rv *RangeVar) []string {
+	if rv.RelName == "" {
+		return nil
+	}
+	name := rv.RelName
+	if rv.SchemaName != "" {
+		name = rv.SchemaName + "." + name
+	}
+	return []string{name}
 }
 
 // MaxParamRef returns the highest parameter number ($N) referenced anywhere in

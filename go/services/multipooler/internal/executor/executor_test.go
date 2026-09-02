@@ -1610,9 +1610,12 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 
 	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
 	assert.Equal(t, "EXPLAIN EXECUTE ppstmt0 ( 2 )", sql2)
-	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"))
-	assert.Nil(t, conn.State().GetPreparedStatement("stmt0"))
-	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
+	_, _, ok := conn.State().GetPreparedStatement("ppstmt0")
+	assert.True(t, ok)
+	_, _, ok = conn.State().GetPreparedStatement("stmt0")
+	assert.False(t, ok)
+	_, _, ok = conn.State().GetPreparedStatement("stmt99")
+	assert.False(t, ok)
 }
 
 func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
