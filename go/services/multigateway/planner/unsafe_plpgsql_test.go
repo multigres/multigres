@@ -447,12 +447,13 @@ func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
 	}
 
 	reject := map[string]string{
-		"%s fed by lower(param)":       `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
-		"%s fed by bare param":         `CREATE FUNCTION f(d text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
-		"positional %1$s fed by param": `CREATE FUNCTION f(p text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT %1$s', p); END $$ LANGUAGE plpgsql`,
-		"%s fed by CASE without ELSE":  `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' END; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"injected set_config via %s":   `DO $$ DECLARE d text; BEGIN d := 'x); SELECT set_config(''work_mem'',''1GB'',false'; EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', d); END $$`,
-		"%s var tainted by INTO":       `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"%s fed by lower(param)":         `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"%s fed by bare param":           `CREATE FUNCTION f(d text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"positional %1$s fed by param":   `CREATE FUNCTION f(p text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT %1$s', p); END $$ LANGUAGE plpgsql`,
+		"%s fed by CASE without ELSE":    `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' END; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"injected set_config via %s":     `DO $$ DECLARE d text; BEGIN d := 'x); SELECT set_config(''work_mem'',''1GB'',false'; EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', d); END $$`,
+		"%s var tainted by INTO":         `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"%s var NULL-empty exposes call": `DO $$ DECLARE d text; BEGIN IF true THEN d := '-- '; END IF; EXECUTE format('SELECT 1 WHERE id = 1 %s AND (SELECT set_config(''work_mem'',''1gb'',false)) IS NOT NULL', d); END $$`,
 	}
 	for name, sql := range reject {
 		t.Run("reject/"+name, func(t *testing.T) {

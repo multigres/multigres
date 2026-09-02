@@ -1186,7 +1186,13 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 			}
 			out = append(out, vals...)
 		}
-		return out, true
+		// The collection is flow-insensitive, so we cannot prove any assignment
+		// dominates this use: on a path that skips them the variable is still NULL,
+		// which format() renders as an empty %s. Include "" so that empty-substitution
+		// variant is enumerated and re-analyzed — otherwise a value that comments out
+		// or neutralizes a trailing blocked call (e.g. `d := '-- '`) would be checked
+		// safe while the NULL path exposes the call at runtime.
+		return append(out, ""), true
 	}
 	return nil, false
 }
