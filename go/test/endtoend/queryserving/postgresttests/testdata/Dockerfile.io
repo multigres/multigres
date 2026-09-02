@@ -97,4 +97,10 @@ RUN printf '%s\n' \
       > /usr/local/bin/run-io \
     && chmod +x /usr/local/bin/run-io
 
+# Run as a non-root user (mirrors Dockerfile.spec). The suite only reads the
+# world-readable source under /src and writes to /tmp (the shim's pgconn.env and
+# pytest's tempfiles), so no ownership changes are needed.
+RUN useradd --create-home iouser
+USER iouser
+
 ENTRYPOINT ["/usr/local/bin/run-io"]
