@@ -183,9 +183,334 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 		return mterrors.NewFeatureNotSupported(
 			"the PL/pgSQL body is empty or malformed and cannot be run through the connection pooler")
 	}
-	w := &bodyWalker{}
-	plpgsqlast.Rewrite(fn, w.visit, nil)
+	w := &bodyWalker{resolver: collectVarAssignments(fn)}
+	plpgsqlast.Rewrite(fn, w.visit, w.leave)
 	return w.err
+}
+
+// varResolver backs the intra-body dataflow that lets a bare-variable EXECUTE
+// payload (`EXECUTE v` / `RETURN QUERY EXECUTE v`) be checked when v was built
+// by safe assignments earlier in the body — e.g. `v := format('… %I …', c)` or
+// `v := 'SELECT … ' || '… LIMIT $1'`. PostgreSQL's own guidance (and the newer
+// supabase storage migrations) assemble a query into a text variable and then
+// EXECUTE it; without following the assignment we would reject every such body.
+//
+// Collection is deliberately NOT flow-sensitive, which keeps acceptance sound:
+// we only accept `EXECUTE v` when EVERY assignment to v anywhere in the body
+// reduces to a safe skeleton, so whatever v holds at execution time is one of
+// those proven-safe values. A variable written by any form we cannot reduce to
+// a skeleton — a SELECT/EXECUTE … INTO target, a loop variable, FETCH INTO, GET
+// DIAGNOSTICS, or a non-simple (subscripted / field) assignment target — is
+// "tainted" and its bare-variable EXECUTE is rejected, fail-closed.
+//
+// The soundness argument only holds for a variable whose ENTIRE value history is
+// visible in the body: a DECLARE-section local that is in lexical scope at the
+// EXECUTE. Two ways a name can hold a value we do not see, both handled here:
+//
+//   - A function parameter (or OUT parameter, or an ALIAS for one) enters the body
+//     already holding the caller's value, so a body that assigns it only
+//     conditionally — `IF cond THEN q := 'safe' END IF; EXECUTE q` — would execute
+//     the caller's arbitrary q on the false path. Parameters are never DECLARE'd,
+//     so a name that is not in scope at the EXECUTE is treated as unresolvable.
+//   - A name declared only in a SIBLING or NESTED sub-block is a different variable
+//     from an outer name of the same spelling; trusting it would let that block's
+//     safe assignment vouch for an outer-scope parameter of the same name. Scope is
+//     tracked with a stack the walker pushes on block entry and pops on exit, so a
+//     name resolves only when an ENCLOSING block declares it.
+//
+// The assignment set itself stays flat (collected by name across the whole body).
+// That is sound because a same-named variable in another scope can only ADD
+// assignments to the set, and resolveExecuteVar requires EVERY assignment to be
+// safe — extra ones can only cause a (sound) rejection, never vouch for an unsafe
+// value. A DECLARE initializer (`DECLARE v text := <expr>`) is itself one of the
+// values the variable can hold, so it is folded into the assignment set and
+// analyzed like any `:=` — an initializer built from a parameter is rejected just
+// as a body assignment from a parameter would be.
+type varResolver struct {
+	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
+	tainted   map[string]bool                       // names written by a form we cannot reduce
+	scopes    []map[string]bool                     // lexical scope stack of in-scope DECLARE'd locals
+	resolving map[string]bool                       // names on the current resolution stack (cycle guard)
+}
+
+// collectVarAssignments walks the whole function body once, recording every
+// simple `:=` assignment (and every DECLARE initializer) and tainting every
+// variable written by a form whose value we cannot prove (INTO targets, loop
+// variables, FETCH, GET DIAGNOSTICS, non-simple assignment targets, INOUT/OUT
+// arguments of a CALL). Declaration NAMES are not recorded here — lexical scope is
+// tracked by the walker instead (see bodyWalker.visit/leave). See varResolver for
+// the soundness argument.
+func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
+	r := &varResolver{
+		assigns:   map[string][]*plpgsqlast.PLpgSQL_expr{},
+		tainted:   map[string]bool{},
+		resolving: map[string]bool{},
+	}
+	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
+		switch n := cursor.Node().(type) {
+		case *plpgsqlast.PLpgSQL_stmt_block:
+			// A DECLARE initializer is one of the values the variable can hold, so
+			// fold it into the assignment set like a body `:=`. Names are recorded
+			// for every block regardless of nesting; the walker's scope stack is what
+			// decides whether a name is in scope at a given EXECUTE.
+			for _, d := range n.Decls {
+				switch decl := d.(type) {
+				case *plpgsqlast.PLpgSQL_var:
+					r.recordDefault(decl.Refname, decl.DefaultVal)
+				case *plpgsqlast.PLpgSQL_rec:
+					r.recordDefault(decl.Refname, decl.DefaultVal)
+				}
+			}
+		case *plpgsqlast.PLpgSQL_stmt_call:
+			// CALL proc(v) can write an INOUT/OUT argument, so a variable passed as
+			// a bare identifier argument may hold arbitrary text afterwards. We
+			// cannot tell IN from INOUT/OUT without a catalog lookup, so we taint
+			// every simple-identifier argument, fail-closed. Because taint is
+			// flow-insensitive, a body that overwrites the variable on every path
+			// AFTER the CALL and before the EXECUTE is conservatively rejected too;
+			// proving that safe needs order-aware analysis we do not have yet.
+			r.taintCallArgs(n.Expr)
+		case *plpgsqlast.PLpgSQL_stmt_assign:
+			if name, ok := simpleIdent(n.Target); ok {
+				r.assigns[name] = append(r.assigns[name], n.Expr)
+			} else {
+				// A subscripted or field target (`arr[i] := …`, `rec.f := …`) is
+				// not a plain scalar holding a query string; taint its base.
+				r.taint(n.Target)
+			}
+		case *plpgsqlast.PLpgSQL_stmt_execsql:
+			if n.Into {
+				r.taintList(n.Target)
+			}
+		case *plpgsqlast.PLpgSQL_stmt_dynexecute:
+			if n.Into {
+				r.taintList(n.Target)
+			}
+		case *plpgsqlast.PLpgSQL_stmt_fetch:
+			r.taintList(n.Target)
+		case *plpgsqlast.PLpgSQL_stmt_fori:
+			r.taint(n.Var)
+		case *plpgsqlast.PLpgSQL_stmt_fors:
+			r.taint(n.Var)
+		case *plpgsqlast.PLpgSQL_stmt_dynfors:
+			r.taint(n.Var)
+		case *plpgsqlast.PLpgSQL_stmt_foreach_a:
+			r.taint(n.Var)
+		case *plpgsqlast.PLpgSQL_stmt_getdiag:
+			for _, d := range n.DiagItems {
+				r.taint(d.Target)
+			}
+		}
+		return true
+	}, nil)
+	return r
+}
+
+// resolveExecuteVar checks a bare-variable EXECUTE payload by reducing every
+// assignment to the named variable. Returns nil only when the variable is
+// untainted, has at least one assignment, and all of them reduce to a safe
+// skeleton (recursing through `w := v` chains, with a cycle guard). Any other
+// case returns the same rejection an irreducible inline payload would.
+func (r *varResolver) resolveExecuteVar(name string) error {
+	reject := dynamicExecuteRejection()
+	if !r.resolvable(name) {
+		return reject
+	}
+	exprs, ok := r.assigns[name]
+	if !ok || len(exprs) == 0 {
+		return reject
+	}
+	if r.resolving[name] {
+		return reject // self-referential build (e.g. v := v || …): cannot fix the structure
+	}
+	r.resolving[name] = true
+	defer delete(r.resolving, name)
+	for _, e := range exprs {
+		if e == nil || strings.TrimSpace(e.Query) == "" {
+			return reject
+		}
+		if err := analyzeDynamicExecute(e, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// taint marks name (reduced to its base identifier) as written by a form whose
+// value we cannot prove safe. A blank or non-identifier name is ignored.
+func (r *varResolver) taint(name string) {
+	if base, ok := baseIdent(name); ok {
+		r.tainted[base] = true
+	}
+}
+
+// taintList taints each comma-separated name in an INTO/FETCH target list.
+func (r *varResolver) taintList(list string) {
+	for part := range strings.SplitSeq(list, ",") {
+		r.taint(part)
+	}
+}
+
+// pushScope enters a block, recording the plain scalar/record/row locals it
+// declares as a new lexical scope. An ALIAS (a body-local name for a `$n`
+// parameter) is intentionally not recorded: it resolves to a caller-supplied
+// argument and must stay unresolvable like any bare parameter.
+func (r *varResolver) pushScope(decls []plpgsqlast.Datum) {
+	scope := map[string]bool{}
+	for _, d := range decls {
+		var name string
+		switch decl := d.(type) {
+		case *plpgsqlast.PLpgSQL_var:
+			name = decl.Refname
+		case *plpgsqlast.PLpgSQL_rec:
+			name = decl.Refname
+		case *plpgsqlast.PLpgSQL_row:
+			name = decl.Refname
+		}
+		if name = strings.TrimSpace(name); name != "" {
+			scope[name] = true
+		}
+	}
+	r.scopes = append(r.scopes, scope)
+}
+
+// popScope leaves the innermost block.
+func (r *varResolver) popScope() {
+	if len(r.scopes) > 0 {
+		r.scopes = r.scopes[:len(r.scopes)-1]
+	}
+}
+
+// inScope reports whether name is DECLARE'd in the current block or any enclosing
+// one — i.e. it is a local whose whole value history is visible at this point,
+// not a function parameter or a variable from a sibling/nested scope. The stack
+// only ever holds enclosing scopes, so any match means in scope (order does not
+// matter for this membership check).
+func (r *varResolver) inScope(name string) bool {
+	for _, scope := range r.scopes {
+		if scope[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// recordDefault treats a DECLARE initializer (`DECLARE v text := <expr>`) as one
+// of the values the variable can hold, exactly like a body `:=` assignment, so a
+// variable initialized from an unprovable expression (e.g. a parameter) is not
+// silently trusted when only a later conditional assignment looks safe.
+func (r *varResolver) recordDefault(name string, def *plpgsqlast.PLpgSQL_expr) {
+	if def == nil {
+		return
+	}
+	if name = strings.TrimSpace(name); name != "" {
+		r.assigns[name] = append(r.assigns[name], def)
+	}
+}
+
+// resolvable reports whether a bare-variable EXECUTE payload named `name` may be
+// resolved from its in-body assignments. It must be a local in scope at this point
+// (so its whole value history is visible) and not tainted by an unprovable write.
+func (r *varResolver) resolvable(name string) bool {
+	return r.inScope(name) && !r.tainted[name]
+}
+
+// taintCallArgs parses a CALL/DO statement's text and taints every argument that
+// is a bare identifier, since such an argument can be an INOUT/OUT target the
+// callee rewrites. A DO block (no CallStmt) or an unparseable payload taints
+// nothing here — the statement is still analyzed for policy by the body walker.
+func (r *varResolver) taintCallArgs(e *plpgsqlast.PLpgSQL_expr) {
+	if e == nil {
+		return
+	}
+	stmts, err := parser.ParseSQL(e.Query)
+	if err != nil {
+		return
+	}
+	for _, st := range stmts {
+		call, ok := st.(*ast.CallStmt)
+		if !ok || call.Funccall == nil || call.Funccall.Args == nil {
+			continue
+		}
+		for _, arg := range call.Funccall.Args.Items {
+			if named, ok := arg.(*ast.NamedArgExpr); ok {
+				arg = named.Arg
+			}
+			if ref, ok := arg.(*ast.ColumnRef); ok {
+				if name, ok := columnRefName(ref); ok {
+					r.tainted[name] = true
+				}
+			}
+		}
+	}
+}
+
+// columnRefName returns the lower-cased name of a single-identifier ColumnRef
+// (a bare `v`), or ("", false) for anything qualified or non-trivial.
+func columnRefName(ref *ast.ColumnRef) (string, bool) {
+	if ref.Fields == nil || ref.Fields.Len() != 1 {
+		return "", false
+	}
+	s, ok := ref.Fields.Items[0].(*ast.String)
+	if !ok {
+		return "", false
+	}
+	return s.SVal, true
+}
+
+// simpleIdent returns the name if s is a single unqualified, unsubscripted
+// identifier (the only assignment-target shape we track as a clean scalar), else
+// ("", false). The name is returned verbatim: the scanner has already applied
+// PostgreSQL's identifier folding (unquoted → lower-cased, quoted → case
+// preserved), so re-folding here would conflate a quoted `"Q"` with a `q`.
+func simpleIdent(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isFirst := i == 0
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c == '_':
+		case !isFirst && (c >= '0' && c <= '9'):
+		default:
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// baseIdent returns the leading identifier of s (the base variable of a possibly
+// qualified/subscripted target like `rec.f` or `arr[i]`), or ("", false) if s
+// does not begin with an identifier character. As in simpleIdent, the name is
+// already folded by the scanner and must not be re-folded.
+func baseIdent(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	end := 0
+	for end < len(s) {
+		c := s[end]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' ||
+			(end > 0 && c >= '0' && c <= '9') {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return "", false
+	}
+	return s[:end], true
+}
+
+// bareVarName returns the name of a bare-variable EXECUTE payload (a payload
+// that is exactly one unqualified identifier, e.g. `v_query`), or ("", false).
+func bareVarName(exprText string) (string, bool) {
+	ref, ok := executeArgExpr(exprText).(*ast.ColumnRef)
+	if !ok {
+		return "", false
+	}
+	return columnRefName(ref)
 }
 
 // bodyWalker analyzes every embedded SQL fragment in a PL/pgSQL body. Rewrite
@@ -207,6 +532,9 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 // forgotten child would go unanalyzed, so those are covered by tests.
 type bodyWalker struct {
 	err error
+	// resolver traces variable assignments so a bare-variable EXECUTE payload
+	// can be checked against the expressions the variable can hold.
+	resolver *varResolver
 }
 
 func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
@@ -214,6 +542,11 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		return false
 	}
 	switch n := cursor.Node().(type) {
+	case *plpgsqlast.PLpgSQL_stmt_block:
+		// Entering a block opens a new lexical scope; leave() pops it. Descend
+		// generically so the block body is analyzed as usual.
+		w.resolver.pushScope(n.Decls)
+		return true
 	case *plpgsqlast.PLpgSQL_stmt_perform:
 		// PERFORM's text is an expression PG runs as `SELECT <expr>` (our port
 		// drops the substituted SELECT); this is where we know to add it back
@@ -261,6 +594,16 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		// above, so a DEFAULT fragment reaching this point is a real statement.
 		w.fragment(n)
 		return true
+	}
+	return true
+}
+
+// leave is the post-order callback: it pops the lexical scope opened by a block in
+// visit. Blocks always descend generically (visit returns true for them), so every
+// pushed scope is popped here, keeping the stack balanced.
+func (w *bodyWalker) leave(cursor *plpgsqlast.Cursor) bool {
+	if _, ok := cursor.Node().(*plpgsqlast.PLpgSQL_stmt_block); ok {
+		w.resolver.popScope()
 	}
 	return true
 }
@@ -325,17 +668,19 @@ func (w *bodyWalker) dynamic(e *plpgsqlast.PLpgSQL_expr) {
 	if w.err != nil || e == nil || strings.TrimSpace(e.Query) == "" {
 		return
 	}
-	w.err = analyzeDynamicExecute(e)
+	w.err = analyzeDynamicExecute(e, w.resolver)
 }
 
 // statements re-descends into a nested statement list (a dynamic FOR loop body)
-// that the parent's `return false` excluded from the generic traversal.
+// that the parent's `return false` excluded from the generic traversal. It passes
+// w.leave so any blocks in that list push and pop scopes in balance, just as the
+// top-level traversal does.
 func (w *bodyWalker) statements(list []plpgsqlast.Stmt) {
 	for _, st := range list {
 		if w.err != nil {
 			return
 		}
-		plpgsqlast.Rewrite(st, w.visit, nil)
+		plpgsqlast.Rewrite(st, w.visit, w.leave)
 	}
 }
 
@@ -381,7 +726,7 @@ const (
 //     query value) can inject arbitrary statement text, so it cannot be proven
 //     safe and is rejected — matching how a non-literal set_config argument is
 //     rejected at the top level.
-func analyzeDynamicExecute(e *plpgsqlast.PLpgSQL_expr) error {
+func analyzeDynamicExecute(e *plpgsqlast.PLpgSQL_expr, res *varResolver) error {
 	if literal, ok := dynamicExecuteLiteral(e.Query); ok {
 		return analyzeDynamicStatementText(literal)
 	}
@@ -399,6 +744,25 @@ func analyzeDynamicExecute(e *plpgsqlast.PLpgSQL_expr) error {
 		}
 		return nil
 	}
+	// A top-level format() whose %s holes are fed by constrained constants: the
+	// strict path above rejects %s, but here we enumerate the finite set of
+	// statements it can produce and analyze each. See analyzeConstrainedFormatExecute.
+	if err, handled := analyzeConstrainedFormatExecute(e.Query, res); handled {
+		return err
+	}
+	// The payload is a bare variable (`EXECUTE v`): if we can prove every value
+	// v can hold is itself a safe skeleton, the EXECUTE is safe. See varResolver.
+	if res != nil {
+		if name, ok := bareVarName(e.Query); ok {
+			return res.resolveExecuteVar(name)
+		}
+	}
+	return dynamicExecuteRejection()
+}
+
+// dynamicExecuteRejection is the rejection for an EXECUTE payload whose
+// statement structure cannot be proven constant.
+func dynamicExecuteRejection() error {
 	return mterrors.NewFeatureNotSupported(
 		"EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: " +
 			"the statement text is not a constant, so it cannot be checked for unsafe session-state changes")
@@ -534,11 +898,28 @@ func reduceSafeFormat(fc *ast.FuncCall, sb *strings.Builder, values *[]ast.Node)
 	return true
 }
 
+// formatArgPosition parses an optional `n$` positional prefix of a format
+// conversion starting at f[i] (i points just past the '%'). It returns the index
+// past the prefix, the 1-based argument number n, and whether a prefix was
+// present. In the strict skeleton n is unused (%I/%L quote whichever argument
+// they name); the constrained-%s path uses it to pick the referenced argument.
+func formatArgPosition(f string, i int) (next, n int, ok bool) {
+	j := i
+	for j < len(f) && f[j] >= '0' && f[j] <= '9' {
+		n = n*10 + int(f[j]-'0')
+		j++
+	}
+	if j > i && j < len(f) && f[j] == '$' {
+		return j + 1, n, true
+	}
+	return i, 0, false
+}
+
 // expandFormatSkeleton writes format()'s constant skeleton to sb, replacing each
 // conversion: %% -> %, %I -> a placeholder identifier, %L -> a placeholder
-// literal. Any other conversion — notably %s (raw text substitution) and the
-// width/positional specs we do not model — makes the structure non-constant, so
-// it returns false.
+// literal, including the positional forms %n$I / %n$L. Any other conversion —
+// notably %s (raw text substitution) and width specs — makes the structure
+// non-constant, so it returns false.
 func expandFormatSkeleton(f string, sb *strings.Builder) bool {
 	for i := 0; i < len(f); i++ {
 		if f[i] != '%' {
@@ -548,6 +929,12 @@ func expandFormatSkeleton(f string, sb *strings.Builder) bool {
 		i++
 		if i >= len(f) {
 			return false
+		}
+		if ni, _, ok := formatArgPosition(f, i); ok {
+			i = ni
+			if i >= len(f) {
+				return false
+			}
 		}
 		switch f[i] {
 		case '%':
@@ -563,6 +950,253 @@ func expandFormatSkeleton(f string, sb *strings.Builder) bool {
 	return true
 }
 
+// maxFormatVariants bounds the constrained-%s enumeration so a body with many
+// %s holes cannot blow up the analysis. Beyond it we fall through to rejection.
+const maxFormatVariants = 64
+
+// analyzeConstrainedFormatExecute handles an EXECUTE payload that is a single
+// top-level format() call whose %s conversions are fed by constrained constants
+// (a string literal, a CASE whose results are all string literals, or a variable
+// proven to hold only such values). Unlike the strict reduceSafeExpr path — which
+// rejects %s outright because %s substitutes raw text — this expands the finite
+// set of concrete statements the format can produce and analyzes each as a static
+// statement, so an injected constant is still caught by re-analysis. It is scoped
+// to a top-level format() (not one nested in a `||` chain) to keep the fixed
+// skeleton single-valued outside the enumerated holes.
+//
+// Returns (err, true) when it owns the decision (the payload is such a format()
+// with all %s constrained); (nil, false) to let the caller fall through to the
+// normal rejection. res may be nil, in which case only literal/CASE-of-literal
+// %s args qualify (no variable resolution).
+//
+// Like reduceSafeExpr, the format() call is matched by unqualified name, so the
+// same KNOWN LIMITATION applies: a tenant that shadows pg_catalog.format (via
+// search_path or an exact-signature overload) makes the plan-time expansion of
+// the concrete statements meaningless. Closing it needs the catalog/search_path
+// resolution the analyzer does not have. Accepted as-is; see reduceSafeExpr.
+func analyzeConstrainedFormatExecute(exprText string, res *varResolver) (error, bool) {
+	fc, ok := executeArgExpr(exprText).(*ast.FuncCall)
+	if !ok || bareFuncName(fc.Funcname) != "format" {
+		return nil, false
+	}
+	variants, values, ok := reduceConstrainedFormat(fc, res)
+	if !ok {
+		return nil, false
+	}
+	// Every concrete statement the format can produce must pass the body policy.
+	for _, skel := range variants {
+		if err := analyzeDynamicStatementText(skel); err != nil {
+			return err, true
+		}
+	}
+	// The interpolated %I/%L values must themselves be call-safe (same as the
+	// strict skeleton path): a value expression must not reach a blocklisted
+	// function or change session state when evaluated.
+	for _, v := range values {
+		if err := analyzeDynamicStatementText("SELECT " + v.SqlString()); err != nil {
+			return err, true
+		}
+	}
+	return nil, true
+}
+
+// reduceConstrainedFormat expands a format() call into the finite set of concrete
+// statement skeletons it can produce. %I/%L become the usual placeholders; %s
+// becomes each constant value its argument can hold (constStringValues). Returns
+// the enumerated skeletons, the interpolated value expressions (for call-safety
+// analysis), and ok=false if the format string is non-constant, uses an
+// unsupported conversion/positional spec, consumes more arguments than supplied,
+// or has a %s whose value set is not a bounded constant set.
+func reduceConstrainedFormat(fc *ast.FuncCall, res *varResolver) (variants []string, values []ast.Node, ok bool) {
+	if fc.Args == nil || fc.Args.Len() < 1 {
+		return nil, nil, false
+	}
+	fmtConst, isConst := fc.Args.Items[0].(*ast.A_Const)
+	if !isConst || fmtConst.Isnull {
+		return nil, nil, false
+	}
+	fmtStr, isStr := fmtConst.Val.(*ast.String)
+	if !isStr {
+		return nil, nil, false
+	}
+
+	f := fmtStr.SVal
+	// prefix accumulates fixed text and %I/%L placeholders; each %s closes the
+	// current prefix, records the hole's value set, and starts a new prefix.
+	var prefix strings.Builder
+	var literalChunks []string // text before each %s hole, then a trailing chunk
+	var svalSets [][]string    // constant value sets, one per %s hole
+	argIdx := 1
+	combos := 1
+	for i := 0; i < len(f); i++ {
+		if f[i] != '%' {
+			prefix.WriteByte(f[i])
+			continue
+		}
+		i++
+		if i >= len(f) {
+			return nil, nil, false
+		}
+		// A conversion may name its argument positionally (%n$I). When it does, the
+		// referenced argument is Items[n] rather than the next sequential one, and
+		// the sequential counter is not advanced (PostgreSQL forbids mixing the two
+		// styles). Otherwise the argument is the next sequential one.
+		arg := argIdx
+		positional := false
+		if ni, n, ok := formatArgPosition(f, i); ok {
+			i = ni
+			if i >= len(f) {
+				return nil, nil, false
+			}
+			arg = n
+			positional = true
+		}
+		if f[i] != '%' && (arg < 1 || arg >= fc.Args.Len()) {
+			return nil, nil, false
+		}
+		switch f[i] {
+		case '%':
+			prefix.WriteByte('%')
+		case 'I':
+			prefix.WriteString(dynSkeletonIdent)
+			if !positional {
+				argIdx++
+			}
+		case 'L':
+			prefix.WriteString(dynSkeletonLiteral)
+			if !positional {
+				argIdx++
+			}
+		case 's':
+			vals, constrained := constStringValues(fc.Args.Items[arg], res, map[string]bool{})
+			if !positional {
+				argIdx++
+			}
+			if !constrained || len(vals) == 0 {
+				return nil, nil, false
+			}
+			combos *= len(vals)
+			if combos > maxFormatVariants {
+				return nil, nil, false
+			}
+			literalChunks = append(literalChunks, prefix.String())
+			prefix.Reset()
+			svalSets = append(svalSets, vals)
+		default:
+			// Width or any other conversion we do not model.
+			return nil, nil, false
+		}
+	}
+	literalChunks = append(literalChunks, prefix.String())
+
+	variants = enumerateFormatVariants(literalChunks, svalSets)
+	// Collect every argument as a value for call-safety, matching reduceSafeFormat.
+	for i := 1; i < fc.Args.Len(); i++ {
+		values = append(values, fc.Args.Items[i])
+	}
+	return variants, values, true
+}
+
+// enumerateFormatVariants builds every concrete skeleton from the fixed literal
+// chunks (len == len(svalSets)+1) interleaved with one value drawn from each
+// %s hole's constant set — the Cartesian product across holes.
+func enumerateFormatVariants(literalChunks []string, svalSets [][]string) []string {
+	variants := []string{literalChunks[0]}
+	for hole, set := range svalSets {
+		next := make([]string, 0, len(variants)*len(set))
+		for _, base := range variants {
+			for _, val := range set {
+				next = append(next, base+val+literalChunks[hole+1])
+			}
+		}
+		variants = next
+	}
+	return variants
+}
+
+// constStringValues returns the finite set of constant string values a format
+// %s argument can take, or ok=false if that set cannot be bounded. It accepts a
+// string literal, a CASE whose every branch (including a required ELSE) is such
+// a value, and — when res is non-null — a variable proven untainted and assigned
+// only such values. visited guards against assignment cycles. Because callers
+// substitute each returned value and re-analyze the result, a hostile constant
+// is still caught; the only requirement here is that the set be complete.
+func constStringValues(node ast.Node, res *varResolver, visited map[string]bool) ([]string, bool) {
+	switch n := unwrapTypeCast(node).(type) {
+	case *ast.A_Const:
+		if n.Isnull {
+			return nil, false
+		}
+		if s, ok := n.Val.(*ast.String); ok {
+			return []string{s.SVal}, true
+		}
+		return nil, false
+	case *ast.CaseExpr:
+		// Require an ELSE so the value set is total (no implicit NULL branch).
+		if n.Defresult == nil || n.Args == nil {
+			return nil, false
+		}
+		var out []string
+		for _, item := range n.Args.Items {
+			when, ok := item.(*ast.CaseWhen)
+			if !ok {
+				return nil, false
+			}
+			vals, ok := constStringValues(when.Result, res, visited)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, vals...)
+		}
+		vals, ok := constStringValues(n.Defresult, res, visited)
+		if !ok {
+			return nil, false
+		}
+		return append(out, vals...), true
+	case *ast.ColumnRef:
+		if res == nil || n.Fields == nil || n.Fields.Len() != 1 {
+			return nil, false
+		}
+		s, ok := n.Fields.Items[0].(*ast.String)
+		if !ok {
+			return nil, false
+		}
+		name := s.SVal
+		if !res.resolvable(name) || visited[name] {
+			return nil, false
+		}
+		exprs, ok := res.assigns[name]
+		if !ok || len(exprs) == 0 {
+			return nil, false
+		}
+		visited[name] = true
+		defer delete(visited, name)
+		var out []string
+		for _, e := range exprs {
+			if e == nil {
+				return nil, false
+			}
+			target := executeArgExpr(e.Query)
+			if target == nil {
+				return nil, false
+			}
+			vals, ok := constStringValues(target, res, visited)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, vals...)
+		}
+		// The collection is flow-insensitive, so we cannot prove any assignment
+		// dominates this use: on a path that skips them the variable is still NULL,
+		// which format() renders as an empty %s. Include "" so that empty-substitution
+		// variant is enumerated and re-analyzed — otherwise a value that comments out
+		// or neutralizes a trailing blocked call (e.g. `d := '-- '`) would be checked
+		// safe while the NULL path exposes the call at runtime.
+		return append(out, ""), true
+	}
+	return nil, false
+}
+
 // operatorName returns an A_Expr's unqualified operator name, or "".
 func operatorName(nl *ast.NodeList) string {
 	if nl == nil || nl.Len() != 1 {
@@ -575,8 +1209,11 @@ func operatorName(nl *ast.NodeList) string {
 	return s.SVal
 }
 
-// bareFuncName returns a FuncCall's unqualified, lower-cased name, or "" if the
-// name is schema-qualified (not a trusted pg_catalog builtin for our purposes).
+// bareFuncName returns a FuncCall's unqualified name, or "" if the name is
+// schema-qualified (not a trusted pg_catalog builtin for our purposes). The name
+// is returned as the parser folded it — unquoted `FORMAT` is already "format",
+// while quoted `"FORMAT"` stays "FORMAT" and so will NOT match the trusted
+// lower-case builtin names, which is correct: `"FORMAT"` is a different function.
 func bareFuncName(nl *ast.NodeList) string {
 	if nl == nil || nl.Len() != 1 {
 		return ""
@@ -585,7 +1222,7 @@ func bareFuncName(nl *ast.NodeList) string {
 	if !ok {
 		return ""
 	}
-	return strings.ToLower(s.SVal)
+	return s.SVal
 }
 
 // dynamicExecuteLiteral returns the constant string an EXECUTE argument reduces
