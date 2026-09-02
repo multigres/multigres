@@ -23,14 +23,14 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonDirectConnection
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonUnsafeConnection
 
 // StickyReasons are the reasons that survive DISCARD ALL and hold the backend
 // pinned until the connection's real teardown, because PostgreSQL has no command
 // that undoes their effect. Unlike every other reason, they are not cleared by
 // DISCARD ALL; the release path keeps the connection reserved while any of them
 // remains (see ReleaseReservedConnection's keepStickyReservations handling).
-const StickyReasons = ReasonSetSeed | ReasonDirectConnection
+const StickyReasons = ReasonSetSeed | ReasonUnsafeConnection
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -79,7 +79,7 @@ const (
 	// reproducible sequence silently changing mid-use).
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
 
-	// ReasonDirectConnection indicates the connection is running in direct connection
+	// ReasonUnsafeConnection indicates the connection is running as an unsafe connection
 	// (the per-connection opt-out that suppresses the unsafe-statement
 	// rejections). Such a connection may run statements that change untracked
 	// backend session state, so its backend must never be returned to the shared
@@ -88,7 +88,7 @@ const (
 	// survives DISCARD ALL and is released only at the connection's real
 	// teardown, where — unlike setseed — the tainted backend is discarded rather
 	// than returned to the pool.
-	ReasonDirectConnection = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_DIRECT_CONNECTION) // 256
+	ReasonUnsafeConnection = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_UNSAFE_CONNECTION) // 256
 )
 
 // StatementLocalReasons are the reasons a single statement adds for its own
@@ -150,10 +150,10 @@ func HasSetSeedReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonSetSeed)
 }
 
-// HasDirectConnectionReason returns true if the reasons bitmask includes an
-// direct-connection pin.
-func HasDirectConnectionReason(reasons uint32) bool {
-	return HasReason(reasons, ReasonDirectConnection)
+// HasUnsafeConnectionReason returns true if the reasons bitmask includes an
+// unsafe-connection pin.
+func HasUnsafeConnectionReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonUnsafeConnection)
 }
 
 // HasStickyReason returns true if the reasons bitmask includes any reason that
@@ -249,8 +249,8 @@ func ReasonsString(reasons uint32) string {
 	if HasSetSeedReason(reasons) {
 		parts = append(parts, "set_seed")
 	}
-	if HasDirectConnectionReason(reasons) {
-		parts = append(parts, "direct_connection")
+	if HasUnsafeConnectionReason(reasons) {
+		parts = append(parts, "unsafe_connection")
 	}
 	if len(parts) == 0 {
 		return "unknown"

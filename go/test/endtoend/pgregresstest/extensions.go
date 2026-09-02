@@ -234,9 +234,9 @@ type ExternalExtension struct {
 	// fixture files (see the pgtap spec below).
 	ExcludeGlobs []string
 
-	// DirectConnectionGlobs (pgTAP) names test files, matched against the path
+	// UnsafeConnectionGlobs (pgTAP) names test files, matched against the path
 	// relative to TestSubdir, that must run with the connection opted into
-	// direct connection (a per-connection opt-out) instead of
+	// unsafe connection (a per-connection opt-out) instead of
 	// under the enforcing default. Unlike ExcludeGlobs (a test dropped because it
 	// isn't a reliable signal), these tests DO pass on stock postgres and DO
 	// exercise the extension for real; they only fail through the enforcing
@@ -249,9 +249,9 @@ type ExternalExtension struct {
 	// mismatch). Real pg_partman usage is unaffected — create_parent /
 	// run_maintenance are installed at CREATE EXTENSION time and their internal
 	// dynamic SQL never passes through the gateway's body analysis. Running just
-	// these files with direct connection lets them run in full while every other
+	// these files with unsafe connection lets them run in full while every other
 	// file keeps exercising the rejections. See runExternalPgTAP.
-	DirectConnectionGlobs []string
+	UnsafeConnectionGlobs []string
 
 	// PreseedFile, when non-empty, names a SQL file (its key in externalPreseeds,
 	// backed by an embed under testdata/pg<major>/external/) run directly on the
@@ -577,8 +577,8 @@ var externalSpecs = map[string]ExternalExtension{
 		// analysis, and ON_ERROR_STOP then aborts the whole file mid-plan (they
 		// pass 221/221 on stock postgres but stop at 167/221 through the enforcing
 		// gateway). They exercise pg_partman for real, so run them on a direct
-		// connection rather than dropping them — see DirectConnectionGlobs.
-		DirectConnectionGlobs: []string{
+		// connection rather than dropping them — see UnsafeConnectionGlobs.
+		UnsafeConnectionGlobs: []string{
 			"test-time-daily.sql",
 			"test-text-time-daily.sql",
 			"test-time-gap-fill.sql",

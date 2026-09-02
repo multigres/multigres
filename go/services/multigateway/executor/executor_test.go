@@ -280,17 +280,17 @@ func TestPortalStreamExecute_CacheHitOnRepeatedPortal(t *testing.T) {
 	assert.Equal(t, int32(2), mock.portalStreamExecuteCalls.Load())
 }
 
-// TestPortalStreamExecute_DirectConnectionNotCached is the regression guard for
-// the cross-protocol plan-cache poisoning vector. A direct connection's plan is
+// TestPortalStreamExecute_UnsafeConnectionNotCached is the regression guard for
+// the cross-protocol plan-cache poisoning vector. A unsafe connection's plan is
 // built with the unsafe-statement rejections suppressed, so it must never enter
 // the shared, database-wide plan cache: otherwise a normal connection could
 // receive it as a cache hit and run a blocklisted call the planner would reject
 // (SELECT pg_read_file(...) — an LFI/SSRF bypass). The extended-protocol
-// resolvePortalPlan must exclude direct connections just as resolvePlan does.
+// resolvePortalPlan must exclude unsafe connections just as resolvePlan does.
 //
 // Uses the doorkeeper-disabled test cache (newTestExecutor) so admission is
 // deterministic — the same reason this cannot be verified reliably end-to-end.
-func TestPortalStreamExecute_DirectConnectionNotCached(t *testing.T) {
+func TestPortalStreamExecute_UnsafeConnectionNotCached(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
 	defer exec.planCache.Close()
@@ -305,21 +305,21 @@ func TestPortalStreamExecute_DirectConnectionNotCached(t *testing.T) {
 	_, err := exec.PortalStreamExecute(ctx, testConn(), nil, makePortalInfo(t, sql), 0, false, noopCallback)
 	require.Error(t, err, "blocklisted call must be rejected on an enforcing connection")
 
-	// A direct connection accepts and executes it. Absent the guard, its plan is
+	// A unsafe connection accepts and executes it. Absent the guard, its plan is
 	// put into the shared cache here.
-	direct := server.NewTestConn(&bytes.Buffer{}, server.WithTestDirectConnection()).Conn
+	direct := server.NewTestConn(&bytes.Buffer{}, server.WithTestUnsafeConnection()).Conn
 	res, err := exec.PortalStreamExecute(ctx, direct, nil, makePortalInfo(t, sql), 0, false, noopCallback)
-	require.NoError(t, err, "direct connection must accept the blocklisted call")
-	assert.False(t, res.CacheHit, "a direct connection must never serve from or populate the shared cache")
+	require.NoError(t, err, "unsafe connection must accept the blocklisted call")
+	assert.False(t, res.CacheHit, "an unsafe connection must never serve from or populate the shared cache")
 
 	// theine processes writes asynchronously; give any (erroneous) write time to land.
 	time.Sleep(50 * time.Millisecond)
 
 	// The crux: a normal connection running the same statement must STILL be
-	// rejected — the direct connection's accepted plan must not have poisoned the
+	// rejected — the unsafe connection's accepted plan must not have poisoned the
 	// shared cache.
 	_, err = exec.PortalStreamExecute(ctx, testConn(), nil, makePortalInfo(t, sql), 0, false, noopCallback)
-	require.Error(t, err, "direct-connection plan must not be cached for a normal connection")
+	require.Error(t, err, "unsafe-connection plan must not be cached for a normal connection")
 	assert.Contains(t, err.Error(), "pg_read_file is not supported")
 }
 

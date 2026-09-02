@@ -508,11 +508,12 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
-	// multigres.direct_connection is a gateway-only connect-time property, not a
+	// multigres.unsafe_connection is a gateway-only connect-time property, not a
 	// backend GUC. Extract and strip it here so it never reaches a backend (it
 	// would be rejected as unrecognized) and does not trip the restricted-GUC
-	// vetting below. A truthy value latches direct connection for the connection.
-	if err := c.extractDirectConnectionParam(); err != nil {
+	// vetting below. A truthy value latches unsafe connection for the connection.
+	// The deprecated alias multigres.direct_connection is handled the same way.
+	if err := c.extractUnsafeConnectionParam(); err != nil {
 		return err
 	}
 
@@ -550,26 +551,31 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	return c.authenticate()
 }
 
-// extractDirectConnectionParam pulls multigres.direct_connection
-// (constants.DirectConnectionParam) out of the startup parameters and, if
-// truthy, latches direct connection for the connection. It removes the key so it
-// never flows to a backend or trips the restricted-GUC vetting. A malformed
-// Boolean value is a FATAL startup error, matching how PostgreSQL rejects a bad
-// Boolean GUC. Enabling direct connection is not gated on a role privilege — see
-// Conn.directConnection.
-func (c *Conn) extractDirectConnectionParam() error {
-	value, ok := c.params[constants.DirectConnectionParam]
-	if !ok {
-		return nil
-	}
-	delete(c.params, constants.DirectConnectionParam)
-	on, valid := sqltypes.ParseBool(value)
-	if !valid {
-		return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidParameterValue,
-			fmt.Sprintf("parameter %q requires a Boolean value", constants.DirectConnectionParam), "")
-	}
-	if on {
-		c.directConnection = true
+// extractUnsafeConnectionParam pulls multigres.unsafe_connection
+// (constants.UnsafeConnectionParam) — and its deprecated alias
+// multigres.direct_connection (constants.DirectConnectionParam) — out of the
+// startup parameters and, if truthy, latches unsafe connection for the
+// connection. It removes the keys so they never flow to a backend or trip the
+// restricted-GUC vetting. A malformed Boolean value is a FATAL startup error,
+// matching how PostgreSQL rejects a bad Boolean GUC. Enabling unsafe connection
+// is not gated on a role privilege — see Conn.unsafeConnection.
+func (c *Conn) extractUnsafeConnectionParam() error {
+	// Recognize the current name and the deprecated alias. Both are stripped so
+	// neither reaches a backend; either being truthy latches the connection.
+	for _, name := range []string{constants.UnsafeConnectionParam, constants.DirectConnectionParam} {
+		value, ok := c.params[name]
+		if !ok {
+			continue
+		}
+		delete(c.params, name)
+		on, valid := sqltypes.ParseBool(value)
+		if !valid {
+			return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("parameter %q requires a Boolean value", name), "")
+		}
+		if on {
+			c.unsafeConnection = true
+		}
 	}
 	return nil
 }
