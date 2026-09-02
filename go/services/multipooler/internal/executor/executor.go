@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -1239,18 +1240,36 @@ func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName s
 }
 
 // cachedPlanRetry runs op against canonicalName and heals a stale cached
-// plan transparently. If a DDL changed the result type of the cached plan,
-// PostgreSQL returns 0A000 "cached plan must not change result type" — on
-// Bind/Execute, and on a bare statement Describe too (for any statement that
-// returns rows: exec_describe_statement_message calls
-// CachedPlanGetTargetList, which calls RevalidateCachedQuery, just like
-// Bind does). Because prepared statements are shared by canonical name
-// across every caller of this connection, no caller can recover just by
-// re-preparing under its own name (that maps right back to the same stale
-// backend statement), so this closes the stale backend statement, drops the
-// per-connection cache entry, re-Parses against the current schema, and
-// retries once. 0A000 is raised during plan revalidation, before any row is
-// streamed, so retrying is safe.
+// plan when the connection is still able to run a retry. If a DDL changed
+// the result type of the cached plan, PostgreSQL returns 0A000 "cached plan
+// must not change result type" — on Bind/Execute, and on a bare statement
+// Describe too (for any statement that returns rows:
+// exec_describe_statement_message calls CachedPlanGetTargetList, which calls
+// RevalidateCachedQuery, just like Bind does).
+//
+// Because prepared statements are shared by canonical name across every
+// caller of this connection, no caller can recover just by re-preparing
+// under its own name (that maps right back to the same stale backend
+// statement), so on 0A000 this always closes the stale backend statement —
+// PostgreSQL's Close ('C') protocol message has no aborted-transaction
+// guard, unlike Describe/Bind, since it's handled directly rather than
+// routed through the SQL executor — and drops the per-connection cache
+// entry. Without this, whoever next tries this canonical name on this
+// connection would either wrongly trust the stale entry (if only the local
+// bookkeeping were dropped) or collide with "prepared statement already
+// exists" on its next Parse (if only the backend statement were closed).
+//
+// The retry itself only happens if the connection is still usable
+// afterward. A stale plan invalidated while running inside an explicit
+// transaction leaves that transaction itself unusable — PostgreSQL fails
+// every subsequent command with "transaction is aborted" once any statement
+// in it errors, so a caller in that state cannot retry in place no matter
+// what multipooler does; retrying would only trade the diagnosable 0A000
+// for that opaque secondary error. TxnStatusFailed is exactly this case
+// (never seen except after an error inside an explicit transaction); the
+// original 0A000 is preserved instead, and the caller has to deal with it
+// the same way it would deal with any other error inside that transaction —
+// by rolling back and retrying the transaction as a whole.
 //
 // A free function rather than a method: Go methods cannot have type
 // parameters, and op's result type (bool for Bind/Execute,
@@ -1268,6 +1287,10 @@ func cachedPlanRetry[T any](
 	if err != nil && mterrors.IsCachedPlanError(err) {
 		_ = conn.CloseStatement(ctx, canonicalName)
 		conn.State().DeletePreparedStatement(canonicalName)
+
+		if conn.TxnStatus() == protocol.TxnStatusFailed {
+			return result, err
+		}
 
 		var perr error
 		canonicalName, perr = e.ensurePrepared(ctx, conn, preparedStatement)
