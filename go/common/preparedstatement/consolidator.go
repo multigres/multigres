@@ -122,6 +122,13 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 		// prepared statement" (SQLSTATE 42601).
 		return nil, mterrors.NewParseError("cannot insert multiple commands into a prepared statement")
 	}
+	// Stamp the tables this statement's query references onto the proto so it
+	// rides through to multipooler unchanged (PreparedStatement is passed by
+	// pointer everywhere downstream, never rebuilt). Multipooler uses this to
+	// invalidate a cached prepared statement when a DDL statement changes one
+	// of these tables' shape, without needing to parse SQL itself.
+	ps.UsedTables = ast.ExtractTablesUsed(asts[0])
+
 	return &PreparedStatementInfo{
 		PreparedStatement: ps,
 		astStruct:         asts[0],

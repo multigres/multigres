@@ -39,6 +39,19 @@ func TestConsolidator_AddAndGetPreparedStatement(t *testing.T) {
 	require.Equal(t, psi, psi2)
 }
 
+func TestConsolidator_AddPreparedStatement_StampsUsedTables(t *testing.T) {
+	consolidator := NewConsolidator()
+
+	psi, err := consolidator.AddPreparedStatement(1, "stmt1", "SELECT * FROM orders WHERE id = $1", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"orders"}, psi.UsedTables)
+
+	// A query that references no table (e.g. SELECT 1) carries no tables.
+	psi2, err := consolidator.AddPreparedStatement(1, "stmt2", "SELECT 1", nil)
+	require.NoError(t, err)
+	require.Empty(t, psi2.UsedTables)
+}
+
 func TestConsolidator_ConsolidatesDuplicateQueries(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID1 := uint32(1)

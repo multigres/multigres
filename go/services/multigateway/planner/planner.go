@@ -511,6 +511,7 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	}
 	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = execInfoFromOpts(opts)
+	plan.ExecInfo.DDLTargetRelations = ast.DDLTargetRelations(stmt)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),

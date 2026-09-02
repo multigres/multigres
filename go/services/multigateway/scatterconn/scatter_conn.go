@@ -246,6 +246,7 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 		PassthroughRow:              wantPassthroughRow(keepStructured),
+		DdlTargetRelations:          info.DDLTargetRelations,
 	}
 
 	ss := state.GetMatchingShardState(target)

@@ -968,13 +968,13 @@ type PreparedStatement struct {
 	// param_types contains the OIDs of the parameter types.
 	// This is sent by the client in the Parse message.
 	ParamTypes []uint32 `protobuf:"varint,3,rep,packed,name=param_types,json=paramTypes,proto3" json:"param_types,omitempty"`
-	// tables_used lists the schema-qualified tables this statement's query
+	// used_tables lists the schema-qualified tables this statement's query
 	// references, as computed by the gateway's own parse (see
 	// ast.ExtractTablesUsed). The multipooler uses this to invalidate a cached
 	// prepared statement when a DDL statement changes one of these tables'
 	// shape, without needing to parse SQL itself. Empty for statements that
 	// don't reference any table.
-	TablesUsed    []string `protobuf:"bytes,4,rep,name=tables_used,json=tablesUsed,proto3" json:"tables_used,omitempty"`
+	UsedTables    []string `protobuf:"bytes,4,rep,name=used_tables,json=usedTables,proto3" json:"used_tables,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1030,9 +1030,9 @@ func (x *PreparedStatement) GetParamTypes() []uint32 {
 	return nil
 }
 
-func (x *PreparedStatement) GetTablesUsed() []string {
+func (x *PreparedStatement) GetUsedTables() []string {
 	if x != nil {
-		return x.TablesUsed
+		return x.UsedTables
 	}
 	return nil
 }
@@ -1358,8 +1358,15 @@ type ExecuteOptions struct {
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
 	PassthroughRow bool `protobuf:"varint,8,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// ddl_target_relations lists the schema-qualified tables this statement can
+	// change the shape of, as computed by the gateway's own parse (see
+	// ast.DDLTargetRelations). Empty for anything that isn't DDL, or DDL that
+	// can't affect an existing prepared statement's result shape. When
+	// non-empty, the multipooler invalidates any prepared statement it has
+	// cached against these tables after this statement executes successfully.
+	DdlTargetRelations []string `protobuf:"bytes,9,rep,name=ddl_target_relations,json=ddlTargetRelations,proto3" json:"ddl_target_relations,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1446,6 +1453,13 @@ func (x *ExecuteOptions) GetPassthroughRow() bool {
 		return x.PassthroughRow
 	}
 	return false
+}
+
+func (x *ExecuteOptions) GetDdlTargetRelations() []string {
+	if x != nil {
+		return x.DdlTargetRelations
+	}
+	return nil
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1708,8 +1722,8 @@ const file_query_proto_rawDesc = "" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
 	"paramTypes\x12\x1f\n" +
-	"\vtables_used\x18\x04 \x03(\tR\n" +
-	"tablesUsed\"\xd4\x01\n" +
+	"\vused_tables\x18\x04 \x03(\tR\n" +
+	"usedTables\"\xd4\x01\n" +
 	"\x1bExecuteSqlPreparedStatement\x12G\n" +
 	"\x12prepared_statement\x18\x01 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12\x1d\n" +
 	"\n" +
@@ -1728,7 +1742,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x82\x04\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xb4\x04\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1737,7 +1751,8 @@ const file_query_proto_rawDesc = "" +
 	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
 	"\x14client_connection_id\x18\x06 \x01(\rR\x12clientConnectionId\x12g\n" +
 	"\x1eexecute_sql_prepared_statement\x18\a \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12'\n" +
-	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x1aB\n" +
+	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x120\n" +
+	"\x14ddl_target_relations\x18\t \x03(\tR\x12ddlTargetRelations\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
