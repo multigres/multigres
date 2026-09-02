@@ -1146,7 +1146,7 @@ func (e *Executor) portalExecuteWithReserved(
 		}
 		return reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
-	completed, _, err := e.bindExecuteWithCachedPlanRetry(ctx, reservedConn.Conn(), preparedStatement, canonicalName, bindExecute)
+	completed, err := cachedPlanRetry(ctx, e, reservedConn.Conn(), preparedStatement, canonicalName, bindExecute)
 	reservedConn.Conn().SetPassthroughRow(false)
 	if err != nil {
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, addedStatementLocal, err)
@@ -1238,10 +1238,13 @@ func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName s
 	return e.buildReservedState(reservedConn), wrapQueryError(err)
 }
 
-// bindExecuteWithCachedPlanRetry runs bindExecute against canonicalName and
-// heals a stale cached plan transparently. If a DDL changed the result type
-// of the cached plan, PostgreSQL returns 0A000 "cached plan must not change
-// result type". Because prepared statements are shared by canonical name
+// cachedPlanRetry runs op against canonicalName and heals a stale cached
+// plan transparently. If a DDL changed the result type of the cached plan,
+// PostgreSQL returns 0A000 "cached plan must not change result type" — on
+// Bind/Execute, and on a bare statement Describe too (for any statement that
+// returns rows: exec_describe_statement_message calls
+// CachedPlanGetTargetList, which calls RevalidateCachedQuery, just like
+// Bind does). Because prepared statements are shared by canonical name
 // across every caller of this connection, no caller can recover just by
 // re-preparing under its own name (that maps right back to the same stale
 // backend statement), so this closes the stale backend statement, drops the
@@ -1249,16 +1252,19 @@ func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName s
 // retries once. 0A000 is raised during plan revalidation, before any row is
 // streamed, so retrying is safe.
 //
-// Returns the canonical name actually used (unchanged unless healing
-// occurred) alongside bindExecute's own result.
-func (e *Executor) bindExecuteWithCachedPlanRetry(
+// A free function rather than a method: Go methods cannot have type
+// parameters, and op's result type (bool for Bind/Execute,
+// *query.StatementDescription for Describe) is the only thing that differs
+// between callers.
+func cachedPlanRetry[T any](
 	ctx context.Context,
+	e *Executor,
 	conn *regular.Conn,
 	preparedStatement *query.PreparedStatement,
 	canonicalName string,
-	bindExecute func(canonicalName string) (bool, error),
-) (bool, string, error) {
-	completed, err := bindExecute(canonicalName)
+	op func(canonicalName string) (T, error),
+) (T, error) {
+	result, err := op(canonicalName)
 	if err != nil && mterrors.IsCachedPlanError(err) {
 		_ = conn.CloseStatement(ctx, canonicalName)
 		conn.State().DeletePreparedStatement(canonicalName)
@@ -1266,40 +1272,12 @@ func (e *Executor) bindExecuteWithCachedPlanRetry(
 		var perr error
 		canonicalName, perr = e.ensurePrepared(ctx, conn, preparedStatement)
 		if perr != nil {
-			return false, canonicalName, perr
+			var zero T
+			return zero, perr
 		}
-		completed, err = bindExecute(canonicalName)
+		result, err = op(canonicalName)
 	}
-	return completed, canonicalName, err
-}
-
-// describeWithCachedPlanRetry is describe's counterpart to
-// bindExecuteWithCachedPlanRetry. PostgreSQL revalidates a prepared
-// statement's result shape on a bare statement Describe too, not just on
-// Bind/Execute — exec_describe_statement_message calls
-// CachedPlanGetTargetList, which calls RevalidateCachedQuery, for any
-// statement that returns rows — so a stale cached plan surfaces the same
-// 0A000 here. Heals it the same way: close the stale backend statement, drop
-// the per-connection cache entry, re-Parse, and retry once.
-func (e *Executor) describeWithCachedPlanRetry(
-	ctx context.Context,
-	conn *regular.Conn,
-	preparedStatement *query.PreparedStatement,
-	canonicalName string,
-	describe func(canonicalName string) (*query.StatementDescription, error),
-) (*query.StatementDescription, error) {
-	desc, err := describe(canonicalName)
-	if err != nil && mterrors.IsCachedPlanError(err) {
-		_ = conn.CloseStatement(ctx, canonicalName)
-		conn.State().DeletePreparedStatement(canonicalName)
-
-		canonicalName, err = e.ensurePrepared(ctx, conn, preparedStatement)
-		if err != nil {
-			return nil, err
-		}
-		desc, err = describe(canonicalName)
-	}
-	return desc, err
+	return result, err
 }
 
 // portalExecuteWithRegular executes a portal using a regular pooled connection.
@@ -1346,7 +1324,7 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, err
 	}
 
-	_, _, err = e.bindExecuteWithCachedPlanRetry(ctx, conn.Conn, preparedStatement, canonicalName, bindExecute)
+	_, err = cachedPlanRetry(ctx, e, conn.Conn, preparedStatement, canonicalName, bindExecute)
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
@@ -1491,7 +1469,7 @@ func (e *Executor) Describe(
 	}
 
 	// Both branches below heal a stale cached plan the same way the
-	// execute paths do (bindExecuteWithCachedPlanRetry): PostgreSQL
+	// execute paths do (cachedPlanRetry): PostgreSQL
 	// revalidates a prepared statement's result shape on Describe too, not
 	// just Bind/Execute, so a DDL that invalidated the canonical statement
 	// since this connection last prepared it surfaces the same 0A000 here.
@@ -1503,7 +1481,7 @@ func (e *Executor) Describe(
 		paramFormats := int32ToInt16Slice(portal.ParamFormats)
 		resultFormats := int32ToInt16Slice(portal.ResultFormats)
 		params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-		desc, err := e.describeWithCachedPlanRetry(ctx, conn, preparedStatement, canonicalName, func(name string) (*query.StatementDescription, error) {
+		desc, err := cachedPlanRetry(ctx, e, conn, preparedStatement, canonicalName, func(name string) (*query.StatementDescription, error) {
 			return conn.BindAndDescribe(ctx, name, params, paramFormats, resultFormats)
 		})
 		if err != nil {
@@ -1517,7 +1495,7 @@ func (e *Executor) Describe(
 	}
 
 	// Describe prepared using canonical name
-	desc, err := e.describeWithCachedPlanRetry(ctx, conn, preparedStatement, canonicalName, func(name string) (*query.StatementDescription, error) {
+	desc, err := cachedPlanRetry(ctx, e, conn, preparedStatement, canonicalName, func(name string) (*query.StatementDescription, error) {
 		return conn.DescribePrepared(ctx, name)
 	})
 	if err != nil {

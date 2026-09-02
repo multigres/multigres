@@ -55,7 +55,7 @@ func TestBindExecuteWithCachedPlanRetry_HealsOnCachedPlanError(t *testing.T) {
 		return true, nil
 	}
 
-	completed, _, err := e.bindExecuteWithCachedPlanRetry(ctx, conn, stmt, canonicalName, bindExecute)
+	completed, err := cachedPlanRetry(ctx, e, conn, stmt, canonicalName, bindExecute)
 	require.NoError(t, err)
 	assert.True(t, completed)
 	assert.Equal(t, 2, calls, "must retry exactly once after healing")
@@ -79,7 +79,7 @@ func TestBindExecuteWithCachedPlanRetry_DoesNotRetryOtherErrors(t *testing.T) {
 		return false, unrelatedErr
 	}
 
-	_, _, err = e.bindExecuteWithCachedPlanRetry(ctx, conn, stmt, canonicalName, bindExecute)
+	_, err = cachedPlanRetry(ctx, e, conn, stmt, canonicalName, bindExecute)
 	require.ErrorIs(t, err, unrelatedErr)
 	assert.Equal(t, 1, calls, "must not retry an error that isn't a stale cached plan")
 }
@@ -110,7 +110,7 @@ func TestDescribeWithCachedPlanRetry_HealsOnCachedPlanError(t *testing.T) {
 		return wantDesc, nil
 	}
 
-	desc, err := e.describeWithCachedPlanRetry(ctx, conn, stmt, canonicalName, describe)
+	desc, err := cachedPlanRetry(ctx, e, conn, stmt, canonicalName, describe)
 	require.NoError(t, err)
 	assert.Same(t, wantDesc, desc)
 	assert.Equal(t, 2, calls, "must retry exactly once after healing")
@@ -134,7 +134,7 @@ func TestDescribeWithCachedPlanRetry_DoesNotRetryOtherErrors(t *testing.T) {
 		return nil, unrelatedErr
 	}
 
-	_, err = e.describeWithCachedPlanRetry(ctx, conn, stmt, canonicalName, describe)
+	_, err = cachedPlanRetry(ctx, e, conn, stmt, canonicalName, describe)
 	require.ErrorIs(t, err, unrelatedErr)
 	assert.Equal(t, 1, calls, "must not retry an error that isn't a stale cached plan")
 }
