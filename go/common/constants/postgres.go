@@ -155,6 +155,9 @@ const (
 	//     returns the SHOW-style display form, which is also what set_config
 	//     returns in the normalization probe, keeping comparisons
 	//     apples-to-apples.
+	//     Both pg_settings and current_setting are schema-qualified: pg_temp
+	//     is searched before pg_catalog for unqualified relation names, and a
+	//     client's search_path could shadow an unqualified function name.
 	//   - 'identity' rows: role and session_authorization are GUC_NO_SHOW_ALL —
 	//     they NEVER appear in pg_settings — so they are read explicitly.
 	//     current_setting('role') reports 'none' when no SET ROLE is in effect;
@@ -169,7 +172,7 @@ const (
 	// whose label does not contain it is undetectable — placeholder GUCs cannot
 	// be enumerated from SQL. The creation-time rejection gates remain the
 	// defense for that class.
-	SessionSourceProbeSQL = "SELECT name, current_setting(name), 'session' FROM pg_settings WHERE source = 'session'" +
+	SessionSourceProbeSQL = "SELECT name, pg_catalog.current_setting(name), 'session' FROM pg_catalog.pg_settings WHERE source = 'session'" +
 		" UNION ALL SELECT 'role', pg_catalog.current_setting('role'), 'identity'" +
 		" UNION ALL SELECT 'session_authorization', session_user::text, 'identity'"
 
