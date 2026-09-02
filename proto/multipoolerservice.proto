@@ -146,6 +146,14 @@ message StreamExecuteRequest {
   // When set with non-zero reasons, StreamExecute creates a new reserved connection
   // (or extends the reasons on an existing one if options.reserved_connection_id is set).
   query.ReservationOptions reservation_options = 5;
+
+  // ddl_target_relations lists the schema-qualified tables that query can
+  // change the shape of, as computed by the gateway's own parse (see
+  // ast.DDLTargetRelations). Empty for anything that isn't DDL, or DDL that
+  // can't affect an existing prepared statement's result shape. When
+  // non-empty, the multipooler invalidates any prepared statement it has
+  // cached against these tables after this statement executes successfully.
+  repeated string ddl_target_relations = 6;
 }
 
 // StreamExecuteResponse represents a single response in the stream of query results

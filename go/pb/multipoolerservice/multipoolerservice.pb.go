@@ -551,6 +551,13 @@ type StreamExecuteRequest struct {
 	// When set with non-zero reasons, StreamExecute creates a new reserved connection
 	// (or extends the reasons on an existing one if options.reserved_connection_id is set).
 	ReservationOptions *query.ReservationOptions `protobuf:"bytes,5,opt,name=reservation_options,json=reservationOptions,proto3" json:"reservation_options,omitempty"`
+	// ddl_target_relations lists the schema-qualified tables that query can
+	// change the shape of, as computed by the gateway's own parse (see
+	// ast.DDLTargetRelations). Empty for anything that isn't DDL, or DDL that
+	// can't affect an existing prepared statement's result shape. When
+	// non-empty, the multipooler invalidates any prepared statement it has
+	// cached against these tables after this statement executes successfully.
+	DdlTargetRelations []string `protobuf:"bytes,6,rep,name=ddl_target_relations,json=ddlTargetRelations,proto3" json:"ddl_target_relations,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -616,6 +623,13 @@ func (x *StreamExecuteRequest) GetOptions() *query.ExecuteOptions {
 func (x *StreamExecuteRequest) GetReservationOptions() *query.ReservationOptions {
 	if x != nil {
 		return x.ReservationOptions
+	}
+	return nil
+}
+
+func (x *StreamExecuteRequest) GetDdlTargetRelations() []string {
+	if x != nil {
+		return x.DdlTargetRelations
 	}
 	return nil
 }
@@ -2496,13 +2510,14 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\x7f\n" +
 	"\x14ExecuteQueryResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
-	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xfe\x01\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xb0\x02\n" +
 	"\x14StreamExecuteRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x04 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12J\n" +
-	"\x13reservation_options\x18\x05 \x01(\v2\x19.query.ReservationOptionsR\x12reservationOptions\"\x87\x01\n" +
+	"\x13reservation_options\x18\x05 \x01(\v2\x19.query.ReservationOptionsR\x12reservationOptions\x120\n" +
+	"\x14ddl_target_relations\x18\x06 \x03(\tR\x12ddlTargetRelations\"\x87\x01\n" +
 	"\x15StreamExecuteResponse\x121\n" +
 	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x12;\n" +
 	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xaf\x03\n" +

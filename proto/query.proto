@@ -283,6 +283,14 @@ message PreparedStatement {
   // param_types contains the OIDs of the parameter types.
   // This is sent by the client in the Parse message.
   repeated uint32 param_types = 3;
+
+  // tables_used lists the schema-qualified tables this statement's query
+  // references, as computed by the gateway's own parse (see
+  // ast.ExtractTablesUsed). The multipooler uses this to invalidate a cached
+  // prepared statement when a DDL statement changes one of these tables'
+  // shape, without needing to parse SQL itself. Empty for statements that
+  // don't reference any table.
+  repeated string tables_used = 4;
 }
 
 // ExecuteSqlPreparedStatement carries a SQL-level EXECUTE wrapper whose
