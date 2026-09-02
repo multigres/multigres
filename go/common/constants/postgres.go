@@ -142,6 +142,37 @@ const (
 	// released all of its advisory locks and the backend can be unpinned.
 	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
 
+	// SessionSourceProbeSQL is the session-state probe run by the multipooler
+	// scrubber. It reads the backend's real session GUC state in one
+	// round trip and compares it against the connection's tracked settings label.
+	// Three sources are combined, because pg_settings alone cannot see everything
+	// (verified on PostgreSQL 17):
+	//
+	//   - 'session' rows: pg_settings WHERE source = 'session' — every defined
+	//     GUC whose current value was installed by this session (SET,
+	//     set_config(..., false), including any hidden inside routine bodies).
+	//     current_setting() is used instead of pg_settings.setting because it
+	//     returns the SHOW-style display form, which is also what set_config
+	//     returns in the normalization probe, keeping comparisons
+	//     apples-to-apples.
+	//   - 'identity' rows: role and session_authorization are GUC_NO_SHOW_ALL —
+	//     they NEVER appear in pg_settings — so they are read explicitly.
+	//     current_setting('role') reports 'none' when no SET ROLE is in effect;
+	//     session_user is the current session authorization.
+	//   - 'custom' rows: placeholder GUCs (names with a dot, e.g. 'my.tenant')
+	//     are also hidden from pg_settings until an extension defines them, so
+	//     every custom name in the tracked label is read explicitly with
+	//     current_setting(name, missing_ok := true), which returns NULL when the
+	//     session has never seen the GUC.
+	//
+	// Known blind spot: a custom GUC set behind tracking's back on a connection
+	// whose label does not contain it is undetectable — placeholder GUCs cannot
+	// be enumerated from SQL. The creation-time rejection gates remain the
+	// defense for that class.
+	SessionSourceProbeSQL = "SELECT name, current_setting(name), 'session' FROM pg_settings WHERE source = 'session'" +
+		" UNION ALL SELECT 'role', pg_catalog.current_setting('role'), 'identity'" +
+		" UNION ALL SELECT 'session_authorization', session_user::text, 'identity'"
+
 	// RestoreCommandPIDFile is the filename (joined onto the pooler directory)
 	// that `pgctld restore-wrapper` writes its own PID to, so pgctld's
 	// StopRestoreCommand RPC can check liveness or signal it. Shared between

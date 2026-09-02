@@ -321,9 +321,8 @@ func (s *Settings) ApplyQuery() string {
 
 	// Build apply query using set_config() for correct list GUC handling.
 	for _, k := range keys {
-		appendStmt("SELECT pg_catalog.set_config('" +
-			strings.ReplaceAll(k, "'", "''") + "', '" +
-			strings.ReplaceAll(s.Vars[k], "'", "''") + "', false)")
+		appendStmt("SELECT pg_catalog.set_config(" + ast.QuoteStringLiteral(k) + ", " +
+			ast.QuoteStringLiteral(s.Vars[k]) + ", false)")
 	}
 
 	if v, ok := s.Vars["session_authorization"]; ok {

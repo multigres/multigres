@@ -139,7 +139,9 @@ func TestScrubDivergentConnInSettingsStack(t *testing.T) {
 	assert.EqualValues(t, 1, pool.Active())
 }
 
-func TestScrubProbeErrorKeepsLiveConn(t *testing.T) {
+func TestScrubProbeErrorReplacesLiveConn(t *testing.T) {
+	// A probe failure leaves the backend unverified; a client could induce
+	// one deliberately to hide state, so the scrubber fails closed.
 	pool := newScrubTestPool(t, 2, nil)
 	conn := recycleIdle(t, pool, nil)
 	conn.verifyErr = errors.New("probe timeout")
@@ -147,14 +149,70 @@ func TestScrubProbeErrorKeepsLiveConn(t *testing.T) {
 	cursor := 0
 	assert.True(t, pool.scrubOne(&cursor))
 
-	assert.False(t, conn.IsClosed(), "a live conn is not punished for a probe failure")
+	assert.True(t, conn.IsClosed(), "an unverified conn is replaced")
 	assert.EqualValues(t, 1, pool.Metrics.ScrubErrorCount())
 	assert.EqualValues(t, 0, pool.Metrics.ScrubDivergentCount())
+	assert.EqualValues(t, 1, pool.Active(), "slot freed and replaced")
 
 	pooled, err := pool.Get(context.Background())
 	require.NoError(t, err)
-	assert.Same(t, conn, pooled.Conn)
+	assert.NotSame(t, conn, pooled.Conn)
 	pooled.Recycle()
+}
+
+// funcChecker runs an arbitrary closure as a ConnChecker.
+type funcChecker func(ctx context.Context, m *scrubMockConnection) (Divergence, error)
+
+func (funcChecker) Name() string { return "func" }
+func (f funcChecker) Check(ctx context.Context, m *scrubMockConnection) (Divergence, error) {
+	return f(ctx, m)
+}
+
+func TestScrubCountsHeldConnAsBorrowed(t *testing.T) {
+	// While a probe is in flight the connection is neither idle nor
+	// available; Available and the idle-limit math must reflect that.
+	pool := newScrubTestPool(t, 2, nil)
+	recycleIdle(t, pool, nil)
+
+	var during int64 = -1
+	pool.RegisterChecker(funcChecker(func(context.Context, *scrubMockConnection) (Divergence, error) {
+		during = pool.Available()
+		return Divergence{}, nil
+	}))
+
+	cursor := 0
+	assert.True(t, pool.scrubOne(&cursor))
+	assert.EqualValues(t, 1, during, "held conn is not available mid-probe")
+	assert.EqualValues(t, 2, pool.Available(), "released after the probe")
+	assert.EqualValues(t, 0, pool.InUse())
+}
+
+func TestScrubCloseCancelsInFlightProbe(t *testing.T) {
+	// Close must not wait out a slow probe: cancelling the scrub context
+	// aborts it and the freed connection is closed by the drain.
+	pool := newScrubTestPool(t, 2, nil)
+	recycleIdle(t, pool, nil)
+
+	probing := make(chan struct{})
+	pool.RegisterChecker(funcChecker(func(ctx context.Context, _ *scrubMockConnection) (Divergence, error) {
+		close(probing)
+		<-ctx.Done()
+		return Divergence{}, ctx.Err()
+	}))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cursor := 0
+		pool.scrubOne(&cursor)
+	}()
+	<-probing
+
+	start := time.Now()
+	pool.Close()
+	assert.Less(t, time.Since(start), time.Second, "close waited on the probe")
+	<-done
+	assert.EqualValues(t, 0, pool.Active())
 }
 
 func TestScrubProbeErrorOnDeadConnReplaces(t *testing.T) {

@@ -571,7 +571,13 @@ divergence, closes it and eagerly opens a replacement into the same slot
 (eager because a freed slot cannot wake a waitlisted client). Divergent
 backends are always replaced, never reconciled: divergence means tracking
 was bypassed, and what a checker observes is only part of what the untracked
-code may have done.
+code may have done. A probe that fails or times out is treated the same way:
+an unverified backend may still carry hidden state, and a client could
+induce probe failures deliberately, so the scrubber fails closed and
+replaces it (churn is bounded to one connection per tick). While a probe is
+in flight the held connection counts as borrowed, so `Available` and the
+idle-limit math stay accurate; pool close cancels the scrub context before
+draining, so a slow probe never delays shutdown.
 
 Checkers implement `connpool.ConnChecker` (`Name` + `Check`) and are
 registered on a pool before `Open`; checkers only detect, the scrubber acts.

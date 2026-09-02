@@ -184,6 +184,11 @@ type Pool[C Connection] struct {
 	// ctx is the context used for background pool operations
 	ctx context.Context
 
+	// scrubCtx is derived from ctx on open and cancelled by CloseWithContext
+	// before it drains, so an in-flight scrub probe cannot delay shutdown.
+	scrubCtx    context.Context
+	scrubCancel context.CancelFunc
+
 	config struct {
 		// connect is the callback to create a new connection for the pool
 		connect Connector[C]
@@ -301,6 +306,8 @@ func (pool *Pool[C]) open() {
 		return
 	}
 	pool.capacity.Store(pool.config.maxCapacity)
+	//nolint:gosec // G118: scrubCancel is called by CloseWithContext before draining.
+	pool.scrubCtx, pool.scrubCancel = context.WithCancel(pool.ctx)
 	pool.setIdleCount()
 
 	// The expire worker takes care of removing from the waiter list any clients whose
@@ -397,6 +404,9 @@ func (pool *Pool[C]) CloseWithContext(ctx context.Context) error {
 		// already closed
 		return nil
 	}
+
+	// Abort any in-flight scrub probe so the drain below does not wait on it.
+	pool.scrubCancel()
 
 	// Set capacity to 0 and close all idle connections immediately
 	_ = pool.setCapacity(0)

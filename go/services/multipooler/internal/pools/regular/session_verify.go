@@ -20,54 +20,29 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
 
-// The session-state probe reads the backend's real session GUC state in one
-// round trip and compares it against the connection's tracked settings label.
-// Three sources are combined, because pg_settings alone cannot see everything
-// (verified on PostgreSQL 17):
-//
-//   - 'session' rows: pg_settings WHERE source = 'session' — every defined
-//     GUC whose current value was installed by this session (SET,
-//     set_config(..., false), including any hidden inside routine bodies).
-//     current_setting() is used instead of pg_settings.setting because it
-//     returns the SHOW-style display form, which is also what set_config
-//     returns in the normalization probe, keeping comparisons
-//     apples-to-apples.
-//   - 'identity' rows: role and session_authorization are GUC_NO_SHOW_ALL —
-//     they NEVER appear in pg_settings — so they are read explicitly.
-//     current_setting('role') reports 'none' when no SET ROLE is in effect;
-//     session_user is the current session authorization.
-//   - 'custom' rows: placeholder GUCs (names with a dot, e.g. 'my.tenant')
-//     are also hidden from pg_settings until an extension defines them, so
-//     every custom name in the tracked label is read explicitly with
-//     current_setting(name, missing_ok := true), which returns NULL when the
-//     session has never seen the GUC.
-//
-// Known blind spot: a custom GUC set behind tracking's back on a connection
-// whose label does not contain it is undetectable — placeholder GUCs cannot
-// be enumerated from SQL. The creation-time rejection gates remain the
-// defense for that class.
-const sessionSourceProbe = "SELECT name, current_setting(name), 'session' FROM pg_settings WHERE source = 'session'" +
-	" UNION ALL SELECT 'role', pg_catalog.current_setting('role'), 'identity'" +
-	" UNION ALL SELECT 'session_authorization', session_user::text, 'identity'"
+// The probe SQL is constants.SessionSourceProbeSQL; see its documentation for
+// the three sources it combines and its known blind spot.
 
 // sessionStateQuery returns the probe SQL, extending the constant part with
 // one 'custom' row per tracked placeholder GUC. customNames must be sorted
-// for deterministic SQL. Single quotes are escaped by doubling, as in
-// Settings.ApplyQuery.
+// for deterministic SQL. Literals are quoted with ast.QuoteStringLiteral so
+// they are safe regardless of the backend's standard_conforming_strings.
 func sessionStateQuery(customNames []string) string {
 	var b strings.Builder
-	b.WriteString(sessionSourceProbe)
+	b.WriteString(constants.SessionSourceProbeSQL)
 	for _, name := range customNames {
-		escaped := strings.ReplaceAll(name, "'", "''")
-		b.WriteString(" UNION ALL SELECT '")
-		b.WriteString(escaped)
-		b.WriteString("', pg_catalog.current_setting('")
-		b.WriteString(escaped)
-		b.WriteString("', true), 'custom'")
+		lit := ast.QuoteStringLiteral(name)
+		b.WriteString(" UNION ALL SELECT ")
+		b.WriteString(lit)
+		b.WriteString(", pg_catalog.current_setting(")
+		b.WriteString(lit)
+		b.WriteString(", true), 'custom'")
 	}
 	return b.String()
 }
@@ -272,18 +247,20 @@ func (c *Conn) confirmValueMismatches(ctx context.Context, candidates []string, 
 
 	// Single autocommit statement: each set_config applies is_local := true,
 	// so every assignment reverts when the statement's implicit transaction
-	// ends. Single quotes are escaped by doubling, as in Settings.ApplyQuery.
+	// ends. Names and values are client-controlled: quote them with
+	// ast.QuoteStringLiteral so a backslash cannot break out of the literal
+	// under standard_conforming_strings=off.
 	var b strings.Builder
 	b.WriteString("SELECT n, pg_catalog.set_config(n, v, true) FROM (VALUES ")
 	for i, name := range candidates {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("('")
-		b.WriteString(strings.ReplaceAll(name, "'", "''"))
-		b.WriteString("', '")
-		b.WriteString(strings.ReplaceAll(tracked[name], "'", "''"))
-		b.WriteString("')")
+		b.WriteString("(")
+		b.WriteString(ast.QuoteStringLiteral(name))
+		b.WriteString(", ")
+		b.WriteString(ast.QuoteStringLiteral(tracked[name]))
+		b.WriteString(")")
 	}
 	b.WriteString(") AS t(n, v)")
 

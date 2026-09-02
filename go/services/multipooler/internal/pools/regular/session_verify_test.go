@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 )
@@ -149,6 +150,38 @@ func TestVerifySessionStateNormalizationEqual(t *testing.T) {
 	div, err := conn.VerifySessionState(context.Background())
 	require.NoError(t, err)
 	assert.False(t, div.IsDiverged())
+}
+
+func TestVerifySessionStateBackslashValueQuotedAsEscapeString(t *testing.T) {
+	// Tracked values are client-controlled. A backslash before a quote would
+	// break out of a quote-only-escaped literal under
+	// standard_conforming_strings=off, so the normalization probe must emit
+	// an E'...' literal with the backslash doubled.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptProbe(server, nil, append([][]any{
+		{"application_name", "x", "session"},
+	}, identityRows()...))
+	server.AddQuery(
+		`SELECT n, pg_catalog.set_config(n, v, true) FROM (VALUES ('application_name', E'a\\''; SELECT 1--')) AS t(n, v)`,
+		fakepgserver.MakeResult([]string{"n", "set_config"}, [][]any{{"application_name", "x"}}),
+	)
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	conn.State().SetSettings(connstate.NewSettings(map[string]string{"application_name": `a\'; SELECT 1--`}, 1))
+
+	div, err := conn.VerifySessionState(context.Background())
+	require.NoError(t, err)
+	assert.False(t, div.IsDiverged())
+}
+
+func TestSessionStateQueryQuotesCustomNames(t *testing.T) {
+	assert.Equal(t,
+		constants.SessionSourceProbeSQL+
+			` UNION ALL SELECT E'my\\''x', pg_catalog.current_setting(E'my\\''x', true), 'custom'`+
+			` UNION ALL SELECT 'my.tenant', pg_catalog.current_setting('my.tenant', true), 'custom'`,
+		sessionStateQuery([]string{`my\'x`, "my.tenant"}))
 }
 
 func TestVerifySessionStateValueMismatch(t *testing.T) {

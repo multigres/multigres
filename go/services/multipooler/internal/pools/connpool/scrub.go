@@ -32,8 +32,9 @@ import (
 // It is a sampler: it narrows the leak window and raises an alarm, but the
 // tracking gates remain the correctness boundary.
 
-// scrubProbeTimeout bounds one verification probe. Kept well under
-// PoolCloseTimeout so an in-flight probe cannot stall pool shutdown.
+// scrubProbeTimeout bounds one verification probe. Pool close cancels
+// pool.scrubCtx before draining, so an in-flight probe never stalls
+// shutdown; this timeout only bounds probes against a hung backend.
 const scrubProbeTimeout = 5 * time.Second
 
 // scrubStackCount is the number of idle stacks the scrubber rotates over:
@@ -70,8 +71,8 @@ func (pool *Pool[C]) scrubPop(stack *connStack[C]) (*Pooled[C], time.Duration) {
 // scrubOne runs every registered checker against one idle connection,
 // rotating the starting stack across calls so every bucket gets coverage. A
 // clean connection returns to the pool with its idle clock intact; a
-// divergent one is closed and replaced. The bool return keeps the runWorker
-// signature; it is always true.
+// divergent one, or one whose state could not be verified, is closed and
+// replaced. The bool return keeps the runWorker signature; it is always true.
 func (pool *Pool[C]) scrubOne(cursor *int) bool {
 	if pool.Capacity() == 0 || len(pool.checkers) == 0 {
 		return true
@@ -89,11 +90,14 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 	if conn == nil {
 		return true
 	}
+	// The scrubber holds the connection like a borrower, so Available and
+	// the idle-limit math stay accurate while the probe is in flight.
+	pool.borrowed.Add(1)
 
 	// Run every checker, collecting per-checker findings. A checker error
-	// means no verdict from that checker; findings already collected still
-	// count (fail closed). A dead connection ends the loop — later checkers
-	// cannot produce verdicts on it.
+	// ends the loop: the connection's state is unverified and it is replaced
+	// below (fail closed). A dead connection ends the loop too — later
+	// checkers cannot produce verdicts on it.
 	type finding struct {
 		checker string
 		div     Divergence
@@ -101,7 +105,7 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 	var findings []finding
 	var checkErr error
 	var errChecker string
-	ctx, cancel := context.WithTimeout(pool.ctx, scrubProbeTimeout)
+	ctx, cancel := context.WithTimeout(pool.scrubCtx, scrubProbeTimeout)
 	for _, checker := range pool.checkers {
 		div, err := checker.Check(ctx, conn.Conn)
 		if err != nil {
@@ -123,6 +127,7 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 		pool.Metrics.scrubErrors.Add(1)
 		pool.scrubMetrics.RecordError(pool.ctx, pool.poolType, errChecker)
 	}
+	pool.borrowed.Add(-1)
 
 	switch {
 	case len(findings) > 0:
@@ -143,18 +148,22 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 		conn.Close()
 		pool.closedConn()
 		pool.scrubReplace()
-	case conn.Conn.IsClosed():
-		// A check killed the connection (dead socket); free the slot and
-		// replace it, mirroring closeIdleResources.
+	case checkErr != nil || conn.Conn.IsClosed():
+		// No verdict: either a check killed the connection (dead socket) or a
+		// checker failed (timeout, probe error). An unverified backend may
+		// still carry hidden state, and a client could induce probe failures
+		// deliberately (e.g. a tiny tracked statement_timeout), so fail
+		// closed and replace it. Churn is bounded to one connection per
+		// scrub tick.
+		if checkErr != nil {
+			pool.logger.Warn("connection state check failed; replacing backend",
+				"pool", pool.Name, "checker", errChecker, "error", checkErr)
+		}
+		if !conn.Conn.IsClosed() {
+			conn.Close()
+		}
 		pool.closedConn()
 		pool.scrubReplace()
-	case checkErr != nil:
-		// A checker failed but the connection is alive (e.g. timeout);
-		// don't punish the connection for a probe problem.
-		pool.logger.Warn("connection state check failed",
-			"pool", pool.Name, "checker", errChecker, "error", checkErr)
-		conn.timeUsed.set(stamp)
-		pool.tryReturnConn(conn)
 	default:
 		conn.timeUsed.set(stamp)
 		pool.tryReturnConn(conn)
