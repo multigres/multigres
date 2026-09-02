@@ -60,6 +60,7 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	}
 
 	pool := connpool.NewPool[*Conn](ctx, config.ConnPoolConfig)
+	pool.RegisterChecker(SessionStateChecker{})
 
 	return &Pool{
 		pool:   pool,
@@ -70,6 +71,13 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 // Open opens the pool and starts background workers.
 // Must be called before using the pool.
 func (p *Pool) Open() {
+	// INVARIANT: connection bootstrap must not create session-source GUC
+	// state outside the settings label. Anything set up here must arrive via
+	// startup-packet parameters (source='client') or be reflected in the
+	// label the pool tracks — a bare SET/set_config issued during bootstrap
+	// would register as untracked divergence and make the scrubber replace
+	// every connection each sweep. The e2e scrubber test asserts zero
+	// divergence from normal traffic as the canary for this.
 	connector := func(ctx context.Context, poolCtx context.Context) (*Conn, error) {
 		conn, err := client.Connect(ctx, poolCtx, p.config.ClientConfig)
 		if err != nil {

@@ -428,8 +428,12 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 			ConnectTimeout:    userConnectTimeout,
 			ConnectionCount:   m.metrics.RegularConnCount(),
 			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			ScrubInterval:     m.config.SessionScrubInterval(),
+			ScrubMetrics:      m.metrics.ScrubMetrics(),
 			Logger:            m.logger,
 		},
+		// The reserved pool's underlying regular pool is where clean reserved
+		// releases land after relabeling, so it is scrubbed too.
 		ReservedPoolConfig: &connpool.Config{
 			Name:              "reserved:" + user,
 			PoolType:          "reserved",
@@ -439,6 +443,8 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 			ConnectTimeout:    userConnectTimeout,
 			ConnectionCount:   m.metrics.ReservedConnCount(),
 			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			ScrubInterval:     m.config.SessionScrubInterval(),
+			ScrubMetrics:      m.metrics.ScrubMetrics(),
 			Logger:            m.logger,
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
