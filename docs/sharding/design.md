@@ -1,10 +1,10 @@
 # Sharding: database-owned shards
 
-A database's data is split into **shards**. Shards are grouped into **table
-groups**; each table group belongs to one **database**, and each shard belongs
-to one table group. A shard is served by one **pooler cohort** (postgres + its
-multipoolers). Ownership runs top to bottom — a table group, its shards, and
-their poolers all belong to a single database.
+A database's data is split into **shards**. Each shard belongs to one **table
+group**, and each table group belongs to one **database**. A shard is served by
+one **pooler cohort** (postgres + its multipoolers). Ownership runs top to
+bottom — a table group, its shards, and their poolers all belong to a single
+database.
 
 ```text
 database ─┬─ table group ─┬─ shard ── pooler cohort (postgres + multipoolers)
@@ -15,7 +15,7 @@ database ─┬─ table group ─┬─ shard ── pooler cohort (postgres + 
 Placement is structural: a table's physical location is determined by its
 position in the `database → table group → shard` tree, and a pooler holds
 exactly one database's shard. Each pooler carries its identity as
-`{database, table_group, shard, key_range}`.
+`{database, table_group, shard}`.
 
 ## Terms
 
@@ -25,12 +25,14 @@ groups, shards, and the poolers serving them belong to it alone.
 **TableGroup** — a co-location unit within one database: a set of member tables
 that share one set of shards (key ranges tiling the keyrange-id space). Tables in
 the same group co-locate — they can be joined and transacted locally. The group
-defines the shards; each member table brings its own sharding function.
+defines the shards; each member table brings its own sharding function — keeping
+it per-table lets one group host tables keyed differently on the same shards
+(e.g. a table and its differently-keyed lookup index).
 
 **Table** — a member of a group, with a sharding function and the shard-key
 columns that function is evaluated on. Because the function is per-table, one
 group can mix functions over the same shards: a table sharded by
-`hash(customer_id)` can sit beside the `hash(invoice_id)` secondary index that
+`hash(customer_id)` can sit beside the `hash(invoice_id)` lookup index that
 routes lookups against it, both on the same shards and pooler cohorts.
 
 **Shard** — one key-range slice of a table group, served by a pooler cohort
@@ -44,11 +46,12 @@ key_range)`; its name is derived from the range as `hex(start)-hex(end)` — so
   scatters.
 - **range** — order-preserving; a range scan touches only the overlapping
   shards.
-- **lookup** — resolves the keyrange-id through a secondary-index table, which
+- **lookup** — resolves the keyrange-id through a lookup-index table, which
   can itself be a member of the same table group.
 - **reference** — owns no shards; the table is replicated onto every shard in the
-  database, so it joins locally from anywhere. (Unset function ⇒ unsharded: the
-  group has one full-range shard.)
+  database, so it joins locally from anywhere.
+
+Unset function ⇒ unsharded: the group has one full-range shard.
 
 ## The two functions
 
@@ -115,7 +118,7 @@ message RangeFunction {}
 message ReferenceFunction {}
 message LookupFunction {
   string schema = 1;
-  string table  = 2;   // secondary-index table in this database (often a group member)
+  string table  = 2;   // lookup-index table in this database (often a group member)
   string from_column = 3;
   string to_column   = 4;
 }
@@ -132,7 +135,7 @@ new wire types.
 Keyranges are `hex(start)-hex(end)`: `-80` is `[0x00, 0x80)`, `80-` is
 `[0x80, +inf)`.
 
-### Unsharded database
+### Unsharded table
 
 One table group, one full-range shard; every query routes there.
 
@@ -212,7 +215,7 @@ the ranges.
 ]}
 ```
 
-### Secondary index co-located
+### Lookup index co-located
 
 A `sales` group holds three tables that route on different columns but share one
 set of shards:
@@ -228,7 +231,7 @@ TableGroup{ name: "sales", shards: [-80, 80-], tables: [
 ```
 
 `invoice` is hashed on `customer_id`; `invoice_line` routes through a lookup;
-`invoice_customer_idx` — the secondary index backing that lookup — is hashed on
+`invoice_customer_idx` — the lookup index backing that lookup — is hashed on
 `invoice_id`. All three are members of `sales`, so they share its shards and
 pooler cohorts.
 
