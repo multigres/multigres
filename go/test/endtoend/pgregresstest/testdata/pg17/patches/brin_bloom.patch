@@ -1,3 +1,8 @@
+# Known divergence (by design): multigateway rejects the SET/RESET inside this
+# DO block's PL/pgSQL body because it mutates backend session state the pooler
+# cannot track across pooled clients. Only the rejection line is added; the
+# surrounding index build and query checks are unaffected.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -287,6 +287,7 @@

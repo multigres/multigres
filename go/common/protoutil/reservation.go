@@ -23,7 +23,14 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonUnsafeConnection
+
+// StickyReasons are the reasons that survive DISCARD ALL and hold the backend
+// pinned until the connection's real teardown, because PostgreSQL has no command
+// that undoes their effect. Unlike every other reason, they are not cleared by
+// DISCARD ALL; the release path keeps the connection reserved while any of them
+// remains (see ReleaseReservedConnection's keepStickyReservations handling).
+const StickyReasons = ReasonSetSeed | ReasonUnsafeConnection
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -71,6 +78,17 @@ const (
 	// the correctness bug this reason exists to prevent (a session's own
 	// reproducible sequence silently changing mid-use).
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
+
+	// ReasonUnsafeConnection indicates the connection is running as an unsafe connection
+	// (the per-connection opt-out that suppresses the unsafe-statement
+	// rejections). Such a connection may run statements that change untracked
+	// backend session state, so its backend must never be returned to the shared
+	// pool where that change would leak to another client. Pinned to a single
+	// backend for the session's lifetime and, like ReasonSetSeed, sticky: it
+	// survives DISCARD ALL and is released only at the connection's real
+	// teardown, where — unlike setseed — the tainted backend is discarded rather
+	// than returned to the pool.
+	ReasonUnsafeConnection = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_UNSAFE_CONNECTION) // 256
 )
 
 // StatementLocalReasons are the reasons a single statement adds for its own
@@ -130,6 +148,18 @@ func HasSessionAdvisoryLockReason(reasons uint32) bool {
 // HasSetSeedReason returns true if the reasons bitmask includes a setseed() pin.
 func HasSetSeedReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonSetSeed)
+}
+
+// HasUnsafeConnectionReason returns true if the reasons bitmask includes an
+// unsafe-connection pin.
+func HasUnsafeConnectionReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonUnsafeConnection)
+}
+
+// HasStickyReason returns true if the reasons bitmask includes any reason that
+// survives DISCARD ALL and holds the backend until real teardown (StickyReasons).
+func HasStickyReason(reasons uint32) bool {
+	return reasons&StickyReasons != 0
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -218,6 +248,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasSetSeedReason(reasons) {
 		parts = append(parts, "set_seed")
+	}
+	if HasUnsafeConnectionReason(reasons) {
+		parts = append(parts, "unsafe_connection")
 	}
 	if len(parts) == 0 {
 		return "unknown"

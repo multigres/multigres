@@ -49,3 +49,29 @@ func (e *Executor) QueryAdminArgs(ctx context.Context, sql string, args ...any) 
 func (e *Executor) QueryAdminMultiStatement(ctx context.Context, queryStr string) error {
 	return runMultiStatement(ctx, e.borrowAdmin, queryStr)
 }
+
+// BeginAdmin implements InternalQueryService on the admin pool. The returned
+// transaction runs on an admin.TxConn, which has no retry methods at all —
+// see its doc comment for why that matters mid-transaction.
+func (e *Executor) BeginAdmin(ctx context.Context) (InternalTx, error) {
+	pooled, err := e.poolManager.GetAdminConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txConn, err := pooled.Conn.BeginTx(ctx)
+	if err != nil {
+		pooled.Recycle()
+		return nil, err
+	}
+	return &genericTx{
+		conn: txConn,
+		// admin.TxConn's query methods already close the connection on a
+		// genuine connection failure, so Recycle here always sees an
+		// accurate IsClosed() and does the right thing either way — no
+		// separate error-vs-clean release path is needed, unlike the
+		// reserved pool's ReleaseReason.
+		onRelease: func(_ txOutcome, _ error) {
+			pooled.Recycle()
+		},
+	}, nil
+}

@@ -378,9 +378,11 @@ func (pm *MultipoolerManager) dropOrphanedFailoverSlots(ctx context.Context) err
 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
-	if err := pm.adminExecArgs(execCtx, dropOrphanedFailoverSlotsSQL); err != nil {
+	result, err := pm.adminQueryArgs(execCtx, dropOrphanedFailoverSlotsSQL)
+	if err != nil {
 		return mterrors.Wrap(err, "failed to drop orphaned logical failover slots")
 	}
+	pm.metrics.recordSlotsDropped(ctx, slotsDroppedReasonOrphaned, int64(len(result.Rows)))
 
 	return nil
 }
@@ -453,6 +455,7 @@ func (pm *MultipoolerManager) ReconcileFollowers(ctx context.Context, followerID
 		if err := pm.DropLogicalSlot(ctx, name); err != nil {
 			return mterrors.Wrapf(err, "drop departed managed physical slot %q", name)
 		}
+		pm.metrics.recordSlotsDropped(ctx, slotsDroppedReasonDepartedFollower, 1)
 		pm.logger.InfoContext(ctx, "dropped departed follower physical slot during reconcile", "slot", name)
 	}
 	return nil
@@ -482,6 +485,36 @@ func (pm *MultipoolerManager) unreadyFailoverSlots(ctx context.Context) (int, st
 		return 0, "", mterrors.Wrap(err, "failed to scan failover-slot readiness")
 	}
 	return int(count), names, nil
+}
+
+// manageLogicalFailoverSlots runs the logical-replication slot-management
+// steps of a promotion, in order: ensure each follower has a physical slot,
+// point synchronized_standby_slots at them, and advisory-check readiness of
+// the synced failover slots. Called from promotionHook, timed separately from
+// the rest of promotion (ClearResignedLeaderAtTerm, pg_promote) since those
+// happen on every failover regardless of logical replication. No-op unless
+// slot-based replication is enabled.
+func (pm *MultipoolerManager) manageLogicalFailoverSlots(ctx context.Context, cohortMembers []*clustermetadatapb.ID) error {
+	// Slot-based replication (flag-gated): create a physical replication
+	// slot for each follower BEFORE pg_promote, while this node is still a
+	// standby, so a slot failure fails the promotion cleanly rather than
+	// leaving a promoted-but-unrecorded node. No-op when the flag is off.
+	if err := pm.ensureFollowerPhysicalSlots(ctx, cohortMembers); err != nil {
+		return err
+	}
+	// Hold the failover logical slots back to the followers' physical slots so
+	// a standby cannot outrun a slot's catalog_xmin and block slot-sync. Set
+	// before pg_promote so it is in effect the moment this node is primary.
+	if err := pm.setSynchronizedStandbySlots(ctx, cohortMembers); err != nil {
+		return err
+	}
+	// Log any synced failover slots that are not failover-ready before
+	// pg_promote. Durable slot creation guarantees a failover slot is synced and
+	// persistent on the required standbys before its creation is acknowledged, so
+	// a slot that is not ready here is in a terminal state a wait could not fix.
+	// Advisory only — never blocks failover.
+	pm.logUnreadyFailoverSlots(ctx)
+	return nil
 }
 
 // logUnreadyFailoverSlots checks, once, whether any synced failover slot on this

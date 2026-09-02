@@ -2334,12 +2334,12 @@ func (e *Executor) DiscardTempTables(
 // so the pool creates a fresh one.
 //
 // keepStickyReservations, when true, leaves the connection reserved instead
-// of returning it to the pool if a sticky reason (currently only
-// ReasonSetSeed) remains after the above cleanup — a sticky reason has no
-// PostgreSQL command that undoes it, so it must survive until the connection's
-// real teardown. Real client-disconnect cleanup always passes false, so a
-// sticky reason never blocks the connection's actual teardown. Returns the
-// still-reserved state in that case, nil otherwise.
+// of returning it to the pool if a sticky reason (ReasonSetSeed or
+// ReasonUnsafeConnection) remains after the above cleanup — a sticky reason has
+// no PostgreSQL command that undoes it, so it must survive until the
+// connection's real teardown. Real client-disconnect cleanup always passes
+// false, so a sticky reason never blocks the connection's actual teardown.
+// Returns the still-reserved state in that case, nil otherwise.
 func (e *Executor) ReleaseReservedConnection(
 	ctx context.Context,
 	target *query.Target,
@@ -2433,7 +2433,7 @@ func (e *Executor) ReleaseReservedConnection(
 	// instead of returning it to the pool. Only DISCARD ALL passes
 	// keepStickyReservations; real disconnect cleanup always releases fully,
 	// so a sticky reason never blocks a connection's actual teardown.
-	if !cleanupFailed && keepStickyReservations && protoutil.HasSetSeedReason(reservedConn.RemainingReasons()) {
+	if !cleanupFailed && keepStickyReservations && protoutil.HasStickyReason(reservedConn.RemainingReasons()) {
 		e.logger.DebugContext(ctx, "release skipped, sticky reservation remains",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"remaining_reasons", protoutil.ReasonsString(reservedConn.RemainingReasons()))
