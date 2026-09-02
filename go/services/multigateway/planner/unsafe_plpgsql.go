@@ -313,7 +313,6 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 // case returns the same rejection an irreducible inline payload would.
 func (r *varResolver) resolveExecuteVar(name string) error {
 	reject := dynamicExecuteRejection()
-	name = strings.ToLower(name)
 	if !r.resolvable(name) {
 		return reject
 	}
@@ -368,7 +367,7 @@ func (r *varResolver) pushScope(decls []plpgsqlast.Datum) {
 		case *plpgsqlast.PLpgSQL_row:
 			name = decl.Refname
 		}
-		if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+		if name = strings.TrimSpace(name); name != "" {
 			scope[name] = true
 		}
 	}
@@ -404,7 +403,7 @@ func (r *varResolver) recordDefault(name string, def *plpgsqlast.PLpgSQL_expr) {
 	if def == nil {
 		return
 	}
-	if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+	if name = strings.TrimSpace(name); name != "" {
 		r.assigns[name] = append(r.assigns[name], def)
 	}
 }
@@ -456,12 +455,14 @@ func columnRefName(ref *ast.ColumnRef) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return strings.ToLower(s.SVal), true
+	return s.SVal, true
 }
 
-// simpleIdent returns the lower-cased name if s is a single unqualified,
-// unsubscripted identifier (the only assignment-target shape we track as a
-// clean scalar), else ("", false).
+// simpleIdent returns the name if s is a single unqualified, unsubscripted
+// identifier (the only assignment-target shape we track as a clean scalar), else
+// ("", false). The name is returned verbatim: the scanner has already applied
+// PostgreSQL's identifier folding (unquoted → lower-cased, quoted → case
+// preserved), so re-folding here would conflate a quoted `"Q"` with a `q`.
 func simpleIdent(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -477,12 +478,13 @@ func simpleIdent(s string) (string, bool) {
 			return "", false
 		}
 	}
-	return strings.ToLower(s), true
+	return s, true
 }
 
-// baseIdent returns the lower-cased leading identifier of s (the base variable
-// of a possibly qualified/subscripted target like `rec.f` or `arr[i]`), or
-// ("", false) if s does not begin with an identifier character.
+// baseIdent returns the leading identifier of s (the base variable of a possibly
+// qualified/subscripted target like `rec.f` or `arr[i]`), or ("", false) if s
+// does not begin with an identifier character. As in simpleIdent, the name is
+// already folded by the scanner and must not be re-folded.
 func baseIdent(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	end := 0
@@ -498,7 +500,7 @@ func baseIdent(s string) (string, bool) {
 	if end == 0 {
 		return "", false
 	}
-	return strings.ToLower(s[:end]), true
+	return s[:end], true
 }
 
 // bareVarName returns the name of a bare-variable EXECUTE payload (a payload
@@ -1122,7 +1124,7 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 		if !ok {
 			return nil, false
 		}
-		name := strings.ToLower(s.SVal)
+		name := s.SVal
 		if !res.resolvable(name) || visited[name] {
 			return nil, false
 		}
@@ -1164,8 +1166,11 @@ func operatorName(nl *ast.NodeList) string {
 	return s.SVal
 }
 
-// bareFuncName returns a FuncCall's unqualified, lower-cased name, or "" if the
-// name is schema-qualified (not a trusted pg_catalog builtin for our purposes).
+// bareFuncName returns a FuncCall's unqualified name, or "" if the name is
+// schema-qualified (not a trusted pg_catalog builtin for our purposes). The name
+// is returned as the parser folded it — unquoted `FORMAT` is already "format",
+// while quoted `"FORMAT"` stays "FORMAT" and so will NOT match the trusted
+// lower-case builtin names, which is correct: `"FORMAT"` is a different function.
 func bareFuncName(nl *ast.NodeList) string {
 	if nl == nil || nl.Len() != 1 {
 		return ""
@@ -1174,7 +1179,7 @@ func bareFuncName(nl *ast.NodeList) string {
 	if !ok {
 		return ""
 	}
-	return strings.ToLower(s.SVal)
+	return s.SVal
 }
 
 // dynamicExecuteLiteral returns the constant string an EXECUTE argument reduces
