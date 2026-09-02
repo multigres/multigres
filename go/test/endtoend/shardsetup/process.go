@@ -193,6 +193,16 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
+	// EXPORT (fail-back) builds the reverse-subscription conninfo from the
+	// advertised target address. Production advertises the gateway; these
+	// harness setups have no gateway, so each pooler advertises its own
+	// localhost PG port. On the current primary this resolves to a reachable
+	// target address, and because it is per-pooler it stays correct across a
+	// target failover.
+	args = append(args,
+		"--migration-target-advertise-host", "localhost",
+		"--migration-target-advertise-port", strconv.Itoa(p.PgPort),
+	)
 	// Append any extra args (e.g., connpool capacity/timeout flags from
 	// WithMultipoolerExtraArgs). Placed last so they can override defaults.
 	args = append(args, p.ExtraArgs...)

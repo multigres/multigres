@@ -37,10 +37,22 @@ type Config struct {
 	// for logical-replication connection metrics. Zero selects the built-in
 	// default (10s).
 	ReplicationStatsPollIntervalMs int
-	PgctldAddr                     string                  // Address of pgctld gRPC service
-	ConsensusEnabled               bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig                 *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
-	BackendVpidTrackingEnabled     bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	PgctldAddr                     string // Address of pgctld gRPC service
+	ConsensusEnabled               bool   // Whether consensus gRPC service is enabled
+	// MigrationTargetAdvertiseHost is the gateway address an external source uses
+	// to reach this Multigres shard for the EXPORT-direction reverse subscription
+	// (migration_coord.go targetConnInfo). It must be the multigateway, whose
+	// replication=database tunnel proxies the stream to the current primary and
+	// re-pins it across failover — not this pooler's cluster-internal topo
+	// Hostname, which an external source cannot resolve. Empty makes EXPORT
+	// unavailable (targetConnInfo fails fast).
+	MigrationTargetAdvertiseHost string
+	// MigrationTargetAdvertisePort is the Postgres-facing port paired with
+	// MigrationTargetAdvertiseHost. Zero selects the gateway's default Postgres
+	// protocol port (defaultGatewayPostgresPort).
+	MigrationTargetAdvertisePort int
+	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
+	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
 	// SlotBasedReplicationEnabled reads whether slot-based physical replication is
 	// enabled. It is a getter (not a bool) so the value is read live: the backing
 	// flag is dynamic and reloadable at runtime. Nil reads as disabled (see

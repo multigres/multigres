@@ -120,6 +120,7 @@ Configuration:
 	AddClusterCommand(root, mc)
 	AddTopoCommands(root, mc)
 	AddPoolerCommands(root, mc)
+	AddMigrationCommands(root, mc)
 
 	return root
 }

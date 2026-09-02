@@ -1,0 +1,166 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package migrator;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/migrator";
+
+// MigrationPhase is the lifecycle phase of a migration workflow.
+enum MigrationPhase {
+  MIGRATION_PHASE_UNSPECIFIED = 0;
+  MIGRATION_PHASE_CREATED = 1;
+  MIGRATION_PHASE_VALIDATING = 2;
+  MIGRATION_PHASE_SCHEMA_COPY = 3;
+  MIGRATION_PHASE_CREATE_PUBLICATION = 4;
+  MIGRATION_PHASE_COPYING = 5;
+  MIGRATION_PHASE_STREAMING = 6;
+  MIGRATION_PHASE_DROPPED = 7;
+  MIGRATION_PHASE_FAILED = 8;
+  MIGRATION_PHASE_SWITCHING = 9;
+  MIGRATION_PHASE_COMPLETING = 10;
+}
+
+// MigrationDirection is which side is currently the publisher.
+enum MigrationDirection {
+  MIGRATION_DIRECTION_UNSPECIFIED = 0;
+  // IMPORT: the external old database is the source (old DB -> Multigres).
+  MIGRATION_DIRECTION_IMPORT = 1;
+  // EXPORT: Multigres is the source (Multigres -> old DB), for fail-back.
+  MIGRATION_DIRECTION_EXPORT = 2;
+}
+
+// Migration is the operator-facing projection of a migration workflow.
+// It never contains credentials; source is a redacted host/db summary.
+message Migration {
+  string id = 1;
+  // source is a redacted summary of the source server (host/db, no password).
+  string source = 2;
+  string target_database = 3;
+  string target_shard = 4;
+  repeated string tables = 5;
+  MigrationPhase phase = 7;
+  string last_error = 8;
+  // total_relations / ready_relations report initial-copy progress (srsubstate).
+  int64 total_relations = 9;
+  int64 ready_relations = 10;
+  bool caught_up = 11;
+  string publication_name = 12;
+  string subscription_name = 13;
+  google.protobuf.Timestamp created_at = 14;
+  reserved 15; // was updated_at; removed for now, may return
+  // active_direction is which side is currently the publisher.
+  MigrationDirection active_direction = 16;
+  // streaming_since is set when the migration first reaches STREAMING.
+  google.protobuf.Timestamp streaming_since = 17;
+}
+
+message CreateMigrationRequest {
+  // source_dsn is a full libpq conninfo to the standalone source postgres
+  // (may include TLS options). Held only by Multigres Migrator; never returned.
+  string source_dsn = 1;
+  string target_database = 2;
+  string target_shard = 3;
+  repeated string tables = 4;
+  // sequence_margin is added past each sequence's max at a direction switch.
+  int64 sequence_margin = 8;
+}
+message CreateMigrationResponse {
+  Migration migration = 1;
+}
+
+// UpdateMigrationRequest changes mutable fields; only fields named in
+// update_mask are applied. Supported paths: source_dsn, sequence_margin, and
+// (only while CREATED) tables.
+message UpdateMigrationRequest {
+  string id = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  // source_dsn, when in the mask, replaces the source connection (ALTER
+  // SUBSCRIPTION ... CONNECTION once the subscription exists). Never returned.
+  string source_dsn = 3;
+  int64 sequence_margin = 4;
+  repeated string tables = 5;
+}
+message UpdateMigrationResponse {
+  Migration migration = 1;
+}
+
+// SetMigrationDirectionRequest sets the active direction declaratively. Setting
+// the current direction is a no-op; setting the other performs the barrier +
+// flip.
+message SetMigrationDirectionRequest {
+  string id = 1;
+  MigrationDirection direction = 2;
+}
+message SetMigrationDirectionResponse {
+  Migration migration = 1;
+}
+
+message StartMigrationRequest {
+  string id = 1;
+}
+message StartMigrationResponse {
+  Migration migration = 1;
+}
+
+// GetMigrationsRequest returns one migration when id is set, else all.
+message GetMigrationsRequest {
+  string id = 1;
+}
+message GetMigrationsResponse {
+  repeated Migration migrations = 1;
+}
+
+message DropMigrationRequest {
+  string id = 1;
+  // wait blocks until the migration reaches a completable (caught-up) state,
+  // then drains and tears down. Mutually exclusive with force.
+  bool wait = 2;
+  // wait_timeout_seconds bounds wait (0 = no timeout).
+  int64 wait_timeout_seconds = 3;
+  // force skips the drain and tears down from any phase.
+  bool force = 4;
+}
+message DropMigrationResponse {
+  Migration migration = 1;
+}
+
+// Migrator coordinates one logical-replication migration per workflow,
+// from a standalone source postgres into a multigres target shard.
+service Migrator {
+  // CreateMigration records a migration's configuration (no database changes).
+  rpc CreateMigration(CreateMigrationRequest) returns (CreateMigrationResponse);
+
+  // StartMigration runs the workflow: validate, schema copy, publication,
+  // subscription, and initial catch-up.
+  rpc StartMigration(StartMigrationRequest) returns (StartMigrationResponse);
+
+  // UpdateMigration changes mutable fields (field-masked), notably the source
+  // connection.
+  rpc UpdateMigration(UpdateMigrationRequest) returns (UpdateMigrationResponse);
+
+  // GetMigrations returns status for one migration (id set) or all migrations.
+  rpc GetMigrations(GetMigrationsRequest) returns (GetMigrationsResponse);
+
+  // SetMigrationDirection sets the active direction (IMPORT or EXPORT).
+  rpc SetMigrationDirection(SetMigrationDirectionRequest) returns (SetMigrationDirectionResponse);
+
+  // DropMigration tears down the subscription/publication/slot and removes
+  // the workflow (default drains first; wait/force modify that).
+  rpc DropMigration(DropMigrationRequest) returns (DropMigrationResponse);
+}

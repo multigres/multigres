@@ -22,6 +22,7 @@ package multiadmin
 
 import (
 	context "context"
+	migrator "github.com/multigres/multigres/go/pb/migrator"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -51,6 +52,12 @@ const (
 	MultiadminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiadminService/GetGatewayConsolidator"
 	MultiadminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
 	MultiadminService_SwitchPrimary_FullMethodName              = "/multiadmin.MultiadminService/SwitchPrimary"
+	MultiadminService_CreateMigration_FullMethodName            = "/multiadmin.MultiadminService/CreateMigration"
+	MultiadminService_StartMigration_FullMethodName             = "/multiadmin.MultiadminService/StartMigration"
+	MultiadminService_UpdateMigration_FullMethodName            = "/multiadmin.MultiadminService/UpdateMigration"
+	MultiadminService_GetMigrations_FullMethodName              = "/multiadmin.MultiadminService/GetMigrations"
+	MultiadminService_SetMigrationDirection_FullMethodName      = "/multiadmin.MultiadminService/SetMigrationDirection"
+	MultiadminService_DropMigration_FullMethodName              = "/multiadmin.MultiadminService/DropMigration"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -113,6 +120,18 @@ type MultiadminServiceClient interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(ctx context.Context, in *migrator.CreateMigrationRequest, opts ...grpc.CallOption) (*migrator.CreateMigrationResponse, error)
+	// StartMigration runs the migration workflow.
+	StartMigration(ctx context.Context, in *migrator.StartMigrationRequest, opts ...grpc.CallOption) (*migrator.StartMigrationResponse, error)
+	// UpdateMigration changes mutable fields (field-masked), notably the source connection.
+	UpdateMigration(ctx context.Context, in *migrator.UpdateMigrationRequest, opts ...grpc.CallOption) (*migrator.UpdateMigrationResponse, error)
+	// GetMigrations returns status for one migration (id set) or all migrations.
+	GetMigrations(ctx context.Context, in *migrator.GetMigrationsRequest, opts ...grpc.CallOption) (*migrator.GetMigrationsResponse, error)
+	// SetMigrationDirection sets the active direction (IMPORT or EXPORT).
+	SetMigrationDirection(ctx context.Context, in *migrator.SetMigrationDirectionRequest, opts ...grpc.CallOption) (*migrator.SetMigrationDirectionResponse, error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(ctx context.Context, in *migrator.DropMigrationRequest, opts ...grpc.CallOption) (*migrator.DropMigrationResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -303,6 +322,66 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchP
 	return out, nil
 }
 
+func (c *multiadminServiceClient) CreateMigration(ctx context.Context, in *migrator.CreateMigrationRequest, opts ...grpc.CallOption) (*migrator.CreateMigrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.CreateMigrationResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_CreateMigration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) StartMigration(ctx context.Context, in *migrator.StartMigrationRequest, opts ...grpc.CallOption) (*migrator.StartMigrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.StartMigrationResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_StartMigration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) UpdateMigration(ctx context.Context, in *migrator.UpdateMigrationRequest, opts ...grpc.CallOption) (*migrator.UpdateMigrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.UpdateMigrationResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_UpdateMigration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) GetMigrations(ctx context.Context, in *migrator.GetMigrationsRequest, opts ...grpc.CallOption) (*migrator.GetMigrationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.GetMigrationsResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_GetMigrations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) SetMigrationDirection(ctx context.Context, in *migrator.SetMigrationDirectionRequest, opts ...grpc.CallOption) (*migrator.SetMigrationDirectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.SetMigrationDirectionResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SetMigrationDirection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) DropMigration(ctx context.Context, in *migrator.DropMigrationRequest, opts ...grpc.CallOption) (*migrator.DropMigrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.DropMigrationResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_DropMigration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -363,6 +442,18 @@ type MultiadminServiceServer interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(context.Context, *migrator.CreateMigrationRequest) (*migrator.CreateMigrationResponse, error)
+	// StartMigration runs the migration workflow.
+	StartMigration(context.Context, *migrator.StartMigrationRequest) (*migrator.StartMigrationResponse, error)
+	// UpdateMigration changes mutable fields (field-masked), notably the source connection.
+	UpdateMigration(context.Context, *migrator.UpdateMigrationRequest) (*migrator.UpdateMigrationResponse, error)
+	// GetMigrations returns status for one migration (id set) or all migrations.
+	GetMigrations(context.Context, *migrator.GetMigrationsRequest) (*migrator.GetMigrationsResponse, error)
+	// SetMigrationDirection sets the active direction (IMPORT or EXPORT).
+	SetMigrationDirection(context.Context, *migrator.SetMigrationDirectionRequest) (*migrator.SetMigrationDirectionResponse, error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -426,6 +517,24 @@ func (UnimplementedMultiadminServiceServer) ApplyCertifiedRuleChange(context.Con
 }
 func (UnimplementedMultiadminServiceServer) SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwitchPrimary not implemented")
+}
+func (UnimplementedMultiadminServiceServer) CreateMigration(context.Context, *migrator.CreateMigrationRequest) (*migrator.CreateMigrationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateMigration not implemented")
+}
+func (UnimplementedMultiadminServiceServer) StartMigration(context.Context, *migrator.StartMigrationRequest) (*migrator.StartMigrationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartMigration not implemented")
+}
+func (UnimplementedMultiadminServiceServer) UpdateMigration(context.Context, *migrator.UpdateMigrationRequest) (*migrator.UpdateMigrationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateMigration not implemented")
+}
+func (UnimplementedMultiadminServiceServer) GetMigrations(context.Context, *migrator.GetMigrationsRequest) (*migrator.GetMigrationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMigrations not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SetMigrationDirection(context.Context, *migrator.SetMigrationDirectionRequest) (*migrator.SetMigrationDirectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetMigrationDirection not implemented")
+}
+func (UnimplementedMultiadminServiceServer) DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DropMigration not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -772,6 +881,114 @@ func _MultiadminService_SwitchPrimary_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_CreateMigration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.CreateMigrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).CreateMigration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_CreateMigration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).CreateMigration(ctx, req.(*migrator.CreateMigrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_StartMigration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.StartMigrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).StartMigration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_StartMigration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).StartMigration(ctx, req.(*migrator.StartMigrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_UpdateMigration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.UpdateMigrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).UpdateMigration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_UpdateMigration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).UpdateMigration(ctx, req.(*migrator.UpdateMigrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_GetMigrations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.GetMigrationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).GetMigrations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_GetMigrations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).GetMigrations(ctx, req.(*migrator.GetMigrationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_SetMigrationDirection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.SetMigrationDirectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SetMigrationDirection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SetMigrationDirection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SetMigrationDirection(ctx, req.(*migrator.SetMigrationDirectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_DropMigration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.DropMigrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).DropMigration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_DropMigration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).DropMigration(ctx, req.(*migrator.DropMigrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -850,6 +1067,30 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SwitchPrimary",
 			Handler:    _MultiadminService_SwitchPrimary_Handler,
+		},
+		{
+			MethodName: "CreateMigration",
+			Handler:    _MultiadminService_CreateMigration_Handler,
+		},
+		{
+			MethodName: "StartMigration",
+			Handler:    _MultiadminService_StartMigration_Handler,
+		},
+		{
+			MethodName: "UpdateMigration",
+			Handler:    _MultiadminService_UpdateMigration_Handler,
+		},
+		{
+			MethodName: "GetMigrations",
+			Handler:    _MultiadminService_GetMigrations_Handler,
+		},
+		{
+			MethodName: "SetMigrationDirection",
+			Handler:    _MultiadminService_SetMigrationDirection_Handler,
+		},
+		{
+			MethodName: "DropMigration",
+			Handler:    _MultiadminService_DropMigration_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

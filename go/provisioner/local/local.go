@@ -1346,7 +1346,9 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	fmt.Println("")
 
-	// Provision multiadmin (global admin service)
+	// Provision multiadmin (global admin service). Migration commands are
+	// forwarded by multiadmin to the shard's primary multipooler, which hosts
+	// the migration coordinator — no separate service to provision.
 	fmt.Println("=== Starting Multiadmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
 		Service: constants.ServiceMultiadmin,

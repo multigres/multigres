@@ -55,8 +55,10 @@ RUN apt-get update && \
     apt-cache policy pgbackrest && \
     apt-get install -y --no-install-recommends \
     pgbackrest \
+    postgresql-client-17 \
     procps && \
     pgbackrest version && \
+    pg_dump --version && \
     apt-get remove -y ca-certificates curl gnupg lsb-release && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
