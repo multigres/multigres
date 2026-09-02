@@ -204,13 +204,24 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 // "tainted" and its bare-variable EXECUTE is rejected, fail-closed.
 //
 // The soundness argument only holds for a variable whose ENTIRE value history is
-// visible in the body: a DECLARE-section local. A function parameter (or OUT
-// parameter, or an ALIAS for one) enters the body already holding the caller's
-// value, so a body that assigns it only conditionally — `IF cond THEN q := 'safe'
-// END IF; EXECUTE q` — would execute the caller's arbitrary q on the false path.
-// We therefore track the set of names DECLARE'd as plain locals and treat any
-// other EXECUTE'd name as tainted, so a parameter is never resolved from its
-// in-body assignments alone.
+// visible in the body: a DECLARE-section local in the top-level block. Two ways a
+// name can hold a value we do not see, both handled here:
+//
+//   - A function parameter (or OUT parameter, or an ALIAS for one) enters the body
+//     already holding the caller's value, so a body that assigns it only
+//     conditionally — `IF cond THEN q := 'safe' END IF; EXECUTE q` — would execute
+//     the caller's arbitrary q on the false path. Parameters are never DECLARE'd,
+//     so treating any non-declared EXECUTE'd name as tainted covers them.
+//   - A name declared only in a NESTED sub-block is a different variable in a scope
+//     that does not enclose an outer EXECUTE; trusting it would let the inner
+//     block's safe assignment vouch for an outer-scope parameter of the same name.
+//     Only top-level-block declarations are recorded, so the inner name stays
+//     unresolvable.
+//
+// A DECLARE initializer (`DECLARE v text := <expr>`) is itself one of the values
+// the variable can hold, so it is folded into the assignment set and analyzed like
+// any `:=` — an initializer built from a parameter is rejected just as a body
+// assignment from a parameter would be.
 type varResolver struct {
 	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
 	tainted   map[string]bool                       // names written by a form we cannot reduce
@@ -232,23 +243,30 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 		declared:  map[string]bool{},
 		resolving: map[string]bool{},
 	}
+	// Declarations are collected only from the top-level (outer) block. A name
+	// declared in a nested sub-block is a different variable in a scope that does
+	// not enclose an outer EXECUTE, so promoting it to a global "tracked local"
+	// would let an inner block's safe assignment vouch for an outer-scope
+	// parameter of the same name. Restricting `declared` to the outer block keeps
+	// that name unresolvable (fail-closed). An ALIAS (a body-local name for a `$n`
+	// parameter) is intentionally not recorded: it resolves to a caller-supplied
+	// argument and must stay untracked like any bare parameter.
+	if fn.Action != nil {
+		for _, d := range fn.Action.Decls {
+			switch decl := d.(type) {
+			case *plpgsqlast.PLpgSQL_var:
+				r.declare(decl.Refname)
+				r.recordDefault(decl.Refname, decl.DefaultVal)
+			case *plpgsqlast.PLpgSQL_rec:
+				r.declare(decl.Refname)
+				r.recordDefault(decl.Refname, decl.DefaultVal)
+			case *plpgsqlast.PLpgSQL_row:
+				r.declare(decl.Refname)
+			}
+		}
+	}
 	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
 		switch n := cursor.Node().(type) {
-		case *plpgsqlast.PLpgSQL_stmt_block:
-			// Record the plain scalar/record/row locals this block declares. An
-			// ALIAS (a body-local name for a `$n` parameter) is intentionally NOT
-			// recorded: it resolves to a caller-supplied argument, so it must stay
-			// untracked and be treated as tainted like any bare parameter.
-			for _, d := range n.Decls {
-				switch decl := d.(type) {
-				case *plpgsqlast.PLpgSQL_var:
-					r.declare(decl.Refname)
-				case *plpgsqlast.PLpgSQL_rec:
-					r.declare(decl.Refname)
-				case *plpgsqlast.PLpgSQL_row:
-					r.declare(decl.Refname)
-				}
-			}
 		case *plpgsqlast.PLpgSQL_stmt_call:
 			// CALL proc(v) can write an INOUT/OUT argument, so a variable passed as
 			// a bare identifier argument may hold arbitrary text afterwards. We
@@ -344,6 +362,19 @@ func (r *varResolver) taintList(list string) {
 func (r *varResolver) declare(name string) {
 	if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
 		r.declared[name] = true
+	}
+}
+
+// recordDefault treats a DECLARE initializer (`DECLARE v text := <expr>`) as one
+// of the values the variable can hold, exactly like a body `:=` assignment, so a
+// variable initialized from an unprovable expression (e.g. a parameter) is not
+// silently trusted when only a later conditional assignment looks safe.
+func (r *varResolver) recordDefault(name string, def *plpgsqlast.PLpgSQL_expr) {
+	if def == nil {
+		return
+	}
+	if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+		r.assigns[name] = append(r.assigns[name], def)
 	}
 }
 

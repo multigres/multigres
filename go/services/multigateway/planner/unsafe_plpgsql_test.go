@@ -379,6 +379,7 @@ func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
 		"FOR .. IN EXECUTE var":    `DO $$ DECLARE r record; v text; BEGIN v := 'SELECT 1 FROM t WHERE bucket_id = $1' ; FOR r IN EXECUTE v USING 1 LOOP NULL; END LOOP; END $$`,
 		"safe assign, no CALL":     `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
 		"CALL not feeding EXECUTE": `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(v); END $$`,
+		"safe initializer only":    `DO $$ DECLARE v text := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
@@ -388,18 +389,22 @@ func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
 	}
 
 	reject := map[string]string{
-		"format %s into var":            `DO $$ DECLARE v text; x text; BEGIN v := format('SELECT * FROM t WHERE %s', x); EXECUTE v; END $$`,
-		"unsafe concat into var":        `DO $$ DECLARE v text; x text; BEGIN v := 'DROP TABLE ' || x; EXECUTE v; END $$`,
-		"var from SELECT INTO":          `DO $$ DECLARE v text; BEGIN SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
-		"var also assigned via INTO":    `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
-		"var is loop variable":          `DO $$ DECLARE v text; BEGIN FOR v IN SELECT relname FROM pg_class LOOP EXECUTE v; END LOOP; END $$`,
-		"self-referential build":        `DO $$ DECLARE v text := ''; c text; BEGIN v := v || ' ' || c; EXECUTE v; END $$`,
-		"bare param, no assignment":     `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE q; END $$ LANGUAGE plpgsql`,
-		"param assigned conditionally":  `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN IF false THEN q := 'SELECT 1'; END IF; EXECUTE q; END $$ LANGUAGE plpgsql`,
-		"param reassigned then EXECUTE": `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN q := 'SELECT 1'; EXECUTE q; END $$ LANGUAGE plpgsql`,
-		"alias for param then EXECUTE":  `CREATE FUNCTION f(text) RETURNS void AS $$ DECLARE q ALIAS FOR $1; BEGIN q := 'SELECT 1'; EXECUTE q; END $$ LANGUAGE plpgsql`,
-		"var mutated by CALL":           `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(v); EXECUTE v; END $$`,
-		"var mutated by named CALL":     `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(arg => v); EXECUTE v; END $$`,
+		"format %s into var":                `DO $$ DECLARE v text; x text; BEGIN v := format('SELECT * FROM t WHERE %s', x); EXECUTE v; END $$`,
+		"unsafe concat into var":            `DO $$ DECLARE v text; x text; BEGIN v := 'DROP TABLE ' || x; EXECUTE v; END $$`,
+		"var from SELECT INTO":              `DO $$ DECLARE v text; BEGIN SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
+		"var also assigned via INTO":        `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE v; END $$`,
+		"var is loop variable":              `DO $$ DECLARE v text; BEGIN FOR v IN SELECT relname FROM pg_class LOOP EXECUTE v; END LOOP; END $$`,
+		"self-referential build":            `DO $$ DECLARE v text := ''; c text; BEGIN v := v || ' ' || c; EXECUTE v; END $$`,
+		"bare param, no assignment":         `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE q; END $$ LANGUAGE plpgsql`,
+		"param assigned conditionally":      `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN IF false THEN q := 'SELECT 1'; END IF; EXECUTE q; END $$ LANGUAGE plpgsql`,
+		"param reassigned then EXECUTE":     `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN q := 'SELECT 1'; EXECUTE q; END $$ LANGUAGE plpgsql`,
+		"alias for param then EXECUTE":      `CREATE FUNCTION f(text) RETURNS void AS $$ DECLARE q ALIAS FOR $1; BEGIN q := 'SELECT 1'; EXECUTE q; END $$ LANGUAGE plpgsql`,
+		"var mutated by CALL":               `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(v); EXECUTE v; END $$`,
+		"var mutated by named CALL":         `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; CALL p(arg => v); EXECUTE v; END $$`,
+		"initializer from param":            `CREATE FUNCTION f(q text) RETURNS void AS $$ DECLARE v text := q; BEGIN IF true THEN v := 'SELECT 1'; END IF; EXECUTE v; END $$ LANGUAGE plpgsql`,
+		"initializer unsafe concat":         `DO $$ DECLARE x text; v text := 'DROP ' || x; BEGIN EXECUTE v; END $$`,
+		"nested-block shadows param":        `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN DECLARE q text; BEGIN q := 'SELECT 1'; END; EXECUTE q; END $$ LANGUAGE plpgsql`,
+		"nested-block local, outer EXECUTE": `DO $$ DECLARE v text; BEGIN DECLARE w text; BEGIN w := 'SELECT 1'; END; EXECUTE w; END $$`,
 	}
 	for name, sql := range reject {
 		t.Run("reject/"+name, func(t *testing.T) {
