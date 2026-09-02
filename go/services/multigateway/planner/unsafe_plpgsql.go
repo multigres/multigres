@@ -202,24 +202,62 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 // a skeleton — a SELECT/EXECUTE … INTO target, a loop variable, FETCH INTO, GET
 // DIAGNOSTICS, or a non-simple (subscripted / field) assignment target — is
 // "tainted" and its bare-variable EXECUTE is rejected, fail-closed.
+//
+// The soundness argument only holds for a variable whose ENTIRE value history is
+// visible in the body: a DECLARE-section local. A function parameter (or OUT
+// parameter, or an ALIAS for one) enters the body already holding the caller's
+// value, so a body that assigns it only conditionally — `IF cond THEN q := 'safe'
+// END IF; EXECUTE q` — would execute the caller's arbitrary q on the false path.
+// We therefore track the set of names DECLARE'd as plain locals and treat any
+// other EXECUTE'd name as tainted, so a parameter is never resolved from its
+// in-body assignments alone.
 type varResolver struct {
 	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
 	tainted   map[string]bool                       // names written by a form we cannot reduce
+	declared  map[string]bool                       // names DECLARE'd as plain locals (not parameters/aliases)
 	resolving map[string]bool                       // names on the current resolution stack (cycle guard)
 }
 
 // collectVarAssignments walks the whole function body once, recording every
 // simple `:=` assignment and tainting every variable written by a form whose
 // value we cannot prove (INTO targets, loop variables, FETCH, GET DIAGNOSTICS,
-// non-simple assignment targets). See varResolver for the soundness argument.
+// non-simple assignment targets, INOUT/OUT arguments of a CALL). It also records
+// which names are DECLARE'd as plain locals, so a function parameter — which is
+// never declared in the body — is not mistaken for a fully-tracked local. See
+// varResolver for the soundness argument.
 func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 	r := &varResolver{
 		assigns:   map[string][]*plpgsqlast.PLpgSQL_expr{},
 		tainted:   map[string]bool{},
+		declared:  map[string]bool{},
 		resolving: map[string]bool{},
 	}
 	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
 		switch n := cursor.Node().(type) {
+		case *plpgsqlast.PLpgSQL_stmt_block:
+			// Record the plain scalar/record/row locals this block declares. An
+			// ALIAS (a body-local name for a `$n` parameter) is intentionally NOT
+			// recorded: it resolves to a caller-supplied argument, so it must stay
+			// untracked and be treated as tainted like any bare parameter.
+			for _, d := range n.Decls {
+				switch decl := d.(type) {
+				case *plpgsqlast.PLpgSQL_var:
+					r.declare(decl.Refname)
+				case *plpgsqlast.PLpgSQL_rec:
+					r.declare(decl.Refname)
+				case *plpgsqlast.PLpgSQL_row:
+					r.declare(decl.Refname)
+				}
+			}
+		case *plpgsqlast.PLpgSQL_stmt_call:
+			// CALL proc(v) can write an INOUT/OUT argument, so a variable passed as
+			// a bare identifier argument may hold arbitrary text afterwards. We
+			// cannot tell IN from INOUT/OUT without a catalog lookup, so we taint
+			// every simple-identifier argument, fail-closed. Because taint is
+			// flow-insensitive, a body that overwrites the variable on every path
+			// AFTER the CALL and before the EXECUTE is conservatively rejected too;
+			// proving that safe needs order-aware analysis we do not have yet.
+			r.taintCallArgs(n.Expr)
 		case *plpgsqlast.PLpgSQL_stmt_assign:
 			if name, ok := simpleIdent(n.Target); ok {
 				r.assigns[name] = append(r.assigns[name], n.Expr)
@@ -264,7 +302,7 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 func (r *varResolver) resolveExecuteVar(name string) error {
 	reject := dynamicExecuteRejection()
 	name = strings.ToLower(name)
-	if r.tainted[name] {
+	if !r.resolvable(name) {
 		return reject
 	}
 	exprs, ok := r.assigns[name]
@@ -300,6 +338,63 @@ func (r *varResolver) taintList(list string) {
 	for part := range strings.SplitSeq(list, ",") {
 		r.taint(part)
 	}
+}
+
+// declare records name as a plain DECLARE-section local. A blank name is ignored.
+func (r *varResolver) declare(name string) {
+	if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+		r.declared[name] = true
+	}
+}
+
+// resolvable reports whether a bare-variable EXECUTE payload named `name` may be
+// resolved from its in-body assignments. It must be a declared local (so its
+// whole value history is visible) and not tainted by an unprovable write.
+func (r *varResolver) resolvable(name string) bool {
+	return r.declared[name] && !r.tainted[name]
+}
+
+// taintCallArgs parses a CALL/DO statement's text and taints every argument that
+// is a bare identifier, since such an argument can be an INOUT/OUT target the
+// callee rewrites. A DO block (no CallStmt) or an unparseable payload taints
+// nothing here — the statement is still analyzed for policy by the body walker.
+func (r *varResolver) taintCallArgs(e *plpgsqlast.PLpgSQL_expr) {
+	if e == nil {
+		return
+	}
+	stmts, err := parser.ParseSQL(e.Query)
+	if err != nil {
+		return
+	}
+	for _, st := range stmts {
+		call, ok := st.(*ast.CallStmt)
+		if !ok || call.Funccall == nil || call.Funccall.Args == nil {
+			continue
+		}
+		for _, arg := range call.Funccall.Args.Items {
+			if named, ok := arg.(*ast.NamedArgExpr); ok {
+				arg = named.Arg
+			}
+			if ref, ok := arg.(*ast.ColumnRef); ok {
+				if name, ok := columnRefName(ref); ok {
+					r.tainted[name] = true
+				}
+			}
+		}
+	}
+}
+
+// columnRefName returns the lower-cased name of a single-identifier ColumnRef
+// (a bare `v`), or ("", false) for anything qualified or non-trivial.
+func columnRefName(ref *ast.ColumnRef) (string, bool) {
+	if ref.Fields == nil || ref.Fields.Len() != 1 {
+		return "", false
+	}
+	s, ok := ref.Fields.Items[0].(*ast.String)
+	if !ok {
+		return "", false
+	}
+	return strings.ToLower(s.SVal), true
 }
 
 // simpleIdent returns the lower-cased name if s is a single unqualified,
@@ -348,14 +443,10 @@ func baseIdent(s string) (string, bool) {
 // that is exactly one unqualified identifier, e.g. `v_query`), or ("", false).
 func bareVarName(exprText string) (string, bool) {
 	ref, ok := executeArgExpr(exprText).(*ast.ColumnRef)
-	if !ok || ref.Fields == nil || ref.Fields.Len() != 1 {
-		return "", false
-	}
-	s, ok := ref.Fields.Items[0].(*ast.String)
 	if !ok {
 		return "", false
 	}
-	return strings.ToLower(s.SVal), true
+	return columnRefName(ref)
 }
 
 // bodyWalker analyzes every embedded SQL fragment in a PL/pgSQL body. Rewrite
@@ -773,6 +864,12 @@ const maxFormatVariants = 64
 // with all %s constrained); (nil, false) to let the caller fall through to the
 // normal rejection. res may be nil, in which case only literal/CASE-of-literal
 // %s args qualify (no variable resolution).
+//
+// Like reduceSafeExpr, the format() call is matched by unqualified name, so the
+// same KNOWN LIMITATION applies: a tenant that shadows pg_catalog.format (via
+// search_path or an exact-signature overload) makes the plan-time expansion of
+// the concrete statements meaningless. Closing it needs the catalog/search_path
+// resolution the analyzer does not have. Accepted as-is; see reduceSafeExpr.
 func analyzeConstrainedFormatExecute(exprText string, res *varResolver) (error, bool) {
 	fc, ok := executeArgExpr(exprText).(*ast.FuncCall)
 	if !ok || bareFuncName(fc.Funcname) != "format" {
@@ -947,7 +1044,7 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 			return nil, false
 		}
 		name := strings.ToLower(s.SVal)
-		if res.tainted[name] || visited[name] {
+		if !res.resolvable(name) || visited[name] {
 			return nil, false
 		}
 		exprs, ok := res.assigns[name]
