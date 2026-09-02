@@ -41,22 +41,27 @@ const (
 // TestDescribeStaleAcrossClients is the regression for: multipooler's pooled
 // backend connections share an already-PREPARE'd statement (keyed by query
 // text + param types, see preparedstatement.PoolerConsolidator) across
-// unrelated client sessions. PostgreSQL revalidates a prepared statement's
-// result shape on Bind/Execute, but NOT on a bare Describe('S', name)
-// (postgres.c exec_describe_statement_message just replays whatever
-// resultDesc was recorded at the last successful Parse). So a client that
-// never touched the original statement, but happens to be handed a backend
-// that has it cached from before a DDL changed the table's shape, can be
-// told the pre-DDL shape on Describe with no error at all.
+// unrelated client sessions. A bare Describe('S', name) on a row-returning
+// statement DOES revalidate against the current schema, same as Bind/Execute
+// — postgres.c exec_describe_statement_message calls CachedPlanGetTargetList,
+// which calls RevalidateCachedQuery (plancache.c) — so it can raise the same
+// SQLSTATE 0A000 "cached plan must not change result type" a stale
+// Bind/Execute would. The bug is that multipooler's Describe RPC, unlike its
+// portal-execute paths (see cachedPlanRetry), had no retry/heal logic for
+// that error at all. So a client that never touched the original statement,
+// but happens to be handed a backend that has it cached from before a DDL
+// changed the table's shape, gets hit with a raw 0A000 it has no way to
+// recover from — it doesn't know a shared backend-level statement is even
+// involved.
 //
 // This only reproduces through multigateway/multipooler's pooling — a direct
 // connection to PostgreSQL always gets a fresh backend with no cached
 // statement, so there is nothing stale to inherit. Unlike
 // TestCachedPlanReprepareAfterDDL (the sibling regression for the
 // Bind/Execute side of this same bug class, which PostgreSQL's own plan
-// revalidation catches and the gateway heals via 0A000), this test does not
-// run against setup.GetComparisonTargets — the bug is specific to the
-// pooled/gateway path.
+// revalidation catches and multipooler already heals via 0A000), this test
+// does not run against setup.GetComparisonTargets — the bug is specific to
+// the pooled path.
 func TestDescribeStaleAcrossClients(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping end-to-end tests in short mode")
