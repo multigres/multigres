@@ -1549,15 +1549,14 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	// Bind/Execute), so without this check a stale connState entry would
 	// silently hand back the pre-DDL shape instead of erroring.
 	connState := conn.State()
-	existing := connState.GetPreparedStatement(canonicalName)
-	existingGeneration, hasGeneration := connState.GetPreparedStatementGeneration(canonicalName)
-	if existing != nil && existing.Query == stmt.Query && hasGeneration && existingGeneration == currentGeneration {
+	existing, existingGeneration, ok := connState.GetPreparedStatement(canonicalName)
+	if ok && existing.Query == stmt.Query && existingGeneration == currentGeneration {
 		// Statement already prepared on this connection, and unaffected by any
 		// DDL since — reuse it.
 		return canonicalName, nil
 	}
 
-	if existing != nil {
+	if ok {
 		// Either a DDL invalidated this canonical statement since it was
 		// prepared on this connection, or connState's bookkeeping and the
 		// backend have drifted apart — close defensively either way.
@@ -1579,8 +1578,7 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 		Name:       canonicalName,
 		Query:      stmt.Query,
 		ParamTypes: stmt.ParamTypes,
-	})
-	connState.StorePreparedStatementGeneration(canonicalName, currentGeneration)
+	}, currentGeneration)
 
 	return canonicalName, nil
 }

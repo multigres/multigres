@@ -69,12 +69,12 @@ func TestEnsurePrepared_ReusesUnaffectedStatement(t *testing.T) {
 
 	name1, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	gen1, ok := conn.State().GetPreparedStatementGeneration(name1)
+	_, gen1, ok := conn.State().GetPreparedStatement(name1)
 	require.True(t, ok)
 
 	name2, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	gen2, ok := conn.State().GetPreparedStatementGeneration(name2)
+	_, gen2, ok := conn.State().GetPreparedStatement(name2)
 	require.True(t, ok)
 
 	require.Equal(t, name1, name2)
@@ -93,7 +93,7 @@ func TestEnsurePrepared_ReParsesAfterDDLOnDependentRelation(t *testing.T) {
 
 	name, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	genBefore, ok := conn.State().GetPreparedStatementGeneration(name)
+	_, genBefore, ok := conn.State().GetPreparedStatement(name)
 	require.True(t, ok)
 
 	// Simulate ALTER TABLE orders ... executing successfully.
@@ -101,7 +101,7 @@ func TestEnsurePrepared_ReParsesAfterDDLOnDependentRelation(t *testing.T) {
 
 	name2, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	genAfter, ok := conn.State().GetPreparedStatementGeneration(name2)
+	_, genAfter, ok := conn.State().GetPreparedStatement(name2)
 	require.True(t, ok)
 
 	require.Equal(t, name, name2, "canonical name is unaffected by DDL, only its freshness")
@@ -118,7 +118,7 @@ func TestEnsurePrepared_UnaffectedByDDLOnUnrelatedRelation(t *testing.T) {
 
 	name, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	genBefore, ok := conn.State().GetPreparedStatementGeneration(name)
+	_, genBefore, ok := conn.State().GetPreparedStatement(name)
 	require.True(t, ok)
 
 	// A DDL on a table this statement doesn't reference.
@@ -126,7 +126,7 @@ func TestEnsurePrepared_UnaffectedByDDLOnUnrelatedRelation(t *testing.T) {
 
 	name2, err := e.ensurePrepared(ctx, conn, stmt)
 	require.NoError(t, err)
-	genAfter, ok := conn.State().GetPreparedStatementGeneration(name2)
+	_, genAfter, ok := conn.State().GetPreparedStatement(name2)
 	require.True(t, ok)
 
 	require.Equal(t, genBefore, genAfter, "DDL on an unrelated table must not invalidate this statement")

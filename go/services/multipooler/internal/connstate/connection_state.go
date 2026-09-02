@@ -39,16 +39,14 @@ type ConnectionState struct {
 	// a session GUC), not as a separate field.
 	Settings *Settings
 
-	// PreparedStatements stores prepared statements by name.
-	// The unnamed statement uses the empty string "" as the key.
-	PreparedStatements map[string]*query.PreparedStatement
-
-	// preparedStatementGeneration records, per canonical statement name, the
-	// relation-invalidation generation (preparedstatement.RelationInvalidationTracker)
-	// this connection's backend was prepared against. ensurePrepared compares
-	// this to the tracker's current generation for the statement to decide
-	// whether a DDL invalidated it since, without needing to parse SQL itself.
-	preparedStatementGeneration map[string]uint64
+	// preparedStatements stores prepared statements by canonical name, each
+	// stamped with the relation-invalidation generation
+	// (preparedstatement.RelationInvalidationTracker) this connection's
+	// backend was prepared against. ensurePrepared compares that stamp to
+	// the tracker's current generation for the statement to decide whether a
+	// DDL invalidated it since, without needing to parse SQL itself. The
+	// unnamed statement uses the empty string "" as the key.
+	preparedStatements map[string]*preparedStatementEntry
 
 	// trackedVpid is the gateway virtual pid most recently recorded for this
 	// backend in multigres.backend_vpid. It lets the executor skip duplicate
@@ -57,20 +55,25 @@ type ConnectionState struct {
 	trackedVpid uint32
 }
 
+// preparedStatementEntry bundles a prepared statement with the
+// relation-invalidation generation it was prepared against.
+type preparedStatementEntry struct {
+	stmt       *query.PreparedStatement
+	generation uint64
+}
+
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
-		PreparedStatements:          make(map[string]*query.PreparedStatement),
-		preparedStatementGeneration: make(map[string]uint64),
+		preparedStatements: make(map[string]*preparedStatementEntry),
 	}
 }
 
 // NewConnectionStateWithSettings creates a new ConnectionState with the given settings.
 func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
-		Settings:                    settings,
-		PreparedStatements:          make(map[string]*query.PreparedStatement),
-		preparedStatementGeneration: make(map[string]uint64),
+		Settings:           settings,
+		preparedStatements: make(map[string]*preparedStatementEntry),
 	}
 }
 
@@ -106,16 +109,14 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
-		PreparedStatements:          make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
-		preparedStatementGeneration: make(map[string]uint64, len(s.preparedStatementGeneration)),
+		preparedStatements: make(map[string]*preparedStatementEntry, len(s.preparedStatements)),
 	}
 
 	if s.Settings != nil {
 		clone.Settings = s.Settings.Clone()
 	}
 
-	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
-	maps.Copy(clone.preparedStatementGeneration, s.preparedStatementGeneration)
+	maps.Copy(clone.preparedStatements, s.preparedStatements)
 
 	return clone
 }
@@ -152,8 +153,7 @@ func (s *ConnectionState) Close() {
 	defer s.mu.Unlock()
 
 	s.Settings = nil
-	s.PreparedStatements = nil
-	s.preparedStatementGeneration = nil
+	s.preparedStatements = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -178,8 +178,9 @@ func (s *ConnectionState) SetSettings(settings *Settings) {
 
 // --- Prepared Statement Methods ---
 
-// StorePreparedStatement stores a prepared statement.
-func (s *ConnectionState) StorePreparedStatement(stmt *query.PreparedStatement) {
+// StorePreparedStatement stores a prepared statement, stamped with the
+// relation-invalidation generation it was prepared against.
+func (s *ConnectionState) StorePreparedStatement(stmt *query.PreparedStatement, generation uint64) {
 	if s == nil {
 		return
 	}
@@ -187,19 +188,25 @@ func (s *ConnectionState) StorePreparedStatement(stmt *query.PreparedStatement) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.PreparedStatements[stmt.Name] = stmt
+	s.preparedStatements[stmt.Name] = &preparedStatementEntry{stmt: stmt, generation: generation}
 }
 
-// GetPreparedStatement retrieves a prepared statement by name.
-func (s *ConnectionState) GetPreparedStatement(name string) *query.PreparedStatement {
+// GetPreparedStatement retrieves a prepared statement by name, along with
+// the relation-invalidation generation it was prepared against. ok is false
+// if nothing is recorded under name.
+func (s *ConnectionState) GetPreparedStatement(name string) (stmt *query.PreparedStatement, generation uint64, ok bool) {
 	if s == nil {
-		return nil
+		return nil, 0, false
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.PreparedStatements[name]
+	entry, ok := s.preparedStatements[name]
+	if !ok {
+		return nil, 0, false
+	}
+	return entry.stmt, entry.generation, true
 }
 
 // DeletePreparedStatement removes a prepared statement by name.
@@ -211,36 +218,7 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.PreparedStatements, name)
-	delete(s.preparedStatementGeneration, name)
-}
-
-// StorePreparedStatementGeneration records the relation-invalidation
-// generation a canonical statement was prepared against on this connection.
-func (s *ConnectionState) StorePreparedStatementGeneration(name string, generation uint64) {
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.preparedStatementGeneration[name] = generation
-}
-
-// GetPreparedStatementGeneration returns the relation-invalidation generation
-// a canonical statement was prepared against on this connection, and whether
-// any generation has been recorded at all.
-func (s *ConnectionState) GetPreparedStatementGeneration(name string) (uint64, bool) {
-	if s == nil {
-		return 0, false
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	gen, ok := s.preparedStatementGeneration[name]
-	return gen, ok
+	delete(s.preparedStatements, name)
 }
 
 // =============================================================================
