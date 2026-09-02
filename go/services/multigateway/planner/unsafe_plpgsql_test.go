@@ -433,6 +433,11 @@ func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
 		"CASE-of-const var %s":            `DO $$ DECLARE d text; c text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; EXECUTE format('SELECT * FROM t ORDER BY %I %s', c, d); END $$`,
 		"two %s same const var":           `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; EXECUTE format('SELECT a %s, b %s FROM t', d, d); END $$`,
 		"const %s built then EXECUTE var": `CREATE FUNCTION f() RETURNS SETOF int AS $$ DECLARE v text; d text; c text; BEGIN d := CASE WHEN true THEN 'asc' ELSE 'desc' END; v := format('SELECT * FROM t ORDER BY %I %s', c, d); RETURN QUERY EXECUTE v; END $$ LANGUAGE plpgsql`,
+		"positional %1$I identifier":      `DO $$ DECLARE p text; BEGIN EXECUTE format($x$SELECT '%1$I'$x$, p); END $$`,
+		"positional %1$L literal":         `DO $$ DECLARE p text; BEGIN EXECUTE format('SELECT %1$L', p); END $$`,
+		"positional %1$s constant":        `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %1$s', 'asc'); END $$`,
+		"mixed positional %2$L %1$I":      `DO $$ DECLARE a text; b text; BEGIN EXECUTE format('SELECT %2$L FROM %1$I', a, b); END $$`,
+		"repeated positional %1$I":        `DO $$ DECLARE p text; BEGIN EXECUTE format('SELECT %1$I, %1$I', p); END $$`,
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
@@ -442,11 +447,12 @@ func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
 	}
 
 	reject := map[string]string{
-		"%s fed by lower(param)":      `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
-		"%s fed by bare param":        `CREATE FUNCTION f(d text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
-		"%s fed by CASE without ELSE": `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' END; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"injected set_config via %s":  `DO $$ DECLARE d text; BEGIN d := 'x); SELECT set_config(''work_mem'',''1GB'',false'; EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', d); END $$`,
-		"%s var tainted by INTO":      `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"%s fed by lower(param)":       `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"%s fed by bare param":         `CREATE FUNCTION f(d text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$ LANGUAGE plpgsql`,
+		"positional %1$s fed by param": `CREATE FUNCTION f(p text) RETURNS void AS $$ BEGIN EXECUTE format('SELECT %1$s', p); END $$ LANGUAGE plpgsql`,
+		"%s fed by CASE without ELSE":  `DO $$ DECLARE d text; BEGIN d := CASE WHEN true THEN 'asc' END; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"injected set_config via %s":   `DO $$ DECLARE d text; BEGIN d := 'x); SELECT set_config(''work_mem'',''1GB'',false'; EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', d); END $$`,
+		"%s var tainted by INTO":       `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
 	}
 	for name, sql := range reject {
 		t.Run("reject/"+name, func(t *testing.T) {

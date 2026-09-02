@@ -898,11 +898,28 @@ func reduceSafeFormat(fc *ast.FuncCall, sb *strings.Builder, values *[]ast.Node)
 	return true
 }
 
+// formatArgPosition parses an optional `n$` positional prefix of a format
+// conversion starting at f[i] (i points just past the '%'). It returns the index
+// past the prefix, the 1-based argument number n, and whether a prefix was
+// present. In the strict skeleton n is unused (%I/%L quote whichever argument
+// they name); the constrained-%s path uses it to pick the referenced argument.
+func formatArgPosition(f string, i int) (next, n int, ok bool) {
+	j := i
+	for j < len(f) && f[j] >= '0' && f[j] <= '9' {
+		n = n*10 + int(f[j]-'0')
+		j++
+	}
+	if j > i && j < len(f) && f[j] == '$' {
+		return j + 1, n, true
+	}
+	return i, 0, false
+}
+
 // expandFormatSkeleton writes format()'s constant skeleton to sb, replacing each
 // conversion: %% -> %, %I -> a placeholder identifier, %L -> a placeholder
-// literal. Any other conversion — notably %s (raw text substitution) and the
-// width/positional specs we do not model — makes the structure non-constant, so
-// it returns false.
+// literal, including the positional forms %n$I / %n$L. Any other conversion —
+// notably %s (raw text substitution) and width specs — makes the structure
+// non-constant, so it returns false.
 func expandFormatSkeleton(f string, sb *strings.Builder) bool {
 	for i := 0; i < len(f); i++ {
 		if f[i] != '%' {
@@ -912,6 +929,12 @@ func expandFormatSkeleton(f string, sb *strings.Builder) bool {
 		i++
 		if i >= len(f) {
 			return false
+		}
+		if ni, _, ok := formatArgPosition(f, i); ok {
+			i = ni
+			if i >= len(f) {
+				return false
+			}
 		}
 		switch f[i] {
 		case '%':
@@ -1014,27 +1037,41 @@ func reduceConstrainedFormat(fc *ast.FuncCall, res *varResolver) (variants []str
 		if i >= len(f) {
 			return nil, nil, false
 		}
+		// A conversion may name its argument positionally (%n$I). When it does, the
+		// referenced argument is Items[n] rather than the next sequential one, and
+		// the sequential counter is not advanced (PostgreSQL forbids mixing the two
+		// styles). Otherwise the argument is the next sequential one.
+		arg := argIdx
+		positional := false
+		if ni, n, ok := formatArgPosition(f, i); ok {
+			i = ni
+			if i >= len(f) {
+				return nil, nil, false
+			}
+			arg = n
+			positional = true
+		}
+		if f[i] != '%' && (arg < 1 || arg >= fc.Args.Len()) {
+			return nil, nil, false
+		}
 		switch f[i] {
 		case '%':
 			prefix.WriteByte('%')
 		case 'I':
-			if argIdx >= fc.Args.Len() {
-				return nil, nil, false
-			}
 			prefix.WriteString(dynSkeletonIdent)
-			argIdx++
+			if !positional {
+				argIdx++
+			}
 		case 'L':
-			if argIdx >= fc.Args.Len() {
-				return nil, nil, false
-			}
 			prefix.WriteString(dynSkeletonLiteral)
-			argIdx++
-		case 's':
-			if argIdx >= fc.Args.Len() {
-				return nil, nil, false
+			if !positional {
+				argIdx++
 			}
-			vals, constrained := constStringValues(fc.Args.Items[argIdx], res, map[string]bool{})
-			argIdx++
+		case 's':
+			vals, constrained := constStringValues(fc.Args.Items[arg], res, map[string]bool{})
+			if !positional {
+				argIdx++
+			}
 			if !constrained || len(vals) == 0 {
 				return nil, nil, false
 			}
@@ -1046,7 +1083,7 @@ func reduceConstrainedFormat(fc *ast.FuncCall, res *varResolver) (variants []str
 			prefix.Reset()
 			svalSets = append(svalSets, vals)
 		default:
-			// Width, positional (%1$…), or any other conversion we do not model.
+			// Width or any other conversion we do not model.
 			return nil, nil, false
 		}
 	}
