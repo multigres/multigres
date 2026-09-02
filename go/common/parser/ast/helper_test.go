@@ -113,6 +113,80 @@ func TestExtractTablesUsed_NilStmt(t *testing.T) {
 	assert.Nil(t, ast.ExtractTablesUsed(nil))
 }
 
+func TestDDLTargetRelations(t *testing.T) {
+	tests := []struct {
+		name   string
+		sql    string
+		expect []string
+	}{
+		{
+			name:   "alter table alter column type",
+			sql:    "ALTER TABLE orders ALTER COLUMN amount TYPE numeric",
+			expect: []string{"orders"},
+		},
+		{
+			name:   "alter table schema qualified",
+			sql:    "ALTER TABLE public.orders ADD COLUMN note text",
+			expect: []string{"public.orders"},
+		},
+		{
+			name:   "drop table single",
+			sql:    "DROP TABLE orders",
+			expect: []string{"orders"},
+		},
+		{
+			name:   "drop table multiple",
+			sql:    "DROP TABLE orders, public.customers",
+			expect: []string{"orders", "public.customers"},
+		},
+		{
+			name:   "rename table",
+			sql:    "ALTER TABLE orders RENAME TO purchase_orders",
+			expect: []string{"orders"},
+		},
+		{
+			name:   "rename column",
+			sql:    "ALTER TABLE orders RENAME COLUMN amount TO total",
+			expect: []string{"orders"},
+		},
+		{
+			name:   "alter index is not a table shape change",
+			sql:    "ALTER INDEX orders_pkey RENAME TO orders_pk",
+			expect: nil,
+		},
+		{
+			name:   "create table does not affect existing statements",
+			sql:    "CREATE TABLE orders (id int)",
+			expect: nil,
+		},
+		{
+			name:   "drop index is not a table shape change",
+			sql:    "DROP INDEX orders_pkey",
+			expect: nil,
+		},
+		{
+			name:   "unrelated statement",
+			sql:    "SELECT * FROM orders",
+			expect: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := parser.ParseSQL(tt.sql)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+
+			got := ast.DDLTargetRelations(stmts[0])
+			assert.ElementsMatch(t, tt.expect, got)
+		})
+	}
+}
+
+func TestDDLTargetRelations_NilStmt(t *testing.T) {
+	assert.Nil(t, ast.DDLTargetRelations(nil))
+}
+
 func TestMaxParamRef(t *testing.T) {
 	tests := []struct {
 		name   string
