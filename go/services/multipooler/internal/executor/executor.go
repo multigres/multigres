@@ -61,8 +61,13 @@ type Executor struct {
 	logger             *slog.Logger
 	poolManager        connpoolmanager.PoolManager
 	poolerConsolidator *preparedstatement.PoolerConsolidator
-	poolerID           *clustermetadatapb.ID
-	metrics            *queryStats
+	// relationInvalidation tracks which relations each canonical prepared
+	// statement depends on, so ensurePrepared can tell a DDL-invalidated
+	// cache entry from a still-valid one without parsing SQL itself. See
+	// RelationInvalidationTracker's doc comment for why this is needed.
+	relationInvalidation *preparedstatement.RelationInvalidationTracker
+	poolerID             *clustermetadatapb.ID
+	metrics              *queryStats
 
 	// backendVpidTrackingEnabled controls whether gateway-vpid/backend-pid
 	// associations are written to multigres.backend_vpid. The table is always
@@ -115,6 +120,7 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 		logger:                     logger,
 		poolManager:                poolManager,
 		poolerConsolidator:         preparedstatement.NewPoolerConsolidator(),
+		relationInvalidation:       preparedstatement.NewRelationInvalidationTracker(),
 		poolerID:                   poolerID,
 		metrics:                    newQueryStats(),
 		backendVpidTrackingEnabled: backendVpidTrackingEnabled,
@@ -272,6 +278,19 @@ func (e *Executor) StreamExecute(
 	}
 	defer func() {
 		e.metrics.recordQuery(ctx, poolType, time.Since(start), rowsStreamed, err)
+	}()
+
+	// If this statement was DDL that can change a table's result shape (see
+	// ast.DDLTargetRelations), bump those relations' invalidation generation
+	// once it executes successfully, regardless of which case below actually
+	// ran it — every case shares this single named return. A cached prepared
+	// statement depending on one of these relations will re-Parse on its
+	// next use instead of silently reusing a now-stale plan (ensurePrepared)
+	// or serving a stale result shape on Describe.
+	defer func() {
+		if err == nil {
+			e.relationInvalidation.InvalidateRelations(options.GetDdlTargetRelations())
+		}
 	}()
 
 	user := e.getUserFromOptions(options)
@@ -1515,12 +1534,38 @@ func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, c
 func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
 	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes)
 
-	// Check if this connection already has the statement prepared
+	// Register (or extend) this canonical statement's known table
+	// dependencies, then read the generation those tables are currently at.
+	// A statement that depends on no known table (nil UsedTables, or a
+	// non-table-referencing query) always reports generation 0 — never
+	// invalidated, since there is nothing to invalidate.
+	e.relationInvalidation.RecordDependencies(canonicalName, stmt.UsedTables)
+	currentGeneration := e.relationInvalidation.StatementGeneration(canonicalName)
+
+	// Check if this connection already has the statement prepared, and that
+	// no DDL has invalidated it since. The generation check is what makes
+	// this safe for Describe too, not just Bind/Execute: PostgreSQL does not
+	// revalidate a prepared statement's result shape on Describe (only on
+	// Bind/Execute), so without this check a stale connState entry would
+	// silently hand back the pre-DDL shape instead of erroring.
 	connState := conn.State()
 	existing := connState.GetPreparedStatement(canonicalName)
-	if existing != nil && existing.Query == stmt.Query {
-		// Statement already prepared on this connection, reuse it
+	existingGeneration, hasGeneration := connState.GetPreparedStatementGeneration(canonicalName)
+	if existing != nil && existing.Query == stmt.Query && hasGeneration && existingGeneration == currentGeneration {
+		// Statement already prepared on this connection, and unaffected by any
+		// DDL since — reuse it.
 		return canonicalName, nil
+	}
+
+	if existing != nil {
+		// Either a DDL invalidated this canonical statement since it was
+		// prepared on this connection, or connState's bookkeeping and the
+		// backend have drifted apart — close defensively either way.
+		// PostgreSQL rejects a Parse under a name that's still open, so this
+		// must happen before re-Parsing below (see prepare.c's
+		// StorePreparedStatement "already exists" check).
+		_ = conn.CloseStatement(ctx, canonicalName)
+		connState.DeletePreparedStatement(canonicalName)
 	}
 
 	// Parse the statement on this connection
@@ -1528,12 +1573,14 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 		return "", fmt.Errorf("failed to parse statement: %w", err)
 	}
 
-	// Store in connection state for future reuse
+	// Store in connection state for future reuse, stamped with the
+	// generation it was just prepared against.
 	connState.StorePreparedStatement(&query.PreparedStatement{
 		Name:       canonicalName,
 		Query:      stmt.Query,
 		ParamTypes: stmt.ParamTypes,
 	})
+	connState.StorePreparedStatementGeneration(canonicalName, currentGeneration)
 
 	return canonicalName, nil
 }

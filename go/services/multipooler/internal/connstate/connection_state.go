@@ -43,6 +43,13 @@ type ConnectionState struct {
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
 
+	// preparedStatementGeneration records, per canonical statement name, the
+	// relation-invalidation generation (preparedstatement.RelationInvalidationTracker)
+	// this connection's backend was prepared against. ensurePrepared compares
+	// this to the tracker's current generation for the statement to decide
+	// whether a DDL invalidated it since, without needing to parse SQL itself.
+	preparedStatementGeneration map[string]uint64
+
 	// trackedVpid is the gateway virtual pid most recently recorded for this
 	// backend in multigres.backend_vpid. It lets the executor skip duplicate
 	// upserts within one active gateway/backend association. Cleanup resets the
@@ -53,15 +60,17 @@ type ConnectionState struct {
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		PreparedStatements:          make(map[string]*query.PreparedStatement),
+		preparedStatementGeneration: make(map[string]uint64),
 	}
 }
 
 // NewConnectionStateWithSettings creates a new ConnectionState with the given settings.
 func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
-		Settings:           settings,
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		Settings:                    settings,
+		PreparedStatements:          make(map[string]*query.PreparedStatement),
+		preparedStatementGeneration: make(map[string]uint64),
 	}
 }
 
@@ -97,7 +106,8 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		PreparedStatements:          make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		preparedStatementGeneration: make(map[string]uint64, len(s.preparedStatementGeneration)),
 	}
 
 	if s.Settings != nil {
@@ -105,6 +115,7 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	}
 
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
+	maps.Copy(clone.preparedStatementGeneration, s.preparedStatementGeneration)
 
 	return clone
 }
@@ -142,6 +153,7 @@ func (s *ConnectionState) Close() {
 
 	s.Settings = nil
 	s.PreparedStatements = nil
+	s.preparedStatementGeneration = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -200,6 +212,35 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	defer s.mu.Unlock()
 
 	delete(s.PreparedStatements, name)
+	delete(s.preparedStatementGeneration, name)
+}
+
+// StorePreparedStatementGeneration records the relation-invalidation
+// generation a canonical statement was prepared against on this connection.
+func (s *ConnectionState) StorePreparedStatementGeneration(name string, generation uint64) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.preparedStatementGeneration[name] = generation
+}
+
+// GetPreparedStatementGeneration returns the relation-invalidation generation
+// a canonical statement was prepared against on this connection, and whether
+// any generation has been recorded at all.
+func (s *ConnectionState) GetPreparedStatementGeneration(name string) (uint64, bool) {
+	if s == nil {
+		return 0, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	gen, ok := s.preparedStatementGeneration[name]
+	return gen, ok
 }
 
 // =============================================================================
