@@ -36,10 +36,8 @@ var (
 )
 
 // registerBuildInfoMetric exposes the running component's immutable build
-// identity as a single info-style gauge. Keeping the value fixed at 1 and the
-// metadata in labels follows the Prometheus convention for build information
-// and makes mixed-version deployments directly queryable without relying on
-// OTel resource-attribute promotion.
+// identity as a single Prometheus-style info gauge (value fixed at 1,
+// metadata carried in labels).
 func registerBuildInfoMetric(serviceName string) error {
 	meter := otel.Meter(buildInfoMeterName)
 	info, err := meter.Int64ObservableGauge(
