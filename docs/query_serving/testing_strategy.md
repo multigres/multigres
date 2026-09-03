@@ -315,16 +315,17 @@ and `/image/png` (exactly 8090 NUL-free ASCII bytes, because the expected file
 pins `length_binary=8090`). Live TLS probes to `https://postgis.net` in that
 suite are left unchanged.
 
-### `--unsafe-pooler-mode` for a handful of scaffolding files
+### `multigres.unsafe_connection` for a handful of scaffolding files
 
-A gateway started with `--unsafe-pooler-mode` (default off) skips the
-unsafe-statement rejections. The harness uses it in exactly one place: a second
-gateway that runs a small set of `pg_partman` pgTAP files
-(`UnsafePoolerGlobs`) whose scaffolding opens with a `DO … EXECUTE 'DROP TABLE
-'||to_char(…)` block the enforcing gateway rejects. These files exercise
-`pg_partman` for real; routing them to the unsafe gateway lets them run instead
-of being dropped. It is never used for the core, isolation, or contrib suites,
-and never to inflate a compatibility signal.
+A connection that sets `multigres.unsafe_connection` (default off) skips the
+unsafe-statement rejections. The harness uses it in exactly one place: a small
+set of `pg_partman` pgTAP files (`UnsafeConnectionGlobs`) whose scaffolding
+opens with a `DO … EXECUTE 'DROP TABLE '||to_char(…)` block the enforcing
+gateway rejects. Those files connect to the same enforcing gateway but opt that
+one connection out via `PGOPTIONS=-c multigres.unsafe_connection=on`, so they
+run in full while every other file keeps exercising the rejections. It is never
+used for the core, isolation, or contrib suites, and never to inflate a
+compatibility signal.
 
 ### Virtual PIDs (VPIDs)
 
@@ -401,9 +402,9 @@ patches. Extension-specific instances of the same cause are grouped under
 
 A shared, pooled, multi-tenant fleet cannot safely expose these. The gateway
 rejects them (`unsafe_stmt.go`, `unsafe_funccall.go`, `restricted_guc.go`,
-`execute_unwrap.go`); the resulting rejection line is the recorded divergence. A
-`--unsafe-pooler-mode` flag (default off) disables these rejections for trusted
-single-tenant deployments that accept the risk.
+`execute_unwrap.go`); the resulting rejection line is the recorded divergence.
+The per-connection `multigres.unsafe_connection` GUC (default off) disables
+these rejections for a trusted connection that accepts the risk.
 
 <!-- markdownlint-disable MD013 -->
 

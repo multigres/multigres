@@ -225,35 +225,41 @@ func ReasonsString(reasons uint32) string {
 		return "none"
 	}
 	var parts []string
-	if HasTransactionReason(reasons) {
-		parts = append(parts, "transaction")
-	}
-	if HasTempTableReason(reasons) {
-		parts = append(parts, "temp_table")
-	}
-	if HasPortalReason(reasons) {
-		parts = append(parts, "portal")
-	}
-	if HasCopyReason(reasons) {
-		parts = append(parts, "copy")
-	}
-	if HasListenReason(reasons) {
-		parts = append(parts, "listen")
-	}
-	if HasLogicalReplicationReason(reasons) {
-		parts = append(parts, "logical_replication")
-	}
-	if HasSessionAdvisoryLockReason(reasons) {
-		parts = append(parts, "session_advisory_lock")
-	}
-	if HasSetSeedReason(reasons) {
-		parts = append(parts, "set_seed")
-	}
-	if HasUnsafeConnectionReason(reasons) {
-		parts = append(parts, "unsafe_connection")
+	for _, r := range orderedReasonLabels {
+		if HasReason(reasons, r.Bit) {
+			parts = append(parts, r.Name)
+		}
 	}
 	if len(parts) == 0 {
 		return "unknown"
 	}
 	return strings.Join(parts, "|")
+}
+
+// ReasonLabel pairs a single reservation reason bit with its stable label,
+// used both by ReasonsString and by per-reason metrics.
+type ReasonLabel struct {
+	Bit  uint32
+	Name string
+}
+
+// orderedReasonLabels lists every reservation reason with its label, in a
+// stable order. Single source of truth for reason-to-label mapping.
+var orderedReasonLabels = []ReasonLabel{
+	{ReasonTransaction, "transaction"},
+	{ReasonTempTable, "temp_table"},
+	{ReasonPortal, "portal"},
+	{ReasonCopy, "copy"},
+	{ReasonListen, "listen"},
+	{ReasonLogicalReplication, "logical_replication"},
+	{ReasonSessionAdvisoryLock, "session_advisory_lock"},
+	{ReasonSetSeed, "set_seed"},
+	{ReasonUnsafeConnection, "unsafe_connection"},
+}
+
+// ReasonLabels returns every known reservation reason paired with its stable
+// metric label, in a fixed order. Callers building per-reason metrics use it to
+// enumerate reasons (including ones with a zero count) consistently.
+func ReasonLabels() []ReasonLabel {
+	return orderedReasonLabels
 }
