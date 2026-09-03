@@ -247,8 +247,12 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.globalCapacity.Store(globalCapacity)
 	reservedRatio := m.config.ReservedRatio()
 	minPerUser := m.config.MinCapacityPerUser()
-	regularCapacity := int64(float64(globalCapacity) * (1 - reservedRatio))
-	reservedCapacity := globalCapacity - regularCapacity
+	// Guarantee each pool class at least one connection: a tiny budget (e.g. a
+	// derived capacity clamped to 1) would otherwise truncate the regular share
+	// to 0 and disable ordinary queries entirely. For such an already-unusable
+	// budget, overshooting it by one connection is the lesser evil.
+	regularCapacity := max(int64(float64(globalCapacity)*(1-reservedRatio)), 1)
+	reservedCapacity := max(globalCapacity-regularCapacity, 1)
 	regularMinPerUser := max(int64(float64(minPerUser)*(1-reservedRatio)), 1)
 	reservedMinPerUser := max(minPerUser-regularMinPerUser, 1)
 

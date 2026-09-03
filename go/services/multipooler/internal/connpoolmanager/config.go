@@ -98,6 +98,10 @@ type Config struct {
 	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
 	// tests that exercise only the env-var or file paths).
 	flagSet *pflag.FlagSet
+	// reg is the registry the values below were configured against, saved so
+	// explicitness checks can ask whether a key was present in the loaded
+	// config file (Registry.InStaticConfig).
+	reg *viperutil.Registry
 
 	// --- PostgreSQL TLS (multipooler → postgres leg) ---
 	// libpq-style server verification. Mode + optional CA bundle. Client cert
@@ -220,6 +224,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
+		reg: reg,
 		// PostgreSQL superuser credentials (also used for internal system queries)
 		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
@@ -625,11 +630,11 @@ func (c *Config) GlobalCapacityExplicit() bool {
 	if _, ok := os.LookupEnv("CONNPOOL_GLOBAL_CAPACITY"); ok {
 		return true
 	}
-	// Config-file values set neither Flag.Changed nor the env var; a resolved
-	// value that differs from the default can only come from an explicit source.
-	// (A config file pinning the capacity to exactly the default value is
-	// indistinguishable from "unset" and falls through to derivation.)
-	return c.globalCapacity.Get() != c.globalCapacity.Default()
+	// Config-file values set neither Flag.Changed nor the env var; ask the
+	// registry whether the key was present in the loaded config file, so a
+	// config file pinning the capacity to exactly the default value still
+	// counts as explicit.
+	return c.reg.InStaticConfig(c.globalCapacity.Key())
 }
 
 // ReservedRatio returns the fraction of global capacity allocated to reserved pools (0.0-1.0).
