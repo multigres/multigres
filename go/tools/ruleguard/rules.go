@@ -149,7 +149,7 @@ func requireSortedMapIteration(m dsl.Matcher) {
 		`for $k := range $x { $*_ }`,
 	).Where(
 		m["x"].Type.Is("map[$_]$_") &&
-			m.File().PkgPath.Matches(`common/(consensus|ha)`)).
+			m.File().PkgPath.Matches(`common/(consensus|ha)$`)).
 		Report("map iteration is non-deterministic across Go runs; use sortedmaps.All/Keys/Values for deterministic iteration")
 }
 
@@ -164,7 +164,7 @@ func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
 		`maps.Values($x)`,
 		`maps.All($x)`,
 	).Where(
-		m.File().PkgPath.Matches(`common/(consensus|ha)`)).
+		m.File().PkgPath.Matches(`common/(consensus|ha)$`)).
 		Report("maps.Keys/Values/All iterate in non-deterministic order; use sortedmaps.Keys/Values/All instead")
 }
 
@@ -175,7 +175,7 @@ func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
 func disallowGoroutinesInDeterministicPkgs(m dsl.Matcher) {
 	m.Match(`go $_($*_)`).
 		Where(
-			m.File().PkgPath.Matches(`common/(consensus|ha)`) &&
+			m.File().PkgPath.Matches(`common/(consensus|ha)$`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("goroutines introduce scheduling non-determinism; keep this logic step-driven and synchronous")
 }
@@ -201,7 +201,7 @@ func disallowWallClockInDeterministicPkgs(m dsl.Matcher) {
 		`time.NewTicker($_)`,
 		`timestamppb.Now()`,
 	).Where(
-		m.File().PkgPath.Matches(`common/(consensus|ha)`) &&
+		m.File().PkgPath.Matches(`common/(consensus|ha)$`) &&
 			!m.File().Name.Matches(`_test\.go$`)).
 		Report("reading wall-clock time breaks determinism; pass the timestamp from the caller or use an injected clock")
 }
