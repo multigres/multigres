@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -376,4 +377,106 @@ func TestManager_GarbageCollectSkipsPoolWithBorrowedRegularConn(t *testing.T) {
 
 	manager.garbageCollectInactivePools(ctx)
 	assert.False(t, manager.HasUserPool("busy"))
+}
+
+// A reserved conn holds a borrowed slot from before validation until release.
+// GC must (a) count that borrowed-but-unregistered slot as checked out and
+// (b) never block behind, or race, an acquisition in flight.
+func TestManager_GarbageCollectSkipsPoolDuringReservedSetup(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Prime the pool so the validate hook can reach it through the snapshot.
+	c, err := manager.GetRegularConn(ctx, "setup", nil, nil)
+	require.NoError(t, err)
+	c.Recycle()
+	pool := (*manager.userPoolsSnapshot.Load())["setup"]
+
+	backdate := func() { pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano()) }
+
+	// validate runs after the underlying borrow and before registration in
+	// reserved.Pool.active — exactly the setup window the GC used to miss.
+	validated := false
+	validate := func(context.Context, *regular.Conn) error {
+		validated = true
+		assert.True(t, pool.HasCheckedOutConns(), "borrowed-but-unregistered reserved conn must count as checked out")
+		backdate()
+
+		done := make(chan struct{})
+		go func() {
+			manager.garbageCollectInactivePools(ctx)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("GC blocked behind an in-flight acquisition")
+		}
+		assert.True(t, manager.HasUserPool("setup"), "GC must skip a pool with an acquisition in flight")
+		assert.False(t, pool.IsClosing())
+		return nil
+	}
+	rc, err := manager.NewReservedConn(ctx, nil, "setup", nil, nil, reserved.WithValidate(validate))
+	require.NoError(t, err)
+	require.True(t, validated)
+	assert.False(t, rc.IsClosed(), "conn acquired during GC must stay open")
+
+	// Once released and idle again, the pool is collected as usual.
+	rc.Release(reserved.ReleaseRollback, nil)
+	backdate()
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("setup"))
+	assert.True(t, pool.IsClosing())
+
+	// A subsequent acquisition builds a fresh pool rather than hitting the old one.
+	c2, err := manager.GetRegularConn(ctx, "setup", nil, nil)
+	require.NoError(t, err)
+	c2.Recycle()
+	assert.True(t, manager.HasUserPool("setup"))
+	assert.NotSame(t, pool, (*manager.userPoolsSnapshot.Load())["setup"])
+}
+
+func TestUserPool_TryMarkInactive(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+	future := time.Now().Add(time.Hour).UnixNano() // every pool is "stale" against this cutoff
+
+	c, err := manager.GetRegularConn(ctx, "u", nil, nil)
+	require.NoError(t, err)
+	pool := (*manager.userPoolsSnapshot.Load())["u"]
+
+	assert.False(t, pool.tryMarkInactive(future), "must refuse while a conn is borrowed")
+	c.Recycle()
+	assert.False(t, pool.tryMarkInactive(time.Now().Add(-time.Hour).UnixNano()), "must refuse when recently active")
+
+	// An acquisition in flight holds the read lock; GC must give up, not wait.
+	pool.acqMu.RLock()
+	assert.False(t, pool.tryMarkInactive(future), "must refuse while an acquisition is in flight")
+	pool.acqMu.RUnlock()
+
+	require.True(t, pool.tryMarkInactive(future), "idle pool must be claimable")
+	assert.True(t, pool.IsClosing())
+	assert.False(t, pool.tryMarkInactive(future), "a claimed pool must not be claimed twice")
+
+	// Every acquire path refuses a claimed pool so the caller re-looks-up.
+	_, err = pool.GetRegularConn(ctx)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.GetRegularConnWithSettings(ctx, nil)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.NewReservedConn(ctx, nil)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.NewLogicalReplicationConn(ctx)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
 }
