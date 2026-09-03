@@ -187,4 +187,9 @@ const (
 	// survives restore_command being cleared and PGDATA being wiped by a
 	// subsequent restore.
 	RestoreCommandPIDFile = "restore_command.pid"
+
+	// PostmasterPIDFile is the filename (joined onto PGDATA) postgres itself
+	// writes its lock file to, recording the postmaster's PID and start time
+	// among other fields. Fixed by PostgreSQL itself, not configurable.
+	PostmasterPIDFile = "postmaster.pid"
 )

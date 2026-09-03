@@ -158,11 +158,59 @@ func TestIsDataDirInitialized(t *testing.T) {
 	}
 }
 
+// TestReadPostmasterPID_ToleratesTruncatedFile pins the contract that
+// reloadWithSignal, status reporting, and the startup readiness loop depend
+// on: a torn lock file with a readable first line must not fail them, no
+// matter what (if anything) follows it.
+func TestReadPostmasterPID_ToleratesTruncatedFile(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_pid_contract_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	// Only the PID made it to disk.
+	require.NoError(t, os.WriteFile(pidFile, []byte("4242\n"), 0o644))
+
+	pid, err := readPostmasterPID(dataDir)
+	require.NoError(t, err)
+	assert.Equal(t, 4242, pid)
+}
+
+// TestReadPostmasterPID_UnparseablePIDIsAnError covers the other half of
+// readPostmasterPID's contract: unlike a missing start-time line, a PID line
+// that isn't a number leaves nothing for PID-only callers to act on, so it
+// must be a real error rather than silently reporting PID 0.
+func TestReadPostmasterPID_UnparseablePIDIsAnError(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_pid_contract_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	require.NoError(t, os.WriteFile(pidFile, []byte("not-a-pid\n"+dataDir+"\n"), 0o644))
+
+	pid, err := readPostmasterPID(dataDir)
+	require.Error(t, err)
+	assert.Equal(t, 0, pid)
+}
+
+// checkPostgreSQLRunningTestConfig builds the config checkPostgreSQLRunning
+// needs to reach pg_isready, pointed at dataDir under poolerDir.
+func checkPostgreSQLRunningTestConfig(t *testing.T, poolerDir, dataDir string) *pgctld.PostgresCtlConfig {
+	t.Helper()
+	config, err := pgctld.NewPostgresCtlConfig(
+		5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, 30,
+		dataDir, pgctld.PostgresConfigFile(), poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir),
+	)
+	require.NoError(t, err)
+	return config
+}
+
 func TestIsPostgreSQLRunning(t *testing.T) {
 	tests := []struct {
-		name      string
-		setupDir  func(string) string
-		isRunning bool
+		name          string
+		setupDir      func(string) string
+		setupBinaries bool
+		isRunning     bool
 	}{
 		{
 			name: "server running with PID file",
@@ -171,14 +219,15 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
 			},
-			isRunning: true,
+			setupBinaries: true, // mock pg_isready defaults to exit 0
+			isRunning:     true,
 		},
 		{
 			name: "server not running",
 			setupDir: func(baseDir string) string {
 				return testutil.CreateDataDir(t, baseDir, true)
 			},
-			isRunning: false,
+			isRunning: false, // no postmaster.pid: pg_isready is never even invoked
 		},
 		{
 			name: "uninitialized directory",
@@ -194,11 +243,172 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_running_test")
 			defer cleanup()
 
+			if tt.setupBinaries {
+				binDir := filepath.Join(baseDir, "bin")
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
+				testutil.CreateMockPostgreSQLBinaries(t, binDir)
+
+				originalPath := os.Getenv("PATH")
+				os.Setenv("PATH", binDir+":"+originalPath)
+				defer os.Setenv("PATH", originalPath)
+			}
+
 			dataDir := tt.setupDir(baseDir)
-			result := isPostgreSQLRunning(dataDir)
+			config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+
+			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+			result, err := checkPostgreSQLRunning(t.Context(), logger, config)
+			require.NoError(t, err)
 			assert.Equal(t, tt.isRunning, result)
 		})
 	}
+}
+
+// TestCheckPostgreSQLRunning_StaleLockRemovedWhenPostgresNotResponding
+// covers a stale postmaster.pid: it records a PID that some unrelated
+// process now holds, as happens when a reschedule lands on a fresh PID
+// namespace. Nothing is actually listening as postgres, so pg_isready
+// reports "no response" (exit 2) regardless of who (if anyone) holds the
+// recorded PID.
+func TestCheckPostgreSQLRunning_StaleLockRemovedWhenPostgresNotResponding(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_stale_pid_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 2")
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir+":"+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	result, err := checkPostgreSQLRunning(t.Context(), logger, config)
+	require.NoError(t, err)
+	assert.False(t, result, "a postmaster.pid pg_isready cannot reach must not read as running")
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "postmaster.pid"))
+	assert.True(t, os.IsNotExist(statErr), "the stale postmaster.pid should have been removed")
+}
+
+// TestProbePostgreSQLRunningAndReady_DoesNotRemoveStaleLock covers the
+// side-effect-free probe used by Status: unlike checkPostgreSQLRunning, a
+// pg_isready exit 2 must NOT delete postmaster.pid. Status is polled
+// continuously and concurrently by multipooler's readiness checks, and doing
+// the removal there could race a postgres pgctld itself started transiently
+// (e.g. init's post-initdb SQL-dir setup) and orphan it.
+func TestProbePostgreSQLRunningAndReady_DoesNotRemoveStaleLock(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_probe_stale_pid_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 2")
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir+":"+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+	running, ready, err := probePostgreSQLRunningAndReady(t.Context(), config)
+	require.NoError(t, err)
+	assert.False(t, running)
+	assert.False(t, ready)
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "postmaster.pid"))
+	assert.NoError(t, statErr, "probing must never remove postmaster.pid, stale or not")
+}
+
+// TestCheckPostgreSQLRunning_RejectingConnectionsStillCountsAsRunning covers
+// a postmaster mid-startup or crash recovery: pg_isready's exit 1 ("rejecting
+// connections") means it is alive but not ready yet, which must not be
+// mistaken for stale.
+func TestCheckPostgreSQLRunning_RejectingConnectionsStillCountsAsRunning(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_starting_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir+":"+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	result, err := checkPostgreSQLRunning(t.Context(), logger, config)
+	require.NoError(t, err)
+	assert.True(t, result, "a postmaster rejecting connections is still running")
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "postmaster.pid"))
+	assert.NoError(t, statErr, "postmaster.pid must be preserved")
+}
+
+// TestCheckPostgreSQLRunning_UnreachablePgIsReadyReturnsError covers
+// pg_isready itself failing to run at all (e.g. missing from PATH, as
+// opposed to running and reporting an exit code): with no definitive signal
+// either way, checkPostgreSQLRunning must not guess — it returns an error
+// and must not delete a lock file it can't disprove.
+func TestCheckPostgreSQLRunning_UnreachablePgIsReadyReturnsError(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_pgisready_missing_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+
+	// Deliberately no pg_isready anywhere on PATH — not even the real system
+	// one, which a test machine with PostgreSQL installed might otherwise pick up.
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir)
+	defer os.Setenv("PATH", originalPath)
+
+	config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	result, err := checkPostgreSQLRunning(t.Context(), logger, config)
+	assert.Error(t, err, "an unreachable pg_isready must surface as an error, not a guess")
+	assert.False(t, result)
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "postmaster.pid"))
+	assert.NoError(t, statErr, "postmaster.pid must be preserved")
+}
+
+// TestCheckPostgreSQLRunning_BrokenExitCodeReturnsError covers pg_isready's
+// exit 3 ("no attempt made", e.g. invalid connection parameters): per
+// review, this means something is broken in the control plane itself, not
+// in postgres, and must be flagged as an error rather than guessed either
+// way.
+func TestCheckPostgreSQLRunning_BrokenExitCodeReturnsError(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_pgisready_broken_test")
+	defer cleanup()
+
+	dataDir := testutil.CreateDataDir(t, baseDir, true)
+	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 3")
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir+":"+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	config := checkPostgreSQLRunningTestConfig(t, baseDir, dataDir)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	result, err := checkPostgreSQLRunning(t.Context(), logger, config)
+	assert.Error(t, err, "pg_isready exit 3 must surface as an error, not a guess")
+	assert.False(t, result)
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "postmaster.pid"))
+	assert.NoError(t, statErr, "postmaster.pid must be preserved")
 }
 
 func TestInitializeDataDir(t *testing.T) {

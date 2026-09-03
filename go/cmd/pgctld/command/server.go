@@ -589,45 +589,51 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	// is instead crash-recovered by the postmaster on the normal start below and
 	// does not set it.
 	var crashRecoveryRan bool
-	if req.GetAllowCrashRecovery() && isPostgreSQLRunning(s.pgConfig.PostgresDataDir) {
-		// Never crash-recover a running postmaster: runCrashRecovery removes
-		// standby.signal for single-user recovery, and doing that to a postmaster
-		// that is up — or still starting after a Start whose success was misreported
-		// — can bring it up read-write on a timeline it must not claim. A Start
-		// against an already-running node is an idempotent no-op via
-		// StartPostgreSQLWithResult below.
-		s.logger.InfoContext(ctx, "skipping crash recovery before start: postgres is already running")
-	} else if req.GetAllowCrashRecovery() {
-		needed, nErr := s.crashRecoveryNeeded(ctx)
-		if nErr != nil {
-			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
-		} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
-			// A not-cleanly-stopped standby that the caller suspects may have
-			// diverged (a former primary being demoted, or a node already flagged
-			// for rewind) is force-recovered in single-user mode. runCrashRecovery
-			// removes standby.signal first — postgres --single refuses to run with
-			// it — and recreates it afterwards; this reaches the clean-shutdown
-			// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
-			// stamped minRecoveryPoint onto the wrong timeline).
-			//
-			// A clean follower is deliberately NOT sent here: single-user
-			// recovery runs in primary mode and does not follow timeline-history
-			// switches, so it would finalize the node on its old timeline past the
-			// leader's fork and wedge the standby start ("requested timeline N is not
-			// a child"). Its crash recovery — and that of a node without
-			// standby.signal — is handled by the postmaster on the normal start
-			// below, which in standby mode follows the timeline switch. crashRecoveryRan
-			// therefore reports specifically whether single-user recovery ran.
-			crashRecoveryRan = true
-			if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
-				// Best effort: the start below may still surface a clearer error.
-				s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+	if req.GetAllowCrashRecovery() {
+		running, err := checkPostgreSQLRunning(ctx, s.logger, s.pgConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if PostgreSQL is running: %w", err)
+		}
+		if running {
+			// Never crash-recover a running postmaster: runCrashRecovery removes
+			// standby.signal for single-user recovery, and doing that to a postmaster
+			// that is up — or still starting after a Start whose success was misreported
+			// — can bring it up read-write on a timeline it must not claim. A Start
+			// against an already-running node is an idempotent no-op via
+			// StartPostgreSQLWithResult below.
+			s.logger.InfoContext(ctx, "skipping crash recovery before start: postgres is already running")
+		} else {
+			needed, nErr := s.crashRecoveryNeeded(ctx)
+			if nErr != nil {
+				s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
+			} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
+				// A not-cleanly-stopped standby that the caller suspects may have
+				// diverged (a former primary being demoted, or a node already flagged
+				// for rewind) is force-recovered in single-user mode. runCrashRecovery
+				// removes standby.signal first — postgres --single refuses to run with
+				// it — and recreates it afterwards; this reaches the clean-shutdown
+				// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
+				// stamped minRecoveryPoint onto the wrong timeline).
+				//
+				// A clean follower is deliberately NOT sent here: single-user
+				// recovery runs in primary mode and does not follow timeline-history
+				// switches, so it would finalize the node on its old timeline past the
+				// leader's fork and wedge the standby start ("requested timeline N is not
+				// a child"). Its crash recovery — and that of a node without
+				// standby.signal — is handled by the postmaster on the normal start
+				// below, which in standby mode follows the timeline switch. crashRecoveryRan
+				// therefore reports specifically whether single-user recovery ran.
+				crashRecoveryRan = true
+				if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
+					// Best effort: the start below may still surface a clearer error.
+					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+				}
 			}
 		}
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := s.StartPostgreSQLWithResult()
+	result, err := s.StartPostgreSQLWithResult(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -657,7 +663,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := s.StopPostgreSQLWithResult(req.Mode)
+	result, err := s.StopPostgreSQLWithResult(ctx, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -677,7 +683,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := s.RestartPostgreSQLWithResult(req.Mode, req.AsStandby)
+	result, err := s.RestartPostgreSQLWithResult(ctx, req.Mode, req.AsStandby)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
@@ -706,7 +712,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	}
 
 	// Use the pre-configured PostgreSQL config for reload operation
-	result, err := ReloadPostgreSQLConfigWithResult(s.logger, s.pgConfig)
+	result, err := ReloadPostgreSQLConfigWithResult(ctx, s.logger, s.pgConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}

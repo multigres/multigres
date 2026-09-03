@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -93,29 +94,23 @@ Examples:
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
-func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool) (*RestartResult, error) {
+func (s *PgCtldService) RestartPostgreSQLWithResult(ctx context.Context, mode string, asStandby bool) (*RestartResult, error) {
 	result := &RestartResult{}
 	logger := s.logger
 	config := s.pgConfig
 
 	if asStandby {
-		logger.Info("restarting Postgres server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.InfoContext(ctx, "restarting Postgres server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
 	} else {
-		logger.Info("restarting Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.InfoContext(ctx, "restarting Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
 	}
 
 	// Stop the server if it's running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("stopping Postgres server")
-		stopResult, err := s.StopPostgreSQLWithResult(mode)
-		if err != nil {
-			return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
-		}
-		result.StoppedFirst = stopResult.WasRunning
-	} else {
-		logger.Info("Postgres is not running, proceeding with start") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		result.StoppedFirst = false
+	stopResult, err := s.StopPostgreSQLWithResult(ctx, mode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
 	}
+	result.StoppedFirst = stopResult.WasRunning
 
 	// Create standby.signal if restarting as standby
 	if asStandby {
@@ -126,20 +121,20 @@ func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool)
 
 	// Start the server with detailed context
 	if asStandby {
-		logger.Info("starting Postgres server as standby",
+		logger.InfoContext(ctx, "starting Postgres server as standby",
 			"data_dir", config.PostgresDataDir,
 			"port", config.Port,
 			"timeout", config.Timeout,
 		)
 	} else {
-		logger.Info("starting Postgres server")
+		logger.InfoContext(ctx, "starting Postgres server")
 	}
 
-	startResult, err := s.StartPostgreSQLWithResult()
+	startResult, err := s.StartPostgreSQLWithResult(ctx)
 	if err != nil {
 		// Enhanced error logging for standby mode
 		if asStandby {
-			logger.Error("failed to start Postgres as standby",
+			logger.ErrorContext(ctx, "failed to start Postgres as standby",
 				"error", err,
 				"data_dir", config.PostgresDataDir,
 				"port", config.Port,
@@ -166,7 +161,7 @@ func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	svc := &PgCtldService{logger: r.pgCtlCmd.lg.GetLogger(), pgConfig: config}
-	result, err := svc.RestartPostgreSQLWithResult(r.mode.Get(), r.asStandby.Get())
+	result, err := svc.RestartPostgreSQLWithResult(cmd.Context(), r.mode.Get(), r.asStandby.Get())
 	if err != nil {
 		return err
 	}
