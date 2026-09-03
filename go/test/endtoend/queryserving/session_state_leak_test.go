@@ -260,14 +260,16 @@ func TestSessionScrubberReplacesHiddenAdvisoryLock(t *testing.T) {
 		"divergence log must never carry the lock key")
 }
 
-// TestSessionScrubberReplacesHiddenTempType covers the temp-object checker's
-// pg_type arm end to end: a domain created in pg_temp inside a SQL function
-// body escapes the gateway's pg_temp CREATE rejection (the call site is an
-// opaque UDF) and its temp-statement reservation, so it stays on a pooled
-// backend where it would shadow the same-named catalog type for the next
-// borrower's unqualified references. The scrubber must detect it and replace
-// the backend.
-func TestSessionScrubberReplacesHiddenTempType(t *testing.T) {
+// TestSessionScrubberReplacesHiddenTempObjects covers the temp-object checker
+// end to end across catalogs: a SQL function body creates a domain, an
+// operator, a collation, and a statistics object in pg_temp. The call site is
+// an opaque UDF, so the gateway's pg_temp CREATE rejection and its
+// temp-statement reservation never see the creations, and the objects stay on
+// a pooled backend. The domain is the dangerous one (pg_temp is searched
+// before pg_catalog for unqualified type names, so it would shadow a catalog
+// type for the next borrower); the others are stale state. The scrubber must
+// detect all four kinds on one sweep and replace the backend.
+func TestSessionScrubberReplacesHiddenTempObjects(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping session scrubber test in short mode")
 	}
@@ -284,20 +286,28 @@ func TestSessionScrubberReplacesHiddenTempType(t *testing.T) {
 	require.NoError(t, err)
 	defer primary.Close()
 
-	// Install directly so the CREATE is absent from the client's top-level
-	// SQL. The domain name must never appear in the log.
-	const domainName = "hidden_scrub_secret_domain"
-	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_domain()
-		RETURNS bool LANGUAGE sql AS $$CREATE DOMAIN pg_temp.`+domainName+` AS int; SELECT true$$`)
+	// Install directly so the CREATEs are absent from the client's top-level
+	// SQL. Object names share a marker that must never appear in the log.
+	const nameMarker = "hidden_scrub_secret"
+	_, err = primary.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+nameMarker+"_t (a int, b int)")
 	require.NoError(t, err)
-	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_scrub_domain()") //nolint:errcheck
+	defer primary.ExecContext(ctx, "DROP TABLE IF EXISTS "+nameMarker+"_t") //nolint:errcheck
+	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_temp_objects()
+		RETURNS bool LANGUAGE sql AS $$
+		CREATE DOMAIN pg_temp.`+nameMarker+`_d AS int;
+		CREATE OPERATOR pg_temp.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = int4eq);
+		CREATE COLLATION pg_temp.`+nameMarker+`_c (locale = 'C');
+		CREATE STATISTICS pg_temp.`+nameMarker+`_s ON a, b FROM `+nameMarker+`_t;
+		SELECT true$$`)
+	require.NoError(t, err)
+	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_scrub_temp_objects()") //nolint:errcheck
 
 	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
 	connA.SetMaxIdleConns(0)
 	var ignored bool
 	var leakedPID int
-	err = connA.QueryRowContext(ctx, "SELECT hidden_scrub_domain(), pg_backend_pid()").Scan(&ignored, &leakedPID)
+	err = connA.QueryRowContext(ctx, "SELECT hidden_scrub_temp_objects(), pg_backend_pid()").Scan(&ignored, &leakedPID)
 	require.NoError(t, err)
 	require.NoError(t, connA.Close())
 
@@ -307,14 +317,16 @@ func TestSessionScrubberReplacesHiddenTempType(t *testing.T) {
 			return false
 		}
 		return alive == 0
-	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden temp domain (pid %d)", leakedPID)
+	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden temp objects (pid %d)", leakedPID)
 
 	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
 	require.NoError(t, err)
 	require.Contains(t, string(poolerLog), "temp_objects",
 		"multipooler log should attribute the replacement to the temp-object checker")
-	require.Contains(t, string(poolerLog), `"domain"`,
-		"divergence log should name the kind of leaked object")
-	require.NotContains(t, string(poolerLog), domainName,
-		"divergence log must never carry the object name")
+	for _, kind := range []string{"domain", "operator", "collation", "statistics"} {
+		require.Contains(t, string(poolerLog), `"`+kind+`"`,
+			"divergence log should name the %s kind", kind)
+	}
+	require.NotContains(t, string(poolerLog), nameMarker,
+		"divergence log must never carry object names")
 }

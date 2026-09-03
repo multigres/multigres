@@ -633,15 +633,21 @@ Three more checkers cover the rest of the backend state the pool trusts:
   on an idle pooled backend means the acquisition escaped tracking. Lock keys
   are never reported.
 - `temp_objects` reports one finding per kind of object (`table`, `index`,
-  `sequence`, `function`, `domain`, `enum`, `range`, ...) in the backend's
-  temporary schema, covering `pg_class`, `pg_proc`, and standalone `pg_type`
-  entries — the same object classes the gateway's pg_temp CREATE rejection
-  recognizes. Temp statements pin a reserved connection that is closed at
-  release and pg_temp-qualified CREATE is rejected, so any object on an idle
-  backend escaped tracking. A leftover temp type is not inert: pg_temp is
-  searched before `pg_catalog` for unqualified type names as well as
-  relation names, so it would shadow a catalog type for the next borrower.
-  Object names are never reported.
+  `sequence`, `function`, `domain`, `enum`, `range`, `operator`,
+  `collation`, `statistics`, ...) in the backend's temporary schema. It
+  scans every namespace-scoped catalog the gateway's pg_temp CREATE
+  rejection covers: `pg_class`, `pg_proc` (aggregates included), standalone
+  `pg_type` entries, `pg_operator`, `pg_collation`, `pg_statistic_ext`,
+  `pg_opclass`, `pg_opfamily`, `pg_conversion`, and the four text-search
+  catalogs. Temp statements pin a reserved connection that is closed at
+  release and pg_temp-qualified CREATE is rejected, so any object on an
+  idle backend escaped tracking. Relations and types are the dangerous
+  classes: pg_temp is searched before `pg_catalog` for unqualified relation
+  and type names (a pg_temp domain named `text` captures an unqualified
+  `::text`), so a leftover shadows the catalog for the next borrower.
+  Operators, collations, and the other classes are never resolved through
+  pg_temp, even with it listed in `search_path`, and are reported as stale
+  state for completeness. Object names are never reported.
 
 All four checkers run against the same idle connection each tick; the
 divergence log line and the `checker` metric attribute name which one fired.

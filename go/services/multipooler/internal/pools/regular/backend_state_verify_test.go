@@ -176,15 +176,22 @@ func TestVerifyTempObjectsReportsKindsNotNames(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	// Two tables, their toast tables, an index, a function, a domain, an
-	// enum, a range with its multirange, and an unknown code: kinds are
-	// deduplicated and unknown codes stay bounded.
-	scriptTempProbe(server, "r", "r", "t", "t", "i", "function", "type:d", "type:e", "type:r", "type:m", "z")
+	// enum, a range with its multirange, one of each other catalog's tag,
+	// and an unknown code: kinds are deduplicated and unknown codes stay
+	// bounded.
+	scriptTempProbe(server, "r", "r", "t", "t", "i", "function", "type:d", "type:e", "type:r", "type:m",
+		"operator", "collation", "statistics", "operator_class", "operator_family", "conversion",
+		"ts_parser", "ts_dictionary", "ts_template", "ts_config", "z")
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
 
 	div, err := conn.VerifyTempObjects(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"domain", "enum", "function", "index", "multirange", "range", "table", "toast_table", "unknown_z"}, div.Untracked)
+	assert.Equal(t, []string{
+		"collation", "conversion", "domain", "enum", "function", "index", "multirange",
+		"operator", "operator_class", "operator_family", "range", "statistics", "table",
+		"toast_table", "ts_config", "ts_dictionary", "ts_parser", "ts_template", "unknown_z",
+	}, div.Untracked)
 	assert.Empty(t, div.Phantom)
 }

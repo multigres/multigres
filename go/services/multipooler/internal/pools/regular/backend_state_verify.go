@@ -181,26 +181,37 @@ func (TempObjectChecker) Check(ctx context.Context, conn *Conn) (connpool.Diverg
 }
 
 // tempObjectKinds maps the codes the temp probe can return — pg_class
-// relkinds, 'function', and 'type:' plus a pg_type typtype — to bounded
-// labels for logs and metrics. Object names are never reported.
+// relkinds, 'type:' plus a pg_type typtype, and the fixed tags of the other
+// catalogs — to bounded labels for logs and metrics. Object names are never
+// reported. A code outside this map is reported as unknown_<code>.
 var tempObjectKinds = map[string]string{
-	"r":        "table",
-	"p":        "partitioned_table",
-	"i":        "index",
-	"I":        "partitioned_index",
-	"S":        "sequence",
-	"v":        "view",
-	"m":        "materialized_view",
-	"c":        "composite_type",
-	"t":        "toast_table",
-	"f":        "foreign_table",
-	"function": "function",
-	"type:d":   "domain",
-	"type:e":   "enum",
-	"type:r":   "range",
-	"type:m":   "multirange",
-	"type:b":   "base_type",
-	"type:p":   "pseudo_type",
+	"r":               "table",
+	"p":               "partitioned_table",
+	"i":               "index",
+	"I":               "partitioned_index",
+	"S":               "sequence",
+	"v":               "view",
+	"m":               "materialized_view",
+	"c":               "composite_type",
+	"t":               "toast_table",
+	"f":               "foreign_table",
+	"function":        "function",
+	"type:d":          "domain",
+	"type:e":          "enum",
+	"type:r":          "range",
+	"type:m":          "multirange",
+	"type:b":          "base_type",
+	"type:p":          "pseudo_type",
+	"operator":        "operator",
+	"collation":       "collation",
+	"statistics":      "statistics",
+	"operator_class":  "operator_class",
+	"operator_family": "operator_family",
+	"conversion":      "conversion",
+	"ts_parser":       "ts_parser",
+	"ts_dictionary":   "ts_dictionary",
+	"ts_template":     "ts_template",
+	"ts_config":       "ts_config",
 }
 
 // VerifyTempObjects reports one Untracked entry per kind of object found in
