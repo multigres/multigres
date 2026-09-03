@@ -41,7 +41,8 @@ var (
 // and makes mixed-version deployments directly queryable without relying on
 // OTel resource-attribute promotion.
 func registerBuildInfoMetric(serviceName string) error {
-	info, err := otel.Meter(buildInfoMeterName).Int64ObservableGauge(
+	meter := otel.Meter(buildInfoMeterName)
+	info, err := meter.Int64ObservableGauge(
 		"multigres.build.info",
 		metric.WithDescription("Build and version information for the running Multigres component."),
 	)
@@ -50,7 +51,7 @@ func registerBuildInfoMetric(serviceName string) error {
 	}
 
 	attrs := buildInfoMetricAttributes(serviceName, Version(), readBuildSnapshot())
-	_, err = otel.Meter(buildInfoMeterName).RegisterCallback(
+	_, err = meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
 			o.ObserveInt64(info, 1, metric.WithAttributeSet(attrs))
 			return nil

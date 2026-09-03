@@ -94,7 +94,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		// Continue without telemetry rather than crashing
 	} else {
 		if err := registerBuildInfoMetric(id.ServiceName); err != nil {
-			slog.Error("Failed to register build info metric", "error", err)
+			slog.Error("failed to register build info metric", "error", err)
 		}
 		// Re-wrap logger now that LoggerProvider is initialized
 		sv.lg.UpdateTelemetryWrapper()
