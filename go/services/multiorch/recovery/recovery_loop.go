@@ -299,8 +299,9 @@ func (re *Engine) recordGated(ctx context.Context, problem types.Problem, readyA
 
 	args := []any{"problem_code", problem.Code, "entity_id", problem.EntityID()}
 	if !readyAt.IsZero() {
-		// Only failover's collective backoff produces a concrete deadline;
-		// the grace-period tracker's gate has none to report here.
+		// Zero here means the action needs no grace-period tracking at all
+		// (readyToExecute wouldn't have gated it in that case, so this is
+		// defensive rather than a real path today).
 		span.SetAttributes(attribute.String("ready_at", readyAt.Format(time.RFC3339)))
 		args = append(args, "ready_at", readyAt)
 	}
@@ -508,7 +509,7 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardKey)
 	}
-	return time.Time{}, re.recoveryGracePeriodTracker.ShouldExecute(problem)
+	return re.recoveryGracePeriodTracker.ShouldExecute(problem)
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover
