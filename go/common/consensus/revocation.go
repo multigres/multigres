@@ -99,7 +99,7 @@ func NewTermRevocation(
 	// previousRecruitForDecision is the most recent prior attempt at THIS SAME
 	// decision — deliberately decision-scoped, unlike maxTerm above (see
 	// revocationsMatchingDecision's doc for why).
-	previousRecruitForDecision := HighestTermRevocation(revocationsMatchingDecision(statuses, replaceDecision))
+	previousRecruitForDecision := HighestRevokedBelowTermRevocation(revocationsMatchingDecision(statuses, replaceDecision))
 
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
@@ -145,8 +145,16 @@ func revocationsMatchingDecision(statuses []*clustermetadatapb.ConsensusStatus, 
 	return matches
 }
 
-// HighestTermRevocation returns the candidate with the highest
+// HighestRevokedBelowTermRevocation returns the candidate with the highest
 // RevokedBelowTerm, or nil if candidates is empty.
+//
+// This compares RevokedBelowTerm alone — it has no notion of which decision
+// or shard state a candidate is about. Callers MUST pre-filter candidates to
+// a single, comparable scope before calling this (see revocationsMatchingDecision
+// above, and consensus.backoffRelevantRevocations in the multiorch package, for
+// the two sanctioned filters); passing revocations that target different
+// decisions lets an unrelated, higher-term revocation win over one that's
+// actually relevant.
 //
 // Ties are possible: different coordinators can each believe they held the
 // same term against the same decision on different cohort members — at most
@@ -162,7 +170,7 @@ func revocationsMatchingDecision(statuses []*clustermetadatapb.ConsensusStatus, 
 //     with a fresh CoordinatorInitiatedAt — the conflict ValidateRevocation
 //     rejects once a pooler has already accepted one of them): the more
 //     recent CoordinatorInitiatedAt wins, as the newer attempt.
-func HighestTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
+func HighestRevokedBelowTermRevocation(candidates []*clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
 	var best *clustermetadatapb.TermRevocation
 	for _, rev := range candidates {
 		switch {

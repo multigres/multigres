@@ -448,21 +448,21 @@ func TestRevocationsMatchingDecision(t *testing.T) {
 	})
 }
 
-func TestHighestTermRevocation(t *testing.T) {
+func TestHighestRevokedBelowTermRevocation(t *testing.T) {
 	t.Run("nil for no candidates", func(t *testing.T) {
-		assert.Nil(t, HighestTermRevocation(nil))
+		assert.Nil(t, HighestRevokedBelowTermRevocation(nil))
 	})
 
 	t.Run("the only candidate wins", func(t *testing.T) {
 		only := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
-		assert.Same(t, only, HighestTermRevocation([]*clustermetadatapb.TermRevocation{only}))
+		assert.Same(t, only, HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{only}))
 	})
 
 	t.Run("a strictly higher term wins over a lower one", func(t *testing.T) {
 		low := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}
 		high := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5}
-		assert.Same(t, high, HighestTermRevocation([]*clustermetadatapb.TermRevocation{low, high}))
-		assert.Same(t, high, HighestTermRevocation([]*clustermetadatapb.TermRevocation{high, low}))
+		assert.Same(t, high, HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{low, high}))
+		assert.Same(t, high, HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{high, low}))
 	})
 
 	t.Run("ties are broken deterministically by AcceptedCoordinatorId, not candidate order", func(t *testing.T) {
@@ -472,8 +472,8 @@ func TestHighestTermRevocation(t *testing.T) {
 		// depend on which order the candidates were assembled in.
 		tiedA := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
 		tiedB := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordB}
-		got1 := HighestTermRevocation([]*clustermetadatapb.TermRevocation{tiedA, tiedB})
-		got2 := HighestTermRevocation([]*clustermetadatapb.TermRevocation{tiedB, tiedA})
+		got1 := HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{tiedA, tiedB})
+		got2 := HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{tiedB, tiedA})
 		require.NotNil(t, got1)
 		assert.Same(t, got1, got2)
 	})
@@ -485,7 +485,7 @@ func TestHighestTermRevocation(t *testing.T) {
 		same := func() *clustermetadatapb.TermRevocation {
 			return &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7, AcceptedCoordinatorId: coordA}
 		}
-		got := HighestTermRevocation([]*clustermetadatapb.TermRevocation{same(), same(), same()})
+		got := HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{same(), same(), same()})
 		require.NotNil(t, got)
 		assert.Equal(t, int64(7), got.GetRevokedBelowTerm())
 	})
@@ -507,8 +507,8 @@ func TestHighestTermRevocation(t *testing.T) {
 			AcceptedCoordinatorId:  coordA,
 			CoordinatorInitiatedAt: ts2,
 		}
-		assert.Same(t, newer, HighestTermRevocation([]*clustermetadatapb.TermRevocation{older, newer}))
-		assert.Same(t, newer, HighestTermRevocation([]*clustermetadatapb.TermRevocation{newer, older}))
+		assert.Same(t, newer, HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{older, newer}))
+		assert.Same(t, newer, HighestRevokedBelowTermRevocation([]*clustermetadatapb.TermRevocation{newer, older}))
 	})
 }
 

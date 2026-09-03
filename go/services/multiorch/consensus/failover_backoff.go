@@ -68,7 +68,7 @@ func eligibleConsensusStatuses(cohort []*multiorchdatapb.PoolerHealthState) []*c
 func (c *Coordinator) NextFailoverAttempt(cohort []*multiorchdatapb.PoolerHealthState, backoff ha.BackoffSchedule) (readyAt time.Time, ready bool) {
 	statuses := eligibleConsensusStatuses(cohort)
 	decision := commonconsensus.HighestDecidedRule(statuses)
-	rev := commonconsensus.HighestTermRevocation(backoffRelevantRevocations(statuses, decision))
+	rev := commonconsensus.HighestRevokedBelowTermRevocation(backoffRelevantRevocations(statuses, decision))
 	if rev == nil {
 		return time.Time{}, true
 	}
