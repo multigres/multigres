@@ -1072,7 +1072,7 @@ var Metrics = []Metric{
 		Unit:           "",
 		Package:        "github.com/multigres/multigres/go/common/servenv",
 		Binaries:       []string{"multiadmin", "multigateway", "multigres", "multiorch", "multipooler", "pgctld"},
-		Source:         "go/common/servenv/buildinfo_metrics.go:44",
+		Source:         "go/common/servenv/buildinfo_metrics.go:43",
 		PrometheusName: "multigres_build_info",
 		Series:         []string{"multigres_build_info"},
 	},
