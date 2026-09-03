@@ -480,3 +480,42 @@ func TestUserPool_TryMarkInactive(t *testing.T) {
 	_, err = pool.NewLogicalReplicationConn(ctx)
 	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
 }
+
+// GC must never block on createMu: Close and CloseForReopen hold it while
+// they cancel and join the rebalancer goroutine, so a blocking acquire in GC
+// would deadlock shutdown. Holding createMu here stands in for shutdown; the
+// property under test (GC returns without the lock) is what makes the
+// shutdown ordering safe.
+func TestManager_GarbageCollectSkipsCycleWhenCreateMuHeld(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+	c, err := manager.GetRegularConn(ctx, "stale", nil, nil)
+	require.NoError(t, err)
+	c.Recycle()
+	pool := (*manager.userPoolsSnapshot.Load())["stale"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.createMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		manager.garbageCollectInactivePools(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		manager.createMu.Unlock()
+		t.Fatal("GC blocked on createMu")
+	}
+	assert.True(t, manager.HasUserPool("stale"), "GC must skip the cycle, not collect, while createMu is held")
+	manager.createMu.Unlock()
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("stale"), "next cycle collects normally")
+}

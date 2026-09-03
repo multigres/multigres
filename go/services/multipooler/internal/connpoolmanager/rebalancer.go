@@ -104,7 +104,9 @@ func (m *Manager) rebalance(ctx context.Context) {
 // decides "idle" and blocks new borrows in one step, the replacement snapshot
 // is published before any pool is closed (so a caller retrying
 // ErrPoolClosed lands on a fresh pool, not the one being torn down), and
-// Close runs outside createMu so it can never stall pool creation.
+// Close runs outside createMu so it can never stall pool creation. createMu
+// itself is only ever TryLock'd here, because shutdown joins the rebalancer
+// while holding it.
 func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	inactiveTimeout := m.config.InactiveTimeout()
 	if inactiveTimeout <= 0 {
@@ -131,7 +133,12 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	}
 
 	// Claim and unpublish under createMu (copy-on-write, same as creation).
-	m.createMu.Lock()
+	// TryLock, never Lock: Close and CloseForReopen hold createMu while they
+	// cancel and join this goroutine, so blocking here would deadlock
+	// shutdown. GC is opportunistic — a busy lock just means "next tick".
+	if !m.createMu.TryLock() {
+		return
+	}
 	pools = m.userPoolsSnapshot.Load() // never nil once Open has run
 	newPools := make(map[string]*UserPool, len(*pools))
 	maps.Copy(newPools, *pools)
