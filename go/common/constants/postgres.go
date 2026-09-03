@@ -140,7 +140,23 @@ const (
 	// visible here is session-level (transaction-level advisory locks are
 	// released at transaction end), so a false result means the session has
 	// released all of its advisory locks and the backend can be unpinned.
-	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
+	// Schema-qualified so a pg_temp relation or a search_path function cannot
+	// shadow the catalog (see SessionSourceProbeSQL).
+	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND pid = pg_catalog.pg_backend_pid())"
+
+	// PreparedStatementsProbeSQL lists the named prepared statements the
+	// current backend holds, protocol-level (Parse) and SQL-level (PREPARE)
+	// alike. The unnamed statement is never listed. Run by the multipooler
+	// scrubber to compare against the pool's tracked prepared statements.
+	PreparedStatementsProbeSQL = "SELECT name FROM pg_catalog.pg_prepared_statements"
+
+	// TempObjectsProbeSQL returns one row per object in the current backend's
+	// temporary schema: a relkind code per pg_class entry plus 'function' per
+	// pg_proc entry. pg_my_temp_schema() is 0 when the session has no temp
+	// schema, which no namespace OID matches, so the probe returns no rows.
+	// Run by the multipooler scrubber; an idle pooled backend must own none.
+	TempObjectsProbeSQL = "SELECT relkind::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'function' FROM pg_catalog.pg_proc WHERE pronamespace = pg_catalog.pg_my_temp_schema()"
 
 	// SessionSourceProbeSQL is the session-state probe run by the multipooler
 	// scrubber. It reads the backend's real session GUC state in one
