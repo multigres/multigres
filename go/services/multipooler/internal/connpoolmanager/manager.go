@@ -352,9 +352,12 @@ func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) 
 		return nil, errors.New("user cannot be empty")
 	}
 
-	// Hot path: atomic load + map lookup (no lock)
+	// Hot path: atomic load + map lookup (no lock). A pool GC has claimed
+	// but not yet unpublished is skipped: the slow path takes createMu, which
+	// GC holds until the replacement snapshot is stored, so it sees the
+	// pool gone and builds a fresh one instead of returning ErrPoolClosed.
 	if pools := m.userPoolsSnapshot.Load(); pools != nil {
-		if pool, ok := (*pools)[user]; ok {
+		if pool, ok := (*pools)[user]; ok && !pool.IsClosing() {
 			return pool, nil
 		}
 	}

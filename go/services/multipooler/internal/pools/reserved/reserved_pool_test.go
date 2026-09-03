@@ -1141,3 +1141,14 @@ func TestPool_CleanReleaseWithoutSettingsCacheTaints(t *testing.T) {
 	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
 	assert.False(t, underlying.IsClosed(), "with a cache the clean release relabels and recycles")
 }
+
+func TestPool_NewConnAfterCloseReturnsErrPoolClosed(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	pool := newTestPool(t, server)
+	pool.Close()
+
+	_, err := pool.NewConn(context.Background(), nil)
+	require.ErrorIs(t, err, connpool.ErrPoolClosed, "must be retryable by the manager's closed-pool path")
+}
