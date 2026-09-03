@@ -198,7 +198,7 @@ func (pm *MultipoolerManager) EnsureLogicalSlot(ctx context.Context, name, plugi
 	// into the statement. temporary=false and twophase=false; failover is
 	// caller-controlled (the PostgreSQL slot-sync flag that lets a standby
 	// maintain a copy of this slot).
-	if err := pm.execArgs(execCtx,
+	if err := pm.adminExecArgs(execCtx,
 		"SELECT pg_create_logical_replication_slot($1, $2, false, false, $3)",
 		name, plugin, failover); err != nil {
 		return mterrors.Wrap(err, "failed to create logical replication slot")
@@ -212,7 +212,7 @@ func (pm *MultipoolerManager) DropLogicalSlot(ctx context.Context, name string) 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
 	// Bind the slot name as a parameter rather than interpolating it.
-	if err := pm.execArgs(execCtx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
+	if err := pm.adminExecArgs(execCtx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
 		return mterrors.Wrap(err, "failed to drop replication slot")
 	}
 	return nil
@@ -236,7 +236,7 @@ func (pm *MultipoolerManager) EnsurePhysicalSlot(ctx context.Context, name strin
 		defer cancel()
 		// immediately_reserve=true retains WAL from slot creation (before the standby
 		// attaches); temporary=false so the slot survives reconnects.
-		if err := pm.execArgs(execCtx,
+		if err := pm.adminExecArgs(execCtx,
 			"SELECT pg_create_physical_replication_slot($1, true, false)", name); err != nil {
 			return mterrors.Wrap(err, "failed to create physical replication slot")
 		}
@@ -331,9 +331,58 @@ func (pm *MultipoolerManager) dropManagedPhysicalSlots(ctx context.Context) erro
 
 	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
 	defer cancel()
-	if err := pm.execArgs(execCtx, dropManagedPhysicalSlotsSQL, logicalSlotNamePrefix); err != nil {
+	if err := pm.adminExecArgs(execCtx, dropManagedPhysicalSlotsSQL, logicalSlotNamePrefix); err != nil {
 		return mterrors.Wrap(err, "failed to drop managed physical replication slots")
 	}
+
+	return nil
+}
+
+// dropOrphanedFailoverSlotsSQL drops every logical failover slot this node still
+// owns as an un-synced original (synced = false) while it is (becoming) a
+// standby. On a standby a genuine failover slot is a copy the slot-sync worker
+// maintains from the primary (synced = true); an un-synced failover slot here is
+// the leftover original this node created back when it was primary. The
+// NOT active guard skips a slot a consumer is still attached to (dropping an
+// active slot errors and would abort the whole statement).
+const dropOrphanedFailoverSlotsSQL = `
+SELECT pg_drop_replication_slot(slot_name)
+  FROM pg_replication_slots
+ WHERE slot_type = 'logical'
+   AND failover
+   AND NOT synced
+   AND NOT active`
+
+// dropOrphanedFailoverSlots drops the logical failover slots this node still owns
+// as un-synced originals. It is the logical-slot counterpart of
+// dropManagedPhysicalSlots, called on the same demote / rejoin transitions.
+//
+// The problem it fixes: a former primary that rejoins as a standby (e.g. after a
+// failover, with no divergence and thus no rewind) keeps the original failover
+// slots it created while primary. Those originals carry synced = false. The
+// standby's slot-sync worker cannot create the proper synced copy because a slot
+// of that name already exists, so the stale original never advances — its
+// restart_lsn freezes, and postgres eventually invalidates it (rows_removed).
+// An invalidated slot makes this node an unusable failover target for that slot,
+// so after a couple of leader rotations the cohort runs out of failover-ready
+// targets. Dropping the un-synced originals lets slot-sync recreate them as
+// proper synced copies.
+//
+// Safe because this runs only when the node is (becoming) a standby, where it
+// owns no live originals — the live originals live on the current primary, which
+// never takes this path. No-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) dropOrphanedFailoverSlots(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, logicalSlotWriteTimeout)
+	defer cancel()
+	result, err := pm.adminQueryArgs(execCtx, dropOrphanedFailoverSlotsSQL)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to drop orphaned logical failover slots")
+	}
+	pm.metrics.recordSlotsDropped(ctx, slotsDroppedReasonOrphaned, int64(len(result.Rows)))
 
 	return nil
 }
@@ -388,7 +437,7 @@ func (pm *MultipoolerManager) ReconcileFollowers(ctx context.Context, followerID
 
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.queryArgs(queryCtx, listManagedPhysicalSlotsSQL, logicalSlotNamePrefix)
+	result, err := pm.adminQueryArgs(queryCtx, listManagedPhysicalSlotsSQL, logicalSlotNamePrefix)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to list managed physical replication slots")
 	}
@@ -406,6 +455,7 @@ func (pm *MultipoolerManager) ReconcileFollowers(ctx context.Context, followerID
 		if err := pm.DropLogicalSlot(ctx, name); err != nil {
 			return mterrors.Wrapf(err, "drop departed managed physical slot %q", name)
 		}
+		pm.metrics.recordSlotsDropped(ctx, slotsDroppedReasonDepartedFollower, 1)
 		pm.logger.InfoContext(ctx, "dropped departed follower physical slot during reconcile", "slot", name)
 	}
 	return nil
@@ -425,7 +475,7 @@ SELECT count(*), coalesce(string_agg(slot_name, ', '), '')
 func (pm *MultipoolerManager) unreadyFailoverSlots(ctx context.Context) (int, string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.query(queryCtx, unreadyFailoverSlotsSQL)
+	result, err := pm.adminQuery(queryCtx, unreadyFailoverSlotsSQL)
 	if err != nil {
 		return 0, "", mterrors.Wrap(err, "failed to query failover-slot readiness")
 	}
@@ -435,6 +485,36 @@ func (pm *MultipoolerManager) unreadyFailoverSlots(ctx context.Context) (int, st
 		return 0, "", mterrors.Wrap(err, "failed to scan failover-slot readiness")
 	}
 	return int(count), names, nil
+}
+
+// manageLogicalFailoverSlots runs the logical-replication slot-management
+// steps of a promotion, in order: ensure each follower has a physical slot,
+// point synchronized_standby_slots at them, and advisory-check readiness of
+// the synced failover slots. Called from promotionHook, timed separately from
+// the rest of promotion (ClearResignedLeaderAtTerm, pg_promote) since those
+// happen on every failover regardless of logical replication. No-op unless
+// slot-based replication is enabled.
+func (pm *MultipoolerManager) manageLogicalFailoverSlots(ctx context.Context, cohortMembers []*clustermetadatapb.ID) error {
+	// Slot-based replication (flag-gated): create a physical replication
+	// slot for each follower BEFORE pg_promote, while this node is still a
+	// standby, so a slot failure fails the promotion cleanly rather than
+	// leaving a promoted-but-unrecorded node. No-op when the flag is off.
+	if err := pm.ensureFollowerPhysicalSlots(ctx, cohortMembers); err != nil {
+		return err
+	}
+	// Hold the failover logical slots back to the followers' physical slots so
+	// a standby cannot outrun a slot's catalog_xmin and block slot-sync. Set
+	// before pg_promote so it is in effect the moment this node is primary.
+	if err := pm.setSynchronizedStandbySlots(ctx, cohortMembers); err != nil {
+		return err
+	}
+	// Log any synced failover slots that are not failover-ready before
+	// pg_promote. Durable slot creation guarantees a failover slot is synced and
+	// persistent on the required standbys before its creation is acknowledged, so
+	// a slot that is not ready here is in a terminal state a wait could not fix.
+	// Advisory only — never blocks failover.
+	pm.logUnreadyFailoverSlots(ctx)
+	return nil
 }
 
 // logUnreadyFailoverSlots checks, once, whether any synced failover slot on this
@@ -480,7 +560,7 @@ SELECT
 func (pm *MultipoolerManager) failoverSlotReadiness(ctx context.Context) (ready int, total int, err error) {
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
-	result, err := pm.query(queryCtx, failoverSlotReadinessSQL)
+	result, err := pm.adminQuery(queryCtx, failoverSlotReadinessSQL)
 	if err != nil {
 		return 0, 0, mterrors.Wrap(err, "failed to query failover-slot readiness")
 	}
@@ -506,7 +586,7 @@ func (pm *MultipoolerManager) GetSlotState(ctx context.Context, name string) (*L
 	queryCtx, cancel := context.WithTimeout(ctx, logicalSlotStateTimeout)
 	defer cancel()
 	// Bind the slot name as a parameter rather than interpolating it.
-	result, err := pm.queryArgs(queryCtx, fetchLogicalSlotStateSQL, name)
+	result, err := pm.adminQueryArgs(queryCtx, fetchLogicalSlotStateSQL, name)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read replication slot state")
 	}
@@ -544,7 +624,7 @@ func (pm *MultipoolerManager) LogicalSlotExists(ctx context.Context, name string
 	// EXISTS(...) returns exactly one boolean row and lets the planner stop at
 	// the first matching row; it's the existence-check idiom used elsewhere in
 	// this package (see querySchemaExists).
-	result, err := pm.queryArgs(queryCtx, "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", name)
+	result, err := pm.adminQueryArgs(queryCtx, "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", name)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check replication slot existence")
 	}

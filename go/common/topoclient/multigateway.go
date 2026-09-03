@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 
@@ -206,6 +207,10 @@ func (ts *store) UpdateMultigatewayFields(ctx context.Context, id *clustermetada
 }
 
 // CreateMultigateway creates a new multigateway and all associated paths.
+//
+// The record is permanent — it carries no liveness binding and will outlive
+// the process that wrote it. Component self-registration must go through
+// RegisterMultigateway, which creates an ephemeral record instead.
 func (ts *store) CreateMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway) error {
 	conn, err := ts.ConnForCell(ctx, mtgateway.Id.Cell)
 	if err != nil {
@@ -224,6 +229,34 @@ func (ts *store) CreateMultigateway(ctx context.Context, mtgateway *clustermetad
 	return nil
 }
 
+// gatewayPrefixPath returns the claim file path for a PID prefix.
+func gatewayPrefixPath(prefix uint32) string {
+	return path.Join(GatewayPrefixesPath, strconv.FormatUint(uint64(prefix), 10))
+}
+
+// ClaimGatewayPrefix atomically claims the PID prefix for the given gateway,
+// or refreshes a claim it already holds. It returns NodeExists when another
+// gateway holds the prefix.
+//
+// The claim is ephemeral and lives in the global topology (prefixes route
+// query-cancels across cells, so the namespace is cluster-wide). Claims are
+// never explicitly released: lease expiry is the only release path, so a
+// claimant can never delete a claim that has passed to another gateway, and
+// a stopped gateway's prefix frees itself within one lease TTL. Slot reuse
+// has no urgency — the pool holds 2047 prefixes and each process claims
+// exactly one.
+//
+// The claiming gateway re-asserts periodically; NodeExists on a re-assert
+// means the claim was lost to another gateway after an expiry — the caller
+// must stop treating the prefix as its own rather than retry past it.
+func (ts *store) ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error {
+	conn, err := ts.ConnForCell(ctx, GlobalCell)
+	if err != nil {
+		return err
+	}
+	return conn.ClaimEphemeral(ctx, gatewayPrefixPath(prefix), []byte(ComponentIDString(id)))
+}
+
 // UnregisterMultigateway deletes the specified multigateway.
 func (ts *store) UnregisterMultigateway(ctx context.Context, id *clustermetadatapb.ID) error {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
@@ -239,22 +272,37 @@ func (ts *store) UnregisterMultigateway(ctx context.Context, id *clustermetadata
 	return nil
 }
 
-// RegisterMultigateway creates or updates a multigateway. If allowUpdate is true,
-// and a multigateway with the same ID exists, just update it.
+// RegisterMultigateway creates or updates a multigateway. If allowUpdate is
+// false and a multigateway with the same ID already exists, it returns
+// NodeExists.
+//
+// The registration is ephemeral: backends with liveness support (etcd
+// leases) bind it to this process, so a gateway that dies without
+// unregistering — SIGKILL, OOM, node loss — disappears from the topology on
+// its own instead of leaking a permanent entry.
 func (ts *store) RegisterMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway, allowUpdate bool) error {
-	err := ts.CreateMultigateway(ctx, mtgateway)
-	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
-		// Try to update then
-		oldMtGateway, err := ts.GetMultigateway(ctx, mtgateway.Id)
-		if err != nil {
+	conn, err := ts.ConnForCell(ctx, mtgateway.Id.Cell)
+	if err != nil {
+		return err
+	}
+
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(mtgateway.Id)), GatewayFile)
+	if !allowUpdate {
+		// Existence check to preserve NodeExists semantics. Not atomic
+		// with the put below, but IDs are unique per process instance, so
+		// concurrent registration of the same ID doesn't happen in
+		// practice.
+		switch _, _, err := conn.Get(ctx, gatewayPath); {
+		case err == nil:
+			return NewError(NodeExists, gatewayPath)
+		case !errors.Is(err, &TopoError{Code: NoNode}):
 			return fmt.Errorf("failed reading existing mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
-
-		oldMtGateway.Multigateway = proto.Clone(mtgateway).(*clustermetadatapb.Multigateway)
-		if err := ts.UpdateMultigateway(ctx, oldMtGateway); err != nil {
-			return fmt.Errorf("failed updating mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
-		}
-		return nil
 	}
-	return err
+
+	data, err := proto.Marshal(mtgateway)
+	if err != nil {
+		return err
+	}
+	return conn.PutEphemeral(ctx, gatewayPath, data)
 }

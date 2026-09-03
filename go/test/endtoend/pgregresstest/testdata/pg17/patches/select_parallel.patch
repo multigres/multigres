@@ -1,0 +1,14 @@
+# Known divergence (by design): a DO block issues SET effective_io_concurrency, a
+# session-state change the pooler cannot track inside a body, so it is rejected.
+# The rejection no longer aborts the surrounding transaction, so the dependent
+# parallel-plan checks still run; only the rejected DO block remains.
+--- a
++++ b
+@@ -531,6 +531,7 @@
+ SET effective_io_concurrency = 50;
+ EXCEPTION WHEN invalid_parameter_value THEN
+ END $$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ set work_mem='64kB'; --set small work mem to force lossy pages
+ explain (costs off)
+ select count(*) from tenk1, tenk2 where tenk1.hundred > 1 and tenk2.thousand=0;

@@ -251,3 +251,22 @@ func TestRemoveReservationReason_DrainsOnEmpty(t *testing.T) {
 	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonTempTable),
 		"sole reason drains on removal")
 }
+
+// TestAddReservationReason_UnsafeConnectionTaintsAtAcquire pins that adding the
+// unsafe-connection reason immediately marks the backend closeOnRelease, so it
+// is discarded on every release path rather than recycled with untracked state.
+// Other reasons (here temp) do not taint at add time.
+func TestAddReservationReason_UnsafeConnectionTaintsAtAcquire(t *testing.T) {
+	clean := &Conn{}
+	clean.AddReservationReason(protoutil.ReasonTempTable)
+	assert.False(t, clean.closeOnRelease.Load(), "temp reason must not taint at add time")
+
+	direct := &Conn{}
+	direct.AddReservationReason(protoutil.ReasonUnsafeConnection)
+	assert.True(t, direct.closeOnRelease.Load(), "unsafe-connection reason must taint at add time")
+
+	// Also set when unsafe connection rides alongside other reasons.
+	mixed := &Conn{}
+	mixed.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonUnsafeConnection)
+	assert.True(t, mixed.closeOnRelease.Load())
+}

@@ -1,0 +1,98 @@
+# Known divergence (by design): this DefineIndex() ACL security test defines
+# public.setter() with a SET search_path in its body (a probe that the planner-
+# time search_path change stays isolated). That SET is untrackable session state,
+# so the gateway rejects setter's CREATE; s.const() then references the missing
+# setter and fails at the backend with "function does not exist", aborting the
+# transaction, so the remaining setup reports "current transaction is aborted"
+# and the final expected error shifts from 42704 (undefined collation) to 25P02
+# (in_failed_transaction). setter cannot be pre-seeded — running its SET through
+# the pooler is the exact session-state leak the feature prevents. The property
+# under test is PostgreSQL backend behavior, covered by PostgreSQL's own suite.
+--- a
++++ b
+@@ -26,52 +26,76 @@
+ -- changing search_path at expression planning time.
+ CREATE FUNCTION public.setter() RETURNS bool VOLATILE
+ LANGUAGE SQL AS $$SET search_path = s; SELECT true$$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ CREATE FUNCTION s.const() RETURNS bool IMMUTABLE
+ LANGUAGE SQL AS $$SELECT public.setter()$$;
++ERROR: function public.setter() does not exist
++LINE 2: LANGUAGE SQL AS $$SELECT public.setter()$$;
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ CREATE FUNCTION s.index_this_expr(s.citext, bool) RETURNS s.citext IMMUTABLE
+ LANGUAGE SQL AS $$SELECT $1$$;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ REVOKE ALL ON FUNCTION public.setter FROM PUBLIC;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ REVOKE ALL ON FUNCTION s.const FROM PUBLIC;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ REVOKE ALL ON FUNCTION s.index_this_expr FROM PUBLIC;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Even for an empty table, expression planning calls s.const & public.setter.
+ GRANT EXECUTE ON FUNCTION public.setter TO regress_minimal;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ GRANT EXECUTE ON FUNCTION s.const TO regress_minimal;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Function for index predicate.
+ CREATE FUNCTION s.index_row_if(s.citext) RETURNS bool IMMUTABLE
+ LANGUAGE SQL AS $$SELECT $1 IS NOT NULL$$;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ REVOKE ALL ON FUNCTION s.index_row_if FROM PUBLIC;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Even for an empty table, CREATE INDEX checks ii_Predicate permissions.
+ GRANT EXECUTE ON FUNCTION s.index_row_if TO regress_minimal;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Non-extension, non-function objects.
+ CREATE COLLATION s.coll (LOCALE="C");
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ CREATE TABLE s.x (y s.citext);
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ ALTER TABLE s.x OWNER TO regress_minimal;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Empty-table DefineIndex()
+ CREATE UNIQUE INDEX u0rows ON s.x USING btree
+ ((s.index_this_expr(y, s.const())) COLLATE s.coll s.citext_pattern_ops)
+ TABLESPACE regress_create_idx_tblspace
+ WHERE s.index_row_if(y);
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ ALTER TABLE s.x ADD CONSTRAINT e0rows EXCLUDE USING btree
+ ((s.index_this_expr(y, s.const())) COLLATE s.coll WITH s.=)
+ USING INDEX TABLESPACE regress_create_idx_tblspace
+ WHERE (s.index_row_if(y));
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Make the table nonempty.
+ INSERT INTO s.x VALUES ('foo'), ('bar');
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- If the INSERT runs the planner on index expressions, a search_path change
+ -- survives. As of 2022-06, the INSERT reuses a cached plan. It does so even
+ -- under debug_discard_caches, since each index is new-in-transaction. If
+ -- future work changes a cache lifecycle, this RESET may become necessary.
+ RESET search_path;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- For a nonempty table, owner needs permissions throughout ii_Expressions.
+ GRANT EXECUTE ON FUNCTION s.index_this_expr TO regress_minimal;
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ CREATE UNIQUE INDEX u2rows ON s.x USING btree
+ ((s.index_this_expr(y, s.const())) COLLATE s.coll s.citext_pattern_ops)
+ TABLESPACE regress_create_idx_tblspace
+ WHERE s.index_row_if(y);
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ ALTER TABLE s.x ADD CONSTRAINT e2rows EXCLUDE USING btree
+ ((s.index_this_expr(y, s.const())) COLLATE s.coll WITH s.=)
+ USING INDEX TABLESPACE regress_create_idx_tblspace
+ WHERE (s.index_row_if(y));
++ERROR: current transaction is aborted, commands ignored until end of transaction block
+ -- Shall not find s.coll via search_path, despite the s.const->public.setter
+ -- call having set search_path=s during expression planning. Suppress the
+ -- message itself, which depends on the database encoding.
+@@ -80,7 +104,7 @@
+ ((s.index_this_expr(y, s.const())) COLLATE coll WITH s.=)
+ USING INDEX TABLESPACE regress_create_idx_tblspace
+ WHERE (s.index_row_if(y));
+-ERROR: 42704
++ERROR: 25P02
+ \set VERBOSITY default
+ ROLLBACK;
+ DROP TABLESPACE regress_create_idx_tblspace;

@@ -51,6 +51,15 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 
 	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
 
+	// Pre-seed benign scaffolding helper functions (EXPLAIN wrappers, etc.)
+	// through a gateway unsafe connection before the suite. Their runtime CREATE
+	// is rejected by the enforcing gateway's PL/pgSQL body analysis; seeding them
+	// keeps a single test from cascading into thousands of "function does not
+	// exist" errors and lets the substantive tests run. See preseedRegressHelpers.
+	if err := pb.preseedRegressHelpers(t, ctx, multigatewayPort, password); err != nil {
+		t.Logf("Warning: failed to pre-seed regression helpers: %v (dependent tests may cascade)", err)
+	}
+
 	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
 	makeArgs := []string{"-C", regressDir}
 
@@ -458,22 +467,10 @@ func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir,
 			continue
 		}
 
-		// No stock output matches: apply the reviewed Multigres patch against its
-		// declared upstream base (canonical unless the patch preamble says
-		// otherwise).
-		expPath, err := expectedFileForPatch(expectedDir, test.Name, patchDir, variants)
-		if err != nil {
-			test.Status = "fail"
-			test.FailReason = err.Error()
-			continue
-		}
-		outcome, err := VerifyTest(ctx, VerifyInput{
-			Name:         test.Name,
-			ExpectedPath: expPath,
-			ActualPath:   actPath,
-			PatchDir:     patchDir,
-			RepoRoot:     repoRoot,
-		}, mode)
+		// No stock output matches: apply the reviewed Multigres patch to every
+		// expected variant. A common divergence can then be layered on top of
+		// any output PostgreSQL itself considers valid.
+		outcome, err := verifyPatchedVariants(ctx, test.Name, actPath, expectedDir, patchDir, repoRoot, variants, mode)
 		if err != nil {
 			test.Status = "fail"
 			test.FailReason = err.Error()
@@ -504,6 +501,56 @@ func expectedVariants(regressDir, name string) []string {
 		}
 	}
 	return out
+}
+
+// verifyPatchedVariants applies a test's common Multigres patch to every
+// PostgreSQL expected-output variant and accepts the first match. The optional
+// pgregress-expected-file directive chooses the preferred base for diagnostics
+// and patch generation; it does not prevent other variants from matching.
+func verifyPatchedVariants(ctx context.Context, name, actualPath, regressDir, patchDir, repoRoot string, variants []string, mode PatchMode) (*VerifyOutcome, error) {
+	preferred, err := expectedFileForPatch(regressDir, name, patchDir, variants)
+	if err != nil {
+		return nil, err
+	}
+
+	ordered := make([]string, 0, len(variants))
+	ordered = append(ordered, preferred)
+	for _, variant := range variants {
+		if variant != preferred {
+			ordered = append(ordered, variant)
+		}
+	}
+
+	var preferredFailure *VerifyOutcome
+	for _, expectedPath := range ordered {
+		outcome, err := VerifyTest(ctx, VerifyInput{
+			Name:         name,
+			ExpectedPath: expectedPath,
+			ActualPath:   actualPath,
+			PatchDir:     patchDir,
+			RepoRoot:     repoRoot,
+		}, PatchModeVerify)
+		if err != nil {
+			return nil, err
+		}
+		if outcome.Status == "pass" {
+			return outcome, nil
+		}
+		if expectedPath == preferred {
+			preferredFailure = outcome
+		}
+	}
+
+	if mode == PatchModeGenerate {
+		return VerifyTest(ctx, VerifyInput{
+			Name:         name,
+			ExpectedPath: preferred,
+			ActualPath:   actualPath,
+			PatchDir:     patchDir,
+			RepoRoot:     repoRoot,
+		}, PatchModeGenerate)
+	}
+	return preferredFailure, nil
 }
 
 const expectedFileDirective = "# pgregress-expected-file:"
@@ -704,17 +751,7 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 			continue
 		}
 
-		expPath, err := expectedFileForPatch(sourceRegressDir, test.Name, patchDir, variants)
-		if err != nil {
-			return fmt.Errorf("select expected output for %s: %w", test.Name, err)
-		}
-		outcome, err := VerifyTest(ctx, VerifyInput{
-			Name:         test.Name,
-			ExpectedPath: expPath,
-			ActualPath:   actPath,
-			PatchDir:     patchDir,
-			RepoRoot:     repoRoot,
-		}, mode)
+		outcome, err := verifyPatchedVariants(ctx, test.Name, actPath, sourceRegressDir, patchDir, repoRoot, variants, mode)
 		if err != nil {
 			return fmt.Errorf("verify %s: %w", test.Name, err)
 		}

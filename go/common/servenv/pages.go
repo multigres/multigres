@@ -78,7 +78,12 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
 	})
 
-	sv.HTTPHandleFunc("/config", viperdebug.HandlerFunc(sv.reg))
+	// Configuration can expose operational details such as topology addresses,
+	// enabled services, authentication settings, certificate paths, and allowed
+	// JWT subjects. Gate it for services that opt into HTTP authentication via
+	// SetAuthPlugin, while preserving the existing unauthenticated behavior for
+	// every other service.
+	sv.HTTPHandleFunc("/config", RequireBearerAuth(sv.resolveAuthPlugin, viperdebug.HandlerFunc(sv.reg)))
 
 	sv.HTTPHandleFunc("/version", versionHandler)
 }

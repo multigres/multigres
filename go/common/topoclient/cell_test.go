@@ -54,6 +54,58 @@ func TestCellCRUDOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "Create and Get Cell with metadata",
+			test: func(t *testing.T, ts topoclient.Store) {
+				cl := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server1:2181"},
+					Root:            "/topo",
+					Metadata:        `{"zoneId":"use1-az1"}`,
+				}
+				err := ts.CreateCell(ctx, cell, cl)
+				require.NoError(t, err)
+
+				retrieved, err := ts.GetCell(ctx, cell)
+				require.NoError(t, err)
+				require.Equal(t, `{"zoneId":"use1-az1"}`, retrieved.Metadata)
+
+				cl2 := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server2:2181"},
+					Root:            "/topo",
+					Metadata:        "not json",
+				}
+				err = ts.CreateCell(ctx, cell2, cl2)
+				require.NoError(t, err)
+
+				retrieved2, err := ts.GetCell(ctx, cell2)
+				require.NoError(t, err)
+				require.Equal(t, "not json", retrieved2.Metadata)
+			},
+		},
+		{
+			name: "Update Cell metadata",
+			test: func(t *testing.T, ts topoclient.Store) {
+				cl := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server1:2181"},
+					Root:            "/topo",
+					Metadata:        `{"zoneId":"use1-az1"}`,
+				}
+				err := ts.CreateCell(ctx, cell, cl)
+				require.NoError(t, err)
+
+				err = ts.UpdateCellFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
+					cl.Metadata = `{"zoneId":"use1-az2"}`
+					return nil
+				})
+				require.NoError(t, err)
+
+				retrieved, err := ts.GetCell(ctx, cell)
+				require.NoError(t, err)
+				require.Equal(t, `{"zoneId":"use1-az2"}`, retrieved.Metadata)
+				require.Equal(t, []string{"server1:2181"}, retrieved.ServerAddresses)
+				require.Equal(t, "/topo", retrieved.Root)
+			},
+		},
+		{
 			name: "Get nonexistent Cell",
 			test: func(t *testing.T, ts topoclient.Store) {
 				_, err := ts.GetCell(ctx, "nonexistent")

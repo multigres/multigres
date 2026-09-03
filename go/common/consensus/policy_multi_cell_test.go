@@ -26,13 +26,11 @@ import (
 func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 	tests := []struct {
 		name           string
-		n              int
 		proposedCohort []*clustermetadatapb.ID
 		wantErrMsg     string
 	}{
 		{
 			name: "MULTI_CELL_2 with poolers in 2 cells is achievable",
-			n:    2,
 			proposedCohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
@@ -40,7 +38,6 @@ func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with poolers in 3 cells is achievable",
-			n:    2,
 			proposedCohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
@@ -49,7 +46,6 @@ func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with 3 poolers all in cell1 is not achievable",
-			n:    2,
 			proposedCohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
@@ -57,20 +53,11 @@ func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 			},
 			wantErrMsg: "durability not satisfied: poolers span 1 cells, required 2",
 		},
-		{
-			name: "MULTI_CELL_3 with poolers in 2 cells is not achievable",
-			n:    3,
-			proposedCohort: []*clustermetadatapb.ID{
-				id("pooler-1", "cell1"),
-				id("pooler-2", "cell2"),
-			},
-			wantErrMsg: "durability not satisfied: poolers span 2 cells, required 3",
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := MultiCellPolicy{N: tc.n}
+			p := multiCellPolicy{}
 			err := p.SatisfiedBy(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
@@ -92,7 +79,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 	}{
 		{
 			name: "MULTI_CELL_2 with all 3 cohort cells recruited is sufficient",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
@@ -106,7 +92,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with 2 of 3 cohort cells covered is sufficient",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
@@ -119,7 +104,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with 3 of 4 cohort poolers (both cell1 poolers plus one cell2) is sufficient",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-4", "cell1"),
@@ -134,7 +118,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with 2 of 4 cohort poolers all in cell1 fails majority",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-4", "cell1"),
@@ -153,7 +136,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			// two coordinators could recruit disjoint halves at the same term.
 			// Majority catches this.
 			name: "MULTI_CELL_2 with 3 of 6 cohort poolers (one per cell) fails majority",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1a", "cell1"),
 				id("pooler-1b", "cell1"),
@@ -175,7 +157,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 			// but leaves un-recruited cells {cell2, cell3} = 2 cells, enough
 			// for a parallel 2-cell quorum. Revocation catches it.
 			name: "MULTI_CELL_2 with 3 of 5 cohort poolers passes majority but fails revocation",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1a", "cell1"),
 				id("pooler-1b", "cell1"),
@@ -192,7 +173,6 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 		},
 		{
 			name: "MULTI_CELL_2 with a recruited pooler outside the cohort is rejected",
-			n:    2,
 			cohort: []*clustermetadatapb.ID{
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
@@ -208,7 +188,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := MultiCellPolicy{N: tc.n}
+			p := multiCellPolicy{}
 			err := CheckSufficientRecruitment(p, tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
@@ -221,26 +201,9 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 }
 
 func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
-	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
-		leader := id("primary", "cell-a")
-		p := MultiCellPolicy{N: 1}
-		cohort := []*clustermetadatapb.ID{
-			leader,
-			id("mp1", "cell-b"),
-			id("mp2", "cell-c"),
-		}
-		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
-		require.NoError(t, err)
-		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
-		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit)
-		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, cfg.SyncMethod)
-		require.Equal(t, 1, cfg.NumSync, "NumSync must be a valid positive value; the empty standby list is what disables sync")
-		require.Empty(t, cfg.SyncStandbyIDs)
-	})
-
 	t.Run("excludes same-cell standbys", func(t *testing.T) {
 		leader := id("primary", "us-west-1a")
-		p := MultiCellPolicy{N: 2}
+		p := multiCellPolicy{}
 		cohort := []*clustermetadatapb.ID{
 			leader,
 			id("mp1", "us-west-1a"), // same cell — excluded
@@ -259,7 +222,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 
 	t.Run("only different-cell standbys with mixed cells", func(t *testing.T) {
 		leader := id("primary", "cell-a")
-		p := MultiCellPolicy{N: 3}
+		p := multiCellPolicy{}
 		cohort := []*clustermetadatapb.ID{
 			leader,
 			id("mp1", "cell-a"), // same cell — excluded
@@ -271,7 +234,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
-		require.Equal(t, 2, cfg.NumSync)
+		require.Equal(t, 1, cfg.NumSync)
 		require.ElementsMatch(t,
 			[]string{"cell-b_mp3", "cell-c_mp4", "cell-d_mp5"},
 			clusterIDStrings(cfg.SyncStandbyIDs),
@@ -280,7 +243,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 
 	t.Run("all standbys in leader's cell returns error", func(t *testing.T) {
 		leader := id("primary", "us-west-1a")
-		p := MultiCellPolicy{N: 2}
+		p := multiCellPolicy{}
 		cohort := []*clustermetadatapb.ID{
 			leader,
 			id("mp1", "us-west-1a"),
@@ -291,24 +254,9 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 		require.Nil(t, cfg)
 		require.EqualError(t, err, "cannot establish synchronous replication: no eligible standbys in different cells (primary_cell=us-west-1a)")
 	})
-
-	t.Run("insufficient different-cell standbys returns error", func(t *testing.T) {
-		leader := id("primary", "cell-a")
-		p := MultiCellPolicy{N: 4} // wants 3 different-cell standbys
-		cohort := []*clustermetadatapb.ID{
-			leader,
-			id("mp1", "cell-a"), // excluded
-			id("mp2", "cell-a"), // excluded
-			id("mp3", "cell-b"),
-		}
-		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
-		require.Nil(t, cfg)
-		require.EqualError(t, err, "cannot establish synchronous replication: insufficient different-cell standbys (required 3 standbys, available 1)")
-	})
-
 	t.Run("N=2 with 3 different-cell standbys includes all", func(t *testing.T) {
 		leader := id("primary", "cell-primary")
-		p := MultiCellPolicy{N: 2}
+		p := multiCellPolicy{}
 		cohort := []*clustermetadatapb.ID{
 			leader,
 			id("mp1", "us-west-1a"),
@@ -328,7 +276,7 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 
 	t.Run("uses ON commit and ANY method", func(t *testing.T) {
 		leader := id("primary", "cell-a")
-		p := MultiCellPolicy{N: 2}
+		p := multiCellPolicy{}
 		cohort := []*clustermetadatapb.ID{
 			leader,
 			id("mp1", "cell-b"),
@@ -342,6 +290,5 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 }
 
 func TestMultiCellPolicy_Description(t *testing.T) {
-	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=2)", MultiCellPolicy{N: 2}.Description())
-	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=3)", MultiCellPolicy{N: 3}.Description())
+	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=2)", multiCellPolicy{}.Description())
 }

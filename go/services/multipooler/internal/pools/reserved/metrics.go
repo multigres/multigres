@@ -22,6 +22,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 // Transaction outcome attribute values.
@@ -42,7 +44,7 @@ type txnMetrics struct {
 }
 
 func newTxnMetrics() *txnMetrics {
-	meter := otel.Meter("github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved")
+	meter := otel.Meter(constants.ReservedPoolMeterName)
 	m := &txnMetrics{}
 
 	var err error

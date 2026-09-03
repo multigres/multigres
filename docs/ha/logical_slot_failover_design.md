@@ -391,13 +391,26 @@ changes apply to any member of the cohort.
 - Repoint `primary_conninfo` at the new primary, keeping the static user / `dbname` / application_name.
 - Drop the physical replication slots it held for its former followers. They have no consumer now and would
   otherwise pin WAL indefinitely.
+- Drop the logical failover slots it still owns as _un-synced originals_ (`synced = false`). While this node was
+  primary it held the writable originals of the failover slots; a standby, by contrast, is only supposed to hold
+  the _synced copies_ that its slot-sync worker maintains (`synced = true`). If the un-synced originals are left
+  in place, slot-sync cannot create the synced copy — a slot of that name already exists — so the original never
+  advances: its `restart_lsn` freezes and Postgres eventually invalidates it (`rows_removed`). An invalidated
+  slot makes this node an unusable failover target for that slot, so after a couple of leader rotations the
+  cohort runs out of failover-ready targets. Dropping the un-synced originals lets slot-sync recreate them as
+  proper synced copies. This is safe precisely because it runs only as the node becomes a standby — the live
+  originals live on the current primary, which never takes this path.
 - `RESET synchronized_standby_slots`. Primary does not have any followers. The option does not make a difference
   for the standby since it is not consulted for standbys, but if the standby is promoted, the list would be
   wrong.
 
-> **NOTE:** These same steps apply when a _former primary rejoins after a crash_. It never ran a graceful
-> demotion, so it comes back still holding physical slots for its old followers and a stale
-> `synchronized_standby_slots`; both must be cleaned as it rejoins as a standby.
+> **NOTE:** These same steps apply when a _former primary rejoins after a crash_ — or after a failover in which
+> it did not diverge and so was **not** rewound (it simply repoints at the new primary and streams). It never ran
+> a graceful demotion, so it comes back still holding physical slots for its old followers, the un-synced logical
+> failover originals it created while primary, and a stale `synchronized_standby_slots`; all three must be cleaned
+> as it rejoins as a standby. The no-rewind case is the important one: a rewind would have discarded the stale
+> originals as a side effect, but a clean repoint leaves them behind, which is exactly when the invalidation trap
+> above bites.
 
 ### 2.4 Changes needed for when a server is added as a new standby to the cohort
 
@@ -974,8 +987,48 @@ the planner until then.
 Admitting these slots is gated behind a dynamic Multigateway flag, `enable-slot-based-replication` (default
 off, mirroring the Multipooler flag of the same name and read live so it is reloadable). With the flag off the
 preamble rejects every non-temporary slot exactly as it does today, so the guard change is inert until an
-operator enables the feature. Physical (non-logical) slots and non-temporary logical slots _not_ registered
-for failover stay rejected regardless of the flag.
+operator enables the feature. Physical (non-logical) slots stay rejected regardless of the flag.
+
+### 3.2.1 Auto-marking non-temporary slots as failover slots
+
+Relaxing the guard to admit slots _registered_ for failover still leaves HA opt-in per client: a subscriber
+that runs a plain `CREATE SUBSCRIPTION` (without `WITH (failover = true)`) creates a non-temporary logical slot
+with no `FAILOVER` option, which the relaxed guard would still reject. An operator who enabled slot-based
+replication for the whole cluster therefore silently loses HA — and the slot entirely — for every such
+subscriber. Auto-marking closes that gap: with the flag on, a non-temporary logical `CREATE_REPLICATION_SLOT`
+that omits `FAILOVER` is no longer rejected but **rewritten** to inject it (`FAILOVER` is inserted as the first
+option, or a fresh `(FAILOVER)` list is appended), so the slot is _born_ `failover = true` without any client
+change. The command reply shape is unchanged, so the subscriber still works unmodified; the gateway also emits
+an advisory `NOTICE` on the rewrite so the auto-marking is observable (in a PostgreSQL subscriber's server log
+via its notice processor, or in any client's notice handler). This is the sole reliable moment to set the flag:
+`pg_alter_replication_slot` / `ALTER_REPLICATION_SLOT` requires acquiring the slot, so an already-streaming slot
+cannot be altered — creation is the one point at which the slot is inactive.
+
+The rewrite is safe because PostgreSQL never resets a slot's `failover` on its own: `walrcv_alter_slot` has a
+single backend caller (`AlterSubscription`, on an explicit `ALTER SUBSCRIPTION ... SET (failover=…)`); the apply
+worker, tablesync, reconnect, and `REFRESH` never touch it, and the slot-sync worker syncs purely on the slot's
+`failover` column. So the intended mismatch — slot `failover = true` while the subscription's `subfailover =
+false` — is stable. A slot's persistency is likewise immutable (`ReplicationSlotAlter` only changes
+`failover`/`two_phase`), so a client cannot demote an auto-marked slot to temporary to escape sync.
+
+Because the only post-creation route to a slot's `failover` flag is the `ALTER_REPLICATION_SLOT` replication
+command (there is no `pg_alter_replication_slot` SQL function), the gateway also **refuses an
+`ALTER_REPLICATION_SLOT` that sets `FAILOVER` to false** while the feature is on — the command an explicit
+`ALTER SUBSCRIPTION ... SET (failover = false)` emits. This keeps an auto-marked slot registered for failover:
+a client cannot silently opt back out and lose HA behind the "single server" abstraction. Enabling failover, or
+altering only `TWO_PHASE`, is relayed unchanged; with the feature off the command is not inspected at all.
+
+Boundaries of the rewrite:
+
+- **Command form only.** Auto-marking applies to the walsender `CREATE_REPLICATION_SLOT` command — the form a
+  real subscriber sends. The SQL-function forms (`pg_create_logical_replication_slot(...)`) cannot be rewritten
+  (no AST→SQL deparser), so they keep the plain guard: a non-temporary non-failover logical slot is **rejected**
+  (over a replication connection and, via the planner, over an ordinary one).
+- **Explicit opt-out honored.** An explicit `FAILOVER false` is a deliberate client choice and stays rejected
+  (it never appears in a real subscriber command — the walreceiver omits the option when false rather than
+  emitting `FAILOVER false`).
+- **No retroactive sweep.** Slots created before the flag was enabled are not marked; they pick up the flag only
+  when recreated.
 
 ## Part 4. Changes to Multipooler
 

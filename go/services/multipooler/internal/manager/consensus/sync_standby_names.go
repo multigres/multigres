@@ -168,7 +168,7 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 	logger.InfoContext(ctx, "reloading Postgres configuration")
 	reloadCtx, reloadCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer reloadCancel()
-	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
+	if _, err := qs.QueryAdmin(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
 		logger.ErrorContext(ctx, "failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
@@ -228,7 +228,7 @@ func WaitForConfigReload(ctx context.Context, qs executor.InternalQueryService, 
 // +05:30) that the text-timestamp scanner does not parse. The epoch is an
 // absolute instant, safe to compare across callers and sessions.
 func readConfLoadTime(ctx context.Context, qs executor.InternalQueryService) (time.Time, error) {
-	result, err := qs.Query(ctx, "SELECT extract(epoch from pg_conf_load_time())")
+	result, err := qs.QueryAdmin(ctx, "SELECT extract(epoch from pg_conf_load_time())")
 	if err != nil {
 		return time.Time{}, mterrors.Wrap(err, "failed to read pg_conf_load_time")
 	}

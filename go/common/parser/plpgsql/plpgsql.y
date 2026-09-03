@@ -1250,9 +1250,7 @@ stmt_execsql:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
+				$$ = lx.makeExecSQLStmt(K_IMPORT, false, startPos)
 			}
 	|	K_INSERT
 			{
@@ -1261,9 +1259,7 @@ stmt_execsql:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
+				$$ = lx.makeExecSQLStmt(K_INSERT, false, startPos)
 			}
 	|	K_MERGE
 			{
@@ -1272,9 +1268,7 @@ stmt_execsql:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
+				$$ = lx.makeExecSQLStmt(K_MERGE, false, startPos)
 			}
 	|	T_WORD
 			{

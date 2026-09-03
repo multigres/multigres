@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -68,6 +69,10 @@ type Metrics struct {
 	// setup latency), shared across all pools and tagged per-pool by pool_type.
 	serverConnMetrics connpool.ServerConnMetrics
 
+	// scrubMetrics tracks session-state scrub outcomes (probes, divergence,
+	// errors), shared across all pools and tagged per-pool by pool_type.
+	scrubMetrics connpool.ScrubMetrics
+
 	// --- Observable gauges for PgBouncer-equivalent metrics ---
 
 	// poolerUp reports whether the pooler is operational (1 = up, 0 = down).
@@ -90,6 +95,13 @@ type Metrics struct {
 
 	// reservedActiveConnections is the number of active reserved connections (in-transaction).
 	reservedActiveConnections metric.Int64ObservableGauge
+
+	// reservedActiveByReason is the number of active reserved connections holding
+	// each reservation reason (transaction, portal, unsafe_connection, etc.),
+	// labeled by reason. Overlapping breakdown of reservedActiveConnections: a
+	// connection with multiple reasons is counted under each, so the per-reason
+	// values sum to more than the total.
+	reservedActiveByReason metric.Int64ObservableGauge
 
 	// configMaxServerConnections is the configured maximum server connections (global capacity).
 	configMaxServerConnections metric.Int64ObservableGauge
@@ -150,6 +162,13 @@ func NewMetrics() (*Metrics, error) {
 		errs = append(errs, fmt.Errorf("ServerConnMetrics: %w", err))
 	}
 	m.serverConnMetrics = serverConnMetrics
+
+	// Session-state scrub metrics, shared across all pools.
+	scrubMetrics, err := connpool.NewScrubMetrics(meter)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("ScrubMetrics: %w", err))
+	}
+	m.scrubMetrics = scrubMetrics
 
 	// ConnectionCount for reserved pools
 	reservedCount, err := connpool.NewConnectionCount(meter)
@@ -227,6 +246,16 @@ func NewMetrics() (*Metrics, error) {
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.pooler.reserved.active_connections gauge: %w", err))
+	}
+
+	// Reserved active connections broken down by reservation reason
+	m.reservedActiveByReason, err = meter.Int64ObservableGauge(
+		"mg.pooler.reserved.active_by_reason",
+		metric.WithDescription("Active reserved connections holding each reservation reason (overlapping; sums to more than the total)"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.reserved.active_by_reason gauge: %w", err))
 	}
 
 	// Config max server connections gauge
@@ -372,6 +401,7 @@ func (m *Metrics) RegisterManagerCallbacks(
 		m.serverConnections,
 		m.clientWaitingConnections,
 		m.reservedActiveConnections,
+		m.reservedActiveByReason,
 		m.configMaxServerConnections,
 		m.poolCapacity,
 		m.poolCurrentConnections,
@@ -431,6 +461,9 @@ func (m *Metrics) RegisterManagerCallbacks(
 			var totalReservedActive int
 			var totalWaitTime float64
 			var totalGetCount int64
+			// Reserved active connections summed per reservation reason across
+			// all user pools. Overlapping breakdown (see reservedActiveByReason).
+			reservedActiveByReason := make(map[string]int64)
 
 			for user, userStats := range stats.UserPools {
 				// Regular pool: server connections
@@ -443,6 +476,11 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 				// Reserved active (clients in transactions)
 				totalReservedActive += userStats.Reserved.Active
+
+				// Per-reason reserved active breakdown.
+				for reason, count := range userStats.Reserved.ActiveByReason {
+					reservedActiveByReason[reason] += int64(count)
+				}
 
 				// Aggregate cumulative metrics
 				totalWaiting += userStats.Waiting
@@ -490,6 +528,18 @@ func (m *Metrics) RegisterManagerCallbacks(
 				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive), routingRoleAttr)
 			}
 
+			// Emit every known reason (0 when none are active) so each series
+			// resets cleanly instead of going stale on its last nonzero value.
+			if m.reservedActiveByReason != nil {
+				for _, r := range protoutil.ReasonLabels() {
+					o.ObserveInt64(m.reservedActiveByReason, reservedActiveByReason[r.Name],
+						metric.WithAttributes(
+							attribute.String("routing_role", routingRole),
+							attribute.String("reason", r.Name),
+						))
+				}
+			}
+
 			if m.clientWaitTimeTotal != nil {
 				o.ObserveFloat64(m.clientWaitTimeTotal, totalWaitTime, routingRoleAttr)
 			}
@@ -528,6 +578,11 @@ func (m *Metrics) RegularConnCount() connpool.ConnectionCount {
 // ReservedConnCount returns the ConnectionCount metric for reserved pools.
 func (m *Metrics) ReservedConnCount() connpool.ConnectionCount {
 	return m.reservedConnCount
+}
+
+// ScrubMetrics returns the shared session-state scrub metrics.
+func (m *Metrics) ScrubMetrics() connpool.ScrubMetrics {
+	return m.scrubMetrics
 }
 
 // ServerConnMetrics returns the shared server-connection lifecycle metrics.

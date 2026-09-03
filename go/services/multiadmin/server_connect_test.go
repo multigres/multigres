@@ -15,6 +15,7 @@
 package multiadmin
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"connectrpc.com/vanguard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -29,6 +31,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/servenv/servenvtest"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
@@ -66,7 +70,7 @@ func TestConnectAdapterGetCellNotFound(t *testing.T) {
 // translation it serializes them as CodeUnknown (HTTP 500), masking NotFound,
 // InvalidArgument, etc. This guards against that regression.
 func TestConnectHandlerPropagatesGRPCCode(t *testing.T) {
-	path, handler := newConnectHandler(newTestServer(t))
+	path, handler := newConnectHandler(newTestServer(t), func() servenv.Authenticator { return nil })
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	httpSrv := httptest.NewServer(mux)
@@ -77,6 +81,119 @@ func TestConnectHandlerPropagatesGRPCCode(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err),
 		"gRPC NotFound must survive serialization through the Connect handler")
+}
+
+// authFailedMessage mirrors the unexported servenv.authFailedMessage - it
+// can't be referenced directly across packages, so the literal is duplicated
+// here. Every auth rejection, regardless of transport or reason, must
+// produce exactly this message; see servenv.AuthenticateBearer.
+const authFailedMessage = "authentication failed"
+
+// assertGenericAuthFailedMessage checks that a rejection's message is the
+// sanitized, generic string - never anything that would let a caller
+// distinguish *why* a request was rejected (missing header vs. bad token vs.
+// ...), which could otherwise be used as an oracle to probe valid credentials.
+func assertGenericAuthFailedMessage(t *testing.T, err error) {
+	t.Helper()
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, authFailedMessage, connectErr.Message())
+}
+
+// TestConnectHandlerJWTAuth exercises newJWTConnectInterceptor through the
+// real Connect HTTP handler, covering both the Connect protocol path and the
+// REST (Vanguard-transcoded) path, since both are expected to share the same
+// auth behavior (they wrap the same underlying handler).
+func TestConnectHandlerJWTAuth(t *testing.T) {
+	const validToken = "valid-token"
+
+	newHandler := func(authPlugin func() servenv.Authenticator) (*httptest.Server, multiadminconnect.MultiadminServiceClient) {
+		path, handler := newConnectHandler(newTestServer(t), authPlugin)
+		mux := http.NewServeMux()
+		mux.Handle(path, handler)
+
+		transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{vanguard.NewService(path, handler)})
+		require.NoError(t, err)
+		mux.Handle("/api/", transcoder)
+
+		httpSrv := httptest.NewServer(mux)
+		t.Cleanup(httpSrv.Close)
+		client := multiadminconnect.NewMultiadminServiceClient(httpSrv.Client(), httpSrv.URL)
+		return httpSrv, client
+	}
+
+	t.Run("no auth plugin active passes through unauthenticated", func(t *testing.T) {
+		_, client := newHandler(func() servenv.Authenticator { return nil })
+		_, err := client.GetCellNames(t.Context(), connect.NewRequest(&multiadminpb.GetCellNamesRequest{}))
+		require.NoError(t, err)
+	})
+
+	t.Run("non-TokenVerifier plugin active (e.g. mtls) fails closed", func(t *testing.T) {
+		_, client := newHandler(func() servenv.Authenticator { return &servenvtest.AuthenticatorWithoutVerify{} })
+		_, err := client.GetCellNames(t.Context(), connect.NewRequest(&multiadminpb.GetCellNamesRequest{}))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assertGenericAuthFailedMessage(t, err)
+	})
+
+	t.Run("missing authorization header rejected", func(t *testing.T) {
+		_, client := newHandler(func() servenv.Authenticator { return &servenvtest.FakeTokenVerifier{ValidToken: validToken} })
+		_, err := client.GetCellNames(t.Context(), connect.NewRequest(&multiadminpb.GetCellNamesRequest{}))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		// Must match the invalid-token case below exactly - see the comment
+		// there for why.
+		assertGenericAuthFailedMessage(t, err)
+	})
+
+	t.Run("invalid token rejected", func(t *testing.T) {
+		_, client := newHandler(func() servenv.Authenticator { return &servenvtest.FakeTokenVerifier{ValidToken: validToken} })
+		req := connect.NewRequest(&multiadminpb.GetCellNamesRequest{})
+		req.Header().Set("Authorization", "Bearer wrong-token")
+		_, err := client.GetCellNames(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		// Must produce the exact same message as the missing-header case
+		// above - see servenv.AuthenticateBearer's use of a single sentinel
+		// error. If a caller could distinguish "no header" from "bad token"
+		// from the response, it could use that as an oracle to probe why a
+		// request was rejected.
+		assertGenericAuthFailedMessage(t, err)
+	})
+
+	t.Run("valid token accepted", func(t *testing.T) {
+		_, client := newHandler(func() servenv.Authenticator { return &servenvtest.FakeTokenVerifier{ValidToken: validToken} })
+		req := connect.NewRequest(&multiadminpb.GetCellNamesRequest{})
+		req.Header().Set("Authorization", "Bearer "+validToken)
+		_, err := client.GetCellNames(t.Context(), req)
+		require.NoError(t, err)
+	})
+
+	t.Run("REST transcoded path enforces the same auth", func(t *testing.T) {
+		httpSrv, _ := newHandler(func() servenv.Authenticator { return &servenvtest.FakeTokenVerifier{ValidToken: validToken} })
+		resp, err := httpSrv.Client().Get(httpSrv.URL + "/api/v1/cells")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		// Same sanitized message as the Connect-protocol cases above -
+		// Vanguard transcodes the same underlying connect.Error into this
+		// JSON body.
+		assert.Contains(t, string(body), authFailedMessage)
+	})
+}
+
+func TestHTTPAuthPluginRequiresEnableAuth(t *testing.T) {
+	ma := NewMultiadmin()
+	ma.grpcServer.SetAuthMode("mtls")
+
+	assert.Nil(t, ma.httpAuthPlugin(),
+		"native gRPC auth must not enable authentication on HTTP surfaces")
+
+	ma.enableAuth.Set(true)
+	assert.NotNil(t, ma.httpAuthPlugin(),
+		"--enable-auth must fail closed until the JWT plugin is resolved")
 }
 
 func TestConnectAdapterGetDatabaseNames(t *testing.T) {

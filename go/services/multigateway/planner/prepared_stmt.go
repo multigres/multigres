@@ -60,8 +60,9 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 	var execInfo engine.PlanExecInfo
 	var setConfigs []engine.SQLPreparedSetConfig
 	var bodyOverride *query.PreparedStatement
+	unsafeConnection := conn != nil && conn.UnsafeConnection()
 	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
-		analysis, err := analyzeSQLPreparedBody(psi.AstStmt())
+		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), unsafeConnection)
 		if err != nil {
 			return nil, err
 		}

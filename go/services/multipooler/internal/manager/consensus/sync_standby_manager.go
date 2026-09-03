@@ -79,7 +79,7 @@ func NewSyncStandbyManager(logger *slog.Logger, qs executor.InternalQueryService
 }
 
 func (s *postgresqlSyncStandbyManager) exec(ctx context.Context, sql string) error {
-	_, err := s.qs.Query(ctx, sql)
+	_, err := s.qs.QueryAdmin(ctx, sql)
 	return err
 }
 
@@ -190,7 +190,7 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc common
 	// Query postgres for the live GUC values.
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := s.qs.Query(queryCtx, "SELECT current_setting('synchronous_commit'), current_setting('synchronous_standby_names')")
+	result, err := s.qs.QueryAdmin(queryCtx, "SELECT current_setting('synchronous_commit'), current_setting('synchronous_standby_names')")
 	if err != nil {
 		// Fall back to cache: unreachable postgres means we can't detect drift,
 		// but the cache is trustworthy since we own all writes to these GUCs.
@@ -290,7 +290,7 @@ func (s *postgresqlSyncStandbyManager) Clear(ctx context.Context) error {
 	// to proceed without standby acknowledgment, violating durability guarantees.
 	checkCtx, checkCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer checkCancel()
-	result, err := s.qs.Query(checkCtx, "SELECT pg_is_in_recovery()")
+	result, err := s.qs.QueryAdmin(checkCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
 		return fmt.Errorf("clear: could not verify recovery mode: %w", err)
 	}

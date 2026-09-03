@@ -53,6 +53,9 @@ type Metrics struct {
 	idleClosed        atomic.Int64
 	diffState         atomic.Int64
 	resetState        atomic.Int64
+	scrubChecked      atomic.Int64
+	scrubDivergent    atomic.Int64
+	scrubErrors       atomic.Int64
 }
 
 func (m *Metrics) MaxLifetimeClosed() int64 { return m.maxLifetimeClosed.Load() }
@@ -63,6 +66,19 @@ func (m *Metrics) WaitTime() time.Duration  { return time.Duration(m.waitTime.Lo
 func (m *Metrics) IdleClosed() int64        { return m.idleClosed.Load() }
 func (m *Metrics) DiffStateCount() int64    { return m.diffState.Load() }
 func (m *Metrics) ResetStateCount() int64   { return m.resetState.Load() }
+
+// ScrubCheckedCount is the number of idle connections probed by the
+// session-state scrubber.
+func (m *Metrics) ScrubCheckedCount() int64 { return m.scrubChecked.Load() }
+
+// ScrubDivergentCount is the number of connections the scrubber found with
+// real session state diverged from their tracked settings label (each was
+// closed and replaced).
+func (m *Metrics) ScrubDivergentCount() int64 { return m.scrubDivergent.Load() }
+
+// ScrubErrorCount is the number of scrub probes that failed to produce a
+// verdict.
+func (m *Metrics) ScrubErrorCount() int64 { return m.scrubErrors.Load() }
 
 // Connector is a function that creates a new connection.
 // ctx is used for the dial/startup operations.
@@ -110,6 +126,17 @@ type Config struct {
 
 	// OnRecycle is called after a connection is returned to the pool (optional).
 	OnRecycle func()
+
+	// ScrubInterval is how often the session-state scrubber probes one idle
+	// connection for divergence between its tracked settings label and the
+	// backend's real session state. Divergent connections are closed and
+	// replaced. Zero disables scrubbing. Only enable on pools whose
+	// connections implement SessionStateVerifier.
+	ScrubInterval time.Duration
+
+	// ScrubMetrics records session-state scrub outcomes (optional, noop if
+	// not set). Shared across pools and created by the owner.
+	ScrubMetrics ScrubMetrics
 }
 
 // stackMask is the number of connection state stacks minus one;
@@ -157,6 +184,11 @@ type Pool[C Connection] struct {
 	// ctx is the context used for background pool operations
 	ctx context.Context
 
+	// scrubCtx is derived from ctx on open and cancelled by CloseWithContext
+	// before it drains, so an in-flight scrub probe cannot delay shutdown.
+	scrubCtx    context.Context
+	scrubCancel context.CancelFunc
+
 	config struct {
 		// connect is the callback to create a new connection for the pool
 		connect Connector[C]
@@ -181,6 +213,9 @@ type Pool[C Connection] struct {
 		onBorrow func()
 		// onRecycle is called after a connection is returned to the pool
 		onRecycle func()
+		// scrubInterval is how often the session-state scrubber probes one
+		// idle connection; zero disables scrubbing
+		scrubInterval time.Duration
 	}
 
 	Metrics Metrics
@@ -195,6 +230,14 @@ type Pool[C Connection] struct {
 	// bounded attribute applied to them. Provided via Config.
 	serverConnMetrics ServerConnMetrics
 	poolType          string
+
+	// scrubMetrics records session-state scrub outcomes. Provided via Config.
+	scrubMetrics ScrubMetrics
+
+	// checkers verify idle connections' real backend state against tracked
+	// state; run by the scrub worker. Populated via RegisterChecker before
+	// Open, read-only afterwards.
+	checkers []ConnChecker[C]
 }
 
 // NewPool creates a new connection pool with the given Config.
@@ -213,12 +256,14 @@ func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 	pool.config.logWait = config.LogWait
 	pool.config.onBorrow = config.OnBorrow
 	pool.config.onRecycle = config.OnRecycle
+	pool.config.scrubInterval = config.ScrubInterval
 	pool.logger = config.Logger
 	if pool.logger == nil {
 		pool.logger = slog.Default()
 	}
 	pool.otelConnectionCount = config.ConnectionCount
 	pool.serverConnMetrics = config.ServerConnMetrics
+	pool.scrubMetrics = config.ScrubMetrics
 	pool.poolType = config.PoolType
 	pool.wait.init()
 
@@ -261,6 +306,8 @@ func (pool *Pool[C]) open() {
 		return
 	}
 	pool.capacity.Store(pool.config.maxCapacity)
+	//nolint:gosec // G118: scrubCancel is called by CloseWithContext before draining.
+	pool.scrubCtx, pool.scrubCancel = context.WithCancel(pool.ctx)
 	pool.setIdleCount()
 
 	// The expire worker takes care of removing from the waiter list any clients whose
@@ -285,6 +332,16 @@ func (pool *Pool[C]) open() {
 		})
 	}
 
+	if scrubInterval := pool.config.scrubInterval; scrubInterval > 0 && len(pool.checkers) > 0 {
+		// The scrub worker probes one idle connection per tick for divergence
+		// between its tracked settings label and the backend's real session
+		// state, replacing connections that diverged. See scrub.go.
+		var cursor int
+		pool.runWorker(closeChan, scrubInterval, func(_ time.Time) bool {
+			return pool.scrubOne(&cursor)
+		})
+	}
+
 	refreshInterval := pool.RefreshInterval()
 	if refreshInterval != 0 && pool.config.refresh != nil {
 		// The refresh worker periodically checks the refresh callback in this pool
@@ -301,6 +358,14 @@ func (pool *Pool[C]) open() {
 			return true
 		})
 	}
+}
+
+// RegisterChecker adds a state checker for the scrub worker to run against
+// idle connections. Must be called before Open (pool constructors register
+// checkers; the worker reads the slice without locking). Scrubbing runs only
+// when Config.ScrubInterval is set AND at least one checker is registered.
+func (pool *Pool[C]) RegisterChecker(c ConnChecker[C]) {
+	pool.checkers = append(pool.checkers, c)
 }
 
 // Open starts the background workers that manage the pool and gets it ready
@@ -339,6 +404,9 @@ func (pool *Pool[C]) CloseWithContext(ctx context.Context) error {
 		// already closed
 		return nil
 	}
+
+	// Abort any in-flight scrub probe so the drain below does not wait on it.
+	pool.scrubCancel()
 
 	// Set capacity to 0 and close all idle connections immediately
 	_ = pool.setCapacity(0)

@@ -59,17 +59,43 @@ func IsCohortMemberRemovalSafe(rule *clustermetadatapb.ShardRule, memberID *clus
 	if !found {
 		return false
 	}
-	// Simulate leader failure: recruited = new cohort minus leader.
-	recruited := newCohort
-	if leaderID := rule.GetLeaderId(); leaderID != nil {
-		leaderKey := topoclient.ComponentIDString(leaderID)
-		recruited = make([]*clustermetadatapb.ID, 0, len(newCohort))
-		for _, id := range newCohort {
-			if topoclient.ComponentIDString(id) == leaderKey {
-				continue
+	return cohortSurvivesMemberLoss(policy, newCohort, rule.GetLeaderId())
+}
+
+// cohortSurvivesMemberLoss reports whether cohort could still satisfy
+// policy's sufficient-recruitment requirement if member subsequently failed
+// (and every other member stayed reachable). member may be nil, in which
+// case nothing is removed before checking.
+func cohortSurvivesMemberLoss(policy DurabilityPolicy, cohort []*clustermetadatapb.ID, member *clustermetadatapb.ID) bool {
+	if policy == nil {
+		return false
+	}
+	recruited := cohort
+	if member != nil {
+		memberKey := topoclient.ComponentIDString(member)
+		recruited = make([]*clustermetadatapb.ID, 0, len(cohort))
+		for _, id := range cohort {
+			if topoclient.ComponentIDString(id) != memberKey {
+				recruited = append(recruited, id)
 			}
-			recruited = append(recruited, id)
 		}
 	}
-	return CheckSufficientRecruitment(policy, newCohort, recruited) == nil
+	return CheckSufficientRecruitment(policy, cohort, recruited) == nil
+}
+
+// CohortSurvivesAnyMemberLoss reports whether cohort is failure-safe: able
+// to satisfy cohortSurvivesMemberLoss no matter which single member turned
+// out to be the leader and later failed. Used to judge a candidate cohort
+// before a leader has been chosen for it (e.g. initial bootstrap).
+func CohortSurvivesAnyMemberLoss(policy DurabilityPolicy, cohort []*clustermetadatapb.ID) bool {
+	cohort = normalizeIDs(cohort)
+	if len(cohort) == 0 {
+		return false
+	}
+	for _, member := range cohort {
+		if !cohortSurvivesMemberLoss(policy, cohort, member) {
+			return false
+		}
+	}
+	return true
 }

@@ -292,19 +292,9 @@ func NewPgCtldService(
 	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
 	// postgres subprocess and inherits this process's environment) can authenticate
 	// against PostgreSQL without exposing the password in the process environment.
-	pgpassDir := filepath.Join(poolerDir, "pgbackrest")
-	if err := os.MkdirAll(pgpassDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create pgbackrest directory: %w", err)
-	}
-	pgpassPath := filepath.Join(pgpassDir, "pgbackrest.pgpass")
-	pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", cfg.User, cfg.Password)
-	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
-	}
-	// enforce 0600 explicitly, as the operator might have changed these permissions
-	// during volume mount.
-	if err := os.Chmod(pgpassPath, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to set pgbackrest pgpass file permissions: %w", err)
+	pgpassPath, err := backup.WritePgpassFile(poolerDir, cfg.User, cfg.Password)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
 		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)

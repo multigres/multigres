@@ -180,6 +180,13 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	opts := []shardsetup.SetupOption{
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
+		// pg_regress drives long transactions that create functions the gateway
+		// refuses (feature_not_supported). Keep those transactions open on a
+		// gateway rejection instead of aborting, so a single refused statement
+		// doesn't cascade into "current transaction is aborted" across the rest of
+		// the script. Clients get PostgreSQL's default (abort on any error); this
+		// opt-in is scoped to the compatibility suites.
+		shardsetup.WithMultigatewayExtraArgs("--keep-transaction-on-gateway-rejection"),
 		// Generated PostgreSQL allows 60 connections. Keep pooled capacity below
 		// that ceiling so admin and monitoring connections retain headroom.
 		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=50"),

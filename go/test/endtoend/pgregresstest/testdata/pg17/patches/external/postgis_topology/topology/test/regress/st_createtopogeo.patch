@@ -1,0 +1,17 @@
+# Known divergence (by design): st_createtopogeo creates the print_isolated_nodes /
+# print_elements_count helpers whose quote_literal-built EXECUTE the gateway now
+# proves safe and accepts. postgis_preseed.sql already seeded those helpers on the
+# primary (bypassing the gateway), so the test's own now-accepted CREATE conflicts
+# with the seeded copy — "already exists". The helpers still work (the seeded
+# copies); only the redundant CREATE errors.
+--- a
++++ b
+@@ -1,6 +1,8 @@
+ ERROR: SQL/MM Spatial exception - invalid topology name
+ ERROR: SQL/MM Spatial exception - invalid topology name
+ ERROR: SQL/MM Spatial exception - null argument
++ERROR: function "print_isolated_nodes" already exists with same argument types
++ERROR: function "print_elements_count" already exists with same argument types
+ ERROR: SQL/MM Spatial exception - null argument
+ ERROR: Geometry SRID (0) does not match topology SRID (4326)
+ T1|POINT(0 0)

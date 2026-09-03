@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -121,6 +122,19 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 		}
 		name := strings.TrimSuffix(rel, ".sql")
 
+		// Most files run against the enforcing gateway. A few (UnsafeConnectionGlobs)
+		// have scaffolding the enforcing gateway rejects by design — e.g. a
+		// runtime-built EXECUTE inside a DO block — which, under ON_ERROR_STOP,
+		// aborts the whole file mid-plan. Those connect to the same gateway but opt
+		// into unsafe connection per-connection (PGOPTIONS below), so they run in full while
+		// every other file keeps exercising the rejections. See
+		// ExternalExtension.UnsafeConnectionGlobs.
+		gatewayLabel := "multigateway"
+		unsafeConnection := matchesAnyGlob(rel, ext.UnsafeConnectionGlobs)
+		if unsafeConnection {
+			gatewayLabel = "multigateway(unsafe-connection)"
+		}
+
 		// Drop the throwaway schemas a pg_partman test file creates, on the primary,
 		// before each file. The rolled-back tests never leave these behind, so this
 		// is normally a no-op; it keeps the run order-independent and re-runnable
@@ -149,6 +163,11 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 			"PGDATABASE=postgres",
 			"PGCONNECT_TIMEOUT=10",
 		)
+		// Opt this connection into unsafe connection for the
+		// files whose scaffolding the enforcing gateway rejects by design.
+		if unsafeConnection {
+			cmd.AddEnv("PGOPTIONS=-c " + constants.UnsafeConnectionParam + "=on")
+		}
 		cmd.SetWaitDelay(10 * time.Second)
 
 		// Assertion rows and pgTAP diagnostics arrive on stdout; NOTICE/error text
@@ -202,7 +221,7 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 		if status == "fail" {
 			emoji = "❌"
 		}
-		t.Logf("  %s external/%s/%s (plan=%d ran=%d fail=%d) %v", emoji, ext.Name, name, planned, passed, len(failed), dur.Round(time.Millisecond))
+		t.Logf("  %s external/%s/%s [%s] (plan=%d ran=%d fail=%d) %v", emoji, ext.Name, name, gatewayLabel, planned, passed, len(failed), dur.Round(time.Millisecond))
 	}
 
 	// Tear down what we pre-created so the next extension's suite starts from the
@@ -229,6 +248,18 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 // matched relative to testDir, minus any file whose path relative to testDir
 // matches an entry in excludes. globs and excludes use "/"-separated relative
 // patterns (e.g. "test_pg17plus/*.sql"), matched with filepath.Match.
+// matchesAnyGlob reports whether rel (a test file path relative to TestSubdir)
+// matches any of the given globs, using the same filepath.Match semantics as the
+// ExcludeGlobs filter in selectPgTAPFiles.
+func matchesAnyGlob(rel string, globs []string) bool {
+	for _, g := range globs {
+		if ok, _ := filepath.Match(g, rel); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func selectPgTAPFiles(testDir string, globs, excludes []string) ([]string, error) {
 	seen := map[string]bool{}
 	var matches []string

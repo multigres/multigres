@@ -196,6 +196,72 @@ func TestMetrics_RegisterManagerCallbacks_RoutingRoleLabel(t *testing.T) {
 	}
 }
 
+// gaugeValue returns the int64 value of the first data point matching attrs,
+// and whether such a point exists.
+func gaugeValue(t *testing.T, data metricdata.Aggregation, attrs map[string]string) (int64, bool) {
+	t.Helper()
+	g, ok := data.(metricdata.Gauge[int64])
+	require.True(t, ok)
+	for _, dp := range g.DataPoints {
+		if hasAttrs(dp.Attributes, attrs) {
+			return dp.Value, true
+		}
+	}
+	return 0, false
+}
+
+// TestMetrics_ReservedActiveByReason verifies the per-reason reserved gauge sums
+// across user pools, treats reasons as an overlapping breakdown, and emits every
+// known reason (including a zero for reasons with no active connections).
+func TestMetrics_ReservedActiveByReason(t *testing.T) {
+	m, reader := setupPoolerMetrics(t)
+	m.SetRoutingRole(servingstate.RoutingRolePrimary)
+
+	stats := ManagerStats{
+		UserPools: map[string]UserPoolStats{
+			"alice": {Reserved: reserved.PoolStats{
+				Active: 2,
+				ActiveByReason: map[string]int{
+					"unsafe_connection": 1,
+					"transaction":       2,
+					"portal":            1,
+				},
+			}},
+			"bob": {Reserved: reserved.PoolStats{
+				Active: 1,
+				ActiveByReason: map[string]int{
+					"unsafe_connection": 1,
+				},
+			}},
+		},
+	}
+
+	require.NoError(t, m.RegisterManagerCallbacks(
+		func() ManagerStats { return stats },
+		func() int { return len(stats.UserPools) },
+		func() int64 { return 12 },
+		func() bool { return false },
+	))
+
+	data := collectMetric(t, reader, "mg.pooler.reserved.active_by_reason").Data
+
+	// Summed across pools, labeled by reason and routing_role.
+	v, ok := gaugeValue(t, data, map[string]string{"routing_role": "primary", "reason": "unsafe_connection"})
+	require.True(t, ok)
+	require.Equal(t, int64(2), v, "unsafe_connection summed across alice+bob")
+
+	// Overlapping breakdown: transaction and portal counted independently.
+	v, _ = gaugeValue(t, data, map[string]string{"reason": "transaction"})
+	require.Equal(t, int64(2), v)
+	v, _ = gaugeValue(t, data, map[string]string{"reason": "portal"})
+	require.Equal(t, int64(1), v)
+
+	// Every known reason is emitted, including ones with no active conns (0).
+	v, ok = gaugeValue(t, data, map[string]string{"reason": "copy"})
+	require.True(t, ok, "reasons with no active conns must still be emitted")
+	require.Equal(t, int64(0), v)
+}
+
 func TestMetrics_RoutingRoleLabelValues(t *testing.T) {
 	m, _ := setupPoolerMetrics(t)
 

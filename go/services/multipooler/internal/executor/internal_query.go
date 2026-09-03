@@ -33,16 +33,18 @@ var errTxFinished = errors.New("transaction already finished")
 // pools:
 //
 //   - Query / QueryArgs / QueryMultiStatement / Begin run on the regular pool (as
-//     the configured PgUser). Use for pure system queries — pg_is_in_recovery(),
-//     ALTER SYSTEM, WAL LSN reads, SELECT 1 — so the small admin pool is not
-//     exhausted by high-volume polling.
+//     the configured PgUser). Use only for internal work that may safely share
+//     capacity — and queue behind — user traffic.
 //   - QueryAdmin / QueryAdminArgs / QueryAdminMultiStatement run on the admin
-//     (true-superuser) pool. Use for every read/write of the locked-down multigres
-//     sidecar schema, which is owned by the true superuser and which customer
-//     roles on the regular pool cannot reach.
+//     (true-superuser) pool. Use for all control-plane work: recovery probes,
+//     replication and consensus control, promotion, and the locked-down
+//     multigres sidecar schema. Control-plane queries must never starve on a
+//     saturated regular pool — that is exactly the failover moment they exist
+//     for — so everything the manager, consensus, and heartbeat components run
+//     goes through these methods.
 //
-// Choosing the pool at the call site (by method name) keeps "this touches the
-// locked-down schema" visible where the query is written.
+// Choosing the pool at the call site keeps the required isolation visible where
+// the query is written.
 type InternalQueryService interface {
 	// Query executes a query on the regular pool and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
@@ -60,7 +62,7 @@ type InternalQueryService interface {
 	QueryMultiStatement(ctx context.Context, query string) error
 
 	// QueryAdmin executes a query on the admin (true-superuser) pool and returns
-	// the single result. Use for reads/writes of the multigres sidecar schema.
+	// the single result. Use for recovery probes and the multigres sidecar schema.
 	QueryAdmin(ctx context.Context, query string) (*sqltypes.Result, error)
 
 	// QueryAdminArgs is QueryAdmin with arguments; it accepts the same Go argument
@@ -93,6 +95,9 @@ type InternalQueryService interface {
 	//	}
 	//	return tx.Commit(ctx)
 	Begin(ctx context.Context) (InternalTx, error)
+
+	// BeginAdmin is Begin on the admin pool.
+	BeginAdmin(ctx context.Context) (InternalTx, error)
 }
 
 // InternalTx is a handle to an in-progress transaction held on a reserved
@@ -119,8 +124,8 @@ type InternalTx interface {
 	Rollback(ctx context.Context) error
 }
 
-// Compile-time check that internalTx implements InternalTx.
-var _ InternalTx = (*internalTx)(nil)
+// Compile-time check that genericTx implements InternalTx.
+var _ InternalTx = (*genericTx)(nil)
 
 // Compile-time check that Executor implements InternalQueryService.
 var _ InternalQueryService = (*Executor)(nil)
@@ -141,8 +146,8 @@ type pooledQueryConn interface {
 type connBorrower func(ctx context.Context) (conn pooledQueryConn, release func(), err error)
 
 // borrowRegular borrows a connection from the per-user regular pool as the
-// configured PgUser. We use the regular pool for system queries rather than the
-// admin pool so as not to exhaust the small admin pool.
+// configured PgUser. Routine internal work uses this path so it does not exhaust
+// the small admin pool reserved for control-plane operations.
 func (e *Executor) borrowRegular(ctx context.Context) (pooledQueryConn, func(), error) {
 	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.PgUser(), nil, nil)
 	if err != nil {
@@ -256,22 +261,58 @@ func (e *Executor) Begin(ctx context.Context) (InternalTx, error) {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	return &internalTx{conn: reservedConn}, nil
+	return &genericTx{
+		conn: reservedConn,
+		onRelease: func(outcome txOutcome, err error) {
+			switch {
+			case err != nil:
+				// The op itself failed: the connection's state is no longer
+				// known to be clean, so release it as an error (which taints
+				// it) rather than recycling.
+				reservedConn.Release(reserved.ReleaseError, nil)
+			case outcome == txCommitted:
+				reservedConn.Release(reserved.ReleaseCommit, nil)
+			default:
+				reservedConn.Release(reserved.ReleaseRollback, nil)
+			}
+		},
+	}, nil
 }
 
-// internalTx is the Executor's implementation of InternalTx. It owns a reserved
-// connection for the duration of a transaction.
-type internalTx struct {
-	// conn is the reserved connection carrying the open transaction.
-	conn *reserved.Conn
+// txConn is the subset of a transaction-capable connection genericTx needs.
+// *reserved.Conn (the regular pool's reserved connection, used by Begin) and
+// *admin.TxConn (used by BeginAdmin) both satisfy it natively.
+type txConn interface {
+	Query(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
 
-	// finished is set once the transaction has been committed or rolled back and
-	// the connection released. Further queries on a finished tx are rejected.
+// txOutcome names which end of the transaction genericTx reached, passed to
+// onRelease alongside any error.
+type txOutcome int
+
+const (
+	txCommitted txOutcome = iota
+	txRolledBack
+)
+
+// genericTx is the shared InternalTx implementation for both Begin (regular
+// pool) and BeginAdmin (admin pool). onRelease is called exactly once, after
+// Commit or Rollback resolves, so each pool can apply its own release
+// semantics.
+type genericTx struct {
+	conn      txConn
+	onRelease func(outcome txOutcome, err error)
+
+	// finished is set once the transaction has been committed or rolled back.
+	// Further queries on a finished tx are rejected.
 	finished bool
 }
 
 // Query implements InternalTx.
-func (tx *internalTx) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+func (tx *genericTx) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
 	if tx.finished {
 		return nil, errTxFinished
 	}
@@ -290,7 +331,7 @@ func (tx *internalTx) Query(ctx context.Context, queryStr string) (*sqltypes.Res
 }
 
 // QueryArgs implements InternalTx.
-func (tx *internalTx) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
+func (tx *genericTx) QueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	if tx.finished {
 		return nil, errTxFinished
 	}
@@ -309,7 +350,7 @@ func (tx *internalTx) QueryArgs(ctx context.Context, sql string, args ...any) (*
 }
 
 // Commit implements InternalTx.
-func (tx *internalTx) Commit(ctx context.Context) error {
+func (tx *genericTx) Commit(ctx context.Context) error {
 	if tx.finished {
 		return errTxFinished
 	}
@@ -318,19 +359,17 @@ func (tx *internalTx) Commit(ctx context.Context) error {
 		IncludeQueryText: true,
 	})
 
-	if err := tx.conn.Commit(ctx); err != nil {
-		// COMMIT failed: the connection's state is no longer known to be clean,
-		// so release it as an error (which taints it) rather than recycling.
-		tx.conn.Release(reserved.ReleaseError, nil)
+	err := tx.conn.Commit(ctx)
+	tx.onRelease(txCommitted, err)
+	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	tx.conn.Release(reserved.ReleaseCommit, nil)
 	return nil
 }
 
 // Rollback implements InternalTx. It is a no-op once the transaction is
 // finished, so callers can defer it unconditionally alongside Commit.
-func (tx *internalTx) Rollback(ctx context.Context) error {
+func (tx *genericTx) Rollback(ctx context.Context) error {
 	if tx.finished {
 		return nil
 	}
@@ -339,10 +378,10 @@ func (tx *internalTx) Rollback(ctx context.Context) error {
 		IncludeQueryText: true,
 	})
 
-	if err := tx.conn.Rollback(ctx); err != nil {
-		tx.conn.Release(reserved.ReleaseError, nil)
+	err := tx.conn.Rollback(ctx)
+	tx.onRelease(txRolledBack, err)
+	if err != nil {
 		return fmt.Errorf("failed to rollback transaction: %w", err)
 	}
-	tx.conn.Release(reserved.ReleaseRollback, nil)
 	return nil
 }

@@ -529,14 +529,34 @@ func NewPLpgSQL_case_when() *PLpgSQL_case_when {
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:891-902
 type PLpgSQL_stmt_execsql struct {
 	BaseNode
-	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text
+	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text, with any INTO clause removed
+	Into    bool          `json:"into,omitempty"`    // an INTO clause is present
+	Strict  bool          `json:"strict,omitempty"`  // INTO STRICT
+	Target  string        `json:"target,omitempty"`  // INTO target text (names), or ""
 }
 
 func (s *PLpgSQL_stmt_execsql) isStmt() {}
 
 func (s *PLpgSQL_stmt_execsql) String() string { return "PLpgSQL_stmt_execsql" }
 
-func (s *PLpgSQL_stmt_execsql) SqlString() string { return s.Sqlstmt.SqlString() }
+// SqlString re-emits the statement, appending the INTO clause after the query.
+// PG's make_execsql_stmt lifts the INTO clause out from wherever it appears
+// (PL/pgSQL allows it almost anywhere); we re-emit it trailing, which PL/pgSQL
+// also accepts — so the deparse round-trips to a stable fixpoint even though it
+// is not byte-identical to a source that wrote INTO mid-statement.
+func (s *PLpgSQL_stmt_execsql) SqlString() string {
+	if !s.Into {
+		return s.Sqlstmt.SqlString()
+	}
+	var sb strings.Builder
+	sb.WriteString(s.Sqlstmt.SqlString())
+	sb.WriteString(" INTO ")
+	if s.Strict {
+		sb.WriteString("STRICT ")
+	}
+	sb.WriteString(s.Target)
+	return sb.String()
+}
 
 func NewPLpgSQL_stmt_execsql() *PLpgSQL_stmt_execsql {
 	return &PLpgSQL_stmt_execsql{
@@ -806,16 +826,24 @@ const (
 // PLpgSQL_stmt_open is `OPEN cursor …` (PG's PLpgSQL_stmt_open): open a bound
 // cursor (optionally with args) or an unbound one with a `FOR query` /
 // `FOR EXECUTE expr [USING …]`. curvar is the cursor name as text (no
-// resolution). Exactly one of Argquery / Query / DynQuery is set.
+// resolution). Exactly one of Args / Query / DynQuery is set.
+//
+// PG stores the bound-cursor argument list as a single reordered positional
+// `argquery` SELECT, built by resolving each value against the cursor's declared
+// parameter row (read_cursor_args). We keep no such resolution, so we cannot
+// reorder to positional; instead we retain each argument's surface form — its
+// optional `name :=` label and value expression — as a PLpgSQL_cursor_arg. That
+// keeps the deparse faithful (the labels are not lost) and, since we can't
+// reorder, keeps named binding correct.
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:761-772
 type PLpgSQL_stmt_open struct {
 	BaseNode
-	Curvar        string          `json:"curvar,omitempty"`         // cursor name, as written
-	CursorOptions int             `json:"cursor_options,omitempty"` // SCROLL / NO SCROLL flags
-	Argquery      *PLpgSQL_expr   `json:"argquery,omitempty"`       // bound-cursor args, `(…)`
-	Query         *PLpgSQL_expr   `json:"query,omitempty"`          // FOR query
-	DynQuery      *PLpgSQL_expr   `json:"dynquery,omitempty"`       // FOR EXECUTE expr
-	Params        []*PLpgSQL_expr `json:"params,omitempty"`         // USING expressions (dynamic)
+	Curvar        string                `json:"curvar,omitempty"`         // cursor name, as written
+	CursorOptions int                   `json:"cursor_options,omitempty"` // SCROLL / NO SCROLL flags
+	Args          []*PLpgSQL_cursor_arg `json:"args,omitempty"`           // bound-cursor args, `(…)`
+	Query         *PLpgSQL_expr         `json:"query,omitempty"`          // FOR query
+	DynQuery      *PLpgSQL_expr         `json:"dynquery,omitempty"`       // FOR EXECUTE expr
+	Params        []*PLpgSQL_expr       `json:"params,omitempty"`         // USING expressions (dynamic)
 }
 
 func (s *PLpgSQL_stmt_open) isStmt() {}
@@ -827,8 +855,15 @@ func (s *PLpgSQL_stmt_open) SqlString() string {
 	sb.WriteString("OPEN ")
 	sb.WriteString(s.Curvar)
 	switch {
-	case s.Argquery != nil:
-		sb.WriteString(s.Argquery.SqlString())
+	case s.Args != nil:
+		sb.WriteString("(")
+		for i, a := range s.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(a.SqlString())
+		}
+		sb.WriteString(")")
 	case s.DynQuery != nil:
 		if s.CursorOptions&CURSOR_OPT_NO_SCROLL != 0 {
 			sb.WriteString(" NO SCROLL")
@@ -853,6 +888,35 @@ func (s *PLpgSQL_stmt_open) SqlString() string {
 func NewPLpgSQL_stmt_open() *PLpgSQL_stmt_open {
 	return &PLpgSQL_stmt_open{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_open, Loc: -1},
+	}
+}
+
+// PLpgSQL_cursor_arg is one argument in a bound-cursor OPEN list: a value
+// expression with an optional PL/pgSQL `name :=` label (`OPEN c(p := 20)`). Name
+// is "" for a positional argument. PG has no matching node — it resolves the
+// whole list into a single positional argquery (read_cursor_args) — but with no
+// declared-parameter resolution we cannot reorder, so we keep each argument's
+// surface form for a faithful, semantically-correct deparse.
+type PLpgSQL_cursor_arg struct {
+	BaseNode
+	Name  string        `json:"name,omitempty"` // `name :=` label, or "" if positional
+	Value *PLpgSQL_expr `json:"value"`          // the argument value expression
+}
+
+func (a *PLpgSQL_cursor_arg) String() string { return "PLpgSQL_cursor_arg" }
+
+func (a *PLpgSQL_cursor_arg) SqlString() string {
+	if a.Name != "" {
+		return a.Name + " := " + a.Value.SqlString()
+	}
+	return a.Value.SqlString()
+}
+
+func NewPLpgSQL_cursor_arg(name string, value *PLpgSQL_expr) *PLpgSQL_cursor_arg {
+	return &PLpgSQL_cursor_arg{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_cursor_arg, Loc: -1},
+		Name:     name,
+		Value:    value,
 	}
 }
 

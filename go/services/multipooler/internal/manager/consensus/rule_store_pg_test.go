@@ -133,6 +133,11 @@ func (s *connQueryService) Begin(ctx context.Context) (executor.InternalTx, erro
 	return &connTx{conn: s.conn}, nil
 }
 
+// BeginAdmin runs on the same test connection as Begin — see the admin-variant note above.
+func (s *connQueryService) BeginAdmin(ctx context.Context) (executor.InternalTx, error) {
+	return s.Begin(ctx)
+}
+
 // connTx implements executor.InternalTx over a single *client.Conn for tests.
 type connTx struct {
 	conn     *client.Conn

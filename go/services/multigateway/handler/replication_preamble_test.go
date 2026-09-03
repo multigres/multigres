@@ -212,9 +212,12 @@ func TestNonTemporaryCreateReplicationSlotError(t *testing.T) {
 }
 
 // TestNonTemporaryCreateReplicationSlotError_Failover covers the command-form
-// guard once the slot-based-replication feature admits failover slots: a
-// non-temporary LOGICAL slot registered for failover is accepted, everything
-// else non-temporary is still rejected, and admitting is gated on the flag.
+// guard once the slot-based-replication feature is on: every non-temporary
+// LOGICAL slot is admitted (one requesting failover as-is, one omitting it for
+// auto-marking), only a deliberate FAILOVER false and PHYSICAL slots are
+// rejected, and admitting is gated on the flag. The actual FAILOVER injection
+// for the omitted case is covered by TestRewriteCreateReplicationSlotAddFailover
+// and TestRunReplicationPreamble_AutoMarksFailoverSlot.
 func TestNonTemporaryCreateReplicationSlotError_Failover(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -230,7 +233,11 @@ func TestNonTemporaryCreateReplicationSlotError_Failover(t *testing.T) {
 		{"FAILOVER glued to plugin admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput(FAILOVER)", true, false},
 		{"TWO_PHASE before FAILOVER admitted", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (TWO_PHASE, FAILOVER)", true, false},
 		{"failover rejected when feature disabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", false, true},
-		{"non-failover logical rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput", true, true},
+		{"non-failover logical rejected when feature disabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput", false, true},
+		// With the feature on, a non-failover logical slot is admitted for
+		// auto-marking (FAILOVER is injected downstream), no longer rejected.
+		{"non-failover logical admitted (auto-marked) when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput", true, false},
+		{"non-failover logical with other options admitted when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (SNAPSHOT 'nothing')", true, false},
 		{"physical rejected when enabled", "CREATE_REPLICATION_SLOT s1 PHYSICAL", true, true},
 		{"explicit FAILOVER false rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER 'false')", true, true},
 		{"explicit FAILOVER off rejected when enabled", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER off)", true, true},
@@ -298,6 +305,10 @@ func TestCreateReplicationSlotHasFailover(t *testing.T) {
 		{"failover off unquoted", []string{"pgoutput", "(FAILOVER", "off)"}, false},
 		{"no options", []string{"pgoutput"}, false},
 		{"other options only", []string{"pgoutput", "(TWO_PHASE,", "SNAPSHOT", "'use')"}, false},
+		// The output plugin token is dropped before scanning, so a plugin named
+		// "failover" is not mistaken for the option.
+		{"plugin named failover, no failover option", []string{"failover", "(SNAPSHOT", "'nothing')"}, false},
+		{"plugin named failover, with failover option", []string{"failover", "(FAILOVER)"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -334,6 +345,197 @@ func TestRunReplicationPreamble_AdmitsFailoverSlotWhenEnabled(t *testing.T) {
 	// The failover CREATE_REPLICATION_SLOT was relayed to the pooler verbatim.
 	require.Len(t, stream.sentRaw, 2)
 	assert.Contains(t, string(stream.sentRaw[0]), "FAILOVER")
+
+	// A slot that already requested failover is not rewritten, so no auto-mark
+	// NOTICE is emitted — the first thing the client sees is the command result.
+	out := testConn.WriteBuf.Bytes()
+	require.NotEmpty(t, out)
+	assert.NotEqual(t, byte(protocol.MsgNoticeResponse), out[0], "no NOTICE when the client already requested failover")
+}
+
+// TestRewriteCreateReplicationSlotAddFailover covers the auto-marking rewrite:
+// a non-temporary logical slot missing FAILOVER gets it injected as the first
+// option (or a fresh option list), while temporary/physical slots, slots that
+// already specify FAILOVER (enabled or an explicit false), and non-CRS commands
+// are left untouched.
+func TestRewriteCreateReplicationSlotAddFailover(t *testing.T) {
+	type testCase struct {
+		name        string
+		cmd         string
+		want        string
+		wantChanged bool
+	}
+
+	tests := []testCase{
+		// The exact command a real PostgreSQL subscriber sends for a plain
+		// CREATE SUBSCRIPTION (no failover): SNAPSHOT is always present, so the
+		// option list exists and FAILOVER is inserted first.
+		{"subscriber form gets failover first", `CREATE_REPLICATION_SLOT "sub" LOGICAL pgoutput (SNAPSHOT 'nothing')`, `CREATE_REPLICATION_SLOT "sub" LOGICAL pgoutput (FAILOVER, SNAPSHOT 'nothing')`, true},
+		{"no option list gets a fresh one", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", true},
+		{"paren glued to plugin", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput(SNAPSHOT 'nothing')", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput(FAILOVER, SNAPSHOT 'nothing')", true},
+		{"two_phase preserved after injected failover", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (TWO_PHASE)", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER, TWO_PHASE)", true},
+		{"empty option list", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput ()", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", true},
+		{"already has failover unchanged", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER)", "", false},
+		{"already has failover with others unchanged", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER, SNAPSHOT 'nothing')", "", false},
+		{"explicit failover false unchanged", "CREATE_REPLICATION_SLOT s1 LOGICAL pgoutput (FAILOVER 'false')", "", false},
+		{"temporary unchanged", "CREATE_REPLICATION_SLOT s1 TEMPORARY LOGICAL pgoutput", "", false},
+		{"physical unchanged", "CREATE_REPLICATION_SLOT s1 PHYSICAL", "", false},
+		{"non-CRS command unchanged", "START_REPLICATION SLOT s1 LOGICAL 0/0", "", false},
+		{"malformed no plugin unchanged", "CREATE_REPLICATION_SLOT s1 LOGICAL", "", false},
+		// Regression: an output plugin literally named "failover" (client-
+		// controlled) must not be misread as an already-enabled option — the
+		// slot must still be auto-marked.
+		{"plugin named failover still auto-marked", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (SNAPSHOT 'nothing')", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (FAILOVER, SNAPSHOT 'nothing')", true},
+		{"plugin named failover no options still auto-marked", "CREATE_REPLICATION_SLOT s1 LOGICAL failover", "CREATE_REPLICATION_SLOT s1 LOGICAL failover (FAILOVER)", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := rewriteCreateReplicationSlotAddFailover(tt.cmd)
+			assert.Equal(t, tt.wantChanged, changed)
+			if tt.wantChanged {
+				assert.Equal(t, tt.want, got)
+				// The rewrite must still read as a failover slot to the guard.
+				assert.NoError(t, nonTemporaryCreateReplicationSlotError(got, true))
+			} else {
+				assert.Empty(t, got)
+			}
+		})
+	}
+}
+
+// TestRunReplicationPreamble_AutoMarksFailoverSlot drives a plain (no-failover)
+// subscriber CREATE_REPLICATION_SLOT through the preamble with the feature on
+// and confirms the command forwarded to the pooler has FAILOVER injected, while
+// the following START_REPLICATION is relayed verbatim.
+func TestRunReplicationPreamble_AutoMarksFailoverSlot(t *testing.T) {
+	var clientInput bytes.Buffer
+	writeQueryMessage(&clientInput, `CREATE_REPLICATION_SLOT "sub_orders" LOGICAL pgoutput (SNAPSHOT 'nothing')`)
+	writeQueryMessage(&clientInput, "START_REPLICATION SLOT sub_orders LOGICAL 0/0")
+
+	createSlotResp := bytes.Join([][]byte{
+		frameMessage(protocol.MsgCommandComplete, []byte("CREATE_REPLICATION_SLOT\x00")),
+		frameMessage(protocol.MsgReadyForQuery, []byte{'I'}),
+	}, nil)
+	startReplResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+
+	stream := &scriptedReplStream{
+		ctx:       context.Background(),
+		responses: [][]byte{createSlotResp, startReplResp},
+	}
+	testConn := server.NewTestConn(&clientInput)
+
+	streaming, _, err := runReplicationPreamble(testConn.Conn, stream, true)
+	require.NoError(t, err)
+	assert.True(t, streaming)
+
+	// The pooler receives the rewritten command with FAILOVER injected first.
+	require.Len(t, stream.sentRaw, 2)
+	wantCmd := `CREATE_REPLICATION_SLOT "sub_orders" LOGICAL pgoutput (FAILOVER, SNAPSHOT 'nothing')`
+	assert.Equal(t, frameMessage(protocol.MsgQuery, append([]byte(wantCmd), 0)), stream.sentRaw[0])
+	// START_REPLICATION is not a slot-creating command and rides through as-is.
+	assert.Equal(t, frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT sub_orders LOGICAL 0/0"), 0)), stream.sentRaw[1])
+
+	// The client is told, via an advisory NOTICE emitted before the command's
+	// own result, that its slot was auto-marked for failover.
+	out := testConn.WriteBuf.Bytes()
+	require.NotEmpty(t, out)
+	assert.Equal(t, byte(protocol.MsgNoticeResponse), out[0], "auto-mark should emit a NOTICE to the client first")
+	assert.Contains(t, string(out), "registered this replication slot for failover")
+}
+
+// TestRunReplicationPreamble_NoAutoMarkWhenDisabled confirms that with the
+// feature off, a plain non-failover slot is rejected (not rewritten) — the
+// pooler never sees it.
+func TestRunReplicationPreamble_NoAutoMarkWhenDisabled(t *testing.T) {
+	var clientInput bytes.Buffer
+	writeQueryMessage(&clientInput, `CREATE_REPLICATION_SLOT "sub_orders" LOGICAL pgoutput (SNAPSHOT 'nothing')`)
+
+	stream := &scriptedReplStream{ctx: context.Background()}
+	testConn := server.NewTestConn(&clientInput)
+
+	streaming, _, err := runReplicationPreamble(testConn.Conn, stream, false)
+	require.Error(t, err)
+	assert.False(t, streaming)
+	assert.Empty(t, stream.sentRaw)
+}
+
+// TestAlterReplicationSlotDisablesFailover covers the classifier that backs the
+// failover-enforcement guard: only an ALTER_REPLICATION_SLOT that sets FAILOVER
+// to a false value is a disable; enabling it, or altering only TWO_PHASE, is not.
+// The command forms are exactly what PostgreSQL's libpqrcv_alter_slot emits.
+func TestAlterReplicationSlotDisablesFailover(t *testing.T) {
+	type testCase struct {
+		name string
+		cmd  string
+		want bool
+	}
+
+	tests := []testCase{
+		{"disable failover", `ALTER_REPLICATION_SLOT "sub" ( FAILOVER false );`, true},
+		{"disable failover off", `ALTER_REPLICATION_SLOT "sub" ( FAILOVER off );`, true},
+		{"disable with two_phase", `ALTER_REPLICATION_SLOT "sub" ( FAILOVER false, TWO_PHASE true );`, true},
+		{"case-insensitive", `alter_replication_slot "sub" ( failover false );`, true},
+		{"enable failover", `ALTER_REPLICATION_SLOT "sub" ( FAILOVER true );`, false},
+		{"enable with two_phase", `ALTER_REPLICATION_SLOT "sub" ( FAILOVER true, TWO_PHASE false );`, false},
+		{"two_phase only", `ALTER_REPLICATION_SLOT "sub" ( TWO_PHASE true );`, false},
+		{"slot literally named failover, two_phase only", `ALTER_REPLICATION_SLOT "failover" ( TWO_PHASE true );`, false},
+		{"not an alter command", `CREATE_REPLICATION_SLOT s LOGICAL pgoutput (FAILOVER)`, false},
+		{"identify_system", "IDENTIFY_SYSTEM", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, alterReplicationSlotDisablesFailover(tt.cmd))
+		})
+	}
+}
+
+// TestRunReplicationPreamble_RejectsAlterDisablingFailover verifies that with
+// the feature on, an ALTER_REPLICATION_SLOT that turns FAILOVER off is rejected
+// before the pooler sees it, keeping an auto-marked slot a failover slot.
+func TestRunReplicationPreamble_RejectsAlterDisablingFailover(t *testing.T) {
+	var clientInput bytes.Buffer
+	writeQueryMessage(&clientInput, `ALTER_REPLICATION_SLOT "sub_orders" ( FAILOVER false );`)
+
+	stream := &scriptedReplStream{ctx: context.Background()}
+	testConn := server.NewTestConn(&clientInput)
+
+	streaming, _, err := runReplicationPreamble(testConn.Conn, stream, true)
+	require.Error(t, err)
+	assert.False(t, streaming)
+	assert.Empty(t, stream.sentRaw, "the disabling ALTER must not reach the pooler")
+}
+
+// TestRunReplicationPreamble_AllowsAlterEnablingFailover verifies the guard is
+// one-directional: enabling failover (and altering only TWO_PHASE) is relayed to
+// the pooler, and with the feature off nothing is inspected at all.
+func TestRunReplicationPreamble_AllowsAlterEnablingFailover(t *testing.T) {
+	cases := []struct {
+		name          string
+		cmd           string
+		admitFailover bool
+	}{
+		{"enable failover, feature on", `ALTER_REPLICATION_SLOT "sub_orders" ( FAILOVER true );`, true},
+		{"two_phase only, feature on", `ALTER_REPLICATION_SLOT "sub_orders" ( TWO_PHASE true );`, true},
+		{"disable failover, feature off passes through", `ALTER_REPLICATION_SLOT "sub_orders" ( FAILOVER false );`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var clientInput bytes.Buffer
+			writeQueryMessage(&clientInput, tc.cmd)
+
+			resp := bytes.Join([][]byte{
+				frameMessage(protocol.MsgCommandComplete, []byte("ALTER_REPLICATION_SLOT\x00")),
+				frameMessage(protocol.MsgReadyForQuery, []byte{'I'}),
+			}, nil)
+			stream := &scriptedReplStream{ctx: context.Background(), responses: [][]byte{resp}}
+			testConn := server.NewTestConn(&clientInput)
+
+			_, _, err := runReplicationPreamble(testConn.Conn, stream, tc.admitFailover)
+			require.NoError(t, err)
+			require.Len(t, stream.sentRaw, 1)
+			assert.Equal(t, frameMessage(protocol.MsgQuery, append([]byte(tc.cmd), 0)), stream.sentRaw[0])
+		})
+	}
 }
 
 // TestRunReplicationPreamble_HappyPath drives IDENTIFY_SYSTEM ->
