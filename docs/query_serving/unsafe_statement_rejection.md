@@ -30,9 +30,10 @@ every embedded fragment (see [Tier 1](#tier-1--procedural-code-statements-body-a
 Blocked statements return a PostgreSQL `feature_not_supported` error
 (SQLSTATE `0A000`) with a descriptive message.
 
-An operator opt-out, `--unsafe-pooler-mode` (off by default), disables
-**all** of these rejections for trusted, single-tenant deployments that
-accept the risk; see [Unsafe pooler mode](#unsafe-pooler-mode).
+A per-connection opt-out, the `multigres.unsafe_connection` GUC (off by
+default), disables **all** of these rejections for a single trusted connection
+that accepts the risk; see
+[Per-connection unsafe mode](#per-connection-unsafe-mode-multigresunsafe_connection).
 
 ## Background
 
@@ -151,8 +152,9 @@ variable) it cannot be proven safe and is **rejected** — the same way a
 non-literal `set_config` argument is rejected at the top level.
 
 **Fail closed.** A body that does not parse, or that uses an unsupported
-construct, is rejected rather than passed through. All of this is
-disabled by [`--unsafe-pooler-mode`](#unsafe-pooler-mode).
+construct, is rejected rather than passed through. All of this is disabled for
+a connection that sets
+[`multigres.unsafe_connection`](#per-connection-unsafe-mode-multigresunsafe_connection).
 
 ### Tier 2 — infrastructure operations (blocked at plan time)
 
@@ -328,32 +330,63 @@ restricted-GUC list. Assignments inside PL/pgSQL bodies are now caught by Tier 1
 body analysis, and a dynamic `EXECUTE` with a non-literal argument is rejected
 there.
 
-## Unsafe pooler mode
+## Per-connection unsafe mode (`multigres.unsafe_connection`)
 
-`--unsafe-pooler-mode` (config key `unsafe-pooler-mode`, env
-`MT_UNSAFE_POOLER_MODE`; default **off**) is an operator opt-out for
-trusted, single-tenant deployments that accept the risk. When enabled it
-suppresses **every** rejection layer above:
+`multigres.unsafe_connection` is the opt-out from unsafe-statement rejection.
+It is **per connection**: a client sets it on its own connection, and only that
+connection is affected — every other connection stays fully protected. When
+set, it suppresses all four rejection layers:
 
 - Tier 1 PL/pgSQL / SQL body analysis,
 - the Tier 2 statement blocklist,
 - the restricted-GUC guard, and
 - the expression-level function blocklist (`dblink`, `pg_read_file`, …).
 
-Only the _rejections_ are relaxed. The planning signals the same pass
-gathers — tracked `set_config` calls, advisory-lock pinning,
-`current_setting` rewrites — are still collected, so routing stays
-correct; a blocklisted call or an untrackable `set_config` simply goes
-to PostgreSQL as written instead of being rejected. (The
-non-temporary-replication-slot check is a failover-correctness
-constraint rather than a tenant-isolation rejection, so it stays
-enforced regardless.)
+Only the _rejections_ are relaxed. The planning signals the same pass gathers —
+tracked `set_config` calls, advisory-lock pinning, `current_setting` rewrites —
+are still collected, so routing stays correct; a blocklisted call or an
+untrackable `set_config` simply goes to PostgreSQL as written instead of being
+rejected. Because the setting varies per connection, a statement planned under
+it is never served from the shared plan cache to another connection (the
+executor keeps unsafe-connection sessions off the cache).
 
-The flag is read once at startup and applied to the planner
-(`Planner.SetUnsafePoolerMode`). Because analysis runs on the plan-cache
-miss path, a plan cached while the mode was one value is not
-re-evaluated if the process is restarted with the other — the setting is
-process-static by design.
+### When to use it
+
+Reach for it when a specific session legitimately needs a statement the gateway
+would otherwise reject — a procedural body that changes session state, a `set_config` that eventually resets, or a Tier 2 operation in a trusted context. It scopes the escape hatch
+to the one session that needs it, so the protections stay on for every other
+client.
+
+### How to enable it
+
+| Where           | How                                                                                                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| At connect time | Pass it as a startup GUC: `options='-c multigres.unsafe_connection=on'` in the conninfo/DSN, or `PGOPTIONS='-c multigres.unsafe_connection=on'`. Single-quote it — it has a space. |
+| Mid-session     | `SET multigres.unsafe_connection = on;`                                                                                                                                            |
+
+The deprecated alias `multigres.direct_connection` is still accepted (both at
+connect time and via `SET`) but new clients should use
+`multigres.unsafe_connection`.
+
+### Semantics and cost
+
+- **One-way latch.** Once on, it stays on for the life of the connection.
+  `SET multigres.unsafe_connection = off` and `RESET` both error; a malformed
+  Boolean is a `FATAL` at connect time (an `ERROR` via `SET`).
+- **Not privilege-gated.** Any client can enable it, so it is a
+  deployment-trust decision, not a per-role grant. In an untrusted multi-tenant
+  deployment do not rely on the rejections alone if clients can set arbitrary
+  GUCs.
+- **The backend is pinned and then discarded.** An unsafe connection may change
+  backend session state the gateway does not track, so it is pinned to one
+  PostgreSQL backend for the session's life (the sticky `unsafe_connection`
+  reservation reason) and that backend is **closed at teardown, never
+  recycled** — the state must not leak to the next client. You therefore give
+  up connection pooling for that session and hold a reserved-pool slot until it
+  ends.
+- **Observability.** Active unsafe connections are reported by
+  `mg_pooler_reserved_active_by_reason{reason="unsafe_connection"}` (see the
+  reserved-pool metrics in [connection_pooling.md](./connection_pooling.md)).
 
 ## Other Allowed Statements With Known Risk
 
@@ -549,7 +582,7 @@ deliberately rejects rather than emulates:
   today**. A future connection-reset backstop (`DISCARD ALL` on client
   handoff) could let such statements through safely instead of rejecting
   them, for deployments that want the looser behavior without
-  `--unsafe-pooler-mode`.
+  `multigres.unsafe_connection`.
 - Advisory locks, temp tables, and session state acquired via dynamic
   SQL the parser cannot see remain a pre-existing pooling limitation,
   the same as at the top level.

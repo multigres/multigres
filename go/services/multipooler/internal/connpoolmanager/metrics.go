@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -94,6 +95,13 @@ type Metrics struct {
 
 	// reservedActiveConnections is the number of active reserved connections (in-transaction).
 	reservedActiveConnections metric.Int64ObservableGauge
+
+	// reservedActiveByReason is the number of active reserved connections holding
+	// each reservation reason (transaction, portal, unsafe_connection, etc.),
+	// labeled by reason. Overlapping breakdown of reservedActiveConnections: a
+	// connection with multiple reasons is counted under each, so the per-reason
+	// values sum to more than the total.
+	reservedActiveByReason metric.Int64ObservableGauge
 
 	// configMaxServerConnections is the configured maximum server connections (global capacity).
 	configMaxServerConnections metric.Int64ObservableGauge
@@ -240,6 +248,16 @@ func NewMetrics() (*Metrics, error) {
 		errs = append(errs, fmt.Errorf("mg.pooler.reserved.active_connections gauge: %w", err))
 	}
 
+	// Reserved active connections broken down by reservation reason
+	m.reservedActiveByReason, err = meter.Int64ObservableGauge(
+		"mg.pooler.reserved.active_by_reason",
+		metric.WithDescription("Active reserved connections holding each reservation reason (overlapping; sums to more than the total)"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.reserved.active_by_reason gauge: %w", err))
+	}
+
 	// Config max server connections gauge
 	m.configMaxServerConnections, err = meter.Int64ObservableGauge(
 		"mg.pooler.config.max_server_connections",
@@ -383,6 +401,7 @@ func (m *Metrics) RegisterManagerCallbacks(
 		m.serverConnections,
 		m.clientWaitingConnections,
 		m.reservedActiveConnections,
+		m.reservedActiveByReason,
 		m.configMaxServerConnections,
 		m.poolCapacity,
 		m.poolCurrentConnections,
@@ -442,6 +461,9 @@ func (m *Metrics) RegisterManagerCallbacks(
 			var totalReservedActive int
 			var totalWaitTime float64
 			var totalGetCount int64
+			// Reserved active connections summed per reservation reason across
+			// all user pools. Overlapping breakdown (see reservedActiveByReason).
+			reservedActiveByReason := make(map[string]int64)
 
 			for user, userStats := range stats.UserPools {
 				// Regular pool: server connections
@@ -454,6 +476,11 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 				// Reserved active (clients in transactions)
 				totalReservedActive += userStats.Reserved.Active
+
+				// Per-reason reserved active breakdown.
+				for reason, count := range userStats.Reserved.ActiveByReason {
+					reservedActiveByReason[reason] += int64(count)
+				}
 
 				// Aggregate cumulative metrics
 				totalWaiting += userStats.Waiting
@@ -499,6 +526,18 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 			if m.reservedActiveConnections != nil {
 				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive), routingRoleAttr)
+			}
+
+			// Emit every known reason (0 when none are active) so each series
+			// resets cleanly instead of going stale on its last nonzero value.
+			if m.reservedActiveByReason != nil {
+				for _, r := range protoutil.ReasonLabels() {
+					o.ObserveInt64(m.reservedActiveByReason, reservedActiveByReason[r.Name],
+						metric.WithAttributes(
+							attribute.String("routing_role", routingRole),
+							attribute.String("reason", r.Name),
+						))
+				}
 			}
 
 			if m.clientWaitTimeTotal != nil {

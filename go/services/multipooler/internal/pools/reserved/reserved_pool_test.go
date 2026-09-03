@@ -87,6 +87,43 @@ func TestPool_NewConn(t *testing.T) {
 	conn.Release(ReleaseCommit, nil)
 }
 
+func TestPool_StatsActiveByReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// c1 holds two reasons at once (overlapping breakdown).
+	c1, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	c1.AddReservationReason(protoutil.ReasonTransaction)
+	c1.AddReservationReason(protoutil.ReasonUnsafeConnection)
+
+	// c2 holds only the unsafe reason.
+	c2, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	c2.AddReservationReason(protoutil.ReasonUnsafeConnection)
+
+	stats := pool.Stats()
+	assert.Equal(t, 2, stats.Active)
+	assert.Equal(t, 2, stats.ActiveByReason["unsafe_connection"], "both conns are unsafe")
+	assert.Equal(t, 1, stats.ActiveByReason["transaction"], "only c1 is in a transaction")
+	// Overlap: per-reason counts sum to more than Active.
+	assert.Equal(t, 0, stats.ActiveByReason["portal"], "no reason absent-key returns zero")
+
+	// Releasing c1 drops its reasons from the breakdown.
+	c1.Release(ReleaseError, nil)
+	stats = pool.Stats()
+	assert.Equal(t, 1, stats.Active)
+	assert.Equal(t, 1, stats.ActiveByReason["unsafe_connection"])
+	assert.Equal(t, 0, stats.ActiveByReason["transaction"])
+
+	c2.Release(ReleaseError, nil)
+}
+
 func TestPool_ReleaseCleanupRunsOnCleanRelease(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

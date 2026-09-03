@@ -152,6 +152,28 @@ failures for the non-reserved query path.
 - Explicit transactions (`BEGIN`/`COMMIT`/`ROLLBACK`)
 - Cursor operations requiring persistent portal state
 - Any operation requiring connection affinity
+- Unsafe connections (`multigres.unsafe_connection`), pinned to one backend for
+  the session's life via the sticky `ReasonUnsafeConnection` reason
+
+**Active-by-reason metrics:**
+
+Every pin is a reservation _reason_ (`transaction`, `portal`, `temp_table`,
+`copy`, `listen`, `logical_replication`, `session_advisory_lock`, `set_seed`,
+`unsafe_connection`). Two gauges track active reserved connections:
+
+| Metric                                  | Type  | Meaning                                         |
+| --------------------------------------- | ----- | ----------------------------------------------- |
+| `mg.pooler.reserved.active_connections` | Gauge | Total active reserved connections               |
+| `mg.pooler.reserved.active_by_reason`   | Gauge | Active reserved connections holding each reason |
+
+`active_by_reason` carries a `reason` attribute, so e.g. active unsafe
+connections are `mg_pooler_reserved_active_by_reason{reason="unsafe_connection"}`.
+It is an **overlapping** breakdown — a connection holding several reasons at once
+(say `transaction` + `portal`) is counted under each — so the per-reason values
+sum to more than `active_connections`; do not treat it as a partition of the
+total. Both are observable gauges aggregated across all per-user reserved pools
+in the connection-pool manager's callback, so they stay correct regardless of
+how connections are torn down.
 
 **Timeout Handling:**
 
