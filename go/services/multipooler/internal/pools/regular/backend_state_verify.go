@@ -21,6 +21,7 @@ import (
 	"strconv"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
 
@@ -55,12 +56,21 @@ func (PreparedStatementChecker) Check(ctx context.Context, conn *Conn) (connpool
 	return conn.VerifyPreparedStatements(ctx)
 }
 
+// foreignPreparedStatementName is reported in place of an untracked
+// statement name that does not have the consolidator's shape. Such a name
+// reached the backend outside the pooler (e.g. a PREPARE hidden in a routine
+// body) and may embed client data, so it never enters Divergence or logs.
+// One entry is reported per statement so counts survive redaction.
+const foreignPreparedStatementName = "foreign_name"
+
 // VerifyPreparedStatements compares the connection's tracked prepared
 // statements against pg_prepared_statements. A statement the backend holds
 // but tracking does not know is Untracked (the next borrower could collide
 // with or execute it); a tracked statement the backend no longer has is
-// Phantom (the next EXECUTE would fail). Names are consolidator-assigned
-// identifiers, never client SQL, so they are safe to report.
+// Phantom (the next EXECUTE would fail). Tracked names are consolidator
+// assigned and reported verbatim; an untracked name is reported verbatim
+// only when it has the consolidator's shape (pointing at a tracking bug),
+// otherwise it is redacted to foreignPreparedStatementName.
 func (c *Conn) VerifyPreparedStatements(ctx context.Context) (connpool.Divergence, error) {
 	var div connpool.Divergence
 	if !c.IsIdle() {
@@ -96,9 +106,13 @@ func (c *Conn) VerifyPreparedStatements(ctx context.Context) (connpool.Divergenc
 		}
 	}
 	for name := range backend {
-		if _, ok := tracked[name]; !ok {
-			div.Untracked = append(div.Untracked, name)
+		if _, ok := tracked[name]; ok {
+			continue
 		}
+		if !preparedstatement.IsCanonicalName(name) {
+			name = foreignPreparedStatementName
+		}
+		div.Untracked = append(div.Untracked, name)
 	}
 
 	sort.Strings(div.Untracked)
@@ -166,19 +180,27 @@ func (TempObjectChecker) Check(ctx context.Context, conn *Conn) (connpool.Diverg
 	return conn.VerifyTempObjects(ctx)
 }
 
-// tempObjectKinds maps the pg_class relkind codes the temp probe can return
-// to bounded labels for logs and metrics. Object names are never reported.
+// tempObjectKinds maps the codes the temp probe can return — pg_class
+// relkinds, 'function', and 'type:' plus a pg_type typtype — to bounded
+// labels for logs and metrics. Object names are never reported.
 var tempObjectKinds = map[string]string{
-	"r": "table",
-	"p": "partitioned_table",
-	"i": "index",
-	"I": "partitioned_index",
-	"S": "sequence",
-	"v": "view",
-	"m": "materialized_view",
-	"c": "composite_type",
-	"t": "toast_table",
-	"f": "foreign_table",
+	"r":        "table",
+	"p":        "partitioned_table",
+	"i":        "index",
+	"I":        "partitioned_index",
+	"S":        "sequence",
+	"v":        "view",
+	"m":        "materialized_view",
+	"c":        "composite_type",
+	"t":        "toast_table",
+	"f":        "foreign_table",
+	"function": "function",
+	"type:d":   "domain",
+	"type:e":   "enum",
+	"type:r":   "range",
+	"type:m":   "multirange",
+	"type:b":   "base_type",
+	"type:p":   "pseudo_type",
 }
 
 // VerifyTempObjects reports one Untracked entry per kind of object found in
@@ -205,10 +227,7 @@ func (c *Conn) VerifyTempObjects(ctx context.Context) (connpool.Divergence, erro
 		code := string(row.Values[0])
 		kind, ok := tempObjectKinds[code]
 		if !ok {
-			kind = "relkind_" + code
-			if code == "function" {
-				kind = code
-			}
+			kind = "unknown_" + code
 		}
 		kinds[kind] = struct{}{}
 	}

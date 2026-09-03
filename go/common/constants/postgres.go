@@ -151,12 +151,20 @@ const (
 	PreparedStatementsProbeSQL = "SELECT name FROM pg_catalog.pg_prepared_statements"
 
 	// TempObjectsProbeSQL returns one row per object in the current backend's
-	// temporary schema: a relkind code per pg_class entry plus 'function' per
-	// pg_proc entry. pg_my_temp_schema() is 0 when the session has no temp
-	// schema, which no namespace OID matches, so the probe returns no rows.
-	// Run by the multipooler scrubber; an idle pooled backend must own none.
+	// temporary schema: a relkind code per pg_class entry, 'function' per
+	// pg_proc entry, and 'type:' plus the typtype code per standalone pg_type
+	// entry (domains, enums, ranges, multiranges). Composite types are counted
+	// through pg_class, and the array type PostgreSQL creates alongside every
+	// type is skipped, so each user-created object yields one row.
+	// pg_my_temp_schema() is 0 when the session has no temp schema, which no
+	// namespace OID matches, so the probe returns no rows. Run by the
+	// multipooler scrubber; an idle pooled backend must own none — and a temp
+	// type shadows same-named catalog types for unqualified references, since
+	// pg_temp is searched first for type names as well as relation names.
 	TempObjectsProbeSQL = "SELECT relkind::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()" +
-		" UNION ALL SELECT 'function' FROM pg_catalog.pg_proc WHERE pronamespace = pg_catalog.pg_my_temp_schema()"
+		" UNION ALL SELECT 'function' FROM pg_catalog.pg_proc WHERE pronamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'type:' || typtype::text FROM pg_catalog.pg_type WHERE typnamespace = pg_catalog.pg_my_temp_schema()" +
+		" AND typtype <> 'c' AND NOT (typtype = 'b' AND typelem <> 0)"
 
 	// SessionSourceProbeSQL is the session-state probe run by the multipooler
 	// scrubber. It reads the backend's real session GUC state in one

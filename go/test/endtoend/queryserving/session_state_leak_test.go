@@ -259,3 +259,62 @@ func TestSessionScrubberReplacesHiddenAdvisoryLock(t *testing.T) {
 	require.NotContains(t, string(poolerLog), lockKey,
 		"divergence log must never carry the lock key")
 }
+
+// TestSessionScrubberReplacesHiddenTempType covers the temp-object checker's
+// pg_type arm end to end: a domain created in pg_temp inside a SQL function
+// body escapes the gateway's pg_temp CREATE rejection (the call site is an
+// opaque UDF) and its temp-statement reservation, so it stays on a pooled
+// backend where it would shadow the same-named catalog type for the next
+// borrower's unqualified references. The scrubber must detect it and replace
+// the backend.
+func TestSessionScrubberReplacesHiddenTempType(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping session scrubber test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
+
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	primary, err := sql.Open("postgres", primaryDSN)
+	require.NoError(t, err)
+	defer primary.Close()
+
+	// Install directly so the CREATE is absent from the client's top-level
+	// SQL. The domain name must never appear in the log.
+	const domainName = "hidden_scrub_secret_domain"
+	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_domain()
+		RETURNS bool LANGUAGE sql AS $$CREATE DOMAIN pg_temp.`+domainName+` AS int; SELECT true$$`)
+	require.NoError(t, err)
+	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_scrub_domain()") //nolint:errcheck
+
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxIdleConns(0)
+	var ignored bool
+	var leakedPID int
+	err = connA.QueryRowContext(ctx, "SELECT hidden_scrub_domain(), pg_backend_pid()").Scan(&ignored, &leakedPID)
+	require.NoError(t, err)
+	require.NoError(t, connA.Close())
+
+	require.Eventually(t, func() bool {
+		var alive int
+		if err := primary.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE pid = $1", leakedPID).Scan(&alive); err != nil {
+			return false
+		}
+		return alive == 0
+	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden temp domain (pid %d)", leakedPID)
+
+	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	require.NoError(t, err)
+	require.Contains(t, string(poolerLog), "temp_objects",
+		"multipooler log should attribute the replacement to the temp-object checker")
+	require.Contains(t, string(poolerLog), `"domain"`,
+		"divergence log should name the kind of leaked object")
+	require.NotContains(t, string(poolerLog), domainName,
+		"divergence log must never carry the object name")
+}

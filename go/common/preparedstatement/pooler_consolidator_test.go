@@ -120,3 +120,14 @@ func TestPoolerConsolidator_ConcurrentAccess(t *testing.T) {
 		require.Equal(t, results[i], pc.CanonicalName(q, nil))
 	}
 }
+
+func TestIsCanonicalName(t *testing.T) {
+	pc := NewPoolerConsolidator()
+	require.True(t, IsCanonicalName(pc.CanonicalName("SELECT 1", nil)))
+	require.True(t, IsCanonicalName("ppstmt0"))
+	require.True(t, IsCanonicalName("ppstmt123456"))
+
+	for _, name := range []string{"", "ppstmt", "ppstmtx", "ppstmt1x", "PPSTMT1", "stmt_ssn_123", "ppstmt-1", " ppstmt1"} {
+		require.False(t, IsCanonicalName(name), "%q", name)
+	}
+}

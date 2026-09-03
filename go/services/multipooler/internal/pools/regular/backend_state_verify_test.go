@@ -68,9 +68,31 @@ func TestVerifyPreparedStatementsUntrackedAndPhantom(t *testing.T) {
 
 	div, err := conn.VerifyPreparedStatements(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"rogue"}, div.Untracked)
+	assert.Equal(t, []string{foreignPreparedStatementName}, div.Untracked, "a non-consolidator name is redacted")
 	assert.Equal(t, []string{"ppstmt9"}, div.Phantom)
 	assert.Empty(t, div.Mismatched)
+}
+
+func TestVerifyPreparedStatementsRedactsForeignNames(t *testing.T) {
+	// An untracked name that is not consolidator-shaped may embed client
+	// data (a PREPARE hidden in a routine body); it must never reach the
+	// Divergence that flows into logs. Counts survive: one entry each.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptPreparedProbe(server, "ppstmt1", "ppstmt7", `stmt_ssn_123-45-6789`, "get_user_by_email")
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	trackPrepared(conn, "ppstmt1")
+
+	div, err := conn.VerifyPreparedStatements(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"foreign_name", "foreign_name", "ppstmt7"}, div.Untracked)
+	assert.Empty(t, div.Phantom)
+	for _, name := range div.Untracked {
+		assert.NotContains(t, name, "ssn")
+		assert.NotContains(t, name, "email")
+	}
 }
 
 func TestVerifyPreparedStatementsProbeError(t *testing.T) {
@@ -153,15 +175,16 @@ func TestVerifyTempObjectsEmpty(t *testing.T) {
 func TestVerifyTempObjectsReportsKindsNotNames(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
-	// Two tables, their toast tables, an index, a function, and an unknown
-	// relkind code: kinds are deduplicated and unknown codes stay bounded.
-	scriptTempProbe(server, "r", "r", "t", "t", "i", "function", "z")
+	// Two tables, their toast tables, an index, a function, a domain, an
+	// enum, a range with its multirange, and an unknown code: kinds are
+	// deduplicated and unknown codes stay bounded.
+	scriptTempProbe(server, "r", "r", "t", "t", "i", "function", "type:d", "type:e", "type:r", "type:m", "z")
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
 
 	div, err := conn.VerifyTempObjects(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"function", "index", "relkind_z", "table", "toast_table"}, div.Untracked)
+	assert.Equal(t, []string{"domain", "enum", "function", "index", "multirange", "range", "table", "toast_table", "unknown_z"}, div.Untracked)
 	assert.Empty(t, div.Phantom)
 }

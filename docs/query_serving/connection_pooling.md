@@ -622,18 +622,26 @@ Three more checkers cover the rest of the backend state the pool trusts:
   against `pg_prepared_statements`. Idle connections legitimately keep
   prepared statements across borrowers, so this is a two-sided comparison:
   a backend statement tracking does not know is untracked, a tracked
-  statement the backend lost is phantom. Names are consolidator identifiers,
-  never client SQL.
+  statement the backend lost is phantom. Tracked names are consolidator
+  identifiers and are reported verbatim; an untracked name is reported
+  verbatim only when it has the consolidator's shape (a tracking bug),
+  otherwise it is redacted to `foreign_name`, since a name that arrived on a
+  backend by another route may embed client data.
 - `advisory_locks` reports a single `session_advisory_lock` finding when the
   idle backend holds any advisory lock. Acquiring functions route to a
   reserved connection whose release runs `pg_advisory_unlock_all`, so a lock
   on an idle pooled backend means the acquisition escaped tracking. Lock keys
   are never reported.
 - `temp_objects` reports one finding per kind of object (`table`, `index`,
-  `sequence`, `function`, ...) in the backend's temporary schema. Temp
-  statements pin a reserved connection that is closed at release and
-  pg_temp-qualified CREATE is rejected, so any object on an idle backend
-  escaped tracking. Object names are never reported.
+  `sequence`, `function`, `domain`, `enum`, `range`, ...) in the backend's
+  temporary schema, covering `pg_class`, `pg_proc`, and standalone `pg_type`
+  entries — the same object classes the gateway's pg_temp CREATE rejection
+  recognizes. Temp statements pin a reserved connection that is closed at
+  release and pg_temp-qualified CREATE is rejected, so any object on an idle
+  backend escaped tracking. A leftover temp type is not inert: pg_temp is
+  searched before `pg_catalog` for unqualified type names as well as
+  relation names, so it would shadow a catalog type for the next borrower.
+  Object names are never reported.
 
 All four checkers run against the same idle connection each tick; the
 divergence log line and the `checker` metric attribute name which one fired.
