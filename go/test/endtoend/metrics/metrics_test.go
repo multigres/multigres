@@ -274,6 +274,112 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 	}
 }
 
+// TestReservedActiveByReasonMetric verifies mg_pooler_reserved_active_by_reason
+// tracks live reserved connections per reservation reason. It drives one gateway
+// connection into unsafe mode inside a transaction — so the backend is reserved
+// on the primary under two overlapping reasons at once (unsafe_connection and
+// transaction) — scrapes the primary pooler, then checks the gauge falls
+// correctly as the transaction concludes and the connection closes.
+func TestReservedActiveByReasonMetric(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	primary := setup.GetPrimary(t)
+	poolerPort, ok := setup.MetricsPorts[primary.Name]
+	require.True(t, ok, "no metrics port for primary %s", primary.Name)
+
+	const (
+		byReason  = "mg_pooler_reserved_active_by_reason"
+		totalName = "mg_pooler_reserved_active_connections"
+	)
+	unsafeLabels := map[string]string{"reason": "unsafe_connection"}
+	txnLabels := map[string]string{"reason": "transaction"}
+
+	reason := func(s []utils.MetricSample, labels map[string]string) float64 {
+		v, _ := utils.FindMetric(s, byReason, labels)
+		return v
+	}
+	scrape := func() []utils.MetricSample {
+		return utils.ParseMetrics(utils.ScrapeMetrics(t, poolerPort))
+	}
+	// poll scrapes the primary pooler until pred holds or the deadline passes.
+	// It runs on the test goroutine (ScrapeMetrics may call FailNow), so it
+	// cannot use require.Eventually, which runs its condition in a goroutine.
+	poll := func(pred func(s []utils.MetricSample) bool, msg string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			s := scrape()
+			if pred(s) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s (last: unsafe=%v transaction=%v)", msg, reason(s, unsafeLabels), reason(s, txnLabels))
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+
+	// Baselines: whatever these reasons already report (0 on a clean cluster,
+	// but captured as deltas so the test is robust to any residue).
+	base := scrape()
+	unsafeBase := reason(base, unsafeLabels)
+	txnBase := reason(base, txnLabels)
+
+	conn, err := client.Connect(ctx, ctx, &client.Config{
+		Host:        "localhost",
+		Port:        setup.MultigatewayPgPort,
+		User:        shardsetup.DefaultTestUser,
+		Password:    shardsetup.TestPostgresPassword,
+		Database:    "postgres",
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// Latch unsafe mode, then open a transaction so the backend is reserved on
+	// the primary (transactions route there) and held while we scrape. The
+	// connection now holds two reasons at once — the overlapping breakdown the
+	// metric is meant to report.
+	_, err = conn.Query(ctx, "SET multigres.unsafe_connection = on")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+
+	poll(func(s []utils.MetricSample) bool {
+		total, _ := utils.FindMetric(s, totalName, nil)
+		return reason(s, unsafeLabels) >= unsafeBase+1 &&
+			reason(s, txnLabels) >= txnBase+1 &&
+			total >= 1
+	}, "unsafe_connection and transaction reasons should both be counted while the connection is pinned")
+
+	// COMMIT removes the transaction reason; unsafe_connection is sticky, so the
+	// backend stays reserved and only the transaction sub-count drops.
+	_, err = conn.Query(ctx, "COMMIT")
+	require.NoError(t, err)
+	poll(func(s []utils.MetricSample) bool {
+		return reason(s, unsafeLabels) >= unsafeBase+1 && reason(s, txnLabels) <= txnBase
+	}, "after COMMIT the transaction sub-count should drop while unsafe_connection stays pinned")
+
+	// Closing the connection releases the reserved backend; unsafe returns to base.
+	require.NoError(t, conn.Close())
+	poll(func(s []utils.MetricSample) bool {
+		return reason(s, unsafeLabels) <= unsafeBase
+	}, "closing the unsafe connection should drop the unsafe_connection gauge back to baseline")
+}
+
 // resourceMetricSeries are the process- and Go-runtime-level series that every
 // Multigres component exports by virtue of going through telemetry.InitTelemetry
 // (see go/tools/telemetry/processmetrics.go). The process.* gauges are the
