@@ -207,6 +207,11 @@ func (s *MultiadminServer) buildCert(
 				OutgoingRule:           outgoingRule.GetRuleNumber(),
 				CoordinatorInitiatedAt: timestamppb.Now(),
 				RecruitIntent: &clustermetadatapb.RecruitIntent{
+					// pos is the position ComparePoolerPosition ranks highest
+					// among the probed cohort, and decision strictly
+					// dominates that comparator (see CompareRulePosition) —
+					// so pos.Decision is guaranteed to be the highest decision
+					// among the probed set, not just pos's own.
 					ReplaceDecision: pos.GetPosition().GetDecision().GetRuleNumber(),
 					// Starts at 1 per the proto's documented contract, so a
 					// subsequent multiorch failover against this same decision
