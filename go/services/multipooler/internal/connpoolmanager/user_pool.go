@@ -218,6 +218,14 @@ func (p *UserPool) LastActivity() int64 {
 	return p.lastActivity.Load()
 }
 
+// HasCheckedOutConns reports whether any connection is currently lent out:
+// a regular conn mid-statement or a reserved conn held by a client. Such a
+// pool is in use regardless of lastActivity, which is touched only on
+// acquire — a long-lived holder (e.g. the pubsub LISTEN conn) never touches it.
+func (p *UserPool) HasCheckedOutConns() bool {
+	return p.regularPool.Stats().Borrowed > 0 || p.reservedPool.Stats().Active > 0
+}
+
 // RegularDemand returns the peak demand for regular connections over the sliding window.
 // It also rotates the demand tracker to the next bucket, aging out old data.
 // This should be called once per rebalance cycle. Returns 0 if demand tracking is disabled.

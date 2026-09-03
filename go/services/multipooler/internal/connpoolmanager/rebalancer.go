@@ -116,7 +116,7 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	// Find inactive pools
 	var inactiveUsers []string
 	for user, pool := range *pools {
-		if pool.LastActivity() < cutoff {
+		if pool.LastActivity() < cutoff && !pool.HasCheckedOutConns() {
 			inactiveUsers = append(inactiveUsers, user)
 		}
 	}
@@ -146,8 +146,11 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 			continue
 		}
 
-		// Double-check activity timestamp (may have been updated since first check)
-		if pool.LastActivity() >= cutoff {
+		// Double-check activity and checked-out conns (may have changed since
+		// first check). Closing a pool hard-closes its reserved conns and blocks
+		// up to PoolCloseTimeout on borrowed regular conns, so never close a
+		// pool that is in use.
+		if pool.LastActivity() >= cutoff || pool.HasCheckedOutConns() {
 			continue
 		}
 

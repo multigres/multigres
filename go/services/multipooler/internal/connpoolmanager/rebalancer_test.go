@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -317,4 +318,62 @@ func TestUserPool_StatsIncludesDemand(t *testing.T) {
 	assert.GreaterOrEqual(t, stats.RegularDemand, int64(0))
 	assert.GreaterOrEqual(t, stats.ReservedDemand, int64(0))
 	assert.Greater(t, stats.LastActivity, int64(0))
+}
+
+// A pool holding a checked-out reserved conn (e.g. the pubsub LISTEN conn,
+// which never touches lastActivity) must survive GC until the conn is released.
+func TestManager_GarbageCollectSkipsPoolWithHeldReservedConn(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	rc, err := manager.NewReservedConn(ctx, nil, "listener", nil, nil)
+	require.NoError(t, err)
+	rc.SetInactivityTimeout(0)
+
+	pool := (*manager.userPoolsSnapshot.Load())["listener"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.True(t, manager.HasUserPool("listener"), "pool with held reserved conn must not be GC'd")
+	assert.False(t, rc.IsClosed(), "held reserved conn must not be closed by GC")
+
+	rc.Release(reserved.ReleaseRollback, nil)
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("listener"), "idle pool must be GC'd once the conn is released")
+}
+
+// A pool with a borrowed regular conn (statement in flight) must survive GC:
+// closing it would block the rebalancer on PoolCloseTimeout waiting for drain.
+func TestManager_GarbageCollectSkipsPoolWithBorrowedRegularConn(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	conn, err := manager.GetRegularConn(ctx, "busy", nil, nil)
+	require.NoError(t, err)
+
+	pool := (*manager.userPoolsSnapshot.Load())["busy"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.True(t, manager.HasUserPool("busy"))
+
+	conn.Recycle()
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("busy"))
 }
