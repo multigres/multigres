@@ -193,6 +193,17 @@ type Conn struct {
 	// authenticated role; the post-auth verifier enforces that.
 	replicationMode ReplicationMode
 
+	// unsafeConnection is the per-connection unsafe-connection opt-out. When true
+	// the planner suppresses the unsafe-statement rejections for this connection
+	// and the backend is pinned and quarantined (ReasonUnsafeConnection). It is a
+	// one-way latch: it can be turned on — at connect time via the
+	// `multigres.unsafe_connection` option, or mid-session via
+	// `SET multigres.unsafe_connection = on` (the deprecated alias
+	// `multigres.direct_connection` is also accepted) — but never off, since a
+	// connection that has run under it may hold untracked backend state. The
+	// backend is discarded at teardown.
+	unsafeConnection bool
+
 	// SCRAM-SHA-256 keys extracted during the client handshake, used for
 	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
 	// sessions. Zeroized in Close.
@@ -467,6 +478,19 @@ func (c *Conn) Database() string {
 // connection (or sent replication=false).
 func (c *Conn) ReplicationMode() ReplicationMode {
 	return c.replicationMode
+}
+
+// UnsafeConnection reports whether this connection is running in unsafe-pooler
+// mode (see Conn.unsafeConnection). Once latched on it never turns off.
+func (c *Conn) UnsafeConnection() bool {
+	return c.unsafeConnection
+}
+
+// LatchUnsafeConnection turns unsafe connection on for this connection. It is a
+// one-way latch (never turned off). Idempotent. Called from the connect-time
+// option handling and the `SET multigres.unsafe_connection` primitive.
+func (c *Conn) LatchUnsafeConnection() {
+	c.unsafeConnection = true
 }
 
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the

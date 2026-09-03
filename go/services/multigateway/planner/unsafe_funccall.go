@@ -345,15 +345,15 @@ type statementAnalysis struct {
 // statement-type rejection on the extended-protocol path and silently let
 // blocklisted function calls through on non-cacheable portal queries.
 //
-// unsafePoolerMode is the operator opt-out: when set, every rejection layer
-// (Tier 1 body analysis, the Tier 2 statement blocklist, the restricted-GUC
-// guard, and the expression-level function blocklist) is suppressed for
-// deployments that accept the risk. The planning signals — tracked set_config
-// calls, advisory-lock pinning, current_setting rewrites — are still gathered,
-// so routing stays correct; only the "reject this statement" behavior is
-// relaxed.
-func analyzeStatement(stmt ast.Stmt, unsafePoolerMode bool) (*statementAnalysis, error) {
-	if !unsafePoolerMode {
+// unsafeConnection is the per-connection opt-out: when set, every unsafe-statement
+// rejection layer (Tier 1 body analysis, the Tier 2 statement blocklist, the
+// restricted-GUC guard, and the expression-level function blocklist) is
+// suppressed, because the connection has its own dedicated, quarantined backend.
+// The planning signals — tracked set_config calls, advisory-lock pinning,
+// current_setting rewrites — are still gathered, so routing stays correct; only
+// the "reject this statement" behavior is relaxed.
+func analyzeStatement(stmt ast.Stmt, unsafeConnection bool) (*statementAnalysis, error) {
+	if !unsafeConnection {
 		if err := rejectUnsupportedStatement(stmt); err != nil {
 			return nil, err
 		}
@@ -368,22 +368,22 @@ func analyzeStatement(stmt ast.Stmt, unsafePoolerMode bool) (*statementAnalysis,
 		return nil, err
 	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
-		if _, err := analyzeSQLPreparedBody(ps.Query, unsafePoolerMode); err != nil {
+		if _, err := analyzeSQLPreparedBody(ps.Query, unsafeConnection); err != nil {
 			return nil, err
 		}
 		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
 		// effects are applied later by SQL EXECUTE.
 		return &statementAnalysis{}, nil
 	}
-	return analyzeFunctionCalls(stmt, !unsafePoolerMode)
+	return analyzeFunctionCalls(stmt, !unsafeConnection)
 }
 
-func analyzeSQLPreparedBody(query ast.Node, unsafePoolerMode bool) (*statementAnalysis, error) {
+func analyzeSQLPreparedBody(query ast.Node, unsafeConnection bool) (*statementAnalysis, error) {
 	stmt, ok := query.(ast.Stmt)
 	if !ok || stmt == nil {
 		return &statementAnalysis{}, nil
 	}
-	if !unsafePoolerMode {
+	if !unsafeConnection {
 		if err := rejectUnsupportedStatement(stmt); err != nil {
 			return nil, err
 		}
@@ -397,7 +397,7 @@ func analyzeSQLPreparedBody(query ast.Node, unsafePoolerMode bool) (*statementAn
 	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeFunctionCalls(stmt, !unsafePoolerMode)
+	analysis, err := analyzeFunctionCalls(stmt, !unsafeConnection)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +465,7 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 //
 // reject controls the safety rejections (blocklisted call, set_config in a
 // disallowed position, cluster-managed GUC via set_config). When false — the
-// unsafe-pooler-mode opt-out — those are skipped and the offending call simply
+// unsafe-connection opt-out — those are skipped and the offending call simply
 // goes untracked, while the planning signals (accepted set_config, advisory
 // locks, current_setting) are still gathered so routing stays correct.
 func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error) {
@@ -501,7 +501,7 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 				walkErr = mterrors.NewFeatureNotSupported(msg)
 				return false
 			}
-			// unsafe-pooler-mode: operator accepts the risk; leave the call
+			// unsafe-connection: operator accepts the risk; leave the call
 			// alone (it goes to PG untracked) and keep walking.
 			return true
 		}
@@ -564,7 +564,7 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 			// the pooler to track, so it may pass straight through to the backend
 			// untracked — this unblocks PostgREST's mutation row-count trick, which
 			// calls set_config('pgrst.inserted', …, true) inside an INSERT ... WHERE;
-			// other shapes are rejected. In unsafe-pooler-mode (reject=false)
+			// other shapes are rejected. In unsafe-connection (reject=false)
 			// nothing is rejected: it all goes to PG as written.
 			if reject {
 				if err := allowTransactionLocalSetConfig(fc); err != nil {
@@ -599,7 +599,7 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 		if err == nil {
 			// A cluster-managed GUC is still rejected when the name is a literal;
 			// the only supported dynamic name is pg_settings.name. Suppressed in
-			// unsafe-pooler-mode.
+			// unsafe-connection.
 			if reject {
 				for _, fc := range accepted {
 					if name, ok := constStringArg(fc.Args.Items[0]); ok {
@@ -612,7 +612,7 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 			result.DynamicSetConfig = true
 			return result, nil
 		}
-		// unsafe-pooler-mode with an unsupported dynamic shape: don't reject and
+		// unsafe-connection with an unsupported dynamic shape: don't reject and
 		// don't synthesize the resolve-and-apply plan. Fall through to the
 		// per-call loop, which lets each set_config pass to PG untracked.
 	}
@@ -623,7 +623,7 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 			if reject {
 				return nil, err
 			}
-			// unsafe-pooler-mode: an untrackable set_config is not rejected; it
+			// unsafe-connection: an untrackable set_config is not rejected; it
 			// goes to PG as written, just untracked.
 			continue
 		}
@@ -1059,7 +1059,7 @@ func validateAcceptedSetConfig(fc *ast.FuncCall, reject bool) (*setConfigCall, e
 	// checkRestrictedGUCChange. The normalizer keeps the name literal (see
 	// normalizer.go) so we can read it here on the cached and is_local=true
 	// paths too. A bound or otherwise non-literal name is a documented gap: we
-	// let it through rather than reject blindly. Suppressed in unsafe-pooler-mode.
+	// let it through rather than reject blindly. Suppressed in unsafe-connection.
 	if reject {
 		if name, ok := constStringArg(fc.Args.Items[0]); ok {
 			if err := restrictedGUCError(name); err != nil {

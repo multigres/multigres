@@ -555,6 +555,63 @@ map.
 See [session_settings.md](./session_settings.md) for statement
 classification and known limitations.
 
+### Session-state scrubber
+
+Because the pool trusts settings labels absolutely (a pointer-equal bucket
+hit and a clean-stack checkout both run zero SQL), any backend mutation that
+escapes gateway tracking — a `set_config` hidden in a routine body, a
+tracking bug, out-of-band DDL — would silently leak to the next borrower.
+The scrubber is the detection net for that class of failure.
+
+A background worker per pool pops one idle connection per tick (rotating
+across the clean stack and all settings buckets), runs every registered
+**state checker** against it, and either returns it — with its idle clock
+intact, so scrubbing never defeats idle-timeout shrinking — or, on any
+divergence, closes it and eagerly opens a replacement into the same slot
+(eager because a freed slot cannot wake a waitlisted client). Divergent
+backends are always replaced, never reconciled: divergence means tracking
+was bypassed, and what a checker observes is only part of what the untracked
+code may have done. A probe that fails or times out is treated the same way:
+an unverified backend may still carry hidden state, and a client could
+induce probe failures deliberately, so the scrubber fails closed and
+replaces it (churn is bounded to one connection per tick). While a probe is
+in flight the held connection counts as borrowed, so `Available` and the
+idle-limit math stay accurate; pool close cancels the scrub context before
+draining, so a slow probe never delays shutdown.
+
+Checkers implement `connpool.ConnChecker` (`Name` + `Check`) and are
+registered on a pool before `Open`; checkers only detect, the scrubber acts.
+The first checker, `session_state`, compares the tracked settings label
+against the backend's real session GUC state in one round trip:
+`pg_settings WHERE source = 'session'` for ordinary GUCs, explicit
+`current_setting('role')` / `session_user` for the identity GUCs
+(`GUC_NO_SHOW_ALL` — never visible in `pg_settings`), and per-name
+`current_setting(name, missing_ok)` for tracked custom (placeholder) GUCs,
+which `pg_settings` also hides. Value spellings are normalized through a
+statement-local `set_config(..., is_local := true)` probe so `'65536'` vs
+`'64MB'` never counts as divergence. Findings carry GUC names only, never
+values. One blind spot remains: an _untracked_ custom GUC set behind
+tracking's back is unenumerable from SQL; the creation-time rejection gates
+are the defense for that class. Future checkers (prepared statements vs
+`pg_prepared_statements`, residual advisory locks, temp-schema leftovers)
+register the same way.
+
+The untracked rule imposes a bootstrap invariant: connection setup must not
+create session-source GUC state outside the settings label — bootstrap
+settings must arrive via startup-packet parameters (`source='client'`) or be
+reflected in the label, or the scrubber would replace every connection each
+sweep. The e2e scrubber test asserts zero divergence from normal traffic as
+the canary for this invariant.
+
+Operationally: `--connpool-session-scrub-interval` (default 10s, `0`
+disables) controls the tick on both the regular pool and the reserved pool's
+underlying pool. Outcomes are exported as
+`mg.pooler.session_scrub.{checked,divergence,errors}` with `pool_type`,
+`checker`, and divergence-`kind` attributes — **any nonzero divergence count
+means session-state tracking was bypassed and warrants investigation**. The
+scrubber is a sampler: it narrows the leak window and raises the alarm, but
+the gateway's tracking and rejection gates remain the correctness boundary.
+
 ## User Management and RLS
 
 ### Per-User Connection Pools

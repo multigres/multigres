@@ -1149,11 +1149,9 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// with password authentication, and we cannot use a ephemeral file in a
 		// temp directory because pgbackrest needs to be able to read it after
 		// we exec (and the temp file would be cleaned up when closed).
-		pgpassPath := filepath.Join(pm.record.PoolerDir(), "pgbackrest", "pgbackrest.pgpass")
-		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
-		// #nosec G703 -- pgpassPath is built from the pooler's own PoolerDir, not external input.
-		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
-			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
+		pgpassPath, err := backup.WritePgpassFile(pm.record.PoolerDir(), pg1User, pg1Password)
+		if err != nil {
+			pm.setStateError(err)
 			return
 		}
 
@@ -1715,13 +1713,13 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 		}
 		pm.logger.Info("manager reached ready state, will register gRPC services")
 
-		pm.logger.Info("MultipoolerManager started") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager started")
 		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("query service controller registered")
 
 		// Register manager gRPC services
 		pm.registerGRPCServices()
-		pm.logger.Info("MultipoolerManager gRPC services registered") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager gRPC services registered")
 		return nil
 	})
 }
@@ -1794,7 +1792,7 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+				pm.logger.InfoContext(ctx, "monitorPostgres: postgres state changed, broadcasting health",
 					"postgres_running", newState.postgresRunning)
 				pm.broadcastHealth()
 			}

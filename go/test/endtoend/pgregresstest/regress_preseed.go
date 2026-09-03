@@ -15,7 +15,7 @@
 package pgregresstest
 
 import (
-	"database/sql"
+	"context"
 	_ "embed"
 	"fmt"
 	"testing"
@@ -29,35 +29,33 @@ import (
 var regressPreseedSQL string
 
 // postgisPreseedSQL holds the PostGIS core test-helper functions re-seeded
-// directly on the primary before each PostGIS test (the patched run_test.pl runs
-// it via psql on the direct port). PostGIS test files CREATE OR REPLACE their own
-// helpers — rejected by the gateway — and DROP them at the end, so they must be
-// re-seeded per test. Extracted from postgis 3.6.3 test sources.
+// before each PostGIS test (the patched run_test.pl runs it via psql on a gateway
+// unsafe connection — see MG_POSTGIS_PRESEED_CONNINFO). PostGIS test files
+// CREATE OR REPLACE their own helpers — which the enforcing gateway rejects — and
+// DROP them at the end, so they must be re-seeded per test. Extracted from
+// postgis 3.6.3 test sources.
 //
 //go:embed testdata/pg17/external/postgis_preseed.sql
 var postgisPreseedSQL string
 
-// hypopgPreseedSQL holds the do_explain helper installed on the primary before
-// the hypopg pg_regress suite. See hypopg_preseed.sql and externalPreseeds.
+// hypopgPreseedSQL holds the do_explain helper installed before the hypopg
+// pg_regress suite. See hypopg_preseed.sql and externalPreseeds.
 //
 //go:embed testdata/pg17/external/hypopg_preseed.sql
 var hypopgPreseedSQL string
 
 // externalPreseeds maps an ExternalExtension.PreseedFile name to the embedded
-// SQL run directly on the primary before that extension's suite. Add an embed
-// var and an entry here for each extension whose test helpers the gateway
-// rejects by design (a dynamic EXECUTE in a helper body) but which the suite
-// then depends on. Keyed by the PreseedFile value in the extension spec.
+// SQL run through a gateway unsafe connection before that extension's suite. Add
+// an embed var and an entry here for each extension whose test helpers the
+// enforcing gateway rejects by design (a dynamic EXECUTE in a helper body) but
+// which the suite then depends on. Keyed by the PreseedFile value in the spec.
 var externalPreseeds = map[string]string{
 	"hypopg_preseed.sql": hypopgPreseedSQL,
 }
 
 // preseedRegressHelpers installs a small set of benign scaffolding helper
-// functions directly on the primary (bypassing multigateway) before the
-// regression suite runs. This is the same "create setup the gateway rejects by
-// design directly on the primary" pattern the harness already uses for
-// CREATE DATABASE scratch DBs (RunExternalTests) and the isolation PID-mapping
-// shim (installPIDMappingFunction).
+// functions through a gateway unsafe connection before the regression suite
+// runs — the same pooled path the tests use, with no direct-postgres access.
 //
 // Almost every function in regress_preseed.sql — EXPLAIN wrappers,
 // check_ddl_rewrite, eval, check_estimated_rows, hash_join_batches — contains a
@@ -77,19 +75,11 @@ var externalPreseeds = map[string]string{
 // CREATE before it reaches the backend, so the seeded definition is the only one.
 // The DDL runs on the primary and replicates to standbys via WAL, so every pooled
 // backend sees the helper.
-func (pb *PostgresBuilder) preseedRegressHelpers(t *testing.T, directPgPort int, password string) error {
+func (pb *PostgresBuilder) preseedRegressHelpers(t *testing.T, ctx context.Context, gatewayPort int, password string) error {
 	t.Helper()
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		directPgPort, password)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(regressPreseedSQL); err != nil {
+	if err := execViaGatewayUnsafeConnection(ctx, gatewayPort, password, regressPreseedSQL); err != nil {
 		return fmt.Errorf("exec preseed: %w", err)
 	}
-	t.Logf("pre-seeded regression helper functions on primary (port %d)", directPgPort)
+	t.Logf("pre-seeded regression helper functions via gateway unsafe connection")
 	return nil
 }

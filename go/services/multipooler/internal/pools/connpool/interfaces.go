@@ -21,6 +21,49 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 )
 
+// Divergence lists the names on which a backend's real state disagrees with
+// the state the pool tracks for it. It carries names only, never values:
+// tracked values can hold sensitive data (e.g. request claims) and this type
+// flows into logs and metrics.
+type Divergence struct {
+	// Untracked is real backend state that tracking does not know about.
+	// This is the dangerous class: state that escaped tracking (e.g. a
+	// set_config hidden in a routine body) and would leak to the next
+	// borrower.
+	Untracked []string
+
+	// Phantom is tracked state with no real counterpart on the backend:
+	// tracking claims something the backend never saw (or saw reverted).
+	Phantom []string
+
+	// Mismatched are names present on both sides whose values differ.
+	Mismatched []string
+}
+
+// IsDiverged reports whether any divergence was found.
+func (d Divergence) IsDiverged() bool {
+	return len(d.Untracked)+len(d.Phantom)+len(d.Mismatched) > 0
+}
+
+// ConnChecker verifies one concern of a pooled connection's real backend
+// state against what the pool tracks for it — session GUCs, prepared
+// statements, residual locks, and so on. The pool's scrubber runs every
+// registered checker against idle connections and replaces any connection
+// that reports divergence; checkers only detect, the scrubber acts.
+//
+// Register checkers with Pool.RegisterChecker before Pool.Open.
+type ConnChecker[C Connection] interface {
+	// Name is the bounded label used for logs and metrics (e.g.
+	// "session_state").
+	Name() string
+
+	// Check compares the connection's real backend state against its
+	// tracked state. It must be side-effect-free and runs only on idle
+	// connections. An error means no verdict could be produced (the
+	// connection is not punished for it).
+	Check(ctx context.Context, conn C) (Divergence, error)
+}
+
 // Connection represents a pooled database connection.
 // Implementations must be safe for concurrent use by a single client.
 type Connection interface {

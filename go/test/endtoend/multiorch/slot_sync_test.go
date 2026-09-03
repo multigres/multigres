@@ -15,12 +15,14 @@
 package multiorch
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -133,4 +135,134 @@ func TestSlotSyncPropagatesFailoverSlot(t *testing.T) {
 		return ready
 	}, 30*time.Second, 1*time.Second,
 		"failover slot %q should become failover-ready on standby %s via native slot-sync", slot, standbyName)
+}
+
+// TestSlotSyncPropagatesAutoMarkedFailoverSlot is the end-to-end proof of the
+// auto-marking feature through the full stack: a client creates a plain,
+// non-failover logical slot through the multigateway (feature on), the gateway
+// injects FAILOVER into the CREATE_REPLICATION_SLOT before it reaches postgres,
+// and the resulting failover slot on the primary is propagated to the standby by
+// native slot-sync until it is failover-ready — all without the client asking
+// for failover. It ties the gateway rewrite (unit-tested in the multigateway
+// handler) to the slot-sync machinery (TestSlotSyncPropagatesFailoverSlot) in one
+// path: create-through-gateway → auto-marked on primary → synced on standby.
+func TestSlotSyncPropagatesAutoMarkedFailoverSlot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end auto-mark slot-sync test (short mode)")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end auto-mark slot-sync test (no postgres binaries)")
+	}
+
+	// Primary + one standby with slot-based replication on, plus a multigateway
+	// that also has the feature on so it auto-marks non-failover logical slots.
+	setup, cleanup := shardsetup.NewIsolated(
+		t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithoutInitialization(),
+		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
+		shardsetup.WithMultipoolerExtraArgs("--enable-slot-based-replication=true"),
+		shardsetup.WithMultigatewayExtraArgs("--enable-slot-based-replication=true"),
+	)
+	defer cleanup()
+
+	watchTargets := []string{"postgres/default/0-inf"}
+	config := &shardsetup.SetupConfig{CellName: setup.CellName}
+	mo, moCleanup := setup.CreateMultiorchInstance(t, "test-multiorch", watchTargets, config)
+	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
+	t.Cleanup(moCleanup)
+
+	primaryName := waitForShardReady(t, setup, 1, 60*time.Second)
+	require.NotEmpty(t, primaryName, "multiorch should bootstrap the shard")
+
+	// Under WithoutInitialization the gateway starts before bootstrap, so wait
+	// until it has discovered the freshly promoted primary and can route.
+	setup.WaitForMultigatewayQueryServing(t)
+
+	primary := setup.Multipoolers[primaryName]
+	var standby *shardsetup.MultipoolerInstance
+	var standbyName string
+	for name, inst := range setup.Multipoolers {
+		if name != primaryName {
+			standby, standbyName = inst, name
+			break
+		}
+	}
+	require.NotNil(t, standby, "expected a standby distinct from the primary")
+
+	primaryDB := connectToPostgres(t, filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets"), primary.Pgctld.PgPort)
+	defer primaryDB.Close()
+	standbyDB := connectToPostgres(t, filepath.Join(standby.Pgctld.PoolerDir, "pg_sockets"), standby.Pgctld.PgPort)
+	defer standbyDB.Close()
+
+	execCtx := utils.WithTimeout(t, 10*time.Second)
+	_, err := primaryDB.ExecContext(execCtx, "CREATE TABLE IF NOT EXISTS mg_e2e_automark_probe (id bigint)")
+	require.NoError(t, err, "create probe table on primary %s", primaryName)
+
+	const slot = "mg_e2e_automark"
+
+	// Create the logical slot THROUGH the gateway with NO failover option. With
+	// the feature on the gateway rewrites the command to inject FAILOVER, so the
+	// slot is born a failover slot on the primary without the client asking.
+	gwConn := dialGatewayReplicationConn(t, setup)
+	createCtx := utils.WithTimeout(t, 15*time.Second)
+	_, err = gwConn.Query(createCtx, fmt.Sprintf(
+		"CREATE_REPLICATION_SLOT %s LOGICAL test_decoding (SNAPSHOT 'nothing')", slot,
+	))
+	require.NoError(t, err, "create (auto-marked) logical slot through gateway")
+	require.NoError(t, gwConn.Close(), "close gateway replication connection")
+
+	// The gateway auto-marked it: on the primary the slot is a persistent
+	// failover slot even though the command carried no FAILOVER option.
+	var temporary, failover bool
+	qctx := utils.WithTimeout(t, 5*time.Second)
+	require.NoError(t, primaryDB.QueryRowContext(qctx,
+		"SELECT temporary, failover FROM pg_replication_slots WHERE slot_name = $1", slot).Scan(&temporary, &failover))
+	require.False(t, temporary, "auto-marked slot must be persistent")
+	require.True(t, failover, "gateway must inject FAILOVER for a non-failover CREATE_REPLICATION_SLOT")
+
+	// Native slot-sync then propagates it to the standby until it is
+	// failover-ready (same drain technique as TestSlotSyncPropagatesFailoverSlot:
+	// write + drain to advance catalog_xmin past the standby's horizon).
+	require.Eventually(t, func() bool {
+		pctx := utils.WithTimeout(t, 5*time.Second)
+		if _, err := primaryDB.ExecContext(pctx, "INSERT INTO mg_e2e_automark_probe VALUES (1)"); err != nil {
+			return false
+		}
+		if _, err := primaryDB.ExecContext(pctx,
+			"SELECT count(*) FROM pg_logical_slot_get_changes($1, NULL, NULL)", slot); err != nil {
+			return false
+		}
+		var ready bool
+		sctx := utils.WithTimeout(t, 5*time.Second)
+		if err := standbyDB.QueryRowContext(sctx,
+			`SELECT synced AND NOT temporary AND invalidation_reason IS NULL
+			   FROM pg_replication_slots WHERE slot_name = $1`, slot).Scan(&ready); err != nil {
+			return false
+		}
+		return ready
+	}, 30*time.Second, 1*time.Second,
+		"auto-marked failover slot %q should become failover-ready on standby %s via native slot-sync", slot, standbyName)
+}
+
+// dialGatewayReplicationConn opens a `replication=database` connection through
+// the multigateway PG port, the path that triggers the gateway's auto-marking
+// rewrite. Mirrors the helper of the same name in the shardsetup package's
+// replication-stream tests (unexported there, so reimplemented here).
+func dialGatewayReplicationConn(t *testing.T, setup *shardsetup.ShardSetup) *client.Conn {
+	t.Helper()
+	ctx := utils.WithTimeout(t, 15*time.Second)
+	cfg := client.Config{
+		Host:        "localhost",
+		Port:        setup.MultigatewayPgPort,
+		User:        shardsetup.DefaultTestUser,
+		Password:    shardsetup.TestPostgresPassword,
+		Database:    "postgres",
+		DialTimeout: 10 * time.Second,
+		Parameters:  map[string]string{"replication": "database"},
+	}
+	conn, err := client.Connect(ctx, ctx, &cfg)
+	require.NoError(t, err, "open replication-mode connection through gateway")
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
 }

@@ -68,6 +68,10 @@ type Metrics struct {
 	// setup latency), shared across all pools and tagged per-pool by pool_type.
 	serverConnMetrics connpool.ServerConnMetrics
 
+	// scrubMetrics tracks session-state scrub outcomes (probes, divergence,
+	// errors), shared across all pools and tagged per-pool by pool_type.
+	scrubMetrics connpool.ScrubMetrics
+
 	// --- Observable gauges for PgBouncer-equivalent metrics ---
 
 	// poolerUp reports whether the pooler is operational (1 = up, 0 = down).
@@ -150,6 +154,13 @@ func NewMetrics() (*Metrics, error) {
 		errs = append(errs, fmt.Errorf("ServerConnMetrics: %w", err))
 	}
 	m.serverConnMetrics = serverConnMetrics
+
+	// Session-state scrub metrics, shared across all pools.
+	scrubMetrics, err := connpool.NewScrubMetrics(meter)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("ScrubMetrics: %w", err))
+	}
+	m.scrubMetrics = scrubMetrics
 
 	// ConnectionCount for reserved pools
 	reservedCount, err := connpool.NewConnectionCount(meter)
@@ -528,6 +539,11 @@ func (m *Metrics) RegularConnCount() connpool.ConnectionCount {
 // ReservedConnCount returns the ConnectionCount metric for reserved pools.
 func (m *Metrics) ReservedConnCount() connpool.ConnectionCount {
 	return m.reservedConnCount
+}
+
+// ScrubMetrics returns the shared session-state scrub metrics.
+func (m *Metrics) ScrubMetrics() connpool.ScrubMetrics {
+	return m.scrubMetrics
 }
 
 // ServerConnMetrics returns the shared server-connection lifecycle metrics.

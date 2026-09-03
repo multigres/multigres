@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/tools/executil"
@@ -54,15 +55,6 @@ const (
 // by the sqllogictest differential harness.
 type PostgresBuilder struct {
 	*pgbuilder.Builder
-
-	// UnsafeGatewayProvider, when set, lazily starts (and returns the PG port of)
-	// a second multigateway running with --unsafe-pooler-mode, sharing the same
-	// cluster. runExternalPgTAP calls it only for files listed in an extension's
-	// UnsafePoolerGlobs — pgTAP tests whose scaffolding the enforcing gateway
-	// (correctly) rejects. It must be idempotent (repeat calls return the same
-	// port). Wired by the test layer to ShardSetup.StartUnsafeMultigateway; nil in
-	// contexts that never need it.
-	UnsafeGatewayProvider func(t *testing.T) int
 }
 
 // TestResults contains the results from running PostgreSQL regression tests.
@@ -395,19 +387,19 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		}
 
 		// Seed any test-helper the gateway rejects by design (a dynamic EXECUTE in
-		// the helper body) directly on the primary, after the public-schema reset so
-		// it isn't wiped. The suite's own CREATE is still rejected and recorded as a
-		// divergence; the seed just lets the helper's callers resolve. See
-		// ExternalExtension.PreseedFile.
+		// the helper body) through a gateway unsafe connection, after the
+		// public-schema reset so it isn't wiped. The suite's own CREATE is still
+		// rejected under the enforcing default and recorded as a divergence; the
+		// seed just lets the helper's callers resolve. See ExternalExtension.PreseedFile.
 		if ext.PreseedFile != "" {
 			seed, ok := externalPreseeds[ext.PreseedFile]
 			if !ok {
 				return merged, fmt.Errorf("external/%s: unknown PreseedFile %q (add it to externalPreseeds)", ext.Name, ext.PreseedFile)
 			}
-			if err := execOnPrimary(directPgPort, password, seed); err != nil {
+			if err := execViaGatewayUnsafeConnection(ctx, multigatewayPort, password, seed); err != nil {
 				t.Logf("external/%s: warning: preseed %q failed: %v", ext.Name, ext.PreseedFile, err)
 			} else {
-				t.Logf("external/%s: pre-seeded %s on primary (port %d)", ext.Name, ext.PreseedFile, directPgPort)
+				t.Logf("external/%s: pre-seeded %s via gateway unsafe connection", ext.Name, ext.PreseedFile)
 			}
 		}
 
@@ -713,10 +705,17 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 		"POSTGIS_REGRESS_DB=postgres",
 		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
 		"PGIS_REG_TMPDIR="+tmpDir,
-		// Per-test helper re-seed: the patched run_test.pl runs this SQL on the
-		// direct primary port before each test (PGPASSWORD above authenticates it).
+		// Per-test helper re-seed: the patched run_test.pl runs this SQL before each
+		// test through a gateway unsafe connection (options=-c
+		// multigres.unsafe_connection=on), so the helpers the enforcing gateway
+		// rejects install via the pooled path (PGPASSWORD above authenticates it).
+		// The options value is single-quoted: it contains a space, and libpq's
+		// conninfo parser otherwise treats that space as a pair separator — reading
+		// only `options=-c` and then rejecting `multigres.unsafe_connection=on` as an
+		// unknown connection keyword, so psql never connects and the seed is skipped.
 		"MG_POSTGIS_PRESEED_FILE="+preseedPath,
-		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres", directPgPort),
+		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres options='-c %s=on'",
+			multigatewayPort, constants.UnsafeConnectionParam),
 		// Normalize planner GUCs to PostgreSQL defaults so index scan-type checks
 		// (qnodes) match PostGIS's expected output despite pgctld's tuned GUCs.
 		"PGOPTIONS=-c work_mem=4MB -c random_page_cost=4.0 -c effective_cache_size=4GB -c max_parallel_workers_per_gather=2",
@@ -1301,6 +1300,40 @@ func execOnPrimary(directPgPort int, password, stmt string) error {
 	return nil
 }
 
+// execViaGatewayUnsafeConnection runs stmt through multigateway on an unsafe
+// connection: it opens one pinned connection, enables unsafe connection with
+// `SET multigres.unsafe_connection = on`, then runs stmt. This installs
+// scaffolding the enforcing gateway would reject by design — e.g. a plpgsql body
+// with a dynamic EXECUTE — through the same pooled path the tests use, with no
+// direct-postgres access. The CREATE routes to the primary, commits, and
+// replicates via WAL like any DDL; the connection's backend is quarantined and
+// discarded at teardown, but the committed objects persist for every backend.
+func execViaGatewayUnsafeConnection(ctx context.Context, gatewayPort int, password, stmt string) error {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		gatewayPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	// Pin one connection so the unsafe-connection latch (per gateway connection)
+	// applies to stmt below.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("pin conn: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "SET "+constants.UnsafeConnectionParam+" = on"); err != nil {
+		return fmt.Errorf("enable unsafe connection: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("exec [%s]: %w", stmt, err)
+	}
+	return nil
+}
+
 // createExtensionWithSchema creates an extension on the given port, optionally
 // into a target schema (which it creates first). With an empty schema it emits a
 // plain CREATE EXTENSION IF NOT EXISTS; with a schema it adds SCHEMA <schema> —
@@ -1435,6 +1468,43 @@ func PatchesDir() string {
 	_, file, _, _ := runtime.Caller(0)
 	pkgDir := filepath.Dir(file)
 	return filepath.Join(pkgDir, "testdata", pgMajorDir(), "patches")
+}
+
+// ExpectedVariantsDir contains compact patches that derive additional valid
+// pg_regress expected .out files from PostgreSQL's canonical output.
+func ExpectedVariantsDir() string {
+	return filepath.Join(filepath.Dir(PatchesDir()), "expected_variants")
+}
+
+// PrepareExpectedVariants materializes numbered pg_regress alternatives such
+// as create_index_1.out from compact, reviewed patches. PostgreSQL then sees
+// them exactly like its own numbered expected-output variants.
+func (pb *PostgresBuilder) PrepareExpectedVariants(ctx context.Context) error {
+	variantPatches, err := filepath.Glob(filepath.Join(ExpectedVariantsDir(), "*_?.patch"))
+	if err != nil {
+		return fmt.Errorf("find expected-output variant patches: %w", err)
+	}
+	expectedDir := filepath.Join(pb.SourceDir, "src", "test", "regress", "expected")
+	for _, patchPath := range variantPatches {
+		variantName := strings.TrimSuffix(filepath.Base(patchPath), ".patch")
+		separator := strings.LastIndexByte(variantName, '_')
+		if separator <= 0 {
+			return fmt.Errorf("invalid expected-output variant patch name %q", filepath.Base(patchPath))
+		}
+		canonicalPath := filepath.Join(expectedDir, variantName[:separator]+".out")
+		canonical, err := os.ReadFile(canonicalPath)
+		if err != nil {
+			return fmt.Errorf("read canonical expected output for %s: %w", variantName, err)
+		}
+		variant, err := suiteutil.ApplyPatch(ctx, canonical, patchPath)
+		if err != nil {
+			return fmt.Errorf("generate expected output %s: %w", variantName, err)
+		}
+		if err := os.WriteFile(filepath.Join(expectedDir, variantName+".out"), variant, 0o644); err != nil {
+			return fmt.Errorf("write expected output %s: %w", variantName, err)
+		}
+	}
+	return nil
 }
 
 // pgMajorDir returns the directory name under testdata/ that holds patches for

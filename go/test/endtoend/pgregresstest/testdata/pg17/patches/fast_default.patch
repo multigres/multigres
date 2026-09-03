@@ -1,3 +1,9 @@
+# Known divergence (by design): multigateway blocks CREATE FOREIGN DATA WRAPPER
+# and CREATE SERVER so pooled clients cannot open outbound server connections.
+# Every difference below is deterministic fallout from that block: the foreign
+# server, foreign table, and their ALTER/SELECT/DROP references all resolve to
+# "does not exist". No plain-table behavior in this test is affected.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -883,23 +883,29 @@

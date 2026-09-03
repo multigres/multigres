@@ -246,6 +246,12 @@ func (m *QueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
 	return &mockTx{m: m}, nil
 }
 
+// BeginAdmin implements executor.InternalQueryService. The mock has no
+// separate admin pool, so this behaves identically to Begin.
+func (m *QueryService) BeginAdmin(ctx context.Context) (executor.InternalTx, error) {
+	return m.Begin(ctx)
+}
+
 // queryIfMatched runs queryStr through the matcher only if a pattern matches it,
 // returning any configured error. Unmatched control statements succeed silently.
 func (m *QueryService) queryIfMatched(ctx context.Context, queryStr string) error {
