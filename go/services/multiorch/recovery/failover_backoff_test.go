@@ -120,6 +120,17 @@ func TestNextFailoverAttempt(t *testing.T) {
 		// We cannot tell whether this revocation (e.g. an externally-supplied
 		// cert, or an external actor forcing a resignation) is for our current
 		// problem or an unrelated one, so we do not treat it as a free pass.
+		//
+		// This only covers the case with no competing live attempt. It does
+		// NOT cover (and there is no test for) an untargeted revocation with
+		// a higher term than a concurrently-live, decision-matched one:
+		// HighestRevokedBelowTermRevocation picks purely by term, with no
+		// decision-awareness, so such a revocation would still win the
+		// reduction and collapse the live attempt's escalated backoff down
+		// to this flat default. Known, accepted gap (narrow — requires a
+		// concurrent externally-certified rule change racing an active
+		// failover); not fixed because the cert path is rare and
+		// human-supervised.
 		cache := store.NewTestCache(t)
 		seedRevocation(cache, "p1", time.Now(), nil, 0)
 		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
@@ -135,6 +146,12 @@ func TestNextFailoverAttempt(t *testing.T) {
 		// globally-highest-term revocation regardless of decision would find
 		// p1's stale one, wrongly conclude "different, resolved problem," and
 		// act immediately instead of deferring to p2's live backoff.
+		//
+		// This is safe because p1's revocation carries a RecruitIntent (just
+		// targeting a stale decision), so backoffRelevantRevocations excludes
+		// it by decision-mismatch before the term reduction ever runs. This
+		// is a different scenario from — and does not cover — the untargeted
+		// (no RecruitIntent) shadowing case noted above.
 		cache := store.NewTestCache(t)
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
@@ -186,12 +203,20 @@ func TestNextFailoverAttempt(t *testing.T) {
 	t.Run("an INELIGIBLE member's higher decision does not make a live retry look resolved", func(t *testing.T) {
 		// p1 is decided at term 6 and holds a live retry against it. pDeparting
 		// is a leader that committed decision term 7 and then began graceful
-		// shutdown (INELIGIBLE) before p1 replayed the new rule — exactly the
-		// same exclusion runFailover applies before computing ReplaceDecision.
-		// If this decision computation didn't apply the same exclusion,
-		// pDeparting's term 7 would make p1's decision-6 revocation look like
-		// it targets a different, resolved problem, and backoff would be
-		// skipped.
+		// shutdown (INELIGIBLE) before p1 replayed the new rule.
+		//
+		// pDeparting's decision is real (term 7 genuinely committed at some
+		// point) — this isn't about distrusting it. The exclusion exists
+		// because this gate must agree with runFailover on which members
+		// count when computing "the current decision": runFailover's
+		// NewTermRevocation excludes ineligible members too, so if this
+		// computation didn't apply the same exclusion, the gate would think
+		// the shard moved on to 7 while the next actual attempt still
+		// targets 6 (it can't reach pDeparting either) — the gate and the
+		// thing it's gating would disagree. Once an eligible member reflects
+		// decision 7 too (e.g. via the leader-led no-op bump that reconciles
+		// a stranded straggler like pDeparting), this gate picks it up
+		// naturally.
 		cache := store.NewTestCache(t)
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
