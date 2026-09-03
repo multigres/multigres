@@ -2119,6 +2119,15 @@ export class TermRevocation extends Message<TermRevocation> {
    */
   outgoingRule?: RuleNumber;
 
+  /**
+   * The coordinator's intent/context for this recruitment. Today it carries the
+   * collective failover-backoff accounting; it may grow to hold other
+   * recruit-scoped information over time.
+   *
+   * @generated from field: clustermetadata.RecruitIntent recruit_intent = 5;
+   */
+  recruitIntent?: RecruitIntent;
+
   constructor(data?: PartialMessage<TermRevocation>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2131,6 +2140,7 @@ export class TermRevocation extends Message<TermRevocation> {
     { no: 2, name: "accepted_coordinator_id", kind: "message", T: ID },
     { no: 3, name: "coordinator_initiated_at", kind: "message", T: Timestamp },
     { no: 4, name: "outgoing_rule", kind: "message", T: RuleNumber },
+    { no: 5, name: "recruit_intent", kind: "message", T: RecruitIntent },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TermRevocation {
@@ -2147,6 +2157,65 @@ export class TermRevocation extends Message<TermRevocation> {
 
   static equals(a: TermRevocation | PlainMessage<TermRevocation> | undefined, b: TermRevocation | PlainMessage<TermRevocation> | undefined): boolean {
     return proto3.util.equals(TermRevocation, a, b);
+  }
+}
+
+/**
+ * RecruitIntent carries the coordinator's intent and context for a
+ * recruitment — a container (not flat fields) so it can grow without
+ * widening TermRevocation. Its first occupant is collective failover-backoff
+ * accounting: how many recruitment attempts have targeted the same decided
+ * baseline without the cohort advancing past it, letting independent
+ * orchestrators back off collectively without coordinating (see go/common/ha).
+ *
+ * @generated from message clustermetadata.RecruitIntent
+ */
+export class RecruitIntent extends Message<RecruitIntent> {
+  /**
+   * The decided rule this recruitment intends to move past. Deliberately
+   * distinct from TermRevocation.outgoing_rule, which may be an undecided
+   * proposal under propagation — the attempt count must key on a settled
+   * decision, or a stuck proposal could never advance it and reset the count.
+   *
+   * @generated from field: clustermetadata.RuleNumber replace_decision = 1;
+   */
+  replaceDecision?: RuleNumber;
+
+  /**
+   * How many consecutive recruits have targeted replace_decision. Starts at 1 and
+   * increments while replace_decision is unchanged; resets to 1 when it advances
+   * (the cohort committed a newer decision).
+   *
+   * @generated from field: int64 attempt = 2;
+   */
+  attempt = protoInt64.zero;
+
+  constructor(data?: PartialMessage<RecruitIntent>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RecruitIntent";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "replace_decision", kind: "message", T: RuleNumber },
+    { no: 2, name: "attempt", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RecruitIntent {
+    return new RecruitIntent().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RecruitIntent {
+    return new RecruitIntent().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RecruitIntent {
+    return new RecruitIntent().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RecruitIntent | PlainMessage<RecruitIntent> | undefined, b: RecruitIntent | PlainMessage<RecruitIntent> | undefined): boolean {
+    return proto3.util.equals(RecruitIntent, a, b);
   }
 }
 

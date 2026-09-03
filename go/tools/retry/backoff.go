@@ -129,27 +129,7 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Exponential backoff: baseDelay * 2^attempt
-	// Use bit shifting for precise integer math and overflow protection
-
-	cappedAttempt := min(
-		// Cap attempt count to prevent overflow (shifting more than 62 bits would overflow int64)
-		e.attempt, 62)
-
-	// Calculate delay = baseDelay * (1 << attempt)
-	// time.Duration is int64, so we can work with it directly
-	multiplier := int64(1 << cappedAttempt)
-	baseDelayInt := int64(e.baseDelay)
-
-	var delay time.Duration
-	if baseDelayInt > 0 && multiplier > math.MaxInt64/baseDelayInt {
-		// Would overflow, use maxDelay
-		delay = e.maxDelay
-	} else {
-		delay = min(
-			// Apply max delay cap
-			time.Duration(baseDelayInt*multiplier), e.maxDelay)
-	}
+	delay := ExponentialBackoffMagnitude(e.baseDelay, e.maxDelay, e.attempt)
 
 	// Apply Full Jitter: randomize between 0 and computed delay
 	// This prevents synchronized retries by spreading retries across time
@@ -164,6 +144,24 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 	e.attempt++
 
 	return delay
+}
+
+// ExponentialBackoffMagnitude returns the exponential backoff magnitude baseDelay *
+// 2^attempt, clamped to maxDelay, with overflow protection. attempt is
+// zero-indexed (attempt 0 → baseDelay); negative values are treated as 0. It
+// applies no jitter: callers layer their own jitter strategy on top — Full
+// Jitter here (nextDelay), or the deterministic fractional jitter in
+// go/common/ha, which needs a guaranteed minimum delay that Full Jitter
+// cannot provide.
+func ExponentialBackoffMagnitude(baseDelay, maxDelay time.Duration, attempt int) time.Duration {
+	// Cap attempt to prevent overflow (shifting more than 62 bits overflows
+	// int64); floor at 0 since a negative shift count panics.
+	multiplier := int64(1 << min(max(attempt, 0), 62))
+	baseDelayInt := int64(baseDelay)
+	if baseDelayInt > 0 && multiplier > math.MaxInt64/baseDelayInt {
+		return maxDelay
+	}
+	return min(time.Duration(baseDelayInt*multiplier), maxDelay)
 }
 
 // reset resets the backoff state to initial values.

@@ -129,13 +129,13 @@ func newFailoverTxnTestCluster(t *testing.T, poolerArgs ...string) (*shardsetup.
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
+		shardsetup.WithMultiadmin(),
 		func(c *shardsetup.SetupConfig) {
 			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
 		},
 		shardsetup.WithMultipoolerExtraArgs(poolerArgs...),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
 	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
