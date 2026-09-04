@@ -64,6 +64,21 @@ func requireContextBackgroundJustification(m dsl.Matcher) {
 		Report("context.Background() requires justification. Use context.TODO() if no context is available, ctxutil.Detach(ctx) for long-lived background tasks, or add //nolint:gocritic // <reason> for legitimate entry points")
 }
 
+// requireTestpollNever bans testify's assert.Never/require.Never, which spawn
+// a fresh goroutine per tick with no join on it — Never's own success path is
+// exactly the case where the outer timeout races an in-flight check, so a
+// successful call almost always leaves that goroutine running in the
+// background (see https://github.com/stretchr/testify/issues/1611). Use
+// testpoll.Never instead, which runs the condition synchronously and so
+// cannot leak.
+func requireTestpollNever(m dsl.Matcher) {
+	m.Import("github.com/stretchr/testify/assert")
+	m.Import("github.com/stretchr/testify/require")
+
+	m.Match(`assert.Never($*_)`, `require.Never($*_)`).
+		Report("use testpoll.Never instead of assert.Never/require.Never, which can leak a goroutine that races with whatever runs next (see testpoll.Never's doc comment)")
+}
+
 func requireGrpcCommonNewClient(m dsl.Matcher) {
 	m.Import("google.golang.org/grpc")
 
