@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/s3mock"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 // walSegmentKey matches pgBackRest WAL-segment archive PUTs: a key under
@@ -113,7 +114,7 @@ func TestBootstrapArchiveCheck_FailsWhenWalPushFails(t *testing.T) {
 
 	// With the archive pipeline broken, no complete backup may ever appear.
 	backupClient := createBackupClient(t, inst.Multipooler.GrpcPort)
-	require.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		resp, listErr := backupClient.GetBackups(ctx, &multipoolermanagerdata.GetBackupsRequest{Limit: 10})
