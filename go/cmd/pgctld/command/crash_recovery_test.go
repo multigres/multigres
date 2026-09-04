@@ -92,21 +92,25 @@ func TestPostgresAlreadyRunningPattern(t *testing.T) {
 	}
 }
 
-// lockHeldOutput is the FATAL message postgres --single emits when the
-// postmaster.pid lock is still held — both during the orphan-cleanup window
-// after a crash and when postgres is genuinely running.
+// lockHeldOutput is the FATAL message Postgres emits (from both `postgres
+// --single` and `pg_ctl start`) when the postmaster.pid lock is still held —
+// both during the orphan-cleanup window after a crash and when postgres is
+// genuinely running.
 var lockHeldOutput = []byte(`FATAL:  lock file "postmaster.pid" already exists
 HINT:  Is another postmaster (PID 12345) running in data directory "/data"?`)
 
-// TestRunCrashRecovery_RetriesDuringOrphanCleanupWindow simulates a postmaster crash
-// where orphaned workers keep the lock file held for the first few attempts and then
-// release it. Recovery should succeed once the lock clears.
-func TestRunCrashRecovery_RetriesDuringOrphanCleanupWindow(t *testing.T) {
+// TestRetryWhileLockHeld_RetriesDuringOrphanCleanupWindow simulates a postmaster
+// crash where orphaned workers keep the lock file held for the first few attempts
+// and then release it. The primitive should succeed once the lock clears.
+// runCrashRecoveryAttempts and startPostgreSQLWithConfig both delegate directly to
+// this loop, so its retry mechanics are tested once here rather than through each
+// of those thin, caller-specific wrappers.
+func TestRetryWhileLockHeld_RetriesDuringOrphanCleanupWindow(t *testing.T) {
 	const holdAttempts = 3
 	s := testPgCtldService("")
 
 	calls := 0
-	runner := func(ctx context.Context) ([]byte, error) {
+	run := func(ctx context.Context) ([]byte, error) {
 		calls++
 		if calls <= holdAttempts {
 			return lockHeldOutput, errors.New("exit status 1")
@@ -114,10 +118,82 @@ func TestRunCrashRecovery_RetriesDuringOrphanCleanupWindow(t *testing.T) {
 		return []byte("recovery complete"), nil
 	}
 
-	err := s.runCrashRecoveryAttempts(context.Background(), runner, fastRetry())
+	output, err := s.retryWhileLockHeld(context.Background(), run, constants.OrphanCleanupMaxAttempts, fastRetry())
 	require.NoError(t, err)
 	assert.Equal(t, holdAttempts+1, calls,
-		"runner should be retried until the lock clears, then succeed")
+		"run should be retried until the lock clears, then succeed")
+	assert.Equal(t, "recovery complete", string(output))
+}
+
+// TestRetryWhileLockHeld_FirstAttemptSucceeds covers the common case: no stale
+// lock, no retries.
+func TestRetryWhileLockHeld_FirstAttemptSucceeds(t *testing.T) {
+	s := testPgCtldService("")
+	calls := 0
+	run := func(ctx context.Context) ([]byte, error) {
+		calls++
+		return []byte("recovery complete"), nil
+	}
+
+	_, err := s.retryWhileLockHeld(context.Background(), run, constants.OrphanCleanupMaxAttempts, fastRetry())
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
+}
+
+// TestRetryWhileLockHeld_NonLockErrorReturnsImmediately verifies that failures
+// unrelated to the orphan-cleanup race (e.g. a genuine config error) fail fast
+// and do not consume the retry budget.
+func TestRetryWhileLockHeld_NonLockErrorReturnsImmediately(t *testing.T) {
+	s := testPgCtldService("")
+	calls := 0
+	run := func(ctx context.Context) ([]byte, error) {
+		calls++
+		return []byte("FATAL:  could not access data directory"), errors.New("exit status 1")
+	}
+
+	_, err := s.retryWhileLockHeld(context.Background(), run, constants.OrphanCleanupMaxAttempts, fastRetry())
+	require.Error(t, err)
+	assert.Equal(t, 1, calls, "non-lock errors must not be retried")
+}
+
+// TestRetryWhileLockHeld_BudgetExhaustedReturnsRealError verifies that once the
+// retry budget runs out, the primitive returns the last attempt's real output
+// and error untouched. It does not decide on the caller's behalf whether a
+// still-held lock means "give up" (a plain start) or "must already be running"
+// (single-user crash recovery, which layers that interpretation on top in
+// runCrashRecoveryAttempts).
+func TestRetryWhileLockHeld_BudgetExhaustedReturnsRealError(t *testing.T) {
+	s := testPgCtldService("")
+	calls := 0
+	run := func(ctx context.Context) ([]byte, error) {
+		calls++
+		return lockHeldOutput, errors.New("exit status 1")
+	}
+
+	output, err := s.retryWhileLockHeld(context.Background(), run, constants.OrphanCleanupMaxAttempts, fastRetry())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Equal(t, string(lockHeldOutput), string(output))
+	assert.Equal(t, constants.OrphanCleanupMaxAttempts, calls,
+		"run should be retried up to the max-attempts bound")
+}
+
+// TestRetryWhileLockHeld_ContextCancelledDuringBackoff verifies that a cancelled
+// context aborts the retry loop without further run invocations.
+func TestRetryWhileLockHeld_ContextCancelledDuringBackoff(t *testing.T) {
+	s := testPgCtldService("")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	calls := 0
+	run := func(ctx context.Context) ([]byte, error) {
+		calls++
+		cancel()
+		return lockHeldOutput, errors.New("exit status 1")
+	}
+
+	_, err := s.retryWhileLockHeld(ctx, run, constants.OrphanCleanupMaxAttempts, retry.New(time.Hour, time.Hour))
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, calls)
 }
 
 // TestRunCrashRecovery_LockNeverClearsReturnsNil locks in the historical behavior:
@@ -133,7 +209,7 @@ func TestRunCrashRecovery_LockNeverClearsReturnsNil(t *testing.T) {
 
 	err := s.runCrashRecoveryAttempts(context.Background(), runner, fastRetry())
 	require.NoError(t, err)
-	assert.Equal(t, constants.CrashRecoveryMaxAttempts, calls,
+	assert.Equal(t, constants.OrphanCleanupMaxAttempts, calls,
 		"runner should be retried up to the max-attempts bound")
 }
 
@@ -152,9 +228,9 @@ func TestRunCrashRecovery_FirstAttemptSucceeds(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
-// TestRunCrashRecovery_NonLockErrorReturnsImmediately verifies that non-lock
-// errors fail fast and do not consume the retry budget — only the orphan-cleanup
-// race should trigger retries.
+// TestRunCrashRecovery_NonLockErrorReturnsImmediately verifies the wrapper's
+// own contribution beyond the shared retry loop: a genuine (non-lock) failure
+// is wrapped as a crash-recovery failure, not just returned bare.
 func TestRunCrashRecovery_NonLockErrorReturnsImmediately(t *testing.T) {
 	s := testPgCtldService("")
 	calls := 0
@@ -165,11 +241,13 @@ func TestRunCrashRecovery_NonLockErrorReturnsImmediately(t *testing.T) {
 
 	err := s.runCrashRecoveryAttempts(context.Background(), runner, fastRetry())
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "crash recovery failed")
 	assert.Equal(t, 1, calls, "non-lock errors must not be retried")
 }
 
-// TestRunCrashRecovery_ContextCancelledDuringBackoff verifies that a cancelled
-// context aborts the retry loop without further runner invocations.
+// TestRunCrashRecovery_ContextCancelledDuringBackoff verifies the wrapper's own
+// contribution: a cancelled context aborts the retry loop and propagates bare,
+// without being dressed up as a "crash recovery failed" error.
 func TestRunCrashRecovery_ContextCancelledDuringBackoff(t *testing.T) {
 	s := testPgCtldService("")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -183,6 +261,8 @@ func TestRunCrashRecovery_ContextCancelledDuringBackoff(t *testing.T) {
 
 	err := s.runCrashRecoveryAttempts(ctx, runner, retry.New(time.Hour, time.Hour))
 	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, err.Error(), "crash recovery failed",
+		"cancellation must propagate bare, not wrapped as a recovery failure")
 	assert.Equal(t, 1, calls)
 }
 

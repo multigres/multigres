@@ -125,15 +125,20 @@ const (
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
 
-	// CrashRecoveryMaxAttempts bounds the retry window used by pgctld to wait out
-	// the orphan-cleanup race after a postmaster crash. Suggested by MUL-394:
-	// ~5s covers the worst-case worker PostmasterIsAlive() detection latency
-	// observed in practice.
-	CrashRecoveryMaxAttempts = 10
+	// OrphanCleanupMaxAttempts bounds the retry window used by pgctld to wait
+	// out the orphan-cleanup race after a postmaster crash: immediately after
+	// an unclean kill, orphaned worker processes (checkpointer, walreceiver,
+	// etc.) can keep the data-directory lock held for a brief window even
+	// though the postmaster itself is gone, so both `postgres --single`
+	// (single-user crash recovery) and plain `pg_ctl start` can genuinely fail
+	// with "lock file ... already exists" during that window. ~5s covers the
+	// worst-case worker PostmasterIsAlive() detection latency observed in
+	// practice.
+	OrphanCleanupMaxAttempts = 10
 
-	// CrashRecoveryRetryDelay caps the delay between `postgres --single` retry
-	// attempts during the orphan-cleanup window.
-	CrashRecoveryRetryDelay = 500 * time.Millisecond
+	// OrphanCleanupRetryDelay caps the delay between retry attempts during the
+	// orphan-cleanup window. See OrphanCleanupMaxAttempts.
+	OrphanCleanupRetryDelay = 500 * time.Millisecond
 
 	// PgLocksAdvisoryProbeSQL reports whether the current backend still holds any
 	// advisory lock. Run only outside a transaction, where every advisory lock

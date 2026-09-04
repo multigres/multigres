@@ -88,7 +88,7 @@ func (s *PgCtldService) crashRecoveryNeeded(ctx context.Context) (bool, error) {
 // stamped minRecoveryPoint onto the wrong timeline — is handled consistently
 // (notably, this lets a re-issued pg_rewind clean-shut-down such a node).
 func (s *PgCtldService) runCrashRecovery(ctx context.Context) error {
-	r := retry.New(constants.CrashRecoveryRetryDelay, constants.CrashRecoveryRetryDelay)
+	r := retry.New(constants.OrphanCleanupRetryDelay, constants.OrphanCleanupRetryDelay)
 	return s.runCrashRecoveryInDir(ctx, s.runSingleUserPostgres, r)
 }
 
@@ -135,6 +135,56 @@ func (s *PgCtldService) runCrashRecoveryInDir(
 	return s.runCrashRecoveryAttempts(ctx, run, r)
 }
 
+// retryWhileLockHeld retries run while it fails with postgresAlreadyRunningPattern,
+// the transient "lock file ... already exists" error left by orphaned children
+// during the brief window after an unclean postgres kill, even though the
+// postmaster itself is gone. Any other failure returns immediately. A context
+// cancellation or deadline (checked via ctx.Err after the loop) also returns
+// immediately, with whatever the retry iterator reports as rerr.
+//
+// Once maxAttempts is exhausted, the last attempt's output and error are
+// returned exactly as run produced them: this primitive does not decide what
+// a still-held lock means once the budget runs out, since that differs by
+// caller (single-user crash recovery treats it as "must already be running";
+// a plain start treats it as a genuine failure). Callers make that call
+// themselves by inspecting the returned error.
+func (s *PgCtldService) retryWhileLockHeld(
+	ctx context.Context,
+	run func(context.Context) ([]byte, error),
+	maxAttempts int,
+	r *retry.Retry,
+) ([]byte, error) {
+	logger := s.logger
+
+	var output []byte
+	var runErr error
+	for attempt, rerr := range r.Attempts(ctx) {
+		if rerr != nil {
+			return output, rerr
+		}
+
+		output, runErr = run(ctx)
+		if runErr == nil {
+			return output, nil
+		}
+
+		if !postgresAlreadyRunningPattern.Match(output) {
+			return output, runErr
+		}
+
+		if attempt >= maxAttempts {
+			break
+		}
+
+		logger.InfoContext(ctx, "lock file still held by orphaned processes, retrying",
+			"attempt", attempt,
+			"max_attempts", maxAttempts,
+			"output", string(output))
+	}
+
+	return output, runErr
+}
+
 // runCrashRecoveryAttempts retries `postgres --single` while the lock file is held.
 // During the orphan-cleanup window after a postmaster crash, the lock will eventually
 // release; if it does not within the retry window, postgres is genuinely running and
@@ -147,41 +197,28 @@ func (s *PgCtldService) runCrashRecoveryAttempts(
 	logger := s.logger
 	logger.InfoContext(ctx, "starting single-user crash recovery")
 
-	var lastOutput string
-	for attempt, rerr := range r.Attempts(ctx) {
-		if rerr != nil {
-			return rerr
-		}
-
-		output, err := run(ctx)
-		if err == nil {
-			return nil
-		}
-
-		outputStr := string(output)
-		lastOutput = outputStr
-
-		if !postgresAlreadyRunningPattern.MatchString(outputStr) {
-			logger.WarnContext(ctx, "single-user crash recovery failed",
-				"error", err,
-				"output", outputStr)
-			return fmt.Errorf("crash recovery failed: %w", err)
-		}
-
-		if attempt >= constants.CrashRecoveryMaxAttempts {
-			break
-		}
-
-		logger.InfoContext(ctx, "single-user crash recovery: lock file held, retrying",
-			"attempt", attempt,
-			"max_attempts", constants.CrashRecoveryMaxAttempts,
-			"output", outputStr)
+	output, err := s.retryWhileLockHeld(ctx, run, constants.OrphanCleanupMaxAttempts, r)
+	if err == nil {
+		return nil
 	}
 
-	logger.InfoContext(ctx, "single-user crash recovery not needed, postgres is already running",
-		"attempts", constants.CrashRecoveryMaxAttempts,
-		"output", lastOutput)
-	return nil
+	if ctx.Err() != nil {
+		// The retry loop aborted via context cancellation/deadline, not a real
+		// run() failure: propagate as-is, with no logging or wrapping.
+		return err
+	}
+
+	if postgresAlreadyRunningPattern.Match(output) {
+		logger.InfoContext(ctx, "single-user crash recovery not needed, postgres is already running",
+			"attempts", constants.OrphanCleanupMaxAttempts,
+			"output", string(output))
+		return nil
+	}
+
+	logger.WarnContext(ctx, "single-user crash recovery failed",
+		"error", err,
+		"output", string(output))
+	return fmt.Errorf("crash recovery failed: %w", err)
 }
 
 // runSingleUserPostgres runs `postgres --single` once and returns its combined
