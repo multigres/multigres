@@ -187,6 +187,33 @@ func TestScrubCountsHeldConnAsBorrowed(t *testing.T) {
 	assert.EqualValues(t, 0, pool.InUse())
 }
 
+func TestScrubEachCheckerGetsOwnTimeout(t *testing.T) {
+	// A slow early checker must not eat into the next checker's budget:
+	// with one shared context the second checker would see a deadline
+	// shortened by the first's run time and could fail closed for nothing.
+	pool := newScrubTestPool(t, 2, nil)
+	recycleIdle(t, pool, nil)
+
+	const slow = 200 * time.Millisecond
+	pool.RegisterChecker(funcChecker(func(ctx context.Context, _ *scrubMockConnection) (Divergence, error) {
+		time.Sleep(slow)
+		return Divergence{}, nil
+	}))
+	var remaining time.Duration
+	pool.RegisterChecker(funcChecker(func(ctx context.Context, _ *scrubMockConnection) (Divergence, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok, "checker context must carry a deadline")
+		remaining = time.Until(deadline)
+		return Divergence{}, nil
+	}))
+
+	cursor := 0
+	assert.True(t, pool.scrubOne(&cursor))
+	assert.Greater(t, remaining, scrubProbeTimeout-slow/2,
+		"second checker's budget was shortened by the first checker's run time")
+	assert.EqualValues(t, 0, pool.Metrics.ScrubErrorCount())
+}
+
 func TestScrubCloseCancelsInFlightProbe(t *testing.T) {
 	// Close must not wait out a slow probe: cancelling the scrub context
 	// aborts it and the freed connection is closed by the drain.

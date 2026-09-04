@@ -614,9 +614,52 @@ statement-local `set_config(..., is_local := true)` probe so `'65536'` vs
 `'64MB'` never counts as divergence. Findings carry GUC names only, never
 values. One blind spot remains: an _untracked_ custom GUC set behind
 tracking's back is unenumerable from SQL; the creation-time rejection gates
-are the defense for that class. Future checkers (prepared statements vs
-`pg_prepared_statements`, residual advisory locks, temp-schema leftovers)
-register the same way.
+are the defense for that class.
+
+Four more checkers cover the rest of the backend state the pool trusts:
+
+- `prepared_statements` diffs the connection's tracked prepared statements
+  against `pg_prepared_statements`, names and bodies. Idle connections
+  legitimately keep prepared statements across borrowers, so this is a
+  two-sided comparison: a backend statement tracking does not know is
+  untracked, a tracked statement the backend lost is phantom, and a tracked
+  statement whose backend body differs from the tracked query is mismatched
+  — a hidden `DEALLOCATE` plus re-`PREPARE` keeps the name, and the pool
+  would otherwise hand the redefined statement to the next borrower's
+  `EXECUTE`. Tracked names are consolidator identifiers and are reported
+  verbatim; every untracked name is redacted to `foreign_name`, one entry
+  per statement, since a name that arrived on a backend by another route
+  may embed client data and the consolidator's `ppstmt<N>` shape is
+  reachable from any session.
+- `holdable_cursors` reports one `holdable_cursor` finding per cursor still
+  open on the idle backend. Outside a transaction only `WITH HOLD` cursors
+  remain, and portals pin a reserved connection, so an open cursor here was
+  declared behind tracking (an `EXECUTE 'DECLARE ... WITH HOLD'` inside a
+  routine body). Cursor names are never reported.
+- `advisory_locks` reports a single `session_advisory_lock` finding when the
+  idle backend holds any advisory lock. Acquiring functions route to a
+  reserved connection whose release runs `pg_advisory_unlock_all`, so a lock
+  on an idle pooled backend means the acquisition escaped tracking. Lock keys
+  are never reported.
+- `temp_objects` reports one finding per kind of object (`table`, `index`,
+  `sequence`, `function`, `domain`, `enum`, `range`, `operator`,
+  `collation`, `statistics`, ...) in the backend's temporary schema. It
+  scans every namespace-scoped catalog the gateway's pg_temp CREATE
+  rejection covers: `pg_class`, `pg_proc` (aggregates included), standalone
+  `pg_type` entries, `pg_operator`, `pg_collation`, `pg_statistic_ext`,
+  `pg_opclass`, `pg_opfamily`, `pg_conversion`, and the four text-search
+  catalogs. Temp statements pin a reserved connection that is closed at
+  release and pg_temp-qualified CREATE is rejected, so any object on an
+  idle backend escaped tracking. Relations and types are the dangerous
+  classes: pg_temp is searched before `pg_catalog` for unqualified relation
+  and type names (a pg_temp domain named `text` captures an unqualified
+  `::text`), so a leftover shadows the catalog for the next borrower.
+  Operators, collations, and the other classes are never resolved through
+  pg_temp, even with it listed in `search_path`, and are reported as stale
+  state for completeness. Object names are never reported.
+
+All five checkers run against the same idle connection each tick; the
+divergence log line and the `checker` metric attribute name which one fired.
 
 The untracked rule imposes a bootstrap invariant: connection setup must not
 create session-source GUC state outside the settings label — bootstrap

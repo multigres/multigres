@@ -140,7 +140,61 @@ const (
 	// visible here is session-level (transaction-level advisory locks are
 	// released at transaction end), so a false result means the session has
 	// released all of its advisory locks and the backend can be unpinned.
-	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
+	// Schema-qualified so a pg_temp relation or a search_path function cannot
+	// shadow the catalog (see SessionSourceProbeSQL).
+	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND pid = pg_catalog.pg_backend_pid())"
+
+	// PreparedStatementsProbeSQL lists the named prepared statements the
+	// current backend holds with their bodies, protocol-level (Parse) and
+	// SQL-level (PREPARE) alike. The unnamed statement is never listed. For a
+	// Parse-created statement the body is the query string as submitted; for
+	// a SQL PREPARE it is the full PREPARE text. Run by the multipooler
+	// scrubber to compare against the pool's tracked prepared statements,
+	// body included: a name can survive a hidden DEALLOCATE plus re-PREPARE
+	// with a different body.
+	PreparedStatementsProbeSQL = "SELECT name, statement FROM pg_catalog.pg_prepared_statements"
+
+	// HoldableCursorsProbeSQL lists the current backend's open cursors. Run
+	// only outside a transaction, where every cursor still listed is WITH
+	// HOLD (others close at transaction end), so any row means a holdable
+	// cursor outlived its transaction on a pooled backend. Run by the
+	// multipooler scrubber; an idle pooled backend must hold none.
+	HoldableCursorsProbeSQL = "SELECT name FROM pg_catalog.pg_cursors"
+
+	// TempObjectsProbeSQL returns one row per object in the current backend's
+	// temporary schema, tagged by kind, across every namespace-scoped catalog
+	// the gateway's pg_temp CREATE rejection covers: a relkind code per
+	// pg_class entry, 'function' per pg_proc entry (aggregates included),
+	// 'type:' plus the typtype code per standalone pg_type entry (domains,
+	// enums, ranges, multiranges), and a fixed tag per operator, collation,
+	// statistics object, operator class, operator family, conversion, and
+	// text-search parser/dictionary/template/configuration. Composite types
+	// are counted through pg_class, and the array type PostgreSQL creates
+	// alongside every type is skipped, so each user-created object yields
+	// one row. pg_my_temp_schema() is 0 when the session has no temp schema,
+	// which no namespace OID matches, so the probe returns no rows.
+	//
+	// Run by the multipooler scrubber; an idle pooled backend must own none.
+	// Relations and types are the dangerous classes: pg_temp is searched
+	// before pg_catalog for unqualified relation and type names (verified: a
+	// pg_temp domain named text captures unqualified ::text), so a leftover
+	// shadows the catalog for the next borrower. Operators, collations, and
+	// the rest are never resolved through pg_temp, even with pg_temp listed
+	// in search_path; they are reported as stale state for completeness.
+	TempObjectsProbeSQL = "SELECT relkind::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'function' FROM pg_catalog.pg_proc WHERE pronamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'type:' || typtype::text FROM pg_catalog.pg_type WHERE typnamespace = pg_catalog.pg_my_temp_schema()" +
+		" AND typtype <> 'c' AND NOT (typtype = 'b' AND typelem <> 0)" +
+		" UNION ALL SELECT 'operator' FROM pg_catalog.pg_operator WHERE oprnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'collation' FROM pg_catalog.pg_collation WHERE collnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'statistics' FROM pg_catalog.pg_statistic_ext WHERE stxnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'operator_class' FROM pg_catalog.pg_opclass WHERE opcnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'operator_family' FROM pg_catalog.pg_opfamily WHERE opfnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'conversion' FROM pg_catalog.pg_conversion WHERE connamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_parser' FROM pg_catalog.pg_ts_parser WHERE prsnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_dictionary' FROM pg_catalog.pg_ts_dict WHERE dictnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_template' FROM pg_catalog.pg_ts_template WHERE tmplnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_config' FROM pg_catalog.pg_ts_config WHERE cfgnamespace = pg_catalog.pg_my_temp_schema()"
 
 	// SessionSourceProbeSQL is the session-state probe run by the multipooler
 	// scrubber. It reads the backend's real session GUC state in one

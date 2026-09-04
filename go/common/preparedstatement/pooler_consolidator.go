@@ -20,6 +20,10 @@ import (
 	"sync"
 )
 
+// CanonicalNamePrefix is the prefix of every name PoolerConsolidator assigns;
+// the rest of the name is a decimal counter.
+const CanonicalNamePrefix = "ppstmt"
+
 // PoolerConsolidator deduplicates prepared statements at the multipooler level.
 //
 // Unlike the gateway Consolidator which tracks per-connection name mappings,
@@ -59,7 +63,7 @@ func (pc *PoolerConsolidator) CanonicalName(query string, paramTypes []uint32) s
 		return name
 	}
 
-	name := fmt.Sprintf("ppstmt%d", pc.lastID)
+	name := fmt.Sprintf("%s%d", CanonicalNamePrefix, pc.lastID)
 	pc.lastID++
 	pc.stmts[key] = name
 	return name

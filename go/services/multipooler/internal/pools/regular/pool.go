@@ -61,6 +61,10 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 
 	pool := connpool.NewPool[*Conn](ctx, config.ConnPoolConfig)
 	pool.RegisterChecker(SessionStateChecker{})
+	pool.RegisterChecker(PreparedStatementChecker{})
+	pool.RegisterChecker(AdvisoryLockChecker{})
+	pool.RegisterChecker(HoldableCursorChecker{})
+	pool.RegisterChecker(TempObjectChecker{})
 
 	return &Pool{
 		pool:   pool,

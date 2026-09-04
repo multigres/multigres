@@ -365,7 +365,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
 
 	// Session-state scrub flag
-	fs.Duration("connpool-session-scrub-interval", c.sessionScrubInterval.Default(), "How often each user pool probes one idle connection for divergence between tracked and real session GUC state, replacing divergent connections (0 = disabled)")
+	fs.Duration("connpool-session-scrub-interval", c.sessionScrubInterval.Default(), "How often each user pool probes one idle connection for divergence between tracked and real backend state (session GUCs, prepared statements, advisory locks, holdable cursors, temp objects), replacing divergent connections (0 = disabled)")
 
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")

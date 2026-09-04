@@ -59,8 +59,9 @@ type ConnChecker[C Connection] interface {
 
 	// Check compares the connection's real backend state against its
 	// tracked state. It must be side-effect-free and runs only on idle
-	// connections. An error means no verdict could be produced (the
-	// connection is not punished for it).
+	// connections. An error means no verdict could be produced; the
+	// scrubber then fails closed and replaces the connection, since an
+	// unverified backend may still carry hidden state.
 	Check(ctx context.Context, conn C) (Divergence, error)
 }
 
