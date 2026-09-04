@@ -36,6 +36,7 @@ package etcdtopo
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -55,7 +56,10 @@ var (
 	serverCaPath   string
 )
 
-var _ topoclient.Conn = (*etcdtopo)(nil)
+var (
+	_ topoclient.Conn           = (*etcdtopo)(nil)
+	_ topoclient.FactoryWithTLS = Factory{}
+)
 
 // remoteOperationTimeout is used for operations where we have to
 // call out to etcd for initial data fetches (e.g., watch setup).
@@ -72,6 +76,11 @@ func (f Factory) HasGlobalReadOnlyCell(serverAddr, root string) bool {
 // Create is part of the topoclient.Factory interface.
 func (f Factory) Create(cell, root string, serverAddrs []string) (topoclient.Conn, error) {
 	return NewEtcdTopo(serverAddrs, root)
+}
+
+// CreateWithTLS creates an etcd topology client with per-connection TLS options.
+func (f Factory) CreateWithTLS(cell, root string, serverAddrs []string, tlsOptions *topoclient.TLSOptions) (topoclient.Conn, error) {
+	return NewServerWithTLS(serverAddrs, root, tlsOptions)
 }
 
 // etcdtopo is the implementation of topoclient.Conn for etcd.
@@ -99,9 +108,7 @@ func registerEtcdTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&serverCaPath, "topo-etcd-tls-ca", serverCaPath, "path to the ca to use to validate the server cert when connecting to the etcd topo server")
 }
 
-// Close implements topoclient.Conn.Close.
-// It will nil out the global and cells fields, so any attempt to
-// reuse this server will panic.
+// Close closes the etcd client.
 func (s *etcdtopo) Close() error {
 	close(s.running)
 	if err := s.cli.Close(); err != nil {
@@ -112,54 +119,99 @@ func (s *etcdtopo) Close() error {
 }
 
 func newTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
-	var tlscfg *tls.Config
-	// If TLS is enabled, attach TLS config info.
-	if certPath != "" && keyPath != "" {
-		var (
-			cert *tls.Certificate
-			cp   *x509.CertPool
-			err  error
-		)
-
-		cert, err = tlsutil.NewCert(certPath, keyPath, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		if caPath != "" {
-			cp, err = tlsutil.NewCertPool([]string{caPath})
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		tlscfg = &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			RootCAs:            cp,
-			InsecureSkipVerify: false,
-		}
-		if cert != nil {
-			tlscfg.Certificates = []tls.Certificate{*cert}
-		}
-	}
-	return tlscfg, nil
-}
-
-// NewServerWithOpts creates a new server with the provided TLS options
-func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*etcdtopo, error) {
-	// TODO: Rename this to NewServer and change NewServer to a name that signifies it uses the process-wide TLS settings.
-	config := clientv3.Config{
-		Endpoints:   serverAddrs,
-		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // grpc.WithBlock is deprecated but required by etcd client
+	if certPath == "" || keyPath == "" {
+		return nil, nil
 	}
 
-	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)
+	cert, err := tlsutil.NewCert(certPath, keyPath, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	config.TLS = tlscfg
+	var caPool *x509.CertPool
+	if caPath != "" {
+		caPool, err = tlsutil.NewCertPool([]string{caPath})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return newTLSConfigWithCertificate(cert, caPool), nil
+}
+
+func newTLSConfigFromPEM(certPEM, keyPEM, caPEM []byte) (*tls.Config, error) {
+	if len(certPEM) == 0 && len(keyPEM) == 0 {
+		if len(caPEM) != 0 {
+			return nil, errors.New("client certificate and key PEM are required when CA PEM is provided")
+		}
+		return nil, nil
+	}
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return nil, errors.New("both client certificate and key PEM must be provided for TLS")
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	var caPool *x509.CertPool
+	if len(caPEM) > 0 {
+		caPool = x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(caPEM) {
+			return nil, errors.New("failed to parse CA certificate PEM")
+		}
+	}
+
+	return newTLSConfigWithCertificate(&cert, caPool), nil
+}
+
+func newTLSConfigWithCertificate(cert *tls.Certificate, caPool *x509.CertPool) *tls.Config {
+	config := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		RootCAs:            caPool,
+		InsecureSkipVerify: false,
+	}
+	if cert != nil {
+		config.Certificates = []tls.Certificate{*cert}
+	}
+	return config
+}
+
+func newTLSConfigFromOptions(tlsOptions *topoclient.TLSOptions) (*tls.Config, error) {
+	if tlsOptions == nil {
+		return nil, nil
+	}
+	if tlsOptions.Config != nil {
+		if len(tlsOptions.CertPEM) != 0 || len(tlsOptions.KeyPEM) != 0 || len(tlsOptions.CAPEM) != 0 {
+			return nil, errors.New("TLS config cannot be combined with TLS PEM material")
+		}
+		config := tlsOptions.Config.Clone()
+		if config.MinVersion < tls.VersionTLS12 {
+			config.MinVersion = tls.VersionTLS12
+		}
+		config.InsecureSkipVerify = false
+		return config, nil
+	}
+	return newTLSConfigFromPEM(tlsOptions.CertPEM, tlsOptions.KeyPEM, tlsOptions.CAPEM)
+}
+
+func newEtcdClientConfig(serverAddrs []string, tlsConfig *tls.Config) clientv3.Config {
+	return clientv3.Config{
+		Endpoints:   serverAddrs,
+		DialTimeout: time.Second,
+		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // grpc.WithBlock is deprecated but required by etcd client
+		TLS:         tlsConfig,
+	}
+}
+
+// NewServerWithOpts creates a new server with TLS material loaded from file paths.
+func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*etcdtopo, error) {
+	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)
+	if err != nil {
+		return nil, err
+	}
+	config := newEtcdClientConfig(serverAddrs, tlscfg)
 
 	cli, err := clientv3.New(config)
 	if err != nil {
@@ -173,8 +225,27 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	}, nil
 }
 
-// NewEtcdTopo returns a new etcdtopo.Server.
+// NewServerWithTLS creates a new server with in-memory TLS options.
+func NewServerWithTLS(serverAddrs []string, root string, tlsOptions *topoclient.TLSOptions) (*etcdtopo, error) {
+	tlscfg, err := newTLSConfigFromOptions(tlsOptions)
+	if err != nil {
+		return nil, err
+	}
+	config := newEtcdClientConfig(serverAddrs, tlscfg)
+
+	cli, err := clientv3.New(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &etcdtopo{
+		cli:     cli,
+		root:    root,
+		running: make(chan struct{}),
+	}, nil
+}
+
+// NewEtcdTopo creates a new server using the TLS paths configured by command-line flags.
 func NewEtcdTopo(serverAddrs []string, root string) (*etcdtopo, error) {
-	// TODO: Rename this to a name to signifies this function uses the process-wide TLS settings.
 	return NewServerWithOpts(serverAddrs, root, clientCertPath, clientKeyPath, serverCaPath)
 }
