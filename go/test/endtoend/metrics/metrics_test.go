@@ -141,8 +141,10 @@ func TestPoolerMetricValues(t *testing.T) {
 	// Database count: always 1 per multipooler instance.
 	utils.AssertMetricValue(t, poolerVals, "mg_pooler_databases", nil, 1)
 
-	// Global capacity: default is 100.
-	utils.AssertMetricValue(t, poolerVals, "mg_pooler_config_max_server_connections", nil, 100)
+	// Global capacity: derived from the server at admin-pool open —
+	// max_connections (110, pgctld default) − superuser_reserved_connections
+	// (3, PG default) − reserved_connections (0) − admin pool capacity (5).
+	utils.AssertMetricValue(t, poolerVals, "mg_pooler_config_max_server_connections", nil, 102)
 
 	// Pool count: at least 1 user pool (the test user).
 	utils.AssertMetricGE(t, poolerVals, "mg_pooler_pools", nil, 1)
