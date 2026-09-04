@@ -62,13 +62,75 @@ func TestMtlsAuthPluginInitializer(t *testing.T) {
 	}
 }
 
+func TestParseCertSubstrings(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    []string
+		wantErr bool
+	}{
+		{name: "empty string rejected", raw: "", wantErr: true},
+		{name: "empty entry rejected", raw: "client-a::client-b", wantErr: true},
+		{name: "trailing empty entry rejected", raw: "client-a:", wantErr: true},
+		{name: "single entry", raw: "client-a", want: []string{"client-a"}},
+		{name: "multiple entries", raw: "client-a:client-b", want: []string{"client-a", "client-b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseCertSubstrings(tt.raw)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "grpc-auth-mtls-allowed-substrings")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCertSubjectMatches(t *testing.T) {
+	certA := generateTestPeerCert(t, "client-a")
+	certB := generateTestPeerCert(t, "client-b")
+
+	tests := []struct {
+		name       string
+		certs      []*x509.Certificate
+		substrings []string
+		want       bool
+	}{
+		{name: "no certs", certs: nil, substrings: []string{"client-a"}, want: false},
+		{name: "no substrings", certs: []*x509.Certificate{certA}, substrings: nil, want: false},
+		{name: "leaf matches", certs: []*x509.Certificate{certA}, substrings: []string{"client-a"}, want: true},
+		{name: "leaf does not match", certs: []*x509.Certificate{certB}, substrings: []string{"client-a"}, want: false},
+		{name: "match found later in chain", certs: []*x509.Certificate{certB, certA}, substrings: []string{"client-a"}, want: true},
+		{name: "match found later in substrings", certs: []*x509.Certificate{certA}, substrings: []string{"client-b", "client-a"}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, certSubjectMatches(tt.certs, tt.substrings))
+		})
+	}
+}
+
 func generateTestPeerCert(t *testing.T, cn string) *x509.Certificate {
+	t.Helper()
+	return generateTestPeerCertWithOrg(t, cn, "")
+}
+
+// generateTestPeerCertWithOrg is generateTestPeerCert with a second RDN, so
+// tests can exercise subjects that render with an RDN delimiter after the CN.
+func generateTestPeerCertWithOrg(t *testing.T, cn, org string) *x509.Certificate {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
+	subject := pkix.Name{CommonName: cn}
+	if org != "" {
+		subject.Organization = []string{org}
+	}
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: cn},
+		Subject:      subject,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 	}

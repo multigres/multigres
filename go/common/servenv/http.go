@@ -17,7 +17,9 @@
 package servenv
 
 import (
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +27,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // HTTPHandle registers the given handler for the internal servenv mux.
@@ -58,15 +62,41 @@ func corsMiddleware(next http.Handler) http.Handler {
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	slog.Info("listening for HTTP calls on port", "http_port", sv.httpPort.Get())
 
-	// Wrap the mux with CORS middleware and OpenTelemetry instrumentation
-	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
-	handler := otelhttp.NewHandler(corsMiddleware(sv.mux), "http-server")
+	// Wrap the mux with CORS middleware, optional client-cert enforcement,
+	// and OpenTelemetry instrumentation, in that order. The client-cert
+	// middleware sits outside CORS so preflight OPTIONS requests are gated
+	// too, and inside the otelhttp span so rejections still get traced.
+	// If no OTEL exporters are configured, noop exporters are used with
+	// minimal overhead.
+	handler := corsMiddleware(sv.mux)
+	if sv.httpClientCertRequired {
+		handler = requireClientCert(sv.httpClientCertSubstrings, handler)
+	}
+	handler = otelhttp.NewHandler(handler, "http-server")
 
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	err := server.Serve(l)
+
+	// tls.VerifyClientCertIfGiven, not tls.RequireAndVerifyClientCert: this
+	// listener is shared with Kubernetes kubelet probes, which cannot
+	// present a client certificate, so the handshake must succeed with none
+	// offered. requireClientCert (http_auth.go) enforces identity per-route
+	// instead, exempting the probe/version paths in unauthenticatedHTTPPaths.
+	tlsConfig, err := grpccommon.BuildServerTLSConfigWithClientAuth(
+		sv.httpCert.Get(), sv.httpKey.Get(), sv.httpCA.Get(), "", tls.VerifyClientCertIfGiven,
+	)
+	if err != nil {
+		return fmt.Errorf("http tls config: %w", err)
+	}
+
+	if tlsConfig != nil {
+		server.TLSConfig = tlsConfig
+		err = server.ServeTLS(l, "", "")
+	} else {
+		err = server.Serve(l)
+	}
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}

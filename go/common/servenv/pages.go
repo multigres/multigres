@@ -32,6 +32,17 @@ import (
 // render correctly, we may need to add more css styles.
 // We are using a classless css approach to minimize complexity.
 
+// unauthenticatedHTTPPaths are exempt from HTTP client-cert enforcement
+// (see requireClientCert, http_auth.go): Kubernetes kubelet
+// liveness/readiness probes issue plain HTTP GETs against this same port
+// and cannot present a client certificate, and /version is queried the same
+// way by operational tooling before a caller has any certificate to offer.
+var unauthenticatedHTTPPaths = map[string]bool{
+	"/live":    true,
+	"/ready":   true,
+	"/version": true,
+}
+
 func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 	sv.HTTPHandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")

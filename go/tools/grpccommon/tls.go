@@ -32,6 +32,16 @@ import (
 // When serverCAFile is provided, the intermediate CA certificate is appended
 // to the server's certificate chain so clients receive the full chain.
 func BuildServerTLSConfig(certFile, keyFile, caFile, serverCAFile string) (*tls.Config, error) {
+	return BuildServerTLSConfigWithClientAuth(certFile, keyFile, caFile, serverCAFile, tls.RequireAndVerifyClientCert)
+}
+
+// BuildServerTLSConfigWithClientAuth is BuildServerTLSConfig with the
+// client-auth requirement (applied only when caFile is set) taken as a
+// parameter instead of hardcoded to tls.RequireAndVerifyClientCert, for
+// listeners like multiadmin's HTTP one that share a port with callers unable
+// to present a client certificate (see http.go's HTTPServe). gRPC has no
+// such caller and keeps using BuildServerTLSConfig above unchanged.
+func BuildServerTLSConfigWithClientAuth(certFile, keyFile, caFile, serverCAFile string, clientAuth tls.ClientAuthType) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		// Reject ca/serverCA-only configurations: a user that set them
 		// likely intended TLS/mTLS and would otherwise silently get plaintext.
@@ -97,7 +107,7 @@ func BuildServerTLSConfig(certFile, keyFile, caFile, serverCAFile string) (*tls.
 			return nil, errors.New("failed to parse CA certificate")
 		}
 		tlsConfig.ClientCAs = caPool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		tlsConfig.ClientAuth = clientAuth
 	}
 
 	return tlsConfig, nil

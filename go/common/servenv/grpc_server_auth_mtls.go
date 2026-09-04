@@ -18,6 +18,7 @@ package servenv
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -71,21 +72,66 @@ func (ma *MtlsAuthPlugin) checkCert(ctx context.Context) (context.Context, strin
 	if !ok {
 		return nil, AuthOutcomeNotTLS
 	}
-	for _, substring := range ma.clientCertSubstrings {
-		for _, cert := range tlsInfo.State.PeerCertificates {
-			if strings.Contains(cert.Subject.String(), substring) {
-				return ctx, AuthOutcomeSuccess
-			}
-		}
+	if certSubjectMatches(tlsInfo.State.PeerCertificates, ma.clientCertSubstrings) {
+		return ctx, AuthOutcomeSuccess
 	}
 	return nil, AuthOutcomeCertNotAuthorized
 }
 
-func mtlsAuthPluginInitializer() (Authenticator, error) {
-	substrings := strings.Split(clientCertSubstrings, ":")
+// certSubjectMatches reports whether the subject of any of certs contains at
+// least one of substrings. Shared by the gRPC mtls Authenticator (checkCert
+// above) and Multiadmin's HTTP client-cert middleware (clientCertAuthorized,
+// http_auth.go), so both transports apply identical matching semantics - see
+// the doc there for the one deliberate difference (HTTP matches the leaf
+// certificate only, not the full chain).
+//
+// This is an unanchored substring test against the rendered DN, so an
+// allow-list entry authorizes anything that merely extends it: "CN=ns-team-a"
+// also admits "CN=ns-team-a-evil". That matters wherever the allow-list is a
+// trust boundary between holders of certificates from the same CA, as it is
+// for Multiadmin's per-tenant HTTP auth.
+//
+// An entry can be anchored by including the delimiter of the following RDN
+// ("CN=ns-team-a,O=..."), which is safe because pkix escapes commas inside
+// attribute values - a caller cannot forge a boundary from within its own CN.
+// But a subject with no RDN after the anchored one renders without a trailing
+// delimiter ("CN=ns-team-a"), so a bare-CN identity cannot be anchored this
+// way at all, and substring matching simply cannot express "exactly this CN"
+// for it.
+//
+// Matching on a parsed, exactly-compared identity is the real fix; it needs
+// its own change, since it would alter the meaning of every existing
+// allow-list.
+func certSubjectMatches(certs []*x509.Certificate, substrings []string) bool {
+	for _, substring := range substrings {
+		for _, cert := range certs {
+			if strings.Contains(cert.Subject.String(), substring) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ParseCertSubstrings splits and validates the colon-separated allow-list
+// carried by --grpc-auth-mtls-allowed-substrings. Exported so that
+// Multiadmin's --enable-http-mtls-auth (go/services/multiadmin/init.go),
+// which reuses this same flag value for HTTP client-cert auth rather than
+// introducing a second allow-list, validates it identically to the gRPC
+// mtls plugin below.
+func ParseCertSubstrings(raw string) ([]string, error) {
+	substrings := strings.Split(raw, ":")
 	// An empty substring matches every certificate subject, authorizing all clients.
 	if slices.Contains(substrings, "") {
-		return nil, fmt.Errorf("--grpc-auth-mtls-allowed-substrings must be a non-empty colon-separated list without empty entries, got %q", clientCertSubstrings)
+		return nil, fmt.Errorf("--grpc-auth-mtls-allowed-substrings must be a non-empty colon-separated list without empty entries, got %q", raw)
+	}
+	return substrings, nil
+}
+
+func mtlsAuthPluginInitializer() (Authenticator, error) {
+	substrings, err := ParseCertSubstrings(clientCertSubstrings)
+	if err != nil {
+		return nil, err
 	}
 	mtlsAuthPlugin := &MtlsAuthPlugin{
 		clientCertSubstrings: substrings,
