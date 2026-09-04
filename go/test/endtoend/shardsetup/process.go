@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -374,7 +373,7 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 		p.Process.Process.Pid, p.GrpcPort, p.HttpPort, p.LogFile)
 
 	// Wait for multiorch to be ready (using TCP port check like multiorch_helpers.go)
-	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second, p); err != nil {
 		return err
 	}
 	return nil
@@ -441,7 +440,7 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		p.Process.Process.Pid, p.PgPort, p.GrpcPort, p.HttpPort, p.LogFile)
 
 	// Wait for multigateway to be ready (Status RPC check)
-	if err := WaitForPortReady(t, "multigateway", p.GrpcPort, 3*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multigateway", p.GrpcPort, 3*time.Second, p); err != nil {
 		return err
 	}
 	t.Logf("Multigateway is ready")
@@ -489,7 +488,7 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 	t.Logf("Started multiadmin (pid: %d, http: %d, grpc: %d, log: %s)",
 		p.Process.Process.Pid, p.HttpPort, p.GrpcPort, p.LogFile)
 
-	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second, p); err != nil {
 		return err
 	}
 	t.Logf("Multiadmin is ready")
@@ -579,18 +578,11 @@ func (p *ProcessInstance) LogRecentOutput(t *testing.T, context string) {
 
 // IsRunning checks if the process is still running.
 // Returns false if the process has exited or was never started.
-// Copied from multipooler/setup_test.go.
 func (p *ProcessInstance) IsRunning() bool {
-	if p == nil || p.Process == nil || p.Process.Process == nil {
+	if p == nil {
 		return false
 	}
-	// ProcessState is set after Wait() returns, meaning process has exited
-	if p.Process.ProcessState != nil {
-		return false
-	}
-	// Signal 0 checks if process exists without actually sending a signal
-	err := p.Process.Process.Signal(syscall.Signal(0))
-	return err == nil
+	return p.Process.IsRunning()
 }
 
 // StopPostgres stops PostgreSQL via pgctld gRPC (best effort, no error handling).
@@ -666,9 +658,9 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 	return func() { p.TerminateGracefully(logf, 5*time.Second) }
 }
 
-// WaitForPortReady waits for a process to be ready by checking its gRPC port.
+// WaitForPortReady waits for proc to be ready by checking its gRPC port.
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
-func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
+func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration, proc *ProcessInstance) error {
 	t.Helper()
 
 	// Process startup is slower under coverage instrumentation; widen the wait
@@ -679,6 +671,11 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 	deadline := start.Add(timeout)
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
+		// Fail fast if the process already died, instead of polling a dead target.
+		if !proc.IsRunning() {
+			return fmt.Errorf("%s process exited before becoming ready on port %d", name, grpcPort)
+		}
+
 		connectAttempts++
 		// Test gRPC connectivity
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)

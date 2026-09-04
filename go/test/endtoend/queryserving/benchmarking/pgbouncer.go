@@ -110,7 +110,7 @@ unix_socket_dir = %s
 	}
 
 	// Wait for pgbouncer to accept connections
-	if err := waitForPort(t, "127.0.0.1", port, 10*time.Second); err != nil {
+	if err := waitForPort(t, "127.0.0.1", port, 10*time.Second, process); err != nil {
 		inst.Stop(t)
 		return nil, fmt.Errorf("pgbouncer did not become ready: %w", err)
 	}
@@ -142,13 +142,18 @@ func pgbouncerAvailable() bool {
 }
 
 // waitForPort polls a TCP port until it accepts connections or the timeout expires.
-func waitForPort(t *testing.T, host string, port int, timeout time.Duration) error {
+func waitForPort(t *testing.T, host string, port int, timeout time.Duration, proc *executil.Cmd) error {
 	t.Helper()
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
+		// Fail fast if the process already died, instead of polling a dead target.
+		if !proc.IsRunning() {
+			return fmt.Errorf("process exited before listening on port %s", addr)
+		}
+
 		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
 		if err == nil {
 			conn.Close()

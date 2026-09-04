@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
@@ -107,16 +108,17 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 	// Widen the readiness budget under coverage instrumentation, where postgres
 	// startup and the first Status round-trip run slower (see ScaleTimeout).
 	managerStartTimeout := utils.ScaleTimeout(testconst.ManagerStartTimeout)
-	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
+	testpoll.WaitFor(t, func(ctx context.Context) bool {
+		// Fail fast if the process already died, instead of polling a dead target.
+		require.True(t, manager.IsRunning(), "manager %s process exited before becoming ready", manager.Name)
 
-		resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			return false
-		}
-		return resp.Status != nil && resp.Status.PostgresReady
-	}, managerStartTimeout, 100*time.Millisecond, "Manager should become ready within %s", managerStartTimeout)
+		// Matches utils.WithShortDeadline.
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, utils.ScaleTimeout(2*time.Second))
+		defer attemptCancel()
+		resp, err := client.Status(attemptCtx, &multipoolermanagerdatapb.StatusRequest{})
+		return err == nil && resp.Status != nil && resp.Status.PostgresReady
+	}, managerStartTimeout, 100*time.Millisecond,
+		"Manager %s should become ready within %s", manager.Name, managerStartTimeout)
 
 	t.Logf("Manager %s is ready", manager.Name)
 }

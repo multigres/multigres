@@ -426,6 +426,20 @@ func (c *Cmd) Resume() error {
 	return c.Process.Signal(syscall.SIGCONT)
 }
 
+// IsRunning reports whether the process is still running. Returns false if
+// the process was never started or has already exited.
+func (c *Cmd) IsRunning() bool {
+	if c == nil || c.Process == nil {
+		return false
+	}
+	// ProcessState is set once Wait() returns, meaning the process has exited.
+	if c.ProcessState != nil {
+		return false
+	}
+	// Signal 0 checks whether the process exists without actually sending one.
+	return c.Process.Signal(syscall.Signal(0)) == nil
+}
+
 // Stop gracefully stops the process: SIGTERM first, then SIGKILL if needed.
 //
 // The context controls how long to wait for graceful shutdown (SIGTERM phase).

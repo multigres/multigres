@@ -523,18 +523,37 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 	return count > 0, nil
 }
 
+// processAlive reports whether pid is still running, using the standard
+// Unix "kill -0" liveness check (os.FindProcess always succeeds on Unix
+// regardless of whether the PID is valid; only Signal reveals the truth).
+func processAlive(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return process.Signal(syscall.Signal(0)) == nil
+}
+
 // waitForMultigatewayReady waits for a multigateway to be ready to execute queries.
 // This is necessary because PoolerDiscovery is async and may not have discovered
 // poolers yet, and lib/pq Ping uses an empty query (";") that bypasses pooler discovery.
 // With multi-cell discovery, any multigateway can find the primary in any zone,
 // so we only need to wait on the first port.
-func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) error {
+//
+// pid is the multigateway process's PID (from its service state file): if it
+// has already exited (e.g. a startup bind failure), we fail immediately with
+// a clear error instead of polling a dead target for the rest of ctx's budget.
+func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int, pid int) error {
 	t.Helper()
 
 	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
 	for attempt, err := range r.Attempts(ctx) {
 		if err != nil {
 			return fmt.Errorf("timeout waiting for multigateway to be ready after %d attempts: %w", attempt, err)
+		}
+
+		if !processAlive(pid) {
+			return fmt.Errorf("multigateway process (pid %d) exited before becoming ready", pid)
 		}
 
 		// Local provisioner creates PostgreSQL with default password "postgres"
@@ -1850,7 +1869,7 @@ func setupTestCluster(t *testing.T, opts ...clusterOption) *testClusterSetup {
 	readyPort := testPorts.Zones[0].MultigatewayPGPort
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer waitCancel()
-	err = waitForMultigatewayReady(t, waitCtx, readyPort)
+	err = waitForMultigatewayReady(t, waitCtx, readyPort, serviceStates["multigateway"].PID)
 	require.NoError(t, err, "multigateway should be ready after bootstrap")
 
 	return &testClusterSetup{
