@@ -996,3 +996,88 @@ func bytes32(seed byte) []byte {
 	}
 	return out
 }
+
+func TestDeriveGlobalCapacity(t *testing.T) {
+	// max_connections − superuser_reserved − reserved − admin capacity.
+	assert.Equal(t, int64(100), deriveGlobalCapacity(110, 3, 2, 5))
+	// Clamped to 1 when the server budget is smaller than the overheads.
+	assert.Equal(t, int64(1), deriveGlobalCapacity(5, 3, 0, 5))
+}
+
+func TestManager_Open_DerivesGlobalCapacity(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.AddQuery(globalCapacityQuery, fakepgserver.MakeResult(
+		[]string{"max_connections", "superuser_reserved_connections", "reserved_connections"},
+		[][]any{{"200", "3", "2"}},
+	))
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	// 200 − 3 − 2 − 5 (admin capacity default).
+	assert.Equal(t, int64(190), manager.GlobalCapacity())
+	assert.Equal(t, int64(190), manager.regularAllocator.Capacity()+manager.reservedAllocator.Capacity())
+}
+
+func TestManager_Open_DeriveFails_UsesConfigured(t *testing.T) {
+	// No registered query: the derivation query errors and the configured
+	// default must be used.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.Equal(t, int64(100), manager.GlobalCapacity())
+}
+
+func TestManager_Open_ExplicitGlobalCapacity_SkipsDerivation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.AddQuery(globalCapacityQuery, fakepgserver.MakeResult(
+		[]string{"max_connections", "superuser_reserved_connections", "reserved_connections"},
+		[][]any{{"200", "3", "2"}},
+	))
+	t.Setenv("CONNPOOL_GLOBAL_CAPACITY", "42")
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.Equal(t, int64(42), manager.GlobalCapacity())
+	assert.Equal(t, 0, server.GetQueryCalledNum(globalCapacityQuery))
+}
+
+func TestManager_Open_TinyBudget_KeepsRegularPoolUsable(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddQuery(globalCapacityQuery, fakepgserver.MakeResult(
+		[]string{"max_connections", "superuser_reserved_connections", "reserved_connections"},
+		[][]any{{"10", "3", "2"}},
+	))
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	// 10 − 3 − 2 − 5 (admin capacity) = 0, clamped to a derived budget of 1.
+	// Each pool class still gets one connection so ordinary queries and
+	// transactions both stay possible on a pathologically small server.
+	assert.Equal(t, int64(1), manager.GlobalCapacity())
+	assert.Equal(t, int64(1), manager.regularAllocator.Capacity())
+	assert.Equal(t, int64(1), manager.reservedAllocator.Capacity())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := manager.GetRegularConn(ctx, "user1", nil, nil)
+	require.NoError(t, err)
+	conn.Recycle()
+
+	// A rebalance must not zero the regular pool: with a zero-capacity
+	// allocator every user would be allocated 0 and the Get below would hang
+	// until the deadline.
+	manager.rebalance(ctx)
+	conn, err = manager.GetRegularConn(ctx, "user1", nil, nil)
+	require.NoError(t, err)
+	conn.Recycle()
+}

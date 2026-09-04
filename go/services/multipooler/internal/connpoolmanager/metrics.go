@@ -383,7 +383,7 @@ func (m *Metrics) routingRoleOption() metric.MeasurementOption {
 // Parameters:
 //   - statsGetter: returns a snapshot of all pool statistics
 //   - poolCountGetter: returns the number of active user pools
-//   - globalCapacityGetter: returns the configured global connection capacity
+//   - globalCapacityGetter: returns the global connection capacity in effect (derived or configured)
 //   - isClosedGetter: returns whether the manager is closed
 func (m *Metrics) RegisterManagerCallbacks(
 	statsGetter func() ManagerStats,
