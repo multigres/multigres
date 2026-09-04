@@ -56,6 +56,12 @@ func TestNewTLSConfigFromPEMWithoutMaterialUsesPlaintext(t *testing.T) {
 	assert.Nil(t, clientConfig.TLS)
 }
 
+func TestNewTLSConfigFromOptionsWithoutOptionsUsesPlaintext(t *testing.T) {
+	tlsConfig, err := newTLSConfigFromOptions(nil)
+	require.NoError(t, err)
+	assert.Nil(t, tlsConfig)
+}
+
 func TestNewServerWithTLSRequiresCertificateAndKey(t *testing.T) {
 	certPEM, keyPEM, _ := newTestTLSMaterial(t)
 
@@ -82,6 +88,11 @@ func TestNewServerWithTLSRejectsCAWithoutClientCredentials(t *testing.T) {
 
 	_, err := NewServerWithTLS([]string{"http://etcd.example"}, "/topology", &topoclient.TLSOptions{CAPEM: caPEM})
 	require.ErrorContains(t, err, "client certificate and key PEM are required when CA PEM is provided")
+}
+
+func TestNewServerWithTLSRequiresMaterial(t *testing.T) {
+	_, err := NewServerWithTLS([]string{"http://etcd.example"}, "/topology", &topoclient.TLSOptions{})
+	require.ErrorContains(t, err, "TLS options require a client certificate and key or TLS config")
 }
 
 func TestNewServerWithTLSRejectsHTTPEndpoint(t *testing.T) {

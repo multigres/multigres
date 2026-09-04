@@ -196,6 +196,9 @@ func newTLSConfigFromOptions(tlsOptions *topoclient.TLSOptions) (*tls.Config, er
 		config.InsecureSkipVerify = false
 		return config, nil
 	}
+	if len(tlsOptions.CertPEM) == 0 && len(tlsOptions.KeyPEM) == 0 && len(tlsOptions.CAPEM) == 0 {
+		return nil, errors.New("TLS options require a client certificate and key or TLS config")
+	}
 	return newTLSConfigFromPEM(tlsOptions.CertPEM, tlsOptions.KeyPEM, tlsOptions.CAPEM)
 }
 
