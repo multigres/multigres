@@ -16,54 +16,73 @@ package testpoll
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"testing/synctest"
 	"time"
 )
 
-// fakeT is a minimal TestingT that records whether Errorf was called,
-// without depending on testify or a real *testing.T.
+// fakeT is a minimal TestingT that records failures without depending on
+// testify or a real *testing.T. FailNow calls runtime.Goexit(), mirroring
+// *testing.T's real behavior, so tests that exercise the failure path must
+// run Never/WaitFor on their own goroutine (see runAndWaitForExit) — using a
+// real *testing.T subtest for this instead would make the intentional
+// failure count as a real, permanent test failure for the whole package.
 type fakeT struct {
-	failed  bool
-	message string
-	ctx     context.Context //nolint:containedctx // test double mirroring *testing.T.Context()
+	failed      bool
+	failNowCall bool
+	message     string
 }
+
+func (f *fakeT) Helper() {}
 
 func (f *fakeT) Errorf(format string, args ...any) {
 	f.failed = true
 	f.message = format
 }
 
-func (f *fakeT) Context() context.Context {
-	if f.ctx == nil {
-		return context.Background()
-	}
-	return f.ctx
+func (f *fakeT) FailNow() {
+	f.failNowCall = true
+	runtime.Goexit()
+}
+
+// runAndWaitForExit runs fn on its own goroutine and waits for it to end,
+// whether by returning normally or via runtime.Goexit() (triggered by
+// fakeT.FailNow()).
+func runAndWaitForExit(fn func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	<-done
 }
 
 func TestNever_PassesWhenConditionNeverTrue(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ft := &fakeT{}
-		ok := Never(ft, func() bool { return false }, 50*time.Millisecond, 5*time.Millisecond)
-		if !ok || ft.failed {
-			t.Errorf("expected Never to pass when condition is always false, got ok=%v failed=%v", ok, ft.failed)
+		Never(ft, func() bool { return false }, 50*time.Millisecond, 5*time.Millisecond)
+		if ft.failed || ft.failNowCall {
+			t.Errorf("expected Never to pass when condition is always false, got failed=%v failNowCall=%v", ft.failed, ft.failNowCall)
 		}
 	})
 }
 
-func TestNever_FailsAssoonAsConditionTrue(t *testing.T) {
+func TestNever_FailsTestAsSoonAsConditionTrue(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ft := &fakeT{}
 		calls := 0
 		start := time.Now()
-		ok := Never(ft, func() bool {
-			calls++
-			return calls >= 3
-		}, time.Second, 5*time.Millisecond, "custom message")
+		runAndWaitForExit(func() {
+			Never(ft, func() bool {
+				calls++
+				return calls >= 3
+			}, time.Second, 5*time.Millisecond, "custom message")
+		})
 		elapsed := time.Since(start)
 
-		if ok || !ft.failed {
-			t.Errorf("expected Never to fail once condition becomes true, got ok=%v failed=%v", ok, ft.failed)
+		if !ft.failed || !ft.failNowCall {
+			t.Errorf("expected Never to fail the test once condition becomes true, got failed=%v failNowCall=%v", ft.failed, ft.failNowCall)
 		}
 		// Should fail on the 3rd check, not wait out the full 1s window.
 		if elapsed > 500*time.Millisecond {
@@ -95,52 +114,31 @@ func TestNever_NoGoroutineOutlivesReturn(t *testing.T) {
 	})
 }
 
-func TestNever_ReturnsPromptlyWhenContextCancelled(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		ft := &fakeT{ctx: ctx}
-
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-
-		start := time.Now()
-		ok := Never(ft, func() bool { return false }, 10*time.Second, 5*time.Millisecond)
-		elapsed := time.Since(start)
-
-		if !ok || ft.failed {
-			t.Errorf("expected Never to return true/unfailed on context cancellation, got ok=%v failed=%v", ok, ft.failed)
-		}
-		if elapsed > time.Second {
-			t.Errorf("Never should return promptly once its context is cancelled, took %s", elapsed)
-		}
-	})
-}
-
 func TestWaitFor_PassesOnceConditionTrue(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ft := &fakeT{}
 		calls := 0
-		ok := WaitFor(ft, func(context.Context) bool {
+		WaitFor(ft, func(context.Context) bool {
 			calls++
 			return calls >= 3
 		}, time.Second, 5*time.Millisecond)
-		if !ok || ft.failed {
-			t.Errorf("expected WaitFor to pass once condition becomes true, got ok=%v failed=%v", ok, ft.failed)
+		if ft.failed || ft.failNowCall {
+			t.Errorf("expected WaitFor to pass once condition becomes true, got failed=%v failNowCall=%v", ft.failed, ft.failNowCall)
 		}
 	})
 }
 
-func TestWaitFor_FailsAfterTimeout(t *testing.T) {
+func TestWaitFor_FailsTestAfterTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ft := &fakeT{}
 		start := time.Now()
-		ok := WaitFor(ft, func(context.Context) bool { return false }, 50*time.Millisecond, 5*time.Millisecond, "custom message")
+		runAndWaitForExit(func() {
+			WaitFor(ft, func(context.Context) bool { return false }, 50*time.Millisecond, 5*time.Millisecond, "custom message")
+		})
 		elapsed := time.Since(start)
 
-		if ok || !ft.failed {
-			t.Errorf("expected WaitFor to fail once waitFor elapses, got ok=%v failed=%v", ok, ft.failed)
+		if !ft.failed || !ft.failNowCall {
+			t.Errorf("expected WaitFor to fail the test once waitFor elapses, got failed=%v failNowCall=%v", ft.failed, ft.failNowCall)
 		}
 		if elapsed > time.Second {
 			t.Errorf("WaitFor should fail close to its waitFor budget, took %s", elapsed)
@@ -166,25 +164,23 @@ func TestWaitFor_PassesContextToCondition(t *testing.T) {
 	})
 }
 
-func TestWaitFor_StopsWithoutReportingOnUnrelatedCancellation(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		ft := &fakeT{ctx: ctx}
-
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-
-		start := time.Now()
-		ok := WaitFor(ft, func(context.Context) bool { return false }, 10*time.Second, 5*time.Millisecond)
-		elapsed := time.Since(start)
-
-		if ok || ft.failed {
-			t.Errorf("expected WaitFor to stop quietly (ok=false, no Errorf) on unrelated cancellation, got ok=%v failed=%v", ok, ft.failed)
-		}
-		if elapsed > time.Second {
-			t.Errorf("WaitFor should stop promptly once its context is cancelled, took %s", elapsed)
-		}
-	})
+func TestFormatMsg(t *testing.T) {
+	cases := []struct {
+		name       string
+		msgAndArgs []any
+		want       string
+	}{
+		{"no args", nil, ""},
+		{"single non-string arg", []any{42}, ": 42"},
+		{"format string plus args", []any{"widget %s failed", "w1"}, ": widget w1 failed"},
+		{"first arg not a string, multiple args", []any{42, "extra"}, ": [42 extra]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatMsg(tc.msgAndArgs)
+			if got != tc.want {
+				t.Errorf("formatMsg(%v) = %q, want %q", tc.msgAndArgs, got, tc.want)
+			}
+		})
+	}
 }
