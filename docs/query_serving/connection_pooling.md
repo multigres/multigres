@@ -585,15 +585,21 @@ escapes gateway tracking — a `set_config` hidden in a routine body, a
 tracking bug, out-of-band DDL — would silently leak to the next borrower.
 The scrubber is the detection net for that class of failure.
 
-A background worker per pool pops one idle connection per tick (rotating
-across the clean stack and all settings buckets), runs every registered
-**state checker** against it, and either returns it — with its idle clock
-intact, so scrubbing never defeats idle-timeout shrinking — or, on any
-divergence, closes it and eagerly opens a replacement into the same slot
+A background worker per pool takes one idle connection per tick, runs every
+registered **state checker** against it, and either returns it — to the top
+of its stack, with its idle clock intact, so scrubbing never defeats LIFO
+reuse or idle-timeout shrinking — or, on any divergence, closes it and
+eagerly opens a replacement into the same slot
 (eager because a freed slot cannot wake a waitlisted client). Divergent
 backends are always replaced, never reconciled: divergence means tracking
 was bypassed, and what a checker observes is only part of what the untracked
-code may have done. A probe that fails or times out is treated the same way:
+code may have done. Selection works in passes so every idle connection is
+covered: each tick takes, from the next non-empty stack in rotation, the
+topmost connection not yet probed in the current pass and marks it; once
+every idle connection in every stack carries the current pass number the
+next pass begins. Simply probing the top of a stack each tick would never
+reach the connections beneath it, since clients also take and return
+connections at the top. A probe that fails or times out is treated the same way:
 an unverified backend may still carry hidden state, and a client could
 induce probe failures deliberately, so the scrubber fails closed and
 replaces it (churn is bounded to one connection per tick). While a probe is
