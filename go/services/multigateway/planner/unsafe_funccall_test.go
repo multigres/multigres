@@ -40,20 +40,20 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 }
 
 func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
-	analysis, err := analyzeSQLPreparedBody(nil, false)
+	analysis, err := analyzeSQLPreparedBody(nil, false, false)
 	require.NoError(t, err)
 	require.NotNil(t, analysis)
 
-	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"}, false)
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"}, false, false)
 	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"), false)
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"), false, false)
 	require.ErrorContains(t, err, "synchronous_commit")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"), false)
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"), false, false)
 	require.ErrorContains(t, err, "pg_read_file is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"), false)
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"), false, false)
 	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
 
 	require.NoError(t, validateSQLPreparedSetConfigs(nil))
@@ -120,7 +120,7 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.Nil(t, result)
 			require.Error(t, err)
 
@@ -218,12 +218,127 @@ func TestInspectExpressionFuncCalls_ReplicationSlots(t *testing.T) {
 			name: "pg_drop_replication_slot is unaffected",
 			sql:  "SELECT pg_drop_replication_slot('s1')",
 		},
+		{
+			name:    "logical: failover=true rejected without the flag",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_ReplicationSlots_FailoverAdmission covers
+// the admitFailoverSlots=true behavior: a non-temporary logical slot is
+// admitted only when the call spells out a literal failover=true itself,
+// positionally or by name. An omitted failover argument is rejected like any
+// other non-temporary call — the check is a pure predicate about what the
+// client actually wrote, never a promise that some later code path will
+// inject the argument (see rejectNonTemporaryReplicationSlot).
+func TestInspectExpressionFuncCalls_ReplicationSlots_FailoverAdmission(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name: "logical: temporary=false, failover=true accepted",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)",
+		},
+		{
+			name:    "logical: temporary=false, failover=false rejected (explicit opt-out)",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: temporary=false, failover omitted rejected (must be explicit)",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: non-literal failover (bound param) rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, $1)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: non-literal temporary (bound param), failover omitted, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: non-literal temporary (bound param) rejected even with literal failover=true",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1, false, true)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: temporary=true still accepted regardless of failover",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true, false, false)",
+		},
+		{
+			name:    "physical: failover has no meaning, temporary=false still rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: named failover => true accepted, temporary/twophase omitted",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		},
+		{
+			name: "logical: named temporary => false, failover => true accepted",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', temporary => false, failover => true)",
+		},
+		{
+			name:    "logical: named failover => false rejected (explicit opt-out)",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => false)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: named temporary => true accepted without failover",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', temporary => true)",
+		},
+		{
+			name:    "logical: bare two-argument call rejected (failover must be explicit)",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: temporary omitted still rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1')",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt, true, true)
 			if !tt.wantErr {
 				require.NoError(t, err)
 				require.NotNil(t, result)
@@ -250,13 +365,13 @@ func TestReplicationSlotAfterNormalization(t *testing.T) {
 	accept := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST, false)
+		_, err := analyzeStatement(norm.NormalizedAST, false, false)
 		assert.NoError(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 	}
 	reject := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST, false)
+		_, err := analyzeStatement(norm.NormalizedAST, false, false)
 		require.Error(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 		var diag *mterrors.PgDiagnostic
 		require.True(t, errors.As(err, &diag))
@@ -370,7 +485,7 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCalls, result.SetConfigs)
@@ -387,7 +502,7 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 // merely "not a literal string".
 func TestSetConfigLiteralNullValue(t *testing.T) {
 	t.Run("ordinary GUC tracks a reset", func(t *testing.T) {
-		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('work_mem', NULL, false)"), true)
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('work_mem', NULL, false)"), true, false)
 		require.NoError(t, err)
 		require.Len(t, result.SetConfigs, 1)
 		sc := result.SetConfigs[0]
@@ -398,7 +513,7 @@ func TestSetConfigLiteralNullValue(t *testing.T) {
 	})
 
 	t.Run("search_path reset needs no pg_temp vet", func(t *testing.T) {
-		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('search_path', NULL, false)"), true)
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('search_path', NULL, false)"), true, false)
 		require.NoError(t, err)
 		require.Len(t, result.SetConfigs, 1)
 		assert.True(t, result.SetConfigs[0].ValueIsNull)
@@ -411,7 +526,7 @@ func TestSetConfigLiteralNullValue(t *testing.T) {
 			"SELECT set_config('work_mem', NULL, true)",
 			"SELECT set_config('search_path', NULL, true)",
 		} {
-			result, err := analyzeFunctionCalls(parseOne(t, sql), true)
+			result, err := analyzeFunctionCalls(parseOne(t, sql), true, false)
 			require.NoError(t, err, sql)
 			assert.Empty(t, result.SetConfigs, sql)
 		}
@@ -419,7 +534,7 @@ func TestSetConfigLiteralNullValue(t *testing.T) {
 
 	t.Run("gateway-managed variable stays fail-closed", func(t *testing.T) {
 		// The gateway owns the value and has no per-variable reset primitive.
-		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('statement_timeout', NULL, false)"), true)
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('statement_timeout', NULL, false)"), true, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "RESET statement_timeout")
 	})
@@ -427,7 +542,7 @@ func TestSetConfigLiteralNullValue(t *testing.T) {
 	t.Run("bound name stays fail-closed", func(t *testing.T) {
 		// The VAR_RESET synthetic cannot resolve a bound name; resetting a
 		// placeholder would silently drift from the backend.
-		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config($1, NULL, false)"), true)
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config($1, NULL, false)"), true, false)
 		require.Error(t, err)
 	})
 }
@@ -455,7 +570,7 @@ func TestSetConfigDirectAndPreparedParity(t *testing.T) {
 	}
 	for _, body := range bodies {
 		t.Run(body, func(t *testing.T) {
-			result, err := analyzeFunctionCalls(parseOne(t, body), true)
+			result, err := analyzeFunctionCalls(parseOne(t, body), true, false)
 			require.NoError(t, err)
 			require.Len(t, result.SetConfigs, 1)
 			sc := result.SetConfigs[0]
@@ -485,7 +600,7 @@ func TestSetConfigDirectAndPreparedParity(t *testing.T) {
 func TestSetConfigIsLocalTrueBoundVetOnly(t *testing.T) {
 	t.Run("bound name and value", func(t *testing.T) {
 		stmt := parseOne(t, "SELECT set_config($1, $2, true)")
-		result, err := analyzeFunctionCalls(stmt, true)
+		result, err := analyzeFunctionCalls(stmt, true, false)
 		require.NoError(t, err)
 		require.Len(t, result.SetConfigs, 1)
 		sc := result.SetConfigs[0]
@@ -499,7 +614,7 @@ func TestSetConfigIsLocalTrueBoundVetOnly(t *testing.T) {
 
 	t.Run("literal search_path name with bound value", func(t *testing.T) {
 		stmt := parseOne(t, "SELECT set_config('search_path', $1, true)")
-		result, err := analyzeFunctionCalls(stmt, true)
+		result, err := analyzeFunctionCalls(stmt, true, false)
 		require.NoError(t, err)
 		require.Len(t, result.SetConfigs, 1)
 		sc := result.SetConfigs[0]
@@ -510,7 +625,7 @@ func TestSetConfigIsLocalTrueBoundVetOnly(t *testing.T) {
 
 	t.Run("literal non-search_path name with bound value stays untracked", func(t *testing.T) {
 		stmt := parseOne(t, "SELECT set_config('request.jwt.claims', $1, true)")
-		result, err := analyzeFunctionCalls(stmt, true)
+		result, err := analyzeFunctionCalls(stmt, true, false)
 		require.NoError(t, err)
 		assert.Empty(t, result.SetConfigs)
 	})
@@ -595,7 +710,7 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -645,7 +760,7 @@ func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "a transaction-local pass-through must not be tracked")
@@ -745,7 +860,7 @@ func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -790,7 +905,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.DynamicSetConfig, "expected DynamicSetConfig")
@@ -865,7 +980,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			_, err := analyzeFunctionCalls(stmt, true)
+			_, err := analyzeFunctionCalls(stmt, true, false)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
 		})
@@ -897,10 +1012,10 @@ func TestInspectExpressionFuncCalls_SetConfigUnsafeConnection(t *testing.T) {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
 			// Enforced: rejected.
-			_, err := analyzeFunctionCalls(stmt, true)
+			_, err := analyzeFunctionCalls(stmt, true, false)
 			require.Error(t, err, "expected rejection when enforced")
 			// unsafe-connection: accepted and untracked.
-			result, err := analyzeFunctionCalls(parseOne(t, sql), false)
+			result, err := analyzeFunctionCalls(parseOne(t, sql), false, false)
 			require.NoError(t, err, "unsafe-connection must not reject")
 			require.NotNil(t, result)
 			assert.False(t, result.DynamicSetConfig, "must not synthesize a dynamic set_config plan")
@@ -934,7 +1049,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.False(t, result.DynamicSetConfig, "should not take the dynamic path")
@@ -974,7 +1089,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
@@ -1004,7 +1119,7 @@ func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			_, err := analyzeFunctionCalls(stmt, true)
+			_, err := analyzeFunctionCalls(stmt, true, false)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
@@ -1024,7 +1139,7 @@ func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "is_local literal true must not produce a tracker entry")
@@ -1049,7 +1164,7 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	for _, sql := range allowed {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)
@@ -1122,7 +1237,7 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires temporary=true")
@@ -1131,6 +1246,28 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.CreatesLogicalReplicationSlot)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_FailoverSlotCreation_NoPinning confirms a
+// non-temporary logical slot admitted via admitFailoverSlots does not set
+// CreatesLogicalReplicationSlot: it's a persistent slot visible from any
+// backend, so — unlike a temporary slot — the session must not be pinned to
+// the backend that created it. Covers both the positional and named-argument
+// failover=true forms.
+func TestInspectExpressionFuncCalls_FailoverSlotCreation_NoPinning(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)",
+		"SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		"SELECT pg_create_logical_replication_slot('s1', 'pgoutput', temporary => false, failover => true)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			result, err := analyzeFunctionCalls(stmt, true, true)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.CreatesLogicalReplicationSlot)
 		})
 	}
 }
@@ -1176,7 +1313,7 @@ func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt, true)
+			result, err := analyzeFunctionCalls(stmt, true, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.CallsSetSeed)

@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -49,6 +50,91 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+
+	// slotBasedReplicationMu guards slotBasedReplicationEnabled and
+	// lastSlotBasedReplicationEnabled together: invalidateOnSlotBasedReplicationTransition
+	// needs the check, the flip, and the cache invalidation to happen as one
+	// unit, so a concurrent request that finds the flag already up to date
+	// is guaranteed the invalidation a sibling request made for that same
+	// transition has already finished (see that method).
+	slotBasedReplicationMu          sync.Mutex
+	slotBasedReplicationEnabled     func() bool
+	lastSlotBasedReplicationEnabled bool
+}
+
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates
+// admitting a non-temporary logical failover replication slot created via
+// plain SQL. Must be called before connections are accepted. A nil getter
+// (the default) keeps the feature off, rejecting every non-temporary slot as
+// before. See planner.Planner.SetSlotBasedReplicationEnabled.
+//
+// A plan admitted under this (or any other dynamic, plan-affecting) flag
+// stays cached and gets served on later hits without re-running analysis.
+// Multigateway's config-reload handler (CobraPreRunE/Init) calls
+// InvalidatePlanCache asynchronously whenever the live config changes, which
+// is the backstop for "nothing queries this for a while" — but the getter is
+// also kept here so invalidateOnSlotBasedReplicationTransition can check it
+// synchronously on every cacheable request, closing the gap between "the
+// flag changed" and "the reload handler got scheduled" far tighter than the
+// backstop alone would for a request already in flight.
+func (e *Executor) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	e.slotBasedReplicationMu.Lock()
+	e.slotBasedReplicationEnabled = enabled
+	if enabled != nil {
+		e.lastSlotBasedReplicationEnabled = enabled()
+	}
+	e.slotBasedReplicationMu.Unlock()
+	e.planner.SetSlotBasedReplicationEnabled(enabled)
+}
+
+// invalidateOnSlotBasedReplicationTransition invalidates the plan cache the
+// moment a request observes enable-slot-based-replication has changed since
+// the last request observed it. resolvePlan/resolvePortalPlan call this
+// before every cache lookup: a mutex lock is negligible next to the rest of
+// planning, and checking here — not only inside Plan(), which only runs on a
+// cache miss — means a cache hit can never serve a plan admitted under a
+// since-flipped flag, no matter how long the asynchronous reload handler
+// takes to get scheduled.
+//
+// The check, the flip, and the invalidation share one critical section on
+// purpose: if they didn't, a request could observe the flag already flipped
+// by a concurrent request (so skip invalidating itself, correctly assuming
+// that sibling request handles it) and still race ahead to a cache lookup
+// before that sibling's Invalidate call actually runs, serving a plan
+// admitted under the stale value. Serializing the whole sequence means any
+// request that finds the flag already up to date is guaranteed the
+// invalidation for that transition has already completed.
+//
+// This still leaves one irreducible gap: the getter reads viper's live,
+// externally-mutated config value, so a flip landing in the instant between
+// this read and the subsequent planCache.Get could let that one request
+// serve a plan from just before the flip. Closing that to zero would mean
+// the config watcher itself synchronously invalidating the moment it
+// observes a change, rather than today's buffered-notification handoff to a
+// consumer goroutine — a change to the general dynamic-config mechanism,
+// not something this function can do on its own. In practice the gap
+// self-heals immediately: the very next request re-reads the getter fresh
+// and observes the transition, since nothing here depends on the reload
+// notification actually having arrived yet.
+func (e *Executor) invalidateOnSlotBasedReplicationTransition() {
+	e.slotBasedReplicationMu.Lock()
+	defer e.slotBasedReplicationMu.Unlock()
+	if e.slotBasedReplicationEnabled == nil {
+		return
+	}
+	current := e.slotBasedReplicationEnabled()
+	if e.lastSlotBasedReplicationEnabled != current {
+		e.lastSlotBasedReplicationEnabled = current
+		e.planCache.Invalidate()
+	}
+}
+
+// InvalidatePlanCache discards every cached plan, so the next request for
+// any statement is re-planned from scratch. Call this whenever a dynamic
+// flag that affects planning decisions (e.g. enable-slot-based-replication)
+// changes value — see SetSlotBasedReplicationEnabled.
+func (e *Executor) InvalidatePlanCache() {
+	e.planCache.Invalidate()
 }
 
 // NewExecutor creates a new executor instance.
@@ -164,6 +250,11 @@ func (e *Executor) resolvePlan(
 		bindVars = normResult.BindValues
 	}
 
+	// See invalidateOnSlotBasedReplicationTransition: checked here, right
+	// before the lookup, so a cache hit can never serve a plan admitted
+	// under a since-flipped dynamic flag.
+	e.invalidateOnSlotBasedReplicationTransition()
+
 	// Cache hit
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "plan cache hit",
@@ -172,12 +263,22 @@ func (e *Executor) resolvePlan(
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
+	//
+	// The epoch is captured before planning, not read fresh at Put: planning
+	// may read live, mutable state (e.g. a dynamic feature flag such as
+	// enable-slot-based-replication) that Invalidate() is the designated
+	// response to changing. If a reload bumps the epoch while this plan
+	// (built under the pre-reload state) is still in flight, stamping with
+	// the captured epoch — now behind the current one — means the entry is
+	// immediately stale on the next Get, instead of Put silently caching a
+	// decision made under a policy that no longer holds.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.PutAtEpoch(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
 		"normalized_query", normalizedSQL,
 		"plan", plan.String())
@@ -308,6 +409,12 @@ func (e *Executor) resolvePortalPlan(
 	normalizedSQL := astStmt.SqlString()
 	fingerprint := ast.FingerprintSQL(normalizedSQL)
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
+
+	// See invalidateOnSlotBasedReplicationTransition: checked here, right
+	// before the lookup, so a cache hit can never serve a plan admitted
+	// under a since-flipped dynamic flag.
+	e.invalidateOnSlotBasedReplicationTransition()
+
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
 		return cachedPlan, true, normalizedSQL, fingerprint, nil
@@ -315,12 +422,14 @@ func (e *Executor) resolvePortalPlan(
 
 	// Cacheable DML is planned protocol-agnostically (zero-value PlanOptions, same
 	// as the simple path) so the cached entry is shared safely across protocols.
+	// Epoch captured before planning — see the matching comment in resolvePlan.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.PutAtEpoch(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
 		"query", normalizedSQL, "plan", plan.String())
 	return plan, false, normalizedSQL, fingerprint, nil

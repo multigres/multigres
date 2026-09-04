@@ -100,6 +100,52 @@ func TestTempObjectCreationReserves(t *testing.T) {
 	}
 }
 
+// TestStoredExpressionContexts_NeverAdmitFailoverSlot proves that a call
+// embedded anywhere PostgreSQL stores an expression for later, repeated
+// invocation — a view or materialized view body, a column DEFAULT, a CHECK
+// constraint, or an index expression — never gets failover-slot admission,
+// even with the feature flag on and even when the call spells out
+// failover=true explicitly. Admitting it would freeze a decision made under
+// a live, operator-toggleable flag into a stored definition that keeps
+// re-executing every time postgres invokes it (SELECT/REFRESH for a view,
+// INSERT for a DEFAULT, INSERT/UPDATE for a CHECK constraint or an index),
+// with no further text for the planner to ever re-examine, so turning the
+// flag off would not stop it (see
+// isImmediatelyExecutedForFailoverAdmission).
+//
+// Each case spells out failover => true on purpose: without it the call
+// would be rejected anyway for omitting failover, and the test would pass
+// without ever exercising the allowlist it exists to cover. This is also
+// deliberately not an exhaustive list of every PostgreSQL construct that
+// can store an expression (rules, RLS policies, and SQL-language
+// function/trigger bodies are the same shape of risk but aren't exercised
+// here) — the point of the allowlist is that none of them need to be
+// enumerated individually to be covered.
+func TestStoredExpressionContexts_NeverAdmitFailoverSlot(t *testing.T) {
+	tests := []string{
+		"CREATE TEMP VIEW v AS SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		"CREATE VIEW v AS SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		"CREATE MATERIALIZED VIEW mv AS SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		"CREATE TABLE t (a int DEFAULT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true))",
+		"CREATE TABLE t (a int CHECK (pg_create_logical_replication_slot('s1', 'pgoutput', failover => true) IS NOT NULL))",
+		"CREATE INDEX idx ON t ((pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)))",
+	}
+	for _, sql := range tests {
+		t.Run(sql, func(t *testing.T) {
+			s := newTestSetup(t)
+			s.p.SetSlotBasedReplicationEnabled(func() bool { return true })
+
+			asts, err := parser.ParseSQL(sql)
+			require.NoError(t, err)
+			require.Len(t, asts, 1)
+
+			_, err = s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
+			require.ErrorContains(t, err, "requires temporary=true",
+				"a call in a stored, later-invoked expression must never be admitted via the failover path")
+		})
+	}
+}
+
 // TestTempSchemaQualifiedCreateRejected asserts that creating an object in the
 // temp namespace via schema qualification (without the TEMP keyword) is
 // rejected at plan time: PostgreSQL would make it a genuine temp object during

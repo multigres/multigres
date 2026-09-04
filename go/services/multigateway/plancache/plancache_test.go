@@ -105,6 +105,42 @@ func TestInvalidate(t *testing.T) {
 	assert.True(t, ok, "q3 should be found after Invalidate")
 }
 
+// TestPutAtEpoch_StaleEpochNeverServed proves the TOCTOU fix executor.go
+// relies on: a caller that captured Epoch() before starting a long-running
+// operation (e.g. planning under a live, mutable flag) and calls PutAtEpoch
+// with that captured value must never have the entry served if Invalidate()
+// ran in the meantime — even though PutAtEpoch itself runs after
+// Invalidate(). Without this, a decision made under a since-superseded
+// policy could be cached and served indefinitely.
+func TestPutAtEpoch_StaleEpochNeverServed(t *testing.T) {
+	c := newForTest(1000)
+	defer c.Close()
+	ctx := t.Context()
+
+	// Simulates: cache miss, capture the epoch, then start a slow plan.
+	epochAtPlanStart := c.Epoch()
+
+	// Simulates: a config reload invalidates the cache while the plan above
+	// is still in flight.
+	c.Invalidate()
+
+	// Simulates: the slow plan finishes and is cached, stamped with the
+	// epoch captured before the reload — not the current (bumped) one.
+	c.PutAtEpoch("q1", makePlan("q1"), epochAtPlanStart)
+	time.Sleep(50 * time.Millisecond)
+
+	_, ok := c.Get(ctx, "q1")
+	assert.False(t, ok, "an entry stamped with a superseded epoch must never be served")
+
+	// A plan started after the reload (correct current epoch) must still
+	// cache and serve normally.
+	c.PutAtEpoch("q2", makePlan("q2"), c.Epoch())
+	time.Sleep(50 * time.Millisecond)
+
+	_, ok = c.Get(ctx, "q2")
+	assert.True(t, ok, "an entry stamped with the current epoch must be served")
+}
+
 func TestMultipleInvalidations(t *testing.T) {
 	c := newForTest(1000)
 	defer c.Close()
