@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -135,7 +136,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 	config := s.pgConfig
 
 	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
+	if postgresIsRunning(logger, config) {
 		logger.Info("Postgres is already running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.AlreadyRunning = true
 		result.Message = "PostgreSQL is already running"
@@ -241,20 +242,71 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 	return nil
 }
 
-func isPostgreSQLRunning(dataDir string) bool {
-	// Check if postmaster.pid file exists and process is running
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	if _, err := os.Stat(pidFile); err != nil {
-		return false
-	}
+// pgLiveness is the outcome of the local postmaster.pid check. Tri-state
+// because "not running" and "cannot tell" need different follow-up.
+type pgLiveness int
 
-	// Read PID from file and check if process is actually running
+const (
+	// pgAlive: postmaster.pid names a process that exists.
+	pgAlive pgLiveness = iota
+
+	// pgDown: PGDATA is readable and reports no running postmaster.
+	pgDown
+
+	// pgUnknown: postmaster.pid could not be read or parsed, so callers must
+	// fall back to a connectivity probe. Does not cover an untraversable
+	// PGDATA; IsDataDirInitialized rejects that before we get here.
+	pgUnknown
+)
+
+// postgresLiveness reports what the local check can say about dataDir's
+// postmaster. The pid is 0 unless the verdict is pgAlive.
+func postgresLiveness(dataDir string) (pgLiveness, int) {
 	pid, err := readPostmasterPID(dataDir)
 	if err != nil {
-		return false
+		if errors.Is(err, os.ErrNotExist) {
+			return pgDown, 0
+		}
+		return pgUnknown, 0
 	}
 
-	return isProcessRunning(pid)
+	if isProcessRunning(pid) {
+		return pgAlive, pid
+	}
+	return pgDown, 0
+}
+
+// postgresIsRunning is the running-check for start, stop, restart and reload,
+// probing for connectivity only when the local check cannot tell.
+//
+// pgAlive is returned without probing: unlike status reporting, these guards
+// want "a process exists", so stop still tries to stop a frozen postmaster.
+func postgresIsRunning(logger *slog.Logger, config *pgctld.PostgresCtlConfig) bool {
+	liveness, _ := postgresLiveness(config.PostgresDataDir)
+	switch liveness {
+	case pgAlive:
+		return true
+	case pgDown:
+		return false
+	default:
+		//nolint:gocritic // this family threads no caller context, so a disconnect cannot cancel a shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), pgIsReadyDefaultTimeout)
+		defer cancel()
+
+		running := isServerReadyWithConfig(ctx, config)
+		logger.Debug("postmaster.pid unreadable; connectivity probe decided liveness",
+			"data_dir", config.PostgresDataDir, "running", running)
+		return running
+	}
+}
+
+// postgresMayBeRunning is the running-check for the crash-recovery guards. It
+// resolves pgUnknown to "running" instead of probing like postgresIsRunning:
+// pg_isready calls a postmaster that is still replaying WAL not ready, and that
+// is the state these guards most need to catch.
+func postgresMayBeRunning(dataDir string) bool {
+	liveness, _ := postgresLiveness(dataDir)
+	return liveness != pgDown
 }
 
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
@@ -436,8 +488,14 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
-	// On Unix, sending signal 0 checks if process exists without actually sending a signal.
-	// This is the standard way to check if a process is running.
+	// On Unix, sending signal 0 checks if the process exists without actually
+	// sending a signal.
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	if err == nil {
+		return true
+	}
+	// EPERM means the process exists but is owned by a different OS user
+	// (e.g. pgctld running as 'multigres' while postgres runs as 'postgres').
+	// Only ESRCH / ErrProcessDone means the process is actually gone.
+	return errors.Is(err, syscall.EPERM)
 }

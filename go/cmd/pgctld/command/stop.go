@@ -136,7 +136,7 @@ func (s *PgCtldService) StopPostgreSQLWithResult(mode string) (*StopResult, erro
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	if !postgresIsRunning(logger, config) {
 		logger.Info("Postgres is not running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"

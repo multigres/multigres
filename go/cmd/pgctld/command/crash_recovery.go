@@ -111,7 +111,7 @@ func (s *PgCtldService) runCrashRecoveryInDir(
 	// Callers gate this path on a stopped node; this is the last-line guard for
 	// the residual race where a postmaster appears between that check and here.
 	// A running node needs no crash recovery, so skipping is also the correct no-op.
-	if isPostgreSQLRunning(dataDir) {
+	if postgresMayBeRunning(dataDir) {
 		logger.InfoContext(ctx, "skipping crash recovery: postgres is running", "data_dir", dataDir)
 		return nil
 	}

@@ -589,7 +589,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	// is instead crash-recovered by the postmaster on the normal start below and
 	// does not set it.
 	var crashRecoveryRan bool
-	if req.GetAllowCrashRecovery() && isPostgreSQLRunning(s.pgConfig.PostgresDataDir) {
+	if req.GetAllowCrashRecovery() && postgresMayBeRunning(s.pgConfig.PostgresDataDir) {
 		// Never crash-recover a running postmaster: runCrashRecovery removes
 		// standby.signal for single-user recovery, and doing that to a postmaster
 		// that is up — or still starting after a Start whose success was misreported
