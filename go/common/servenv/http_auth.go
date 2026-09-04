@@ -137,7 +137,7 @@ func requireClientCert(substrings []string, next http.Handler) http.Handler {
 			return
 		}
 		if !clientCertAuthorized(r, substrings) {
-			slog.Warn("client-cert auth: rejected request", "path", r.URL.Path)
+			slog.WarnContext(r.Context(), "client-cert auth: rejected request", "path", r.URL.Path)
 			http.Error(w, authFailedMessage, http.StatusUnauthorized)
 			return
 		}

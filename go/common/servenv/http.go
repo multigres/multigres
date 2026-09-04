@@ -68,7 +68,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	// too, and inside the otelhttp span so rejections still get traced.
 	// If no OTEL exporters are configured, noop exporters are used with
 	// minimal overhead.
-	var handler http.Handler = corsMiddleware(sv.mux)
+	handler := corsMiddleware(sv.mux)
 	if sv.httpClientCertRequired {
 		handler = requireClientCert(sv.httpClientCertSubstrings, handler)
 	}
