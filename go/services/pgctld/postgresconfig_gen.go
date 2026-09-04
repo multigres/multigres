@@ -210,9 +210,11 @@ func PostgresDataDir() string {
 	return os.Getenv(constants.PgDataDirEnvVar)
 }
 
-// PostgresSocketDir returns the default location of the PostgreSQL Unix sockets.
+// PostgresSocketDir returns the default location of the PostgreSQL Unix
+// sockets. Thin alias over the canonical formula in go/common/constants so
+// pgctld's many call sites keep their local name.
 func PostgresSocketDir(poolerDir string) string {
-	return path.Join(poolerDir, "pg_sockets")
+	return constants.PostgresSocketDir(poolerDir)
 }
 
 // RestoreCommandPIDFile returns the path the restore_command wrapper (see

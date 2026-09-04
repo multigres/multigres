@@ -854,9 +854,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("failed to provision pgctld for multipooler: %w", err)
 	}
 
-	// Construct the PostgreSQL socket file path: <poolerDir>/pg_sockets/.s.PGSQL.<port>
-	pgSocketFile := filepath.Join(poolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
-
 	// Build command arguments with pgctld-addr
 	args := []string{
 		"--http-port", strconv.Itoa(httpPort),
@@ -874,7 +871,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
+		// No --socket-file: the multipooler derives the postgres Unix socket
+		// path (for trust auth) from --pooler-dir and --pg-port.
 	}
 
 	// Add socket file if configured
@@ -2087,15 +2085,10 @@ func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisioner
 	// Path structure: <rootWorkingDir>/data/pooler_<serviceID>/pg_sockets/.s.PGSQL.5432
 	// We use a worst-case service ID length (8 chars) to be safe
 	maxServiceIDLength := 8
-	worstCasePoolerSocketPath := []string{
-		"data",
-		"pooler_" + strings.Repeat("x", maxServiceIDLength),
-		"pg_sockets",
-		".s.PGSQL.5432",
-	}
-	worstCaseCurrentSocketPath := filepath.Join(append([]string{absRootWorkingDir}, worstCasePoolerSocketPath...)...)
+	worstCasePoolerDir := filepath.Join("data", "pooler_"+strings.Repeat("x", maxServiceIDLength))
+	worstCaseCurrentSocketPath := constants.PostgresSocketFilePath(filepath.Join(absRootWorkingDir, worstCasePoolerDir), 5432)
 
-	worstCaseProposedSocketPath := filepath.Join(append([]string{"/tmp/mt"}, worstCasePoolerSocketPath...)...)
+	worstCaseProposedSocketPath := constants.PostgresSocketFilePath(filepath.Join("/tmp/mt", worstCasePoolerDir), 5432)
 
 	if len(worstCaseCurrentSocketPath) > maxSocketPathLength {
 		return fmt.Errorf("unix socket path would exceed system limit (%d bytes): %s\n\n"+
