@@ -234,6 +234,11 @@ type Pool[C Connection] struct {
 	// scrubMetrics records session-state scrub outcomes. Provided via Config.
 	scrubMetrics ScrubMetrics
 
+	// scrubPass numbers the scrubber's passes over the idle connections; a
+	// pass ends when every idle connection has been probed once. Only the
+	// scrub worker reads or writes it. See scrub.go.
+	scrubPass uint64
+
 	// checkers verify idle connections' real backend state against tracked
 	// state; run by the scrub worker. Populated via RegisterChecker before
 	// Open, read-only afterwards.

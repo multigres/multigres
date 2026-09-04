@@ -98,11 +98,13 @@ func TestHiddenFunctionStateDoesNotLeak(t *testing.T) {
 
 // scrubSweepWait bounds how long a scrubber test waits for the contaminated
 // backend to be replaced. The scrubber probes one idle connection per tick
-// (default 10s) and rotates across the clean stack plus 16 settings stacks,
-// checking the most recently returned connection of whichever stack is next.
-// In a full-suite run earlier tests leave many settings stacks populated, so
-// the contaminated connection's stack can be up to 17 ticks away: 170s worst
-// case, observed at 89s. Standalone runs finish in one or two ticks.
+// (default 10s) and works in passes: each tick probes, from the next
+// non-empty stack in rotation, the topmost connection not yet probed in the
+// current pass. In a full-suite run earlier tests leave many stacks populated
+// with several idle connections each, so the contaminated connection can be
+// up to one full pass away: the total number of idle connections, times the
+// tick. Observed at 89s under the old top-only probing. Standalone runs
+// finish in one or two ticks.
 const scrubSweepWait = 4 * time.Minute
 
 // TestSessionScrubberReplacesHiddenState verifies the pool's session-state

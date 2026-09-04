@@ -60,6 +60,35 @@ func (s *connStack[C]) Push(conn *Pooled[C]) {
 	}
 }
 
+// PopFirst removes and returns the topmost connection for which match
+// returns true, leaving every other connection in place and in order.
+// Returns nil and false if none matches. match runs under the lock, so it
+// must be fast and non-blocking. Unlinking a middle node is safe here
+// because every stack operation, including ForEach, holds the mutex.
+func (s *connStack[C]) PopFirst(match func(*Pooled[C]) bool) (*Pooled[C], bool) {
+	s.mu.Lock()
+	var prev *Pooled[C]
+	for conn := s.top; conn != nil; prev, conn = conn, conn.next {
+		if !match(conn) {
+			continue
+		}
+		if prev == nil {
+			s.top = conn.next
+		} else {
+			prev.next = conn.next
+		}
+		s.count--
+		s.mu.Unlock()
+		conn.next = nil
+		if s.onPop != nil {
+			s.onPop()
+		}
+		return conn, true
+	}
+	s.mu.Unlock()
+	return nil, false
+}
+
 // Pop removes and returns the connection from the top of the stack.
 // Returns nil and false if the stack is empty.
 func (s *connStack[C]) Pop() (*Pooled[C], bool) {

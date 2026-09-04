@@ -68,6 +68,65 @@ func TestStackOperations(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestStackPopFirst tests that PopFirst unlinks the topmost matching
+// connection wherever it sits and leaves the rest in order.
+func TestStackPopFirst(t *testing.T) {
+	var stack connStack[*mockConnection]
+	var pops int
+	stack.onPop = func() { pops++ }
+
+	a := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	b := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	c := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	d := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	for _, conn := range []*Pooled[*mockConnection]{a, b, c, d} {
+		stack.Push(conn) // d, c, b, a
+	}
+
+	is := func(want *Pooled[*mockConnection]) func(*Pooled[*mockConnection]) bool {
+		return func(conn *Pooled[*mockConnection]) bool { return conn == want }
+	}
+	order := func() (got []*Pooled[*mockConnection]) {
+		stack.ForEach(func(conn *Pooled[*mockConnection]) bool {
+			got = append(got, conn)
+			return true
+		})
+		return got
+	}
+
+	// Middle node.
+	got, ok := stack.PopFirst(is(b))
+	assert.True(t, ok)
+	assert.Same(t, b, got)
+	assert.Nil(t, b.next, "unlinked node must not dangle into the stack")
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, a}, order())
+
+	// Tail node.
+	got, ok = stack.PopFirst(is(a))
+	assert.True(t, ok)
+	assert.Same(t, a, got)
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c}, order())
+
+	// Head node.
+	got, ok = stack.PopFirst(is(d))
+	assert.True(t, ok)
+	assert.Same(t, d, got)
+	assert.Equal(t, []*Pooled[*mockConnection]{c}, order())
+
+	// No match leaves the stack untouched.
+	got, ok = stack.PopFirst(is(a))
+	assert.False(t, ok)
+	assert.Nil(t, got)
+	assert.Equal(t, 1, stack.Len())
+	assert.Equal(t, 3, pops, "PopFirst must fire onPop once per removed connection")
+
+	// Empty stack.
+	stack.Pop()
+	got, ok = stack.PopFirst(func(*Pooled[*mockConnection]) bool { return true })
+	assert.False(t, ok)
+	assert.Nil(t, got)
+}
+
 // TestStackForEach tests iteration over stack elements.
 func TestStackForEach(t *testing.T) {
 	var stack connStack[*mockConnection]
