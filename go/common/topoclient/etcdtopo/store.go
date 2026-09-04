@@ -37,6 +37,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -205,6 +208,22 @@ func newEtcdClientConfig(serverAddrs []string, tlsConfig *tls.Config) clientv3.C
 	}
 }
 
+func validateTLSEndpoints(serverAddrs []string, tlsConfig *tls.Config) error {
+	if tlsConfig == nil {
+		return nil
+	}
+	for _, serverAddr := range serverAddrs {
+		endpoint, err := url.Parse(serverAddr)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(endpoint.Scheme, "http") {
+			return fmt.Errorf("TLS cannot use HTTP endpoint %q", serverAddr)
+		}
+	}
+	return nil
+}
+
 // NewServerWithOpts creates a new server with TLS material loaded from file paths.
 func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*etcdtopo, error) {
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)
@@ -229,6 +248,9 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 func NewServerWithTLS(serverAddrs []string, root string, tlsOptions *topoclient.TLSOptions) (*etcdtopo, error) {
 	tlscfg, err := newTLSConfigFromOptions(tlsOptions)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateTLSEndpoints(serverAddrs, tlscfg); err != nil {
 		return nil, err
 	}
 	config := newEtcdClientConfig(serverAddrs, tlscfg)

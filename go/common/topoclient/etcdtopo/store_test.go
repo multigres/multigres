@@ -84,6 +84,39 @@ func TestNewServerWithTLSRejectsCAWithoutClientCredentials(t *testing.T) {
 	require.ErrorContains(t, err, "client certificate and key PEM are required when CA PEM is provided")
 }
 
+func TestNewServerWithTLSRejectsHTTPEndpoint(t *testing.T) {
+	certPEM, keyPEM, _ := newTestTLSMaterial(t)
+
+	_, err := NewServerWithTLS([]string{"http://etcd.example"}, "/topology", &topoclient.TLSOptions{
+		CertPEM: certPEM,
+		KeyPEM:  keyPEM,
+	})
+	require.ErrorContains(t, err, "TLS cannot use HTTP endpoint")
+}
+
+func TestValidateTLSEndpoints(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		endpoint  string
+		tlsConfig *tls.Config
+		wantErr   string
+	}{
+		{name: "plaintext HTTP", endpoint: "http://etcd.example"},
+		{name: "TLS HTTP", endpoint: "http://etcd.example", tlsConfig: &tls.Config{}, wantErr: "TLS cannot use HTTP endpoint"},
+		{name: "TLS HTTPS", endpoint: "https://etcd.example", tlsConfig: &tls.Config{}},
+		{name: "TLS bare address", endpoint: "etcd.example:2379", tlsConfig: &tls.Config{}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateTLSEndpoints([]string{testCase.endpoint}, testCase.tlsConfig)
+			if testCase.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, testCase.wantErr)
+		})
+	}
+}
+
 func TestNewTLSConfigFromOptionsUsesPrebuiltConfig(t *testing.T) {
 	insecureSkipVerify := true
 	source := &tls.Config{
