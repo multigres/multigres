@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -148,6 +149,10 @@ func testConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn
 }
 
+func makeTestPlan() *engine.Plan {
+	return engine.NewPlan("SELECT 1", engine.NewRoute(DefaultTableGroup, "0", "SELECT 1", nil))
+}
+
 func testConnWithDB(database string) *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}, server.WithTestDatabase(database)).Conn
 }
@@ -211,6 +216,175 @@ func TestStreamExecute_CacheHitOnRepeatedQuery(t *testing.T) {
 
 	// Both should have executed against the backend
 	assert.Equal(t, int32(2), mock.streamExecuteCalls.Load())
+}
+
+// TestSetSlotBasedReplicationEnabled_ReloadInvalidatesStaleAdmission proves
+// the exact hazard the review comment on planner.go:201 described, and that
+// InvalidatePlanCache (wired to config reload in Multigateway.CobraPreRunE)
+// closes it: a failover-slot-creation statement admitted while the flag is
+// on is cached; without invalidation, it keeps being served from cache after
+// the flag flips off (asserted here as the "before" state); after
+// InvalidatePlanCache, the identical statement is re-planned under the
+// current flag value and correctly rejected.
+// TestSetSlotBasedReplicationEnabled_TransitionInvalidatesOnNextRequest
+// proves invalidateOnSlotBasedReplicationTransition's guarantee: the very
+// next request after the flag flips gets the cache invalidated automatically
+// — no explicit InvalidatePlanCache call needed, and no waiting on
+// CobraPreRunE's asynchronous config-reload handler to get scheduled. A
+// stale plan admitted under the old value is never observable by any
+// request that itself sees the new value.
+func TestSetSlotBasedReplicationEnabled_TransitionInvalidatesOnNextRequest(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := t.Context()
+	conn := testConn()
+
+	enabled := true
+	exec.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+
+	const sql = "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)"
+	stmt := parseOne(t, sql)
+
+	// Admitted while the flag is on, and cached.
+	res1, err := exec.StreamExecute(ctx, conn, nil, sql, stmt, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	time.Sleep(50 * time.Millisecond) // theine processes writes asynchronously
+
+	enabled = false
+
+	// No explicit InvalidatePlanCache call here — the transition is caught
+	// synchronously on this very request, before its cache lookup, so it
+	// must be re-planned under the current (disabled) flag and rejected.
+	_, err = exec.StreamExecute(ctx, conn, nil, sql, stmt, noopCallback)
+	require.Error(t, err, "the first request to observe the flip must never see the stale cached admission")
+	assert.Contains(t, err.Error(), "requires temporary=true")
+}
+
+// TestInvalidateOnSlotBasedReplicationTransition covers the transition
+// detector in isolation: it must invalidate exactly on a change (either
+// direction), never on a steady value, and never panic on a nil getter.
+func TestInvalidateOnSlotBasedReplicationTransition(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	t.Run("nil getter is a no-op", func(t *testing.T) {
+		exec.SetSlotBasedReplicationEnabled(nil)
+		exec.planCache.Put("q", makeTestPlan())
+		time.Sleep(50 * time.Millisecond)
+		exec.invalidateOnSlotBasedReplicationTransition()
+		_, ok := exec.planCache.Get(t.Context(), "q")
+		assert.True(t, ok, "no getter means nothing to transition, cache must be untouched")
+	})
+
+	t.Run("steady value never invalidates", func(t *testing.T) {
+		exec.SetSlotBasedReplicationEnabled(func() bool { return true })
+		exec.planCache.Put("q", makeTestPlan())
+		time.Sleep(50 * time.Millisecond)
+		exec.invalidateOnSlotBasedReplicationTransition() // establishes baseline
+		exec.invalidateOnSlotBasedReplicationTransition() // same value again
+		_, ok := exec.planCache.Get(t.Context(), "q")
+		assert.True(t, ok, "an unchanged value must never invalidate")
+	})
+
+	t.Run("a transition in either direction invalidates", func(t *testing.T) {
+		enabled := true
+		exec.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+		exec.planCache.Put("q", makeTestPlan())
+		time.Sleep(50 * time.Millisecond)
+
+		enabled = false
+		exec.invalidateOnSlotBasedReplicationTransition()
+		_, ok := exec.planCache.Get(t.Context(), "q")
+		assert.False(t, ok, "true->false must invalidate")
+
+		exec.planCache.Put("q2", makeTestPlan())
+		time.Sleep(50 * time.Millisecond)
+		enabled = true
+		exec.invalidateOnSlotBasedReplicationTransition()
+		_, ok = exec.planCache.Get(t.Context(), "q2")
+		assert.False(t, ok, "false->true must invalidate too")
+	})
+}
+
+// TestInvalidateOnSlotBasedReplicationTransition_ConcurrentRequestsNeverObserveStaleCache
+// stress-tests concurrent callers around a flag flip. The check, the flip,
+// and the invalidation share one critical section: a request that finds the
+// flag already up to date (because a sibling request already recorded the
+// transition) is guaranteed that sibling's invalidation has already
+// completed. Each iteration plants a canary entry, flips the flag, then races
+// several goroutines through invalidateOnSlotBasedReplicationTransition
+// followed immediately by a cache lookup — every one of them observes the
+// post-flip flag value, so none of them may ever see the canary still cached.
+func TestInvalidateOnSlotBasedReplicationTransition_ConcurrentRequestsNeverObserveStaleCache(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	var enabled atomic.Bool
+	enabled.Store(true)
+	exec.SetSlotBasedReplicationEnabled(enabled.Load)
+
+	const iterations = 200
+	const racers = 8
+	var staleHits atomic.Int32
+
+	for range iterations {
+		exec.planCache.Put("canary", makeTestPlan())
+		enabled.Store(!enabled.Load())
+
+		var wg sync.WaitGroup
+		wg.Add(racers)
+		for range racers {
+			go func() {
+				defer wg.Done()
+				exec.invalidateOnSlotBasedReplicationTransition()
+				if _, ok := exec.planCache.Get(t.Context(), "canary"); ok {
+					staleHits.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+	}
+
+	assert.Equal(t, int32(0), staleHits.Load(),
+		"a request that ran invalidateOnSlotBasedReplicationTransition after the flag flipped must never see the pre-flip cache entry")
+}
+
+// TestInvalidatePlanCache_ForcesReplan confirms InvalidatePlanCache discards
+// previously cached plans: it exists so a caller (CobraPreRunE's config-reload
+// handler) can force every query to be re-analyzed after a dynamic,
+// plan-affecting flag changes value — otherwise a plan admitted under the old
+// value would keep being served from the cache after the flag flips (see
+// SetSlotBasedReplicationEnabled).
+func TestInvalidatePlanCache_ForcesReplan(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := t.Context()
+	conn := testConn()
+
+	res1, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 42", parseOne(t, "SELECT * FROM users WHERE id = 42"), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+
+	// theine processes writes asynchronously
+	time.Sleep(50 * time.Millisecond)
+
+	res2, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 99", parseOne(t, "SELECT * FROM users WHERE id = 99"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res2.CacheHit, "same shape should hit cache before invalidation")
+
+	exec.InvalidatePlanCache()
+
+	res3, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 7", parseOne(t, "SELECT * FROM users WHERE id = 7"), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res3.CacheHit, "same shape must miss and be re-planned after invalidation")
 }
 
 func TestStreamExecute_DifferentShapesAreSeparateCacheEntries(t *testing.T) {

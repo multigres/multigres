@@ -126,6 +126,16 @@ type Multigateway struct {
 	queryRegistry *queryregistry.Registry
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// reg is the viper registry backing senv's config, kept directly so
+	// CobraPreRunE can subscribe its own reload notification (see
+	// viperutil.NotifyConfigReload) before senv's LoadConfig starts
+	// watching it — NotifyConfigReload panics if called any later.
+	reg *viperutil.Registry
+	// configReloaded is subscribed to config-reload notifications in
+	// CobraPreRunE (before mg.executor exists) but only consumed starting in
+	// Init, once mg.executor is safely assigned — see CobraPreRunE's doc
+	// comment for why the consumer can't start any earlier.
+	configReloaded chan struct{}
 	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
 	connConfig *rpcclient.ConnConfig
 	// topoConfig holds topology configuration
@@ -264,6 +274,7 @@ func NewMultigateway() *Multigateway {
 		bufferConfig: buffer.NewConfig(reg),
 		grpcServer:   servenv.NewGrpcServer(reg),
 		senv:         servenv.NewServEnv(reg),
+		reg:          reg,
 		connConfig:   rpcclient.NewConnConfig(reg),
 		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
@@ -402,6 +413,15 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
+	// comment, which subscribes mg.configReloaded, for why the consumer
+	// can't start any earlier.
+	go func() {
+		for range mg.configReloaded {
+			mg.executor.InvalidatePlanCache()
+		}
+	}()
 
 	// Initialize gateway-wide OTel metrics up front so the credential
 	// provider and listener can share the same sink. Failures here are
@@ -673,7 +693,47 @@ func (mg *Multigateway) RunDefault() error {
 	return mg.senv.RunDefault(mg.grpcServer)
 }
 
+// CobraPreRunE loads config (via senv) and, before doing so, subscribes to
+// config-reload notifications on mg.configReloaded so a dynamic flag change
+// can invalidate the plan cache. This is required, not just convenient: a
+// plan accepted while a dynamic flag (e.g. enable-slot-based-replication)
+// allowed it stays valid in the cache — served on later cache hits without
+// re-running analysis — until something invalidates it, so a reload that
+// changes such a flag must invalidate the cache or a stale accept/reject
+// decision keeps being served.
+//
+// The subscription is registered here because NotifyConfigReload must run
+// before senv's LoadConfig starts watching (it panics otherwise), but
+// mg.executor doesn't exist yet at this point — it's created in Init, which
+// runs after CobraPreRunE returns. The consumer goroutine is therefore
+// started in Init, right after mg.executor is assigned, not here: reading
+// mg.executor from a goroutine started before that assignment would race
+// Init's write to it, and a reload landing in that window would be read off
+// the channel and dropped (no executor to invalidate yet) rather than ever
+// being retried. Starting the goroutine after the assignment, on the same
+// goroutine that performed it, makes both problems structurally impossible
+// instead of guarding against them.
+//
+// mg.configReloaded is buffered by 1: NotifyConfigReload's send is
+// non-blocking (its own doc comment says as much), so an unbuffered channel
+// would silently drop a reload that lands while the consumer is already
+// mid-invalidation — a real scenario, since a single config-file save often
+// fires more than one fsnotify event. Invalidation is unconditional and
+// idempotent, so nothing is lost by coalescing a burst into fewer
+// invalidations; the buffer only needs to survive the vanishingly short
+// window between one dequeue and the next, not an unbounded backlog.
+//
+// The channel is deliberately never closed. NotifyConfigReload's underlying
+// watcher goroutine lives for the process's lifetime with no way to
+// unregister a subscriber, so closing mg.configReloaded during shutdown
+// could race a send from that goroutine — sending on a closed channel
+// panics, unlike sending on one nobody is listening to anymore, which the
+// non-blocking send already handles cleanly. Leaving the consumer goroutine
+// blocked on an open, unclosed channel at process exit is harmless: nothing
+// waits on it, and the OS reclaims it with the rest of the process.
 func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
+	mg.configReloaded = make(chan struct{}, 1)
+	viperutil.NotifyConfigReload(mg.reg, mg.configReloaded)
 	return mg.senv.CobraPreRunE(cmd)
 }
 

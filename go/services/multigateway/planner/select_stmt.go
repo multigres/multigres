@@ -85,25 +85,18 @@ func (p *Planner) planSelectStmt(
 	if err != nil {
 		return nil, err
 	}
-	// A gateway-managed current_setting in the same SELECT is rewritten to the
-	// gateway value too, on whichever AST the backend will run (the set_config
-	// clone if there was one, else the original). Its synthetic value slots ride on
-	// the same GatewayManagedValueRoute as the bound set_config values. Gated on the
-	// analysis flag so we only walk when a rewrite is actually required.
+	// A gateway-managed current_setting is rewritten too, on whichever AST the
+	// backend will run (the set_config clone if there was one, else the
+	// original) — see applyRouteRewrites, shared with routePrimitive's
+	// non-SELECT path. Its synthetic value slots ride on the same
+	// GatewayManagedValueRoute as the bound set_config values.
 	var routeAST ast.Stmt = stmt
 	if rewritten != nil {
 		routeAST = rewritten
 	}
-	var reads []engine.GatewayManagedSettingRead
-	if opts.RewriteCurrentSetting {
-		csRewritten, csReads, err := rewriteGatewayManagedCurrentSetting(routeAST)
-		if err != nil {
-			return nil, err
-		}
-		if csRewritten != nil {
-			routeAST = csRewritten
-			reads = csReads
-		}
+	routeAST, reads, _, err := applyRouteRewrites(routeAST, opts)
+	if err != nil {
+		return nil, err
 	}
 	// buildRoute wraps a route AST in a GatewayManagedValueRoute when there are
 	// gateway-managed bound values or current_setting reads to canonicalize at

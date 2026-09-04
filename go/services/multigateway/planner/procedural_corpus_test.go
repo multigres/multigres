@@ -63,7 +63,7 @@ func TestProceduralCorpus(t *testing.T) {
 		if !assert.NoErrorf(t, err, "parse failed, case: %s", c.Comment) || !assert.Lenf(t, stmts, 1, "case: %s", c.Comment) {
 			continue
 		}
-		_, aerr := analyzeStatement(stmts[0], false)
+		_, aerr := analyzeStatement(stmts[0], false, false)
 		if c.Reject == "" {
 			assert.NoErrorf(t, aerr, "expected accept, case: %s\n--stmt--\n%s", c.Comment, c.Stmt)
 		} else {
@@ -124,7 +124,7 @@ func extractProceduralCases(t *testing.T, files []string) []proceduralCase {
 			seen[stmtText] = true
 			n++
 			c := proceduralCase{Comment: fmt.Sprintf("%s #%d", base, n), Stmt: stmtText}
-			if _, aerr := analyzeStatement(stmts[0], false); aerr != nil {
+			if _, aerr := analyzeStatement(stmts[0], false, false); aerr != nil {
 				c.Reject = aerr.Error()
 			}
 			cases = append(cases, c)
