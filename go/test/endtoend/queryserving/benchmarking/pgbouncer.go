@@ -149,8 +149,7 @@ func waitForPort(t *testing.T, host string, port int, timeout time.Duration, pro
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		// Fail immediately if the process already exited (e.g. crashed on
-		// startup) instead of polling a dead target for the rest of timeout.
+		// Fail fast if the process already died, instead of polling a dead target.
 		if !proc.IsRunning() {
 			return fmt.Errorf("process exited before listening on port %s", addr)
 		}

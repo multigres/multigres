@@ -671,8 +671,7 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 	deadline := start.Add(timeout)
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
-		// Fail immediately if the process already exited (e.g. crashed on
-		// startup) instead of polling a dead target for the rest of timeout.
+		// Fail fast if the process already died, instead of polling a dead target.
 		if !proc.IsRunning() {
 			return fmt.Errorf("%s process exited before becoming ready on port %d", name, grpcPort)
 		}

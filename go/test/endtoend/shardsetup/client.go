@@ -109,13 +109,11 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 	// startup and the first Status round-trip run slower (see ScaleTimeout).
 	managerStartTimeout := utils.ScaleTimeout(testconst.ManagerStartTimeout)
 	testpoll.WaitFor(t, func(ctx context.Context) bool {
-		// Fail immediately if the process already exited (e.g. crashed on
-		// startup) instead of polling a dead target for the rest of the
-		// budget — manager.IsRunning() is a cheap liveness check we already
-		// have available via the process handle.
+		// Fail fast if the process already died, instead of polling a dead target.
 		require.True(t, manager.IsRunning(), "manager %s process exited before becoming ready", manager.Name)
 
-		attemptCtx, attemptCancel := context.WithTimeout(ctx, 1*time.Second)
+		// Matches utils.WithShortDeadline.
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, utils.ScaleTimeout(2*time.Second))
 		defer attemptCancel()
 		resp, err := client.Status(attemptCtx, &multipoolermanagerdatapb.StatusRequest{})
 		return err == nil && resp.Status != nil && resp.Status.PostgresReady
