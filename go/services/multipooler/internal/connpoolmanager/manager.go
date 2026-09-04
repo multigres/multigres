@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -141,6 +142,12 @@ type Manager struct {
 	regularAllocator  *FairShareAllocator
 	reservedAllocator *FairShareAllocator
 
+	// globalCapacity is the total connection budget in effect, resolved in Open:
+	// derived from the server's max_connections unless explicitly configured
+	// (see resolveGlobalCapacity). Atomic because the metrics callback reads it
+	// concurrently. Zero until the first Open.
+	globalCapacity atomic.Int64
+
 	// Drain tracking: counts connections currently lent out across all pools.
 	// Used for graceful drain during state transitions (not-serving).
 	//
@@ -236,11 +243,16 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.adminPool.Open()
 
 	// Create fair share allocators based on global capacity and reserved ratio
-	globalCapacity := m.config.GlobalCapacity()
+	globalCapacity := m.resolveGlobalCapacity(ctx)
+	m.globalCapacity.Store(globalCapacity)
 	reservedRatio := m.config.ReservedRatio()
 	minPerUser := m.config.MinCapacityPerUser()
-	regularCapacity := int64(float64(globalCapacity) * (1 - reservedRatio))
-	reservedCapacity := globalCapacity - regularCapacity
+	// Guarantee each pool class at least one connection: a tiny budget (e.g. a
+	// derived capacity clamped to 1) would otherwise truncate the regular share
+	// to 0 and disable ordinary queries entirely. For such an already-unusable
+	// budget, overshooting it by one connection is the lesser evil.
+	regularCapacity := max(int64(float64(globalCapacity)*(1-reservedRatio)), 1)
+	reservedCapacity := max(globalCapacity-regularCapacity, 1)
 	regularMinPerUser := max(int64(float64(minPerUser)*(1-reservedRatio)), 1)
 	reservedMinPerUser := max(minPerUser-regularMinPerUser, 1)
 
@@ -254,7 +266,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.startRebalancer()
 
 	// Register observable metric callbacks for pool statistics.
-	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.config.GlobalCapacity, m.IsClosed); err != nil {
+	if err := m.metrics.RegisterManagerCallbacks(m.Stats, m.UserPoolCount, m.GlobalCapacity, m.IsClosed); err != nil {
 		m.logger.WarnContext(ctx, "failed to register pool metrics callbacks", "error", err)
 	}
 
@@ -273,6 +285,71 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// If this Open is the second half of a reopen, end the window now that the
 	// fresh pools are ready, waking any withReopenRetry waiters so they retry.
 	m.endReopen()
+}
+
+// globalCapacityQuery reads the server-side connection budget in one round
+// trip. reserved_connections is PG 16+; missing_ok=true + COALESCE yields 0 on
+// older servers.
+const globalCapacityQuery = "SELECT pg_catalog.current_setting('max_connections'), pg_catalog.current_setting('superuser_reserved_connections'), COALESCE(pg_catalog.current_setting('reserved_connections', true), '0')"
+
+// resolveGlobalCapacity returns the pool's total connection budget. An
+// explicitly configured --connpool-global-capacity (flag, env, or config file)
+// is authoritative. Otherwise the budget is derived from the server the admin
+// pool just opened against, so the pooler's demand can never exceed what
+// postgres accepts ("sorry, too many clients already"). Any failure falls back
+// to the configured default with a warning — Open is infallible by design, and
+// the postgres monitor reopens the manager (re-running this) after every
+// postgres restart.
+func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
+	configured := m.config.GlobalCapacity()
+	if m.config.GlobalCapacityExplicit() {
+		return configured
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, 2*m.config.DialTimeout())
+	defer cancel()
+	pooled, err := m.adminPool.Get(queryCtx)
+	if err != nil {
+		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
+			"error", err, "global_capacity", configured)
+		return configured
+	}
+	defer pooled.Recycle()
+	results, err := pooled.Conn.QueryWithRetry(queryCtx, globalCapacityQuery)
+	if err == nil && (len(results) != 1 || len(results[0].Rows) != 1 || len(results[0].Rows[0].Values) != 3) {
+		err = fmt.Errorf("unexpected result shape for %q", globalCapacityQuery)
+	}
+	var settings [3]int64
+	if err == nil {
+		for i, v := range results[0].Rows[0].Values {
+			if settings[i], err = strconv.ParseInt(string(v), 10, 64); err != nil {
+				break
+			}
+		}
+	}
+	if err != nil {
+		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
+			"error", err, "global_capacity", configured)
+		return configured
+	}
+	maxConns, superuserReserved, reservedConns := settings[0], settings[1], settings[2]
+	derived := deriveGlobalCapacity(maxConns, superuserReserved, reservedConns, m.config.AdminCapacity())
+	m.logger.InfoContext(ctx, "derived connpool global capacity from postgres",
+		"global_capacity", derived,
+		"max_connections", maxConns,
+		"superuser_reserved_connections", superuserReserved,
+		"reserved_connections", reservedConns,
+		"admin_capacity", m.config.AdminCapacity(),
+	)
+	return derived
+}
+
+// deriveGlobalCapacity computes the usable connection budget from the server's
+// limits: user pools dial as regular roles, so slots withheld for superusers
+// (and PG 16+ reserved_connections roles) are never usable, and the manager's
+// own admin pool consumes adminCapacity slots on top. Clamped to at least 1 so
+// a pathological server config still leaves the pooler able to serve.
+func deriveGlobalCapacity(maxConns, superuserReserved, reservedConns, adminCapacity int64) int64 {
+	return max(maxConns-superuserReserved-reservedConns-adminCapacity, 1)
 }
 
 // buildClientConfig creates a client.Config with the specified user and password.
@@ -352,9 +429,12 @@ func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) 
 		return nil, errors.New("user cannot be empty")
 	}
 
-	// Hot path: atomic load + map lookup (no lock)
+	// Hot path: atomic load + map lookup (no lock). A pool GC has claimed
+	// but not yet unpublished is skipped: the slow path takes createMu, which
+	// GC holds until the replacement snapshot is stored, so it sees the
+	// pool gone and builds a fresh one instead of returning ErrPoolClosed.
 	if pools := m.userPoolsSnapshot.Load(); pools != nil {
-		if pool, ok := (*pools)[user]; ok {
+		if pool, ok := (*pools)[user]; ok && !pool.IsClosing() {
 			return pool, nil
 		}
 	}
@@ -547,6 +627,12 @@ func (m *Manager) teardownLocked() {
 // PgUser returns the configured PostgreSQL user for system queries.
 func (m *Manager) PgUser() string {
 	return m.config.PgUser()
+}
+
+// GlobalCapacity returns the total connection budget in effect — derived from
+// the server at Open unless explicitly configured. Zero before the first Open.
+func (m *Manager) GlobalCapacity() int64 {
+	return m.globalCapacity.Load()
 }
 
 // PgDatabase returns the PostgreSQL database the pooler connects to, taken from

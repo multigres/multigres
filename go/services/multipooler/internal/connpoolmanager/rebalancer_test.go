@@ -25,6 +25,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -317,4 +319,203 @@ func TestUserPool_StatsIncludesDemand(t *testing.T) {
 	assert.GreaterOrEqual(t, stats.RegularDemand, int64(0))
 	assert.GreaterOrEqual(t, stats.ReservedDemand, int64(0))
 	assert.Greater(t, stats.LastActivity, int64(0))
+}
+
+// A pool holding a checked-out reserved conn (e.g. the pubsub LISTEN conn,
+// which never touches lastActivity) must survive GC until the conn is released.
+func TestManager_GarbageCollectSkipsPoolWithHeldReservedConn(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	rc, err := manager.NewReservedConn(ctx, nil, "listener", nil, nil)
+	require.NoError(t, err)
+	rc.SetInactivityTimeout(0)
+
+	pool := (*manager.userPoolsSnapshot.Load())["listener"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.True(t, manager.HasUserPool("listener"), "pool with held reserved conn must not be GC'd")
+	assert.False(t, rc.IsClosed(), "held reserved conn must not be closed by GC")
+
+	rc.Release(reserved.ReleaseRollback, nil)
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("listener"), "idle pool must be GC'd once the conn is released")
+}
+
+// A pool with a borrowed regular conn (statement in flight) must survive GC:
+// closing it would block the rebalancer on PoolCloseTimeout waiting for drain.
+func TestManager_GarbageCollectSkipsPoolWithBorrowedRegularConn(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	conn, err := manager.GetRegularConn(ctx, "busy", nil, nil)
+	require.NoError(t, err)
+
+	pool := (*manager.userPoolsSnapshot.Load())["busy"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.True(t, manager.HasUserPool("busy"))
+
+	conn.Recycle()
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("busy"))
+}
+
+// A reserved conn holds a borrowed slot from before validation until release.
+// GC must (a) count that borrowed-but-unregistered slot as checked out and
+// (b) never block behind, or race, an acquisition in flight.
+func TestManager_GarbageCollectSkipsPoolDuringReservedSetup(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Prime the pool so the validate hook can reach it through the snapshot.
+	c, err := manager.GetRegularConn(ctx, "setup", nil, nil)
+	require.NoError(t, err)
+	c.Recycle()
+	pool := (*manager.userPoolsSnapshot.Load())["setup"]
+
+	backdate := func() { pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano()) }
+
+	// validate runs after the underlying borrow and before registration in
+	// reserved.Pool.active — exactly the setup window the GC used to miss.
+	validated := false
+	validate := func(context.Context, *regular.Conn) error {
+		validated = true
+		assert.True(t, pool.HasCheckedOutConns(), "borrowed-but-unregistered reserved conn must count as checked out")
+		backdate()
+
+		done := make(chan struct{})
+		go func() {
+			manager.garbageCollectInactivePools(ctx)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("GC blocked behind an in-flight acquisition")
+		}
+		assert.True(t, manager.HasUserPool("setup"), "GC must skip a pool with an acquisition in flight")
+		assert.False(t, pool.IsClosing())
+		return nil
+	}
+	rc, err := manager.NewReservedConn(ctx, nil, "setup", nil, nil, reserved.WithValidate(validate))
+	require.NoError(t, err)
+	require.True(t, validated)
+	assert.False(t, rc.IsClosed(), "conn acquired during GC must stay open")
+
+	// Once released and idle again, the pool is collected as usual.
+	rc.Release(reserved.ReleaseRollback, nil)
+	backdate()
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("setup"))
+	assert.True(t, pool.IsClosing())
+
+	// A subsequent acquisition builds a fresh pool rather than hitting the old one.
+	c2, err := manager.GetRegularConn(ctx, "setup", nil, nil)
+	require.NoError(t, err)
+	c2.Recycle()
+	assert.True(t, manager.HasUserPool("setup"))
+	assert.NotSame(t, pool, (*manager.userPoolsSnapshot.Load())["setup"])
+}
+
+func TestUserPool_TryMarkInactive(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+	future := time.Now().Add(time.Hour).UnixNano() // every pool is "stale" against this cutoff
+
+	c, err := manager.GetRegularConn(ctx, "u", nil, nil)
+	require.NoError(t, err)
+	pool := (*manager.userPoolsSnapshot.Load())["u"]
+
+	assert.False(t, pool.tryMarkInactive(future), "must refuse while a conn is borrowed")
+	c.Recycle()
+	assert.False(t, pool.tryMarkInactive(time.Now().Add(-time.Hour).UnixNano()), "must refuse when recently active")
+
+	// An acquisition in flight holds the read lock; GC must give up, not wait.
+	pool.acqMu.RLock()
+	assert.False(t, pool.tryMarkInactive(future), "must refuse while an acquisition is in flight")
+	pool.acqMu.RUnlock()
+
+	require.True(t, pool.tryMarkInactive(future), "idle pool must be claimable")
+	assert.True(t, pool.IsClosing())
+	assert.False(t, pool.tryMarkInactive(future), "a claimed pool must not be claimed twice")
+
+	// Every acquire path refuses a claimed pool so the caller re-looks-up.
+	_, err = pool.GetRegularConn(ctx)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.GetRegularConnWithSettings(ctx, nil)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.NewReservedConn(ctx, nil)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+	_, err = pool.NewLogicalReplicationConn(ctx)
+	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
+}
+
+// GC must never block on createMu: Close and CloseForReopen hold it while
+// they cancel and join the rebalancer goroutine, so a blocking acquire in GC
+// would deadlock shutdown. Holding createMu here stands in for shutdown; the
+// property under test (GC returns without the lock) is what makes the
+// shutdown ordering safe.
+func TestManager_GarbageCollectSkipsCycleWhenCreateMuHeld(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerForRebalancer(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+	c, err := manager.GetRegularConn(ctx, "stale", nil, nil)
+	require.NoError(t, err)
+	c.Recycle()
+	pool := (*manager.userPoolsSnapshot.Load())["stale"]
+	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	manager.createMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		manager.garbageCollectInactivePools(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		manager.createMu.Unlock()
+		t.Fatal("GC blocked on createMu")
+	}
+	assert.True(t, manager.HasUserPool("stale"), "GC must skip the cycle, not collect, while createMu is held")
+	manager.createMu.Unlock()
+
+	manager.garbageCollectInactivePools(ctx)
+	assert.False(t, manager.HasUserPool("stale"), "next cycle collects normally")
 }

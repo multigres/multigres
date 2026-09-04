@@ -49,6 +49,15 @@ type UserPool struct {
 	// Last activity timestamp (Unix nanos) for garbage collection
 	lastActivity atomic.Int64
 
+	// acqMu serialises acquisitions against garbage collection. Every
+	// acquire path holds it for read while it borrows; tryMarkInactive takes
+	// it for write (TryLock, never blocking) to decide "idle" and set closing
+	// in one step, so no acquisition can slip in between the check and the
+	// close. closing is written only under the write lock; it is atomic so
+	// the manager's lock-free lookup can skip a pool GC has already claimed.
+	acqMu   sync.RWMutex
+	closing atomic.Bool
+
 	mu sync.Mutex
 	// lastLoggedRegularCap and lastLoggedReservedCap are the capacities from
 	// the most recent SetCapacity log line, seeded from the pool's
@@ -218,6 +227,56 @@ func (p *UserPool) LastActivity() int64 {
 	return p.lastActivity.Load()
 }
 
+// HasCheckedOutConns reports whether any connection is currently lent out:
+// a regular conn mid-statement or a reserved conn held by a client. Such a
+// pool is in use regardless of lastActivity, which is touched only on
+// acquire — a long-lived holder (e.g. the pubsub LISTEN conn) never touches it.
+//
+// The reserved side counts borrows from the reserved pool's underlying
+// regular pool rather than registered reserved conns: a reserved conn holds
+// its borrowed slot from before validation/dialing until release, so this is
+// a superset of the registered set and also covers setup in progress.
+func (p *UserPool) HasCheckedOutConns() bool {
+	return p.regularPool.Stats().Borrowed > 0 || p.reservedPool.Stats().RegularPool.Borrowed > 0
+}
+
+// IsClosing reports whether garbage collection has claimed this pool. A
+// closing pool refuses new acquisitions with connpool.ErrPoolClosed; callers
+// should look up a fresh pool instead.
+func (p *UserPool) IsClosing() bool {
+	return p.closing.Load()
+}
+
+// tryMarkInactive atomically decides whether this pool may be garbage
+// collected. It succeeds — and blocks all further acquisitions — only when no
+// acquisition is in flight, the last acquire predates cutoff, and no
+// connection is checked out. It never blocks: an in-flight acquisition makes
+// TryLock fail, which is the correct answer ("busy") for this cycle.
+func (p *UserPool) tryMarkInactive(cutoff int64) bool {
+	if !p.acqMu.TryLock() {
+		return false
+	}
+	defer p.acqMu.Unlock()
+	if p.closing.Load() || p.LastActivity() >= cutoff || p.HasCheckedOutConns() {
+		return false
+	}
+	p.closing.Store(true)
+	return true
+}
+
+// acquire runs op under the acquisition read lock so it cannot interleave
+// with tryMarkInactive. It records activity and refuses pools GC has claimed.
+func acquire[T any](p *UserPool, op func() (T, error)) (T, error) {
+	p.acqMu.RLock()
+	defer p.acqMu.RUnlock()
+	if p.closing.Load() {
+		var zero T
+		return zero, connpool.ErrPoolClosed
+	}
+	p.touchActivity()
+	return op()
+}
+
 // RegularDemand returns the peak demand for regular connections over the sliding window.
 // It also rotates the demand tracker to the next bucket, aging out old data.
 // This should be called once per rebalance cycle. Returns 0 if demand tracking is disabled.
@@ -241,23 +300,20 @@ func (p *UserPool) ReservedDemand() int64 {
 // GetRegularConn acquires a regular connection from the pool.
 // The connection is already authenticated as the pool's user.
 func (p *UserPool) GetRegularConn(ctx context.Context) (regular.PooledConn, error) {
-	p.touchActivity()
-	return p.regularPool.Get(ctx)
+	return acquire(p, func() (regular.PooledConn, error) { return p.regularPool.Get(ctx) })
 }
 
 // GetRegularConnWithSettings acquires a regular connection with the given settings.
 // The connection is already authenticated as the pool's user.
 func (p *UserPool) GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings) (regular.PooledConn, error) {
-	p.touchActivity()
-	return p.regularPool.GetWithSettings(ctx, settings)
+	return acquire(p, func() (regular.PooledConn, error) { return p.regularPool.GetWithSettings(ctx, settings) })
 }
 
 // NewReservedConn creates a new reserved connection for transactions or portal operations.
 // The connection is already authenticated as the pool's user. Optional
 // ReservedConnOption values configure validate-with-retry behavior.
 func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Settings, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
-	p.touchActivity()
-	return p.reservedPool.NewConn(ctx, settings, opts...)
+	return acquire(p, func() (*reserved.Conn, error) { return p.reservedPool.NewConn(ctx, settings, opts...) })
 }
 
 // NewLogicalReplicationConn returns a Postgres connection opened with
@@ -267,8 +323,7 @@ func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Sett
 // replication=database startup parameter is rejected for roles without the
 // REPLICATION attribute.
 func (p *UserPool) NewLogicalReplicationConn(ctx context.Context) (*reserved.Conn, error) {
-	p.touchActivity()
-	return p.reservedPool.NewLogicalReplicationConn(ctx)
+	return acquire(p, func() (*reserved.Conn, error) { return p.reservedPool.NewLogicalReplicationConn(ctx) })
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID.

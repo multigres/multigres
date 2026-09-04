@@ -178,7 +178,12 @@ func TestRecoveryGracePeriod_ShouldExecuteBeforeDeadline(t *testing.T) {
 	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
-	assert.False(t, tracker.ShouldExecute(problem), "should not execute before the deadline expires")
+	tracked, ok := tracker.deadlineFor(problem)
+	require.True(t, ok)
+
+	deadline, ready := tracker.ShouldExecute(problem)
+	assert.False(t, ready, "should not execute before the deadline expires")
+	assert.Equal(t, tracked, deadline, "should report the deadline it's waiting on")
 }
 
 func TestRecoveryGracePeriod_ShouldExecuteAfterDeadline(t *testing.T) {
@@ -191,8 +196,13 @@ func TestRecoveryGracePeriod_ShouldExecuteAfterDeadline(t *testing.T) {
 	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, action)
 
 	tracker.Reconcile([]types.Problem{problem})
+	tracked, ok := tracker.deadlineFor(problem)
+	require.True(t, ok)
+
 	time.Sleep(150 * time.Millisecond)
-	assert.True(t, tracker.ShouldExecute(problem), "should execute after the deadline expires")
+	deadline, ready := tracker.ShouldExecute(problem)
+	assert.True(t, ready, "should execute after the deadline expires")
+	assert.Equal(t, tracked, deadline, "an expired deadline is still reported, not zeroed just because it's ready")
 }
 
 func TestRecoveryGracePeriod_NoGracePeriodExecutesImmediately(t *testing.T) {
@@ -206,7 +216,10 @@ func TestRecoveryGracePeriod_NoGracePeriodExecutesImmediately(t *testing.T) {
 	tracker.Reconcile([]types.Problem{problem})
 	_, exists := tracker.deadlineFor(problem)
 	assert.False(t, exists, "problems without a grace period should not be tracked")
-	assert.True(t, tracker.ShouldExecute(problem), "problems without a grace period should execute immediately")
+
+	deadline, ready := tracker.ShouldExecute(problem)
+	assert.True(t, ready, "problems without a grace period should execute immediately")
+	assert.True(t, deadline.IsZero(), "no grace period means no deadline to report")
 }
 
 func TestRecoveryGracePeriod_MissingDeadlineDefersExecution(t *testing.T) {
@@ -220,7 +233,9 @@ func TestRecoveryGracePeriod_MissingDeadlineDefersExecution(t *testing.T) {
 
 	// ShouldExecute without a prior Reconcile has no deadline: defer rather than
 	// act blindly.
-	assert.False(t, tracker.ShouldExecute(problem), "should defer when no deadline was reconciled for the problem")
+	deadline, ready := tracker.ShouldExecute(problem)
+	assert.False(t, ready, "should defer when no deadline was reconciled for the problem")
+	assert.True(t, deadline.IsZero(), "no reconciled deadline means nothing meaningful to report")
 }
 
 func TestRecoveryGracePeriod_DistinctProblemsTrackedIndependently(t *testing.T) {
@@ -284,12 +299,20 @@ func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
 
 	tracker.Reconcile([]types.Problem{problemA, problemB})
 
-	require.False(t, tracker.ShouldExecute(problemA), "should not execute before grace period expires")
-	require.False(t, tracker.ShouldExecute(problemB), "should not execute before grace period expires")
+	deadlineA, readyA := tracker.ShouldExecute(problemA)
+	deadlineB, readyB := tracker.ShouldExecute(problemB)
+	require.False(t, readyA, "should not execute before grace period expires")
+	require.False(t, readyB, "should not execute before grace period expires")
+	assert.False(t, deadlineA.IsZero(), "should report the real deadline while still gated")
+	assert.False(t, deadlineB.IsZero(), "should report the real deadline while still gated")
 
 	tracker.ForceExpireAll()
-	assert.True(t, tracker.ShouldExecute(problemA), "should execute after ForceExpireAll")
-	assert.True(t, tracker.ShouldExecute(problemB), "should execute after ForceExpireAll")
+	deadlineA, readyA = tracker.ShouldExecute(problemA)
+	deadlineB, readyB = tracker.ShouldExecute(problemB)
+	assert.True(t, readyA, "should execute after ForceExpireAll")
+	assert.True(t, readyB, "should execute after ForceExpireAll")
+	assert.True(t, deadlineA.IsZero(), "ForceExpireAll overwrites the deadline to the zero sentinel, not the original time")
+	assert.True(t, deadlineB.IsZero(), "ForceExpireAll overwrites the deadline to the zero sentinel, not the original time")
 }
 
 func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {

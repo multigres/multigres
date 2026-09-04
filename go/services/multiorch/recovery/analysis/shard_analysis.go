@@ -112,24 +112,29 @@ func freshAndInitialized(p *store.Pooler, now time.Time, freshness time.Duration
 }
 
 // recruitable reports whether p is, as of now, usable as a target for
-// recruitment or cohort admission: fresh and initialized (see above), plus it
-// has not self-declared cohort-ineligible (draining — e.g. graceful shutdown
-// or an admin-stopped WAL receiver), and it has no outstanding
-// RecruitBlockedUntil (hasn't caught back up from a pg_rewind yet). Both
-// ineligibility and a recruit-position floor are enforced synchronously
-// server-side (Recruit rejects with FAILED_PRECONDITION), so this check does
-// not itself guard correctness — it exists so callers' feasibility judgments
-// (is a recruitment quorum reachable, is this pooler admissible) agree with
-// what an actual Recruit attempt would do, instead of counting a member that
-// would just be refused.
+// recruitment or cohort admission. Each check here is also enforced
+// synchronously server-side (Recruit/ValidateRevocation refuses the same
+// cases with FAILED_PRECONDITION), so this doesn't itself guard correctness —
+// it exists so callers' feasibility judgments (is a recruitment quorum
+// reachable, is this pooler admissible) agree with what an actual Recruit
+// attempt would do, instead of counting a member that would just be refused.
 func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
 	if !freshAndInitialized(p, now, freshness) {
 		return false
 	}
 	hs, _ := p.HealthWithin(now, freshness)
+	// Draining (graceful shutdown or an admin-stopped WAL receiver).
 	if types.PoolerIsCohortIneligible(hs.GetAvailabilityStatus()) {
 		return false
 	}
+	// No cached position — e.g. a flapping pooler whose consensus status
+	// hasn't completed a read yet. Without this, a failover could look
+	// feasible forever while every real Recruit attempt is refused, so
+	// collective backoff never engages (nothing ever persists).
+	if hs.GetConsensusStatus().GetCurrentPosition() == nil {
+		return false
+	}
+	// Hasn't caught back up from a pg_rewind yet.
 	return hs.GetConsensusStatus().GetRecruitBlockedUntil() == nil
 }
 

@@ -16,7 +16,6 @@ package reserved
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -24,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
@@ -92,7 +92,7 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return nil, errors.New("reserved pool is closed")
+		return nil, fmt.Errorf("reserved pool: %w", connpool.ErrPoolClosed)
 	}
 	p.mu.Unlock()
 
@@ -144,7 +144,7 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 		p.mu.Unlock()
 		pooled.Taint()
 		pooled.Recycle()
-		return nil, errors.New("reserved pool is closed")
+		return nil, fmt.Errorf("reserved pool: %w", connpool.ErrPoolClosed)
 	}
 	p.active[connID] = c
 	p.mu.Unlock()
