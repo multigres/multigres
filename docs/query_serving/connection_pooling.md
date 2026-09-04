@@ -616,17 +616,26 @@ values. One blind spot remains: an _untracked_ custom GUC set behind
 tracking's back is unenumerable from SQL; the creation-time rejection gates
 are the defense for that class.
 
-Three more checkers cover the rest of the backend state the pool trusts:
+Four more checkers cover the rest of the backend state the pool trusts:
 
 - `prepared_statements` diffs the connection's tracked prepared statements
-  against `pg_prepared_statements`. Idle connections legitimately keep
-  prepared statements across borrowers, so this is a two-sided comparison:
-  a backend statement tracking does not know is untracked, a tracked
-  statement the backend lost is phantom. Tracked names are consolidator
-  identifiers and are reported verbatim; an untracked name is reported
-  verbatim only when it has the consolidator's shape (a tracking bug),
-  otherwise it is redacted to `foreign_name`, since a name that arrived on a
-  backend by another route may embed client data.
+  against `pg_prepared_statements`, names and bodies. Idle connections
+  legitimately keep prepared statements across borrowers, so this is a
+  two-sided comparison: a backend statement tracking does not know is
+  untracked, a tracked statement the backend lost is phantom, and a tracked
+  statement whose backend body differs from the tracked query is mismatched
+  — a hidden `DEALLOCATE` plus re-`PREPARE` keeps the name, and the pool
+  would otherwise hand the redefined statement to the next borrower's
+  `EXECUTE`. Tracked names are consolidator identifiers and are reported
+  verbatim; every untracked name is redacted to `foreign_name`, one entry
+  per statement, since a name that arrived on a backend by another route
+  may embed client data and the consolidator's `ppstmt<N>` shape is
+  reachable from any session.
+- `holdable_cursors` reports one `holdable_cursor` finding per cursor still
+  open on the idle backend. Outside a transaction only `WITH HOLD` cursors
+  remain, and portals pin a reserved connection, so an open cursor here was
+  declared behind tracking (an `EXECUTE 'DECLARE ... WITH HOLD'` inside a
+  routine body). Cursor names are never reported.
 - `advisory_locks` reports a single `session_advisory_lock` finding when the
   idle backend holds any advisory lock. Acquiring functions route to a
   reserved connection whose release runs `pg_advisory_unlock_all`, so a lock
@@ -649,7 +658,7 @@ Three more checkers cover the rest of the backend state the pool trusts:
   pg_temp, even with it listed in `search_path`, and are reported as stale
   state for completeness. Object names are never reported.
 
-All four checkers run against the same idle connection each tick; the
+All five checkers run against the same idle connection each tick; the
 divergence log line and the `checker` metric attribute name which one fired.
 
 The untracked rule imposes a bootstrap invariant: connection setup must not

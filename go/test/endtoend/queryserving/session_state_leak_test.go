@@ -330,3 +330,59 @@ func TestSessionScrubberReplacesHiddenTempObjects(t *testing.T) {
 	require.NotContains(t, string(poolerLog), nameMarker,
 		"divergence log must never carry object names")
 }
+
+// TestSessionScrubberReplacesHiddenHoldableCursor covers the holdable-cursor
+// checker end to end: a WITH HOLD cursor declared via dynamic EXECUTE inside
+// a PL/pgSQL body outlives its transaction on a pooled backend. The call site
+// is an opaque UDF, so no portal reservation pins the connection and the
+// cursor stays open on an idle backend. The scrubber must detect it and
+// replace the backend, never logging the cursor name.
+func TestSessionScrubberReplacesHiddenHoldableCursor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping session scrubber test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
+
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	primary, err := sql.Open("postgres", primaryDSN)
+	require.NoError(t, err)
+	defer primary.Close()
+
+	const cursorName = "hidden_scrub_secret_cursor"
+	_, err = primary.ExecContext(ctx, `CREATE OR REPLACE FUNCTION hidden_scrub_cursor()
+		RETURNS bool LANGUAGE plpgsql AS $$BEGIN
+		EXECUTE 'DECLARE `+cursorName+` CURSOR WITH HOLD FOR SELECT 1';
+		RETURN true; END$$`)
+	require.NoError(t, err)
+	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_scrub_cursor()") //nolint:errcheck
+
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxIdleConns(0)
+	var ignored bool
+	var leakedPID int
+	err = connA.QueryRowContext(ctx, "SELECT hidden_scrub_cursor(), pg_backend_pid()").Scan(&ignored, &leakedPID)
+	require.NoError(t, err)
+	require.NoError(t, connA.Close())
+
+	require.Eventually(t, func() bool {
+		var alive int
+		if err := primary.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE pid = $1", leakedPID).Scan(&alive); err != nil {
+			return false
+		}
+		return alive == 0
+	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden WITH HOLD cursor (pid %d)", leakedPID)
+
+	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	require.NoError(t, err)
+	require.Contains(t, string(poolerLog), "holdable_cursors",
+		"multipooler log should attribute the replacement to the holdable-cursor checker")
+	require.NotContains(t, string(poolerLog), cursorName,
+		"divergence log must never carry the cursor name")
+}

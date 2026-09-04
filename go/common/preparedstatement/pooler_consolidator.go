@@ -24,23 +24,6 @@ import (
 // the rest of the name is a decimal counter.
 const CanonicalNamePrefix = "ppstmt"
 
-// IsCanonicalName reports whether name has the shape PoolerConsolidator
-// assigns (prefix followed by one or more decimal digits). Used to tell a
-// pooler-generated statement name apart from one that arrived on a backend
-// by some other route.
-func IsCanonicalName(name string) bool {
-	digits, ok := strings.CutPrefix(name, CanonicalNamePrefix)
-	if !ok || digits == "" {
-		return false
-	}
-	for _, r := range digits {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 // PoolerConsolidator deduplicates prepared statements at the multipooler level.
 //
 // Unlike the gateway Consolidator which tracks per-connection name mappings,

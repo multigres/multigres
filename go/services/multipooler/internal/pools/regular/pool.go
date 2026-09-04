@@ -63,6 +63,7 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	pool.RegisterChecker(SessionStateChecker{})
 	pool.RegisterChecker(PreparedStatementChecker{})
 	pool.RegisterChecker(AdvisoryLockChecker{})
+	pool.RegisterChecker(HoldableCursorChecker{})
 	pool.RegisterChecker(TempObjectChecker{})
 
 	return &Pool{

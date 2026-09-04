@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
 
@@ -30,7 +29,10 @@ import (
 //
 //   - prepared statements: tracked per connection in ConnectionState and
 //     legitimately kept across borrowers, so this is a two-sided diff
-//     against pg_prepared_statements.
+//     against pg_prepared_statements, bodies included.
+//   - holdable cursors: never legitimate on an idle pooled backend. Portals
+//     pin a reserved connection, and only a WITH HOLD cursor survives its
+//     transaction; one still open means it was declared behind tracking.
 //   - session-level advisory locks: never legitimate on an idle pooled
 //     backend. Acquiring functions route to a reserved connection whose
 //     release runs pg_advisory_unlock_all; a lock still held means the
@@ -56,21 +58,24 @@ func (PreparedStatementChecker) Check(ctx context.Context, conn *Conn) (connpool
 	return conn.VerifyPreparedStatements(ctx)
 }
 
-// foreignPreparedStatementName is reported in place of an untracked
-// statement name that does not have the consolidator's shape. Such a name
-// reached the backend outside the pooler (e.g. a PREPARE hidden in a routine
-// body) and may embed client data, so it never enters Divergence or logs.
-// One entry is reported per statement so counts survive redaction.
+// foreignPreparedStatementName is reported in place of every untracked
+// statement name. Such a name reached the backend outside the pooler (e.g. a
+// PREPARE hidden in a routine body) and may embed client data; the
+// consolidator's ppstmt<N> shape is no safety signal, since any session can
+// PREPARE a name of that shape. One entry is reported per statement so
+// counts survive redaction.
 const foreignPreparedStatementName = "foreign_name"
 
 // VerifyPreparedStatements compares the connection's tracked prepared
-// statements against pg_prepared_statements. A statement the backend holds
-// but tracking does not know is Untracked (the next borrower could collide
-// with or execute it); a tracked statement the backend no longer has is
-// Phantom (the next EXECUTE would fail). Tracked names are consolidator
-// assigned and reported verbatim; an untracked name is reported verbatim
-// only when it has the consolidator's shape (pointing at a tracking bug),
-// otherwise it is redacted to foreignPreparedStatementName.
+// statements against pg_prepared_statements, names and bodies. A statement
+// the backend holds but tracking does not know is Untracked (the next
+// borrower could collide with or execute it), reported redacted; a tracked
+// statement the backend no longer has is Phantom (the next EXECUTE would
+// fail); a tracked statement whose backend body differs from the tracked
+// query is Mismatched — a hidden DEALLOCATE plus re-PREPARE keeps the name,
+// and ensurePrepared would otherwise hand the redefined statement to the
+// next borrower. Tracked names are consolidator assigned and reported
+// verbatim.
 func (c *Conn) VerifyPreparedStatements(ctx context.Context) (connpool.Divergence, error) {
 	var div connpool.Divergence
 	if !c.IsIdle() {
@@ -85,38 +90,39 @@ func (c *Conn) VerifyPreparedStatements(ctx context.Context) (connpool.Divergenc
 		return div, errors.New("prepared statement probe returned unexpected result count")
 	}
 
-	backend := make(map[string]struct{}, results[0].RowCount())
+	backend := make(map[string]string, results[0].RowCount()) // name → body
 	for _, row := range results[0].StructuredRows() {
-		if len(row.Values) != 1 || row.Values[0].IsNull() {
+		if len(row.Values) != 2 || row.Values[0].IsNull() || row.Values[1].IsNull() {
 			return div, errors.New("prepared statement probe returned malformed row")
 		}
-		backend[string(row.Values[0])] = struct{}{}
+		backend[string(row.Values[0])] = string(row.Values[1])
 	}
 
+	state := c.State()
 	tracked := make(map[string]struct{})
-	for _, name := range c.State().PreparedStatementNames() {
+	for _, name := range state.PreparedStatementNames() {
 		// The unnamed statement is tracked under "" but never listed by
 		// pg_prepared_statements.
 		if name == "" {
 			continue
 		}
 		tracked[name] = struct{}{}
-		if _, ok := backend[name]; !ok {
+		body, ok := backend[name]
+		switch {
+		case !ok:
 			div.Phantom = append(div.Phantom, name)
+		case body != state.GetPreparedStatement(name).GetQuery():
+			div.Mismatched = append(div.Mismatched, name)
 		}
 	}
 	for name := range backend {
-		if _, ok := tracked[name]; ok {
-			continue
+		if _, ok := tracked[name]; !ok {
+			div.Untracked = append(div.Untracked, foreignPreparedStatementName)
 		}
-		if !preparedstatement.IsCanonicalName(name) {
-			name = foreignPreparedStatementName
-		}
-		div.Untracked = append(div.Untracked, name)
 	}
 
-	sort.Strings(div.Untracked)
 	sort.Strings(div.Phantom)
+	sort.Strings(div.Mismatched)
 	return div, nil
 }
 
@@ -164,6 +170,50 @@ func (c *Conn) VerifyAdvisoryLocks(ctx context.Context) (connpool.Divergence, er
 	}
 	if held {
 		div.Untracked = []string{advisoryLockDivergenceName}
+	}
+	return div, nil
+}
+
+// HoldableCursorChecker is the connpool.ConnChecker that verifies a
+// connection has no open WITH HOLD cursor; it delegates to
+// VerifyHoldableCursors.
+type HoldableCursorChecker struct{}
+
+// Name implements connpool.ConnChecker.
+func (HoldableCursorChecker) Name() string { return "holdable_cursors" }
+
+// Check implements connpool.ConnChecker.
+func (HoldableCursorChecker) Check(ctx context.Context, conn *Conn) (connpool.Divergence, error) {
+	return conn.VerifyHoldableCursors(ctx)
+}
+
+// holdableCursorDivergenceName is reported once per open cursor. Cursor
+// names are client chosen and are never reported.
+const holdableCursorDivergenceName = "holdable_cursor"
+
+// VerifyHoldableCursors reports one Untracked entry per cursor still open on
+// the idle backend. Outside a transaction only WITH HOLD cursors remain, and
+// tracking never leaves one on a pooled connection: portals pin a reserved
+// connection, so an open cursor here was declared behind tracking (e.g.
+// EXECUTE 'DECLARE ... WITH HOLD' inside a routine body).
+func (c *Conn) VerifyHoldableCursors(ctx context.Context) (connpool.Divergence, error) {
+	var div connpool.Divergence
+	if !c.IsIdle() {
+		return div, errors.New("connection is not idle")
+	}
+
+	results, err := c.Query(ctx, constants.HoldableCursorsProbeSQL)
+	if err != nil {
+		return div, err
+	}
+	if len(results) != 1 {
+		return div, errors.New("holdable cursor probe returned unexpected result count")
+	}
+	for _, row := range results[0].StructuredRows() {
+		if len(row.Values) != 1 || row.Values[0].IsNull() {
+			return div, errors.New("holdable cursor probe returned malformed row")
+		}
+		div.Untracked = append(div.Untracked, holdableCursorDivergenceName)
 	}
 	return div, nil
 }

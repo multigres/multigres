@@ -145,10 +145,21 @@ const (
 	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND pid = pg_catalog.pg_backend_pid())"
 
 	// PreparedStatementsProbeSQL lists the named prepared statements the
-	// current backend holds, protocol-level (Parse) and SQL-level (PREPARE)
-	// alike. The unnamed statement is never listed. Run by the multipooler
-	// scrubber to compare against the pool's tracked prepared statements.
-	PreparedStatementsProbeSQL = "SELECT name FROM pg_catalog.pg_prepared_statements"
+	// current backend holds with their bodies, protocol-level (Parse) and
+	// SQL-level (PREPARE) alike. The unnamed statement is never listed. For a
+	// Parse-created statement the body is the query string as submitted; for
+	// a SQL PREPARE it is the full PREPARE text. Run by the multipooler
+	// scrubber to compare against the pool's tracked prepared statements,
+	// body included: a name can survive a hidden DEALLOCATE plus re-PREPARE
+	// with a different body.
+	PreparedStatementsProbeSQL = "SELECT name, statement FROM pg_catalog.pg_prepared_statements"
+
+	// HoldableCursorsProbeSQL lists the current backend's open cursors. Run
+	// only outside a transaction, where every cursor still listed is WITH
+	// HOLD (others close at transaction end), so any row means a holdable
+	// cursor outlived its transaction on a pooled backend. Run by the
+	// multipooler scrubber; an idle pooled backend must hold none.
+	HoldableCursorsProbeSQL = "SELECT name FROM pg_catalog.pg_cursors"
 
 	// TempObjectsProbeSQL returns one row per object in the current backend's
 	// temporary schema, tagged by kind, across every namespace-scoped catalog

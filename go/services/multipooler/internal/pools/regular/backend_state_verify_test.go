@@ -17,6 +17,7 @@ package regular
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,18 +28,28 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-func scriptPreparedProbe(server *fakepgserver.Server, names ...string) {
-	rows := make([][]any, 0, len(names))
-	for _, n := range names {
-		rows = append(rows, []any{n})
+// trackedQuery is the body every tracked test statement was prepared with.
+const trackedQuery = "SELECT 1"
+
+// scriptPreparedProbe scripts the probe to list the given statements, each
+// with trackedQuery as its body unless the name is followed by "=" and a
+// different body (e.g. "ppstmt1=SELECT 2").
+func scriptPreparedProbe(server *fakepgserver.Server, entries ...string) {
+	rows := make([][]any, 0, len(entries))
+	for _, e := range entries {
+		name, body, ok := strings.Cut(e, "=")
+		if !ok {
+			body = trackedQuery
+		}
+		rows = append(rows, []any{name, body})
 	}
 	server.AddQuery(constants.PreparedStatementsProbeSQL,
-		fakepgserver.MakeResult([]string{"name"}, rows))
+		fakepgserver.MakeResult([]string{"name", "statement"}, rows))
 }
 
 func trackPrepared(conn *Conn, names ...string) {
 	for _, n := range names {
-		conn.State().StorePreparedStatement(&query.PreparedStatement{Name: n, Query: "SELECT 1"})
+		conn.State().StorePreparedStatement(&query.PreparedStatement{Name: n, Query: trackedQuery})
 	}
 }
 
@@ -68,18 +79,40 @@ func TestVerifyPreparedStatementsUntrackedAndPhantom(t *testing.T) {
 
 	div, err := conn.VerifyPreparedStatements(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{foreignPreparedStatementName}, div.Untracked, "a non-consolidator name is redacted")
+	assert.Equal(t, []string{foreignPreparedStatementName}, div.Untracked, "untracked names are redacted")
 	assert.Equal(t, []string{"ppstmt9"}, div.Phantom)
 	assert.Empty(t, div.Mismatched)
 }
 
-func TestVerifyPreparedStatementsRedactsForeignNames(t *testing.T) {
-	// An untracked name that is not consolidator-shaped may embed client
-	// data (a PREPARE hidden in a routine body); it must never reach the
-	// Divergence that flows into logs. Counts survive: one entry each.
+func TestVerifyPreparedStatementsRedefinedBody(t *testing.T) {
+	// A hidden DEALLOCATE plus re-PREPARE keeps the tracked name but swaps
+	// the body (a SQL PREPARE also stores the full PREPARE text). The name
+	// alone would look clean; the body comparison must flag it, or
+	// ensurePrepared hands the redefined statement to the next borrower.
 	server := fakepgserver.New(t)
 	defer server.Close()
-	scriptPreparedProbe(server, "ppstmt1", "ppstmt7", `stmt_ssn_123-45-6789`, "get_user_by_email")
+	scriptPreparedProbe(server, "ppstmt1", "ppstmt2=PREPARE ppstmt2 AS SELECT 2 AS evil")
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+	trackPrepared(conn, "ppstmt1", "ppstmt2")
+
+	div, err := conn.VerifyPreparedStatements(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ppstmt2"}, div.Mismatched)
+	assert.Empty(t, div.Untracked)
+	assert.Empty(t, div.Phantom)
+}
+
+func TestVerifyPreparedStatementsRedactsAllUntrackedNames(t *testing.T) {
+	// Every untracked name may embed client data — a PREPARE hidden in a
+	// routine body chooses the name, and the consolidator's ppstmt<N> shape
+	// is reachable too (ppstmt1234567890 with an account number). None may
+	// reach the Divergence that flows into logs. Counts survive: one entry
+	// per statement.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptPreparedProbe(server, "ppstmt1", "ppstmt1234567890", `stmt_ssn_123-45-6789`, "get_user_by_email")
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -87,12 +120,9 @@ func TestVerifyPreparedStatementsRedactsForeignNames(t *testing.T) {
 
 	div, err := conn.VerifyPreparedStatements(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"foreign_name", "foreign_name", "ppstmt7"}, div.Untracked)
+	assert.Equal(t, []string{"foreign_name", "foreign_name", "foreign_name"}, div.Untracked)
 	assert.Empty(t, div.Phantom)
-	for _, name := range div.Untracked {
-		assert.NotContains(t, name, "ssn")
-		assert.NotContains(t, name, "email")
-	}
+	assert.Empty(t, div.Mismatched)
 }
 
 func TestVerifyPreparedStatementsProbeError(t *testing.T) {
@@ -148,6 +178,41 @@ func TestVerifyAdvisoryLocksMalformed(t *testing.T) {
 
 	_, err := conn.VerifyAdvisoryLocks(context.Background())
 	require.Error(t, err, "a non-boolean probe result must be a probe failure, not a clean verdict")
+}
+
+func scriptCursorProbe(server *fakepgserver.Server, names ...string) {
+	rows := make([][]any, 0, len(names))
+	for _, n := range names {
+		rows = append(rows, []any{n})
+	}
+	server.AddQuery(constants.HoldableCursorsProbeSQL,
+		fakepgserver.MakeResult([]string{"name"}, rows))
+}
+
+func TestVerifyHoldableCursorsNone(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptCursorProbe(server)
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	div, err := HoldableCursorChecker{}.Check(context.Background(), conn)
+	require.NoError(t, err)
+	assert.False(t, div.IsDiverged())
+}
+
+func TestVerifyHoldableCursorsReportsCountNotNames(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	scriptCursorProbe(server, "cur_tenant_42", "hidden_hold")
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	div, err := conn.VerifyHoldableCursors(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{holdableCursorDivergenceName, holdableCursorDivergenceName}, div.Untracked)
 }
 
 func scriptTempProbe(server *fakepgserver.Server, codes ...string) {
