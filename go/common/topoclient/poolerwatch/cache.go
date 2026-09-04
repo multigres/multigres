@@ -451,6 +451,22 @@ func (c *PoolerCache[T]) GetByShard(database, tableGroup, shard string) []Entry[
 	return out
 }
 
+// HasDatabase reports whether any read-visible entry belongs to the named
+// database. It answers "does this database exist as far as discovery is
+// concerned", which callers use to tell an unknown database from a known one
+// whose poolers are momentarily unroutable. Scans the byShard index keys, so
+// the cost is the number of tracked shards, not the number of poolers.
+func (c *PoolerCache[T]) HasDatabase(database string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.byShard {
+		if key.database == database {
+			return true
+		}
+	}
+	return false
+}
+
 // All returns every read-visible entry (Live or MissingFromTopo). Tombstones are not
 // included. Intended for cross-shard scans like metric collection or
 // bookkeeping; for ordinary lookups prefer Get / GetByShard.

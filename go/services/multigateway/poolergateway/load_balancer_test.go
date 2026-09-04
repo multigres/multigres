@@ -1032,3 +1032,105 @@ func TestLoadBalancer_DrainingPrimaryStaysRoutable(t *testing.T) {
 		"a cleanly-draining primary must stay routable so MTF01 buffering can engage")
 	assert.Equal(t, poolerID(primary), got.ID())
 }
+
+// withDatabase overrides the pooler's database, so a test can populate the
+// cache with a database other than the default one it is routing to.
+func withDatabase(p *clustermetadatapb.Multipooler, database string) *clustermetadatapb.Multipooler {
+	p.ShardKey.Database = database
+	return p
+}
+
+// TestLoadBalancer_UnknownDatabaseIsTerminal covers the distinction between a
+// database that does not exist and one that is momentarily unroutable. Both
+// used to answer 57P03, which clients treat as retryable — so a connection to
+// a database that will never appear retried forever. An unknown database now
+// answers 3D000 (invalid_catalog_name), the same code PostgreSQL and pgbouncer
+// return, on both the leader and the replica routing path.
+func TestLoadBalancer_UnknownDatabaseIsTerminal(t *testing.T) {
+	const unknownDB = "no_such_db_xyz"
+
+	modes := []query.Mode{query.Mode_MODE_WRITABLE, query.Mode_MODE_CONSISTENT, query.Mode_MODE_INCONSISTENT}
+	for _, mode := range modes {
+		t.Run(mode.String(), func(t *testing.T) {
+			lb := newTestLB(t, "zone1")
+
+			// Discovery has seen a different database, so the cache is
+			// populated and the unknown database is genuinely absent rather
+			// than merely undiscovered.
+			known := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+			addPoolerForTest(t, lb, known)
+
+			target := protoutil.NewTarget(unknownDB, constants.DefaultTableGroup, "0", mode)
+			_, err := lb.getConnection(target)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err),
+				"an unknown database must not be classified as UNAVAILABLE — that is what makes it retryable")
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diagnostic), "the error must carry a PostgreSQL diagnostic")
+			assert.Equal(t, mterrors.PgSSInvalidCatalogName, diagnostic.Code)
+			assert.Equal(t, `database "no_such_db_xyz" does not exist`, diagnostic.Message)
+		})
+	}
+}
+
+// TestLoadBalancer_KnownDatabaseStaysRetryable is the other half of the
+// distinction: a database whose poolers are registered but currently offer no
+// writable primary — a failover in progress — must keep the retryable 57P03.
+func TestLoadBalancer_KnownDatabaseStaysRetryable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	// A pooler exists for the database, but never attests leadership, so the
+	// shard has no writable primary.
+	replica := createTestMultipooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	addPoolerForTest(t, lb, replica)
+
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+	_, err := lb.getConnection(target)
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diagnostic))
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code,
+		"a registered database awaiting a primary must stay retryable")
+}
+
+// TestLoadBalancer_UndiscoveredDatabaseStaysRetryable guards the startup and
+// topology-outage case: with nothing in the cache, every database is equally
+// unseen, so none can be declared nonexistent.
+func TestLoadBalancer_UndiscoveredDatabaseStaysRetryable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	require.Equal(t, 0, lb.cache.Len(), "precondition: discovery has not populated the cache")
+
+	target := protoutil.NewTarget("any_db", constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+	_, err := lb.getConnection(target)
+	require.Error(t, err)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diagnostic))
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code,
+		"an empty cache cannot distinguish an unknown database from an undiscovered one")
+}
+
+// TestLoadBalancer_DatabaseKnownFromAnotherShard checks the verdict is made at
+// database granularity, not shard granularity: routing to a shard that has no
+// poolers, in a database that has poolers elsewhere, is a routing failure and
+// not a nonexistent database.
+func TestLoadBalancer_DatabaseKnownFromAnotherShard(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	other := withDatabase(
+		createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY),
+		"tenant_db")
+	addPoolerForTest(t, lb, other)
+
+	target := protoutil.NewTarget("tenant_db", constants.DefaultTableGroup, "99", query.Mode_MODE_WRITABLE)
+	_, err := lb.getConnection(target)
+	require.Error(t, err)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diagnostic))
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code,
+		"the database exists; only this shard is unroutable")
+}
