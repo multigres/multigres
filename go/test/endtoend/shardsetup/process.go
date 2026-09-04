@@ -146,7 +146,8 @@ func (p *ProcessInstance) logLevelOrDefault() string {
 //
 // p.SocketFile defaults to the standard Unix socket path during instance
 // creation; tests that need to exercise the TCP path (e.g. PG TLS) clear
-// it before Start to omit --socket-file and force a TCP dial.
+// it before Start, which passes an explicitly empty --socket-file to force a
+// TCP dial (an omitted flag would derive the socket path from --pooler-dir).
 func (p *ProcessInstance) multipoolerArgs() []string {
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
@@ -171,9 +172,9 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 		// on SIGTERM.
 		"--onterm-timeout", "80s",
 	}
-	if p.SocketFile != "" {
-		args = append(args, "--socket-file", p.SocketFile)
-	}
+	// Always pass the flag: explicit-empty forces TCP, while omitting it
+	// would let the multipooler derive the socket path from --pooler-dir.
+	args = append(args, "--socket-file="+p.SocketFile)
 	if p.PgClientSSLMode != "" {
 		args = append(args, "--pg-client-sslmode", p.PgClientSSLMode)
 	}
