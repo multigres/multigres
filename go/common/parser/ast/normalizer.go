@@ -129,11 +129,17 @@ func Normalize(stmt Stmt) *NormalizeResult {
 				// For is_local=true we still parameterize args[1] (the value):
 				// that is the high-cardinality part of hot per-request patterns
 				// (PostgREST's set_config('request.jwt.claims', <dynamic JSON>,
-				// true)), so collapsing it keeps the plan cache compact. Keeping
-				// the name literal costs at most one cache entry per distinct
-				// GUC name — negligible, since the name is constant per call
-				// site and only the value churns. (For is_local=false the whole
+				// true), multi-tenant set_config('search_path', <tenant>, true)),
+				// so collapsing it keeps the plan cache compact. Keeping the
+				// name literal costs at most one cache entry per distinct GUC
+				// name — negligible, since the name is constant per call site
+				// and only the value churns. (For is_local=false the whole
 				// subtree is already skipped, so both args stay literal.)
+				//
+				// A parameterized search_path value is safe here: the planner
+				// emits a vet-only ApplySessionStateFromBind for that shape,
+				// and resolveSetConfig re-checks the resolved value for
+				// pg_temp before the Route reaches the backend.
 				if setConfigIsLocalLiteralTrue(n) && n.Args != nil && n.Args.Len() == 3 {
 					n.Args.Items[1] = Rewrite(n.Args.Items[1], replaceLiteral, nil)
 				}

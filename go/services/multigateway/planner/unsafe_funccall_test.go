@@ -40,20 +40,20 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 }
 
 func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
-	analysis, err := analyzeSQLPreparedBody(nil)
+	analysis, err := analyzeSQLPreparedBody(nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, analysis)
 
-	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"})
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"}, false)
 	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"), false)
 	require.ErrorContains(t, err, "synchronous_commit")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"), false)
 	require.ErrorContains(t, err, "pg_read_file is not supported")
 
-	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"))
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"), false)
 	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
 
 	require.NoError(t, validateSQLPreparedSetConfigs(nil))
@@ -120,7 +120,7 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.Nil(t, result)
 			require.Error(t, err)
 
@@ -223,7 +223,7 @@ func TestInspectExpressionFuncCalls_ReplicationSlots(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			if !tt.wantErr {
 				require.NoError(t, err)
 				require.NotNil(t, result)
@@ -250,13 +250,13 @@ func TestReplicationSlotAfterNormalization(t *testing.T) {
 	accept := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST)
+		_, err := analyzeStatement(norm.NormalizedAST, false)
 		assert.NoError(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 	}
 	reject := func(t *testing.T, sql string) {
 		t.Helper()
 		norm := ast.Normalize(parseOne(t, sql))
-		_, err := analyzeStatement(norm.NormalizedAST)
+		_, err := analyzeStatement(norm.NormalizedAST, false)
 		require.Error(t, err, "normalized SQL: %s", norm.NormalizedSQL)
 		var diag *mterrors.PgDiagnostic
 		require.True(t, errors.As(err, &diag))
@@ -365,22 +365,155 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			sql:       "SELECT set_config('statement_timeout', 100, false)",
 			wantCalls: []setConfigCall{{Name: "statement_timeout", Value: "100"}},
 		},
-		{
-			name:      "is_local=true accepts parameterized name and value",
-			sql:       "SELECT set_config($1, $2, true)",
-			wantCalls: nil,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCalls, result.SetConfigs)
 		})
 	}
+}
+
+// TestSetConfigLiteralNullValue pins PostgreSQL's set_config NULL semantics at
+// plan time. set_config is NOT strict (pg_proc.proisstrict = false):
+// set_config(name, NULL, false) clears the parameter and returns the restored
+// default — indistinguishable from RESET on PostgreSQL 17. The planner must
+// therefore accept it and emit a VAR_RESET synthetic so the tracker removes
+// the entry, instead of rejecting the statement as it did when the value was
+// merely "not a literal string".
+func TestSetConfigLiteralNullValue(t *testing.T) {
+	t.Run("ordinary GUC tracks a reset", func(t *testing.T) {
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('work_mem', NULL, false)"), true)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.ValueIsNull)
+		assert.Equal(t, "work_mem", sc.Name)
+		assert.Equal(t, ast.VAR_RESET, syntheticSetStmt(sc).Kind,
+			"a NULL value must track as a removal, not a value write")
+	})
+
+	t.Run("search_path reset needs no pg_temp vet", func(t *testing.T) {
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('search_path', NULL, false)"), true)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		assert.True(t, result.SetConfigs[0].ValueIsNull)
+	})
+
+	t.Run("is_local=true reset is untracked passthrough", func(t *testing.T) {
+		// PostgreSQL scopes the reset to the transaction, so the gateway holds
+		// no state for it.
+		for _, sql := range []string{
+			"SELECT set_config('work_mem', NULL, true)",
+			"SELECT set_config('search_path', NULL, true)",
+		} {
+			result, err := analyzeFunctionCalls(parseOne(t, sql), true)
+			require.NoError(t, err, sql)
+			assert.Empty(t, result.SetConfigs, sql)
+		}
+	})
+
+	t.Run("gateway-managed variable stays fail-closed", func(t *testing.T) {
+		// The gateway owns the value and has no per-variable reset primitive.
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('statement_timeout', NULL, false)"), true)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "RESET statement_timeout")
+	})
+
+	t.Run("bound name stays fail-closed", func(t *testing.T) {
+		// The VAR_RESET synthetic cannot resolve a bound name; resetting a
+		// placeholder would silently drift from the backend.
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config($1, NULL, false)"), true)
+		require.Error(t, err)
+	})
+}
+
+// TestSetConfigDirectAndPreparedParity pins the invariant that a set_config
+// body must behave identically whether it runs directly or inside a SQL
+// PREPARE — the property validateSQLPreparedSetConfigs' own comment says the
+// prepared form must not violate.
+//
+// It exists because the two paths carry the planner's setConfigCall in
+// different shapes: the direct path folds it into a synthetic VariableSetStmt
+// (VAR_RESET for a NULL value), while the prepared path copies selected fields
+// into engine.SQLPreparedSetConfig. A field added to setConfigCall and wired
+// into only one of those — as ValueIsNull originally was — makes the prepared
+// form silently diverge, tracking an empty string where the direct form
+// correctly tracks a removal. Comparing the reset disposition across both
+// conversions catches that class of omission at the boundary where it happens.
+func TestSetConfigDirectAndPreparedParity(t *testing.T) {
+	bodies := []string{
+		"SELECT set_config('work_mem', NULL, false)",
+		"SELECT set_config('search_path', NULL, false)",
+		"SELECT set_config('work_mem', '64MB', false)",
+		"SELECT set_config('search_path', 'public', false)",
+		"SELECT set_config('work_mem', $1, false)",
+	}
+	for _, body := range bodies {
+		t.Run(body, func(t *testing.T) {
+			result, err := analyzeFunctionCalls(parseOne(t, body), true)
+			require.NoError(t, err)
+			require.Len(t, result.SetConfigs, 1)
+			sc := result.SetConfigs[0]
+
+			directIsReset := syntheticSetStmt(sc).Kind == ast.VAR_RESET
+			prepared := sqlPreparedSetConfigs(result.SetConfigs)
+			require.Len(t, prepared, 1)
+
+			assert.Equal(t, directIsReset, prepared[0].ValueIsNull,
+				"direct and prepared paths must agree on whether this call is a reset")
+			assert.Equal(t, sc.Name, prepared[0].Name)
+			assert.Equal(t, sc.Value, prepared[0].Value)
+			assert.Equal(t, sc.ValueBind, prepared[0].ValueParam)
+			assert.Equal(t, sc.IsLocalLiteralTrue, prepared[0].IsLocalLiteralTrue)
+		})
+	}
+}
+
+// TestSetConfigIsLocalTrueBoundVetOnly pins the vet-only disposition for the
+// PostgREST hot path: set_config with bound slots and literal is_local=true is
+// accepted and produces a setConfigCall carrying the bind refs, so the plan
+// builds an ApplySessionStateFromBind whose resolveSetConfig vets the resolved
+// name/value (gateway-managed, restricted GUC, search_path pg_temp) before the
+// Route reaches the backend — and then tracks nothing. A fully-literal
+// benign call still short-circuits to no setConfigCall (see the "is_local=true
+// is accepted but not tracked" case above).
+func TestSetConfigIsLocalTrueBoundVetOnly(t *testing.T) {
+	t.Run("bound name and value", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config($1, $2, true)")
+		result, err := analyzeFunctionCalls(stmt, true)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.IsLocalLiteralTrue)
+		require.NotNil(t, sc.NameBind)
+		assert.Equal(t, 1, sc.NameBind.Number)
+		require.NotNil(t, sc.ValueBind)
+		assert.Equal(t, 2, sc.ValueBind.Number)
+		assert.Nil(t, sc.IsLocalBind)
+	})
+
+	t.Run("literal search_path name with bound value", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config('search_path', $1, true)")
+		result, err := analyzeFunctionCalls(stmt, true)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.IsLocalLiteralTrue)
+		assert.Equal(t, "search_path", sc.Name)
+		require.NotNil(t, sc.ValueBind)
+	})
+
+	t.Run("literal non-search_path name with bound value stays untracked", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config('request.jwt.claims', $1, true)")
+		result, err := analyzeFunctionCalls(stmt, true)
+		require.NoError(t, err)
+		assert.Empty(t, result.SetConfigs)
+	})
 }
 
 // TestInspectExpressionFuncCalls_SetConfigRejected covers set_config calls
@@ -397,6 +530,16 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			name:    "set_config in WHERE",
 			sql:     "SELECT 1 FROM t WHERE set_config('work_mem','256MB',false) IS NOT NULL",
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			// An expression-shaped name with literal is_local=true cannot be
+			// resolved at execute time (its value comes from rows), so it
+			// cannot be vetted for search_path — the shape fails closed. A
+			// bound ($N) name is fine: it produces a vet-only entry (see
+			// TestSetConfigIsLocalTrueBoundVetOnly).
+			name:    "dynamic name with is_local=true",
+			sql:     "SELECT set_config(name, 'v', true) FROM gucs",
+			wantMsg: "set_config name argument must be a literal constant or a bound parameter",
 		},
 		{
 			name:    "set_config in subquery",
@@ -452,7 +595,157 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough pins the
+// carve-out that unblocks PostgREST's mutation row-count trick: a
+// transaction-scoped set_config(name, value, true) on an ordinary GUC is
+// allowed outside a top-level SELECT target (WHERE, subquery, CTE-INSERT). It
+// reverts at transaction end, so PostgreSQL runs it verbatim and the gateway
+// tracks nothing — result.SetConfigs stays empty.
+func TestInspectExpressionFuncCalls_TransactionLocalSetConfigPassThrough(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0'",
+		},
+		{
+			name: "is_local=true in INSERT ... WHERE inside a CTE (PostgREST shape)",
+			sql: "WITH pgrst_source AS (" +
+				"INSERT INTO t (x) SELECT 1 WHERE set_config('pgrst.inserted', '1', true) <> '0' RETURNING x" +
+				") SELECT * FROM pgrst_source",
+		},
+		{
+			// A benign search_path value stays allowed — only pg_temp is barred.
+			name: "non-pg_temp search_path value passes through",
+			sql:  "SELECT 1 WHERE set_config('search_path', 'public', true) <> '0'",
+		},
+		{
+			name: "is_local=true in subquery",
+			sql:  "SELECT * FROM (SELECT 1 AS v WHERE set_config('pgrst.inserted', '1', true) <> '0') s",
+		},
+		{
+			name: "ordinary GUC with is_local=true in WHERE",
+			sql:  "SELECT 1 WHERE set_config('work_mem', '256MB', true) IS NOT NULL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt, true)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Empty(t, result.SetConfigs, "a transaction-local pass-through must not be tracked")
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected covers the shapes
+// the transaction-local carve-out must still reject: only a literal
+// is_local=true on a non-restricted, non-gateway-managed GUC passes through.
+func TestInspectExpressionFuncCalls_NonTopLevelSetConfigRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "is_local=false in WHERE leaks untracked backend state",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', false) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "bound is_local can't be resolved at plan time",
+			sql:     "SELECT 1 WHERE set_config('pgrst.inserted', '1', $1) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "non-literal name can't be checked for restricted/gateway-managed",
+			sql:     "SELECT 1 FROM pg_settings WHERE set_config(name, '1', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "restricted GUC is rejected even transaction-scoped",
+			sql:     "SELECT 1 WHERE set_config('synchronous_commit', 'off', true) <> '0'",
+			wantMsg: "setting synchronous_commit is not supported",
+		},
+		{
+			name:    "gateway-managed variable must never reach the backend",
+			sql:     "SELECT 1 WHERE set_config('statement_timeout', '5s', true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		// search_path is value-restricted here even though the call is
+		// transaction-scoped: is_local=true bounds the GUC, not the objects
+		// created while it is in effect. With pg_temp as the creation target an
+		// unqualified CREATE in the same transaction lands in the pooled
+		// backend's temp namespace and SURVIVES the COMMIT, carrying no TEMP
+		// keyword and no pg_temp qualification — so planTempTableCreation and
+		// checkTempSchemaQualifiedCreate both miss it and the backend goes back
+		// to the pool holding a temp object (verified on PostgreSQL 17).
+		{
+			name:    "pg_temp search_path in WHERE",
+			sql:     "SELECT 1 WHERE set_config('search_path', 'pg_temp', true) <> '0'",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a VALUES list",
+			sql:     "INSERT INTO t(x) VALUES (set_config('search_path', 'pg_temp', true))",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a subquery",
+			sql:     "SELECT * FROM (SELECT set_config('search_path', 'pg_temp', true) AS v) s",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in a CTE",
+			sql:     "WITH c AS (SELECT set_config('search_path', 'pg_temp', true) AS v) SELECT * FROM c",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			name:    "pg_temp search_path in an UPDATE target",
+			sql:     "UPDATE t SET x = set_config('search_path', 'pg_temp', true)",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			// The guard is position-insensitive: the creation target is the
+			// first EXISTING schema, so a nonexistent prefix does not help.
+			name:    "nonexistent-prefix bypass attempt",
+			sql:     "SELECT 1 WHERE set_config('search_path', 'nosuch, pg_temp', true) <> '0'",
+			wantMsg: "pg_temp in search_path is not supported",
+		},
+		{
+			// This path emits no primitive, so unlike every other set_config
+			// surface nothing re-checks the value at execute time — a value
+			// that cannot be read at plan time must fail closed.
+			name:    "bound search_path value has no execute-time re-check",
+			sql:     "SELECT 1 WHERE set_config('search_path', $1, true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			name:    "dynamic search_path value has no execute-time re-check",
+			sql:     "SELECT 1 FROM t WHERE set_config('search_path', col, true) <> '0'",
+			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -497,7 +790,7 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.DynamicSetConfig, "expected DynamicSetConfig")
@@ -572,9 +865,46 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			_, err := analyzeFunctionCalls(stmt)
+			_, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_SetConfigUnsafeConnection confirms the operator
+// opt-out actually lets every untrackable set_config shape through: the same
+// statements the enforced path rejects (dynamic-shape and per-call shape errors)
+// must analyze without error and produce no tracking (empty SetConfigs, no
+// DynamicSetConfig), so they route to PostgreSQL as written and untracked. This
+// is the contract in docs/query_serving/unsafe_statement_rejection.md.
+func TestInspectExpressionFuncCalls_SetConfigUnsafeConnection(t *testing.T) {
+	sqls := []string{
+		// Dynamic-shape rejections (reach validateDynamicSetConfigShape).
+		"SELECT set_config(name, '256MB', false) FROM gucs",
+		"SELECT set_config('work_mem', v, false) FROM pg_settings",
+		"SELECT set_config('work_mem', '256MB', islocal) FROM pg_settings",
+		"SELECT set_config(name, '256MB', $1) FROM pg_settings",
+		"SELECT set_config(name, 100, false) FROM pg_settings",
+		"SELECT set_config('work_mem', now(), false)",
+		"SELECT set_config(name, '256MB', false) FROM pg_settings WHERE nextval('s') > 0",
+		"SELECT set_config(lower(name), '256MB', false) FROM pg_settings",
+		// Per-call shape rejection that skips the dynamic path (all args static):
+		// a bound is_local on an ordinary variable.
+		"SELECT set_config('work_mem', '1GB', $1)",
+	}
+	for _, sql := range sqls {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			// Enforced: rejected.
+			_, err := analyzeFunctionCalls(stmt, true)
+			require.Error(t, err, "expected rejection when enforced")
+			// unsafe-connection: accepted and untracked.
+			result, err := analyzeFunctionCalls(parseOne(t, sql), false)
+			require.NoError(t, err, "unsafe-connection must not reject")
+			require.NotNil(t, result)
+			assert.False(t, result.DynamicSetConfig, "must not synthesize a dynamic set_config plan")
+			assert.Empty(t, result.SetConfigs, "untrackable set_config must not be tracked")
 		})
 	}
 }
@@ -599,17 +929,12 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
 			sql:            "SELECT set_config('search_path', $1, false)",
 			wantSetConfigs: 1,
 		},
-		{
-			name:           "literal is_local=true with dynamic name is passthrough, untracked",
-			sql:            "SELECT set_config(name, 'v', true) FROM gucs",
-			wantSetConfigs: 0,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.False(t, result.DynamicSetConfig, "should not take the dynamic path")
@@ -649,7 +974,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
@@ -679,7 +1004,7 @@ func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			_, err := analyzeFunctionCalls(stmt)
+			_, err := analyzeFunctionCalls(stmt, true)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
@@ -687,18 +1012,19 @@ func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
 }
 
 // TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits pins that
-// a literal is_local=true call still returns no setConfigCall — the
-// transaction-scoped semantics are PG's job, gateway must not track. The
-// normalizer parameterizes name/value for these calls (PostgREST hot
-// path), so the walker must not require literals there either.
+// a fully-vetted literal is_local=true call returns no setConfigCall — the
+// transaction-scoped semantics are PG's job, gateway must not track. Calls
+// with slots still needing vetting (bound name, or bound value on
+// search_path) instead produce a vet-only entry (see
+// TestSetConfigIsLocalTrueBoundVetOnly).
 func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T) {
 	for _, sql := range []string{
 		"SELECT set_config('request.jwt.claims', '{...}', true)",
-		"SELECT set_config($1, $2, true)",
+		"SELECT set_config('request.jwt.claims', $1, true)",
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "is_local literal true must not produce a tracker entry")
@@ -723,7 +1049,7 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	for _, sql := range allowed {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)
@@ -796,7 +1122,7 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires temporary=true")
@@ -850,7 +1176,7 @@ func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.CallsSetSeed)
@@ -887,9 +1213,12 @@ func TestResolveFuncName(t *testing.T) {
 }
 
 // TestPlan_SetConfig_ProducesSequence verifies that every accepted
-// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets —
-// plans as the same Sequence[Route, silent ApplySessionState...]. No fast-path
-// for the bare case: uniform construction is worth the extra round-trip.
+// `SELECT set_config(...)` shape — bare or mixed with a FROM/targets — plans as
+// Sequence[SessionStateBranch, silent ApplySessionState...]. The branch carries
+// both routes: the pinned one routes the original (is_local false, persists on a
+// reserved backend) and the unpinned one reverts (is_local true) so a pooled
+// backend is left clean. No fast-path for the bare case: uniform construction is
+// worth the extra round-trip.
 func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -928,13 +1257,18 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
-			// The original call routes unmodified; the ReasonSetConfig
-			// reservation on ExecInfo is what keeps the persisting change safe
-			// on a pooled backend.
-			_, ok = seq.Primitives[0].(*engine.Route)
-			require.True(t, ok, "first primitive should be a plain Route, got %T", seq.Primitives[0])
-			assert.True(t, plan.ExecInfo.PersistingSetConfig,
-				"a persisting set_config plan must carry the capture-reservation intent")
+			// The leading primitive is a SessionStateBranch: the pinned branch
+			// routes the original (is_local false, persists on a reserved backend)
+			// while the unpinned branch reverts (is_local true) so a pooled backend
+			// keeps nothing. No capture reservation is involved.
+			branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+			require.True(t, ok, "first primitive should be a SessionStateBranch, got %T", seq.Primitives[0])
+			pinnedRoute, ok := branch.Pinned.(*engine.Route)
+			require.True(t, ok, "pinned branch should be a plain Route, got %T", branch.Pinned)
+			assert.Equal(t, stmt.SqlString(), pinnedRoute.Query, "pinned branch routes the base AST verbatim (is_local=false)")
+			unpinnedRoute, ok := branch.Unpinned.(*engine.Route)
+			require.True(t, ok, "unpinned branch should be a plain Route, got %T", branch.Unpinned)
+			assert.NotEqual(t, pinnedRoute.Query, unpinnedRoute.Query, "unpinned branch must rewrite is_local to revert")
 
 			for i, wantName := range tt.wantTrackers {
 				primIdx := i + 1
@@ -947,12 +1281,14 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	}
 }
 
-// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-session shape: on a
-// session inside a transaction, a tracked set_config routes its ORIGINAL
-// query (is_local false intact, plain Route — no value-route wrapper). The
-// pinned backend genuinely carries the value in lockstep with the gateway
-// map, and no SELECT is injected later to re-propagate it (which would latch
-// a REPEATABLE READ/SERIALIZABLE snapshot early).
+// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-branch shape: the
+// plan is always a SessionStateBranch (the plan is cacheable, so the
+// pinned/unpinned choice is deferred to execute time), and its pinned branch
+// routes the ORIGINAL query (is_local false intact, plain Route — no value-route
+// wrapper). At execute time a pinned session selects that branch so its backend
+// genuinely carries the value in lockstep with the gateway map, and no SELECT is
+// injected later to re-propagate it (which would latch a
+// REPEATABLE READ/SERIALIZABLE snapshot early).
 func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -967,35 +1303,44 @@ func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
 
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
-	route, ok := seq.Primitives[0].(*engine.Route)
-	require.True(t, ok, "pinned tracked set_config must route as a plain Route, got %T", seq.Primitives[0])
-	assert.Equal(t, sql, route.Query, "the original is_local=false call must reach the pinned backend unmodified")
+	branch, ok := seq.Primitives[0].(*engine.SessionStateBranch)
+	require.True(t, ok, "expected SessionStateBranch, got %T", seq.Primitives[0])
+	route, ok := branch.Pinned.(*engine.Route)
+	require.True(t, ok, "the pinned branch must route as a plain Route, got %T", branch.Pinned)
+	assert.Equal(t, stmt.SqlString(), route.Query, "the is_local=false call must reach the pinned backend unmodified")
 }
 
-// TestAnyPersistingSetConfig pins the reservation-intent detection: exactly
-// the tracked calls that leave real session state on the routed backend set
-// PlanExecInfo.PersistingSetConfig, and the hot PostgREST shape (is_local
-// literal true) does not — those plans carry no reservation and stay cheap.
-func TestAnyPersistingSetConfig(t *testing.T) {
+// TestRewriteSetConfigToRevert pins the revert rewrite that replaces the old
+// capture reservation: exactly the tracked calls that would leave real session
+// state on the backend get their is_local flipped false→true (so the rewrite
+// returns a non-nil clone), while shapes that persist nothing — the hot
+// PostgREST is_local-literal-true form, and gateway-managed calls (rewritten out
+// of the routed query entirely) — are left unchanged.
+func TestRewriteSetConfigToRevert(t *testing.T) {
 	tests := []struct {
-		sql  string
-		want bool
+		sql      string
+		wantFlip bool
 	}{
 		{"SELECT set_config('work_mem', '256MB', false)", true},
 		{"SELECT set_config('work_mem', $1, false)", true},
-		{"SELECT set_config('work_mem', '256MB', false), * FROM t", true},
+		{"SELECT set_config('work_mem', '256MB', false), 1 AS x", true},
 		{"SELECT set_config('request.jwt.claims', '{}', true)", false},
-		// Gateway-managed with literal false: rewritten out of the routed
-		// query, so nothing persists on the backend.
+		// Gateway-managed with literal false: not flipped here — it is removed
+		// from the routed query entirely by rewriteGatewayManagedSetConfig.
 		{"SELECT set_config('statement_timeout', '5s', false)", false},
 		{"SELECT 1", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.sql, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, anyPersistingSetConfig(result.SetConfigs))
+			reverted := rewriteSetConfigToRevert(stmt)
+			if tt.wantFlip {
+				require.NotNil(t, reverted, "expected a reverting rewrite")
+				assert.NotEqual(t, stmt.SqlString(), reverted.SqlString(),
+					"the rewrite must flip is_local so the routed query differs")
+			} else {
+				assert.Nil(t, reverted, "expected no rewrite")
+			}
 		})
 	}
 }

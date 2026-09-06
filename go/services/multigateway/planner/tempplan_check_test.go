@@ -44,12 +44,22 @@ func TestTempObjectCreationReserves(t *testing.T) {
 		{"CREATE TEMP TABLE tt (i int)", true},
 		{"CREATE TEMP TABLE tt AS SELECT 1", true},
 		{"SELECT 1 INTO TEMP tt", true},
+		// INTO attaches to the leftmost leaf of a set operation, not the
+		// top-level node — the dispatch must still reserve.
+		{"SELECT 1 INTO TEMP tt UNION SELECT 2", true},
 		{"CREATE TEMP VIEW vv AS SELECT 1 AS n", true},
 		{"CREATE OR REPLACE TEMP VIEW vv AS SELECT 1 AS n", true},
 		{"CREATE TEMP RECURSIVE VIEW rv(n) AS SELECT 1", true},
 		{"CREATE TEMP VIEW gs(a,b) AS VALUES (1,2),(3,4)", true},
 		{"CREATE TEMP SEQUENCE sq", true},
 		{"CREATE TEMPORARY SEQUENCE IF NOT EXISTS sq2", true},
+		// The TEMP keyword with an explicit pg_temp qualification is the one
+		// supported spelling of schema-qualified temp creation.
+		{"CREATE TEMP TABLE pg_temp.qt (i int)", true},
+		// current_schema() is an ordinary read: with pg_temp barred from
+		// search_path (see checkRestrictedGUCChange) it can never instantiate
+		// a temp namespace, so it must not cost a reserved connection.
+		{"SELECT current_schema()", false},
 		{"CREATE TABLE pt (i int)", false},
 		{"CREATE VIEW pv AS SELECT 1", false},
 		{"CREATE OR REPLACE VIEW pv AS SELECT 1", false},
@@ -86,6 +96,66 @@ func TestTempObjectCreationReserves(t *testing.T) {
 			require.NotNil(t, plan, "temp creation must plan locally, not plain portal execute")
 			isTemp := plan.ExecInfo.TempTable
 			require.True(t, isTemp, "plan primitive = %s", plan.Primitive.String())
+		})
+	}
+}
+
+// TestTempSchemaQualifiedCreateRejected asserts that creating an object in the
+// temp namespace via schema qualification (without the TEMP keyword) is
+// rejected at plan time: PostgreSQL would make it a genuine temp object during
+// parse analysis, invisible to the planner's keyword-based temp detection, so
+// it would land untracked on an arbitrary pooled backend.
+func TestTempSchemaQualifiedCreateRejected(t *testing.T) {
+	s := newTestSetup(t)
+
+	tests := []struct {
+		sql     string
+		wantErr bool
+	}{
+		{"CREATE TABLE pg_temp.t (i int)", true},
+		{"CREATE TABLE pg_temp_3.t (i int)", true},
+		{"CREATE TABLE pg_temp.t AS SELECT 1", true},
+		{"SELECT 1 INTO pg_temp.t", true},
+		{"SELECT 1 INTO pg_temp.t UNION SELECT 2", true},
+		{"SELECT 1 INTO pg_temp.t INTERSECT SELECT 2 UNION SELECT 3", true},
+		{"CREATE VIEW pg_temp.v AS SELECT 1", true},
+		{"CREATE SEQUENCE pg_temp.s", true},
+		{"EXPLAIN CREATE TABLE pg_temp.t AS SELECT 1", true},
+		{"CREATE FUNCTION pg_temp.f() RETURNS int AS 'SELECT 1' LANGUAGE sql", true},
+		{"CREATE DOMAIN pg_temp.d AS text CHECK (value <> '')", true},
+		{"CREATE TYPE pg_temp.ct AS (a int)", true},
+		{"CREATE TYPE pg_temp.e AS ENUM ('x')", true},
+		{"CREATE TYPE pg_temp.r AS RANGE (SUBTYPE = int4)", true},
+		{"CREATE AGGREGATE pg_temp.a (int) (SFUNC = int4pl, STYPE = int)", true},
+		{"CREATE OPERATOR pg_temp.## (LEFTARG = int, RIGHTARG = int, FUNCTION = int4pl)", true},
+		{"CREATE COLLATION pg_temp.c (LOCALE = 'C')", true},
+		{"CREATE STATISTICS pg_temp.st (dependencies) ON a, b FROM tbl", true},
+		{"CREATE OPERATOR CLASS pg_temp.oc FOR TYPE int USING btree AS OPERATOR 1 <", true},
+		{"CREATE OPERATOR FAMILY pg_temp.of USING btree", true},
+		{"CREATE CONVERSION pg_temp.cv FOR 'UTF8' TO 'LATIN1' FROM iso8859_1_to_utf8", true},
+		{"CREATE FOREIGN TABLE pg_temp.ft (i int) SERVER s", true},
+		{"CREATE STATISTICS st (dependencies) ON a, b FROM tbl", false},
+		{"CREATE OPERATOR FAMILY of USING btree", false},
+		{"CREATE TABLE public.t (i int)", false},
+		{"CREATE AGGREGATE a (int) (SFUNC = int4pl, STYPE = int)", false},
+		{"CREATE FUNCTION public.f() RETURNS int AS 'SELECT 1' LANGUAGE sql", false},
+		{"CREATE DOMAIN d AS text", false},
+		{"CREATE TYPE ct AS (a int)", false},
+		{"CREATE TABLE mypg_temp.t (i int)", false},
+		{"SELECT * FROM pg_temp.t", false},
+		{"DROP TABLE pg_temp.t", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sql, func(t *testing.T) {
+			asts, err := parser.ParseSQL(tc.sql)
+			require.NoError(t, err)
+			require.Len(t, asts, 1)
+			_, err = s.p.Plan(tc.sql, asts[0], s.conn.Conn, PlanOptions{})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "pg_temp")
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

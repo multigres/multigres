@@ -162,7 +162,28 @@ func (r *Route) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, captureReportedSettings(info, callback))
+	// The portal path normally reissues the client's original prepared statement.
+	// But when this route carries a REWRITTEN query — e.g. a SessionStateBranch's
+	// unpinned is_local:=true revert — reissuing the original portal would drop
+	// the rewrite (the set_config would run is_local=false and persist on the
+	// pooled backend, leaking across clients). r.Query holds the rewritten SQL
+	// (== r.Query on a plain route, or the normalized/reverted form here); when it
+	// differs from the portal's prepared statement, run the rewritten query with
+	// the client's bind values instead. The rewrite keeps every $N in place, so
+	// the portal's binds still apply.
+	pi := portalInfo
+	if psi := portalInfo.PreparedStatementInfo; psi != nil && r.Query != "" && r.Query != psi.GetQuery() {
+		rewrittenPSI, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{
+			Name:       psi.GetName(),
+			Query:      r.Query,
+			ParamTypes: psi.GetParamTypes(),
+		})
+		if err != nil {
+			return err
+		}
+		pi = preparedstatement.NewPortalInfo(rewrittenPSI, portalInfo.Portal)
+	}
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, pi, maxRows, includeDescribe, info, r.KeepStructured, captureReportedSettings(info, callback))
 }
 
 // SilentRoute executes a gateway-synthesized statement on the target shard

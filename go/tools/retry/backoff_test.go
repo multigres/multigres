@@ -354,3 +354,16 @@ func TestExponentialBackoff(t *testing.T) {
 	b.Reset()
 	assert.Equal(t, 10*time.Millisecond, b.NextDelay())
 }
+
+func TestExponentialBackoffMagnitude(t *testing.T) {
+	base := 10 * time.Millisecond
+	maxDelay := 80 * time.Millisecond
+
+	assert.Equal(t, 10*time.Millisecond, ExponentialBackoffMagnitude(base, maxDelay, 0))
+	assert.Equal(t, 20*time.Millisecond, ExponentialBackoffMagnitude(base, maxDelay, 1))
+	assert.Equal(t, 80*time.Millisecond, ExponentialBackoffMagnitude(base, maxDelay, 3), "capped at maxDelay")
+
+	// A negative attempt must not panic (negative shift count) — treated as 0.
+	assert.Equal(t, 10*time.Millisecond, ExponentialBackoffMagnitude(base, maxDelay, -1))
+	assert.Equal(t, 10*time.Millisecond, ExponentialBackoffMagnitude(base, maxDelay, -100))
+}

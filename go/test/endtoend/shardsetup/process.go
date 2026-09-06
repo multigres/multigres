@@ -62,6 +62,7 @@ type ProcessInstance struct {
 	ServiceID                          string   // Service ID (used by multipooler and multiorch)
 	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (e.g., "0s", "10s")
 	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
+	AllowUnsafeInitialCohort           bool     // Allow bootstrapping a cohort that can't survive losing any member (test use only)
 
 	// Multigateway TLS fields
 	TLSCertFile string // TLS certificate file (multigateway)
@@ -336,6 +337,9 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 	}
 	if p.LeaderFailoverGracePeriodMaxJitter != "" {
 		args = append(args, "--leader-failover-grace-period-max-jitter", p.LeaderFailoverGracePeriodMaxJitter)
+	}
+	if p.AllowUnsafeInitialCohort {
+		args = append(args, "--allow-unsafe-initial-cohort")
 	}
 
 	// Coverage builds are slower — WAL receiver can take 3-10s to connect.

@@ -1,0 +1,14 @@
+# Known divergence (by design): the explain_memoize helper runs a dynamic EXECUTE
+# the pooler cannot vet, so its runtime CREATE is rejected. The helper is
+# pre-seeded on the primary (testdata/pg17/regress_preseed.sql) so the Memoize
+# tests still run; only the rejected CREATE remains.
+--- a
++++ b
+@@ -28,6 +28,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- Ensure we get a memoize node on the inner side of the nested loop
+ SET enable_hashjoin TO off;
+ SET enable_bitmapscan TO off;

@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -113,6 +114,31 @@ type ServEnv struct {
 	// service_map command line parameter will alter the map.
 	// Can only be used after servenv.Init has been called.
 	serviceMap map[string]bool
+
+	// authPlugin, if set, gates built-in HTTP endpoints registered directly
+	// by ServEnv (/config and /debug/pprof/*) behind whichever
+	// Authenticator the owning service's GrpcServer resolves - see
+	// SetAuthPlugin. Left nil by default: services that never call
+	// SetAuthPlugin (i.e. everything except Multiadmin today) see no change
+	// in behavior.
+	authPlugin func() Authenticator
+}
+
+// SetAuthPlugin registers an accessor for the Authenticator resolved by a
+// GrpcServer (see GrpcServer.AuthPlugin, including for why authPlugin must
+// be an accessor rather than a resolved value), so built-in ServEnv HTTP
+// endpoints such as /config and /debug/pprof/* can be gated by it too.
+func (sv *ServEnv) SetAuthPlugin(authPlugin func() Authenticator) {
+	sv.authPlugin = authPlugin
+}
+
+// resolveAuthPlugin returns the currently active Authenticator, or nil if
+// SetAuthPlugin was never called for this ServEnv.
+func (sv *ServEnv) resolveAuthPlugin() Authenticator {
+	if sv.authPlugin == nil {
+		return nil
+	}
+	return sv.authPlugin()
 }
 
 // NewServEnv creates a new ServEnv instance with the given registry
@@ -222,6 +248,25 @@ func (se *ServEnv) RegisterReadyCheck(f func() error) {
 	se.readyMu.Lock()
 	defer se.readyMu.Unlock()
 	se.readyChecks = append(se.readyChecks, f)
+}
+
+// InitiateShutdown triggers the same graceful shutdown sequence as SIGTERM:
+// lameduck, OnTerm/OnTermSync hooks, then OnClose hooks, then process exit.
+//
+// It exists for components that detect a fatal condition only a process
+// restart can repair — for example a gateway whose PID prefix claim has
+// passed to another gateway. Exiting from inside the process makes the
+// restart independent of deployment configuration: Kubernetes restartPolicy,
+// systemd, and docker-compose all restart an exited process, whether or not
+// any probe is wired up.
+//
+// Safe to call at any time and from any goroutine; repeat calls while a
+// shutdown is already pending are no-ops.
+func (se *ServEnv) InitiateShutdown() {
+	select {
+	case se.exitChan <- syscall.SIGTERM:
+	default: // A shutdown signal is already pending.
+	}
 }
 
 // GetHTTPPort returns the HTTP port value

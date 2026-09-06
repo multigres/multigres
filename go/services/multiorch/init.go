@@ -156,6 +156,7 @@ func (mo *Multiorch) Init() error {
 			defer mo.serverStatus.mu.Unlock()
 			mo.serverStatus.InitError = s
 		},
+		toporeg.WithReassert(),
 	)
 
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)

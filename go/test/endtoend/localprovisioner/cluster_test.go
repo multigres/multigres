@@ -291,6 +291,11 @@ func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, db
 				LogLevel:                  "info",
 				PoolerHealthCheckInterval: "500ms",
 				RecoveryCycleInterval:     "500ms",
+				// This suite provisions exactly one pooler per zone/shard, which
+				// can never survive losing its only-other cohort member — never
+				// failure-safe by construction. These tests exercise provisioning
+				// and connectivity, not HA, so opt out of the safety gate.
+				AllowUnsafeInitialCohort: true,
 			}
 		}
 

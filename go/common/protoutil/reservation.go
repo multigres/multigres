@@ -23,7 +23,14 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonSetConfig
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonUnsafeConnection
+
+// StickyReasons are the reasons that survive DISCARD ALL and hold the backend
+// pinned until the connection's real teardown, because PostgreSQL has no command
+// that undoes their effect. Unlike every other reason, they are not cleared by
+// DISCARD ALL; the release path keeps the connection reserved while any of them
+// remains (see ReleaseReservedConnection's keepStickyReservations handling).
+const StickyReasons = ReasonSetSeed | ReasonUnsafeConnection
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -72,28 +79,23 @@ const (
 	// reproducible sequence silently changing mid-use).
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
 
-	// ReasonSetConfig indicates the statement carries a session-persisting
-	// set_config(..., false) whose new value the multigateway must record into
-	// its authoritative session-settings map before this backend may re-enter
-	// the pool. The settings map sent with the statement predates that
-	// recording, so an implicit release at statement end would stamp a stale
-	// label onto the connection; the multigateway instead releases explicitly
-	// after tracking, with options carrying the updated map.
-	//
-	// Its lifetime is exactly its protection window: the executor drops it as
-	// soon as the statement completes when another reason still holds the
-	// connection (the bit's job is moot then), keeps it when it is the only
-	// reason (awaiting the multigateway's explicit post-tracking release), and
-	// unwinds it with the statement-local reasons on failure.
-	ReasonSetConfig = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_CONFIG) // 256
+	// ReasonUnsafeConnection indicates the connection is running as an unsafe connection
+	// (the per-connection opt-out that suppresses the unsafe-statement
+	// rejections). Such a connection may run statements that change untracked
+	// backend session state, so its backend must never be returned to the shared
+	// pool where that change would leak to another client. Pinned to a single
+	// backend for the session's lifetime and, like ReasonSetSeed, sticky: it
+	// survives DISCARD ALL and is released only at the connection's real
+	// teardown, where — unlike setseed — the tainted backend is discarded rather
+	// than returned to the pool.
+	ReasonUnsafeConnection = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_UNSAFE_CONNECTION) // 256
 )
 
 // StatementLocalReasons are the reasons a single statement adds for its own
 // execution and that must be unwound if PostgreSQL rejects that statement:
 // the reservation-side effects never materialized (temp table not created,
-// portal not opened, set_config not applied — a failed statement aborts
-// atomically).
-const StatementLocalReasons = ReasonTempTable | ReasonPortal | ReasonSetConfig
+// portal not opened — a failed statement aborts atomically).
+const StatementLocalReasons = ReasonTempTable | ReasonPortal
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
 func ValidateReasons(reasons uint32) error {
@@ -146,6 +148,18 @@ func HasSessionAdvisoryLockReason(reasons uint32) bool {
 // HasSetSeedReason returns true if the reasons bitmask includes a setseed() pin.
 func HasSetSeedReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonSetSeed)
+}
+
+// HasUnsafeConnectionReason returns true if the reasons bitmask includes an
+// unsafe-connection pin.
+func HasUnsafeConnectionReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonUnsafeConnection)
+}
+
+// HasStickyReason returns true if the reasons bitmask includes any reason that
+// survives DISCARD ALL and holds the backend until real teardown (StickyReasons).
+func HasStickyReason(reasons uint32) bool {
+	return reasons&StickyReasons != 0
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -211,35 +225,41 @@ func ReasonsString(reasons uint32) string {
 		return "none"
 	}
 	var parts []string
-	if HasTransactionReason(reasons) {
-		parts = append(parts, "transaction")
-	}
-	if HasTempTableReason(reasons) {
-		parts = append(parts, "temp_table")
-	}
-	if HasPortalReason(reasons) {
-		parts = append(parts, "portal")
-	}
-	if HasCopyReason(reasons) {
-		parts = append(parts, "copy")
-	}
-	if HasListenReason(reasons) {
-		parts = append(parts, "listen")
-	}
-	if HasLogicalReplicationReason(reasons) {
-		parts = append(parts, "logical_replication")
-	}
-	if HasSessionAdvisoryLockReason(reasons) {
-		parts = append(parts, "session_advisory_lock")
-	}
-	if HasSetSeedReason(reasons) {
-		parts = append(parts, "set_seed")
-	}
-	if HasReason(reasons, ReasonSetConfig) {
-		parts = append(parts, "set_config")
+	for _, r := range orderedReasonLabels {
+		if HasReason(reasons, r.Bit) {
+			parts = append(parts, r.Name)
+		}
 	}
 	if len(parts) == 0 {
 		return "unknown"
 	}
 	return strings.Join(parts, "|")
+}
+
+// ReasonLabel pairs a single reservation reason bit with its stable label,
+// used both by ReasonsString and by per-reason metrics.
+type ReasonLabel struct {
+	Bit  uint32
+	Name string
+}
+
+// orderedReasonLabels lists every reservation reason with its label, in a
+// stable order. Single source of truth for reason-to-label mapping.
+var orderedReasonLabels = []ReasonLabel{
+	{ReasonTransaction, "transaction"},
+	{ReasonTempTable, "temp_table"},
+	{ReasonPortal, "portal"},
+	{ReasonCopy, "copy"},
+	{ReasonListen, "listen"},
+	{ReasonLogicalReplication, "logical_replication"},
+	{ReasonSessionAdvisoryLock, "session_advisory_lock"},
+	{ReasonSetSeed, "set_seed"},
+	{ReasonUnsafeConnection, "unsafe_connection"},
+}
+
+// ReasonLabels returns every known reservation reason paired with its stable
+// metric label, in a fixed order. Callers building per-reason metrics use it to
+// enumerate reasons (including ones with a zero count) consistently.
+func ReasonLabels() []ReasonLabel {
+	return orderedReasonLabels
 }

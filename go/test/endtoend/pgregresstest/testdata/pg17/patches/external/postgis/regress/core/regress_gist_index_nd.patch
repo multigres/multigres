@@ -1,0 +1,22 @@
+# Known divergence (by design): this test defines qnodes(), a helper whose body
+# runs a dynamic EXECUTE ('EXPLAIN ' || query) the gateway cannot vet, so its
+# CREATE is rejected. Each PostGIS test creates and DROPs its own qnodes, so it
+# is re-seeded directly on the primary before every test
+# (testdata/pg17/external/postgis_preseed.sql, applied by the patched
+# run_test.pl); the index checks then run and only the rejected CREATE remains.
+#
+# A few operators additionally pick a different scan type (Seq vs Index) than
+# PostGIS's expected output: gist/spgist cost estimation differs slightly through
+# the pooler even with the planner GUCs normalized to PostgreSQL defaults.
+--- a
++++ b
+@@ -1,4 +1,5 @@
+-&&&|180502|Seq Scan|180502|Index Scan
+-~~ |39682|Seq Scan|39682|Index Scan
+-@@ |39682|Seq Scan|39682|Index Scan
+-~~=|480|Seq Scan|480|Index Scan
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
++&&&|180502|Seq Scan,Seq Scan|180502|Seq Scan,Index Scan
++~~ |39682|Seq Scan,Seq Scan|39682|Seq Scan,Index Scan
++@@ |39682|Seq Scan,Seq Scan|39682|Seq Scan,Index Scan
++~~=|480|Seq Scan,Seq Scan|480|Seq Scan,Index Scan

@@ -15,7 +15,7 @@
 package command
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,6 +28,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 )
@@ -113,7 +114,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 	config.Password = password
 
 	svc := &PgCtldService{logger: s.pgCtlCmd.lg.GetLogger(), pgConfig: config}
-	result, err := svc.StartPostgreSQLWithResult()
+	result, err := svc.StartPostgreSQLWithResult(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -129,16 +130,18 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 }
 
 // StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
-	result := &StartResult{}
+func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartResult, error) {
 	logger := s.logger
 	config := s.pgConfig
 
 	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
+	running, err := checkPostgreSQLRunning(ctx, logger, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if PostgreSQL is running: %w", err)
+	}
+	if running {
 		logger.Info("Postgres is already running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		result.AlreadyRunning = true
-		result.Message = "PostgreSQL is already running"
+		result := &StartResult{AlreadyRunning: true, Message: "PostgreSQL is already running"}
 
 		// Get PID of running instance
 		if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
@@ -148,6 +151,8 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 		return result, nil
 	}
 
+	result := &StartResult{}
+
 	// Ensure Unix socket directory exists before starting PostgreSQL
 	// This is necessary for restarts after restores, where pgBackRest only restores pg_data
 	// but not external directories like pg_sockets
@@ -155,7 +160,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 		if err := os.MkdirAll(config.UnixSocketDirectories, 0o755); err != nil {
 			return nil, fmt.Errorf("failed to create Unix socket directory %s: %w", config.UnixSocketDirectories, err)
 		}
-		logger.Info("ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
+		logger.InfoContext(ctx, "ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
 	}
 
 	// Enforce PGDATA permission invariant before pg_ctl start
@@ -164,13 +169,13 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 	}
 
 	// Start PostgreSQL
-	logger.Info("starting Postgres server", "data_dir", config.PostgresDataDir)
+	logger.InfoContext(ctx, "starting Postgres server", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
 	// Wait for server to be ready
-	logger.Info("waiting for Postgres to be ready")
+	logger.InfoContext(ctx, "waiting for Postgres to be ready")
 	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
@@ -186,16 +191,16 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 }
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
-func (s *PgCtldService) StartPostgreSQLWithConfig() error {
+func (s *PgCtldService) StartPostgreSQLWithConfig(ctx context.Context) error {
 	logger := s.logger
-	result, err := s.StartPostgreSQLWithResult()
+	result, err := s.StartPostgreSQLWithResult(ctx)
 	if err != nil {
 		return err
 	}
 
 	// For backward compatibility, log the message if provided
 	if result.Message != "" && !result.AlreadyRunning {
-		logger.Info(result.Message)
+		logger.InfoContext(ctx, result.Message)
 	}
 
 	return nil
@@ -241,20 +246,81 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 	return nil
 }
 
-func isPostgreSQLRunning(dataDir string) bool {
-	// Check if postmaster.pid file exists and process is running
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	if _, err := os.Stat(pidFile); err != nil {
-		return false
-	}
-
-	// Read PID from file and check if process is actually running
-	pid, err := readPostmasterPID(dataDir)
+// checkPostgreSQLRunning wraps probePostgreSQLRunningAndReady with one added
+// side effect: a lock file the probe finds stale is removed (see
+// removeStalePostmasterPID) so pg_ctl/postgres don't inherit the same false
+// positive. For callers about to act on the result — Start, Stop, Restart,
+// ReloadConfig, crash recovery. Status polls the probe directly instead; see
+// its doc comment for why.
+//
+// Returns an error when pg_isready itself can't answer the question — see
+// classifyPgIsReady — rather than guessing either way; running is false
+// whenever err is non-nil.
+func checkPostgreSQLRunning(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (running bool, err error) {
+	running, _, err = probePostgreSQLRunningAndReady(ctx, config)
 	if err != nil {
-		return false
+		return false, err
+	} else if running {
+		return true, nil
 	}
 
-	return isProcessRunning(pid)
+	dataDir := config.PostgresDataDir
+	pidFile := filepath.Join(dataDir, constants.PostmasterPIDFile)
+	if _, statErr := os.Stat(pidFile); statErr != nil {
+		// No lock file to begin with — e.g. a normal start against a freshly
+		// initialized data directory — so there is nothing stale to report or
+		// remove.
+		return false, nil //nolint:nilerr
+	}
+
+	pid, _ := readPostmasterPID(dataDir) // best effort, for the log line below only
+	removeStalePostmasterPID(logger, pidFile, pid)
+	return false, nil
+}
+
+// probePostgreSQLRunningAndReady reports whether postmaster.pid records a
+// postmaster that is genuinely still running for this data directory, and
+// whether it is fully accepting connections — without touching the lock
+// file. Safe to call repeatedly and concurrently with anything else holding
+// that lock file.
+//
+// A bare "does a process with this PID exist" check is not enough: after a
+// pod reschedule onto a different node, postmaster.pid survives on the
+// reattached volume holding a PID from the old container, and the new
+// container has its own fresh PID namespace. If an unrelated process there
+// happens to hold that PID number, a liveness check alone reports a false
+// positive forever. Probing the actual connection endpoint via pg_isready
+// rules that out: an unrelated process holding the recorded PID is not
+// listening as postgres, whatever its identity.
+//
+// Status uses this directly, not checkPostgreSQLRunning: Status is a
+// read-only query polled continuously in the background and must not have
+// the side effect of mutating state on a bad probe. The actual stale-lock
+// cleanup still happens the next time something calls checkPostgreSQLRunning
+// (i.e. Start).
+func probePostgreSQLRunningAndReady(ctx context.Context, config *pgctld.PostgresCtlConfig) (running, ready bool, err error) {
+	dataDir := config.PostgresDataDir
+	pidFile := filepath.Join(dataDir, constants.PostmasterPIDFile)
+	if _, statErr := os.Stat(pidFile); statErr != nil {
+		// No lock file (or one we can't even stat) means nothing to corroborate
+		// against — that's "not running", not the control-plane error
+		// classifyPgIsReady's own error return is for.
+		return false, false, nil //nolint:nilerr
+	}
+
+	exitCode, runErr := runPgIsReady(ctx, config, pgIsReadyTimeoutSecs(ctx))
+	return classifyPgIsReady(exitCode, runErr)
+}
+
+// removeStalePostmasterPID deletes a postmaster.pid file whose postmaster is
+// no longer responding, logging the action so operators have visibility into
+// this self-healing step.
+func removeStalePostmasterPID(logger *slog.Logger, pidFile string, pid int) {
+	logger.Warn("removing stale postmaster.pid: postgres is not responding",
+		"pid", pid, "path", pidFile)
+	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+		logger.Warn("failed to remove stale postmaster.pid", "error", err, "path", pidFile)
+	}
 }
 
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
@@ -409,18 +475,20 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 	}
 }
 
+// readPostmasterPID returns just the PID recorded in postmaster.pid (line
+// 1). Only that line is required: postgres writes the lock file in one
+// non-atomic write(), so a torn read that yields a good first line and
+// nothing else must still succeed for callers that need nothing but the PID.
 func readPostmasterPID(dataDir string) (int, error) {
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	pidFile := filepath.Join(dataDir, constants.PostmasterPIDFile)
 	content, err := os.ReadFile(pidFile)
 	if err != nil {
 		return 0, err
 	}
 
-	// First line contains the PID
+	// strings.Split always returns at least one element, even for empty
+	// input, so lines[0] below is never an out-of-range access.
 	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 {
-		return 0, errors.New("empty postmaster.pid file")
-	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
 	if err != nil {

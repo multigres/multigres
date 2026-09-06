@@ -267,6 +267,20 @@ func (c *Client) ResignLeadership(ctx context.Context, pooler *clustermetadatapb
 	return conn.managerClient.ResignLeadership(ctx, request)
 }
 
+// ReconcileFollowers declares the full set of cohort-eligible follower members
+// the primary should hold per-follower physical replication slots for.
+func (c *Client) ReconcileFollowers(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReconcileFollowersRequest) (*multipoolermanagerdatapb.ReconcileFollowersResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ReconcileFollowers(ctx, request)
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)

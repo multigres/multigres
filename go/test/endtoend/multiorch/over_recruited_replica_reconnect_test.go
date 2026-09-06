@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/ha"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -133,7 +134,7 @@ func TestOverRecruitedReplicaReconnect(t *testing.T) {
 		Cell:      "test-cell",
 		Name:      "test-coordinator",
 	}
-	revocation, err := commonconsensus.NewTermRevocation(statuses, testCoordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(statuses, testCoordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
 	require.NoError(t, err, "build term revocation")
 	t.Logf("Recruiting only %s at new term %d (leader %s stays in place)", targetReplica, revocation.GetRevokedBelowTerm(), primaryName)
 

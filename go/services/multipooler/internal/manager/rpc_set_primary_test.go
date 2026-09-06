@@ -373,6 +373,58 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Equal(t, "primary-host", recorded.GetHost())
 }
 
+// TestSetPrimary_StandbyAppliesNewPrimary_SlotCleanupNonFatal verifies that, with
+// slot-based replication enabled, a failure while dropping this node's orphaned
+// logical failover slots on the standby-update path is non-fatal: SetPrimary still
+// succeeds and records the new primary. It exercises the error branch of the
+// dropOrphanedFailoverSlots call in setPrimaryLocked (the drop is best-effort — a
+// former primary that keeps its un-synced originals just streams without them,
+// and the monitor/next demote retries).
+func TestSetPrimary_StandbyAppliesNewPrimary_SlotCleanupNonFatal(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// Same standby-update flow as TestSetPrimary_StandbyAppliesNewPrimary, but with
+	// pg_is_in_recovery as a repeatable pattern (slot-based replication adds calls).
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+	mockQueryService.AddQueryPattern("ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
+		mock.MakeQueryResult(nil, nil))
+
+	// Slot-based replication on. dropManagedPhysicalSlots (starts_with) succeeds;
+	// dropOrphanedFailoverSlots (the "synced" query) fails. The remaining standby
+	// slot-GUC calls are unregistered and error harmlessly — all four calls in the
+	// slot block are best-effort, so SetPrimary must still succeed.
+	mockQueryService.AddQueryPattern("starts_with", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternWithError("synced", errors.New("boom dropping orphaned failover slots"))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	enableSlotBasedReplication(pm)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 10)},
+			Primary:     leader,
+			RewindReady: true,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err, "a failed orphaned-slot drop must be non-fatal")
+	require.NotNil(t, resp)
+
+	recorded := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
+	require.NotNil(t, recorded, "primary should still be recorded despite the slot-drop failure")
+	assert.Equal(t, "new-primary", recorded.GetId().GetName())
+}
+
 // TestSetPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
 // when the receiver is acting as primary (pg_is_in_recovery=false) and the
 // supplied position is higher, SetPrimary must drive a full demote — pg_rewind,

@@ -137,7 +137,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 		},
 		PoolerID: staleLeaderID,
 	}
-	require.NoError(t, action.Execute(ctx, problem))
+	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: problem}))
 
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-stale-leader)")
 	assert.NotContains(t, fakeClient.CallLog, "DemoteStalePrimary(multipooler-cell1-stale-leader)")
@@ -184,11 +184,11 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	cfg := config.NewTestConfig()
 	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
 
-	err := action.Execute(ctx, types.Problem{
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
 		ShardKey: shardKey,
 		PoolerID: staleLeaderID,
-	})
+	}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no consensus leader known")
 	assert.Empty(t, fakeClient.CallLog, "no RPC should be issued when there is no leader to demote toward")
@@ -232,11 +232,11 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
-	require.NoError(t, action.Execute(ctx, types.Problem{
+	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
 		ShardKey: shardKey,
 		PoolerID: staleID,
-	}))
+	}}))
 
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-stale-leader)")
 	req := fakeClient.SetPrimaryRequests["multipooler-cell1-stale-leader"]
@@ -268,11 +268,11 @@ func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T
 	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
-	require.NoError(t, action.Execute(ctx, types.Problem{
+	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
 		ShardKey: shardKey,
 		PoolerID: nodeID,
-	}))
+	}}))
 
 	assert.Empty(t, fakeClient.CallLog,
 		"no SetPrimary RPC when the flagged node is actually the current consensus leader")

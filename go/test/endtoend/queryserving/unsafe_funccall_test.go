@@ -254,6 +254,42 @@ func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 		require.NoError(t, err, "is_local=true should pass through to PG")
 		assert.Equal(t, "999MB", val)
 	})
+
+	// PostgREST's mutation row-count trick: set_config('pgrst.inserted', …, true)
+	// buried in an INSERT ... WHERE inside a CTE. It's transaction-scoped, so the
+	// gateway lets it pass through untracked and PostgreSQL runs it verbatim. The
+	// write must succeed and RETURNING must come back through the proxy — the
+	// exact shape that failed with SQLSTATE 0A000 before this carve-out.
+	t.Run("transaction-local set_config in INSERT ... WHERE (PostgREST shape)", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err)
+
+		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS pgrst_insert_t")
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, "CREATE TABLE pgrst_insert_t (id int)")
+		require.NoError(t, err)
+		defer func() {
+			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS pgrst_insert_t")
+		}()
+
+		var id int
+		err = db.QueryRowContext(ctx,
+			"WITH pgrst_source AS ("+
+				"INSERT INTO pgrst_insert_t (id) SELECT 7 "+
+				"WHERE set_config('pgrst.inserted', '1', true) <> '0' RETURNING id"+
+				") SELECT id FROM pgrst_source").Scan(&id)
+		require.NoError(t, err, "transaction-local set_config in INSERT ... WHERE must pass through")
+		assert.Equal(t, 7, id, "the row is inserted and returned through the proxy")
+
+		// The pass-through is untracked: the pooler must not carry pgrst.inserted
+		// forward. current_setting with missing_ok=true returns empty once the
+		// transaction that scoped it has ended.
+		var carried string
+		err = db.QueryRowContext(ctx,
+			"SELECT current_setting('pgrst.inserted', true)").Scan(&carried)
+		require.NoError(t, err)
+		assert.Empty(t, carried, "a transaction-scoped set_config must not leak across pooled connections")
+	})
 }
 
 // TestMultigateway_UnsafeFuncCallRejection verifies that the expression-level

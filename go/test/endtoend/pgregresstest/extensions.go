@@ -234,6 +234,37 @@ type ExternalExtension struct {
 	// fixture files (see the pgtap spec below).
 	ExcludeGlobs []string
 
+	// UnsafeConnectionGlobs (pgTAP) names test files, matched against the path
+	// relative to TestSubdir, that must run with the connection opted into
+	// unsafe connection (a per-connection opt-out) instead of
+	// under the enforcing default. Unlike ExcludeGlobs (a test dropped because it
+	// isn't a reliable signal), these tests DO pass on stock postgres and DO
+	// exercise the extension for real; they only fail through the enforcing
+	// gateway because a piece of their scaffolding is (correctly) rejected by the
+	// PL/pgSQL body analysis. pg_partman's daily / gap-fill / mixed-case time
+	// tests each run a `DO $$ ... EXECUTE 'DROP TABLE
+	// '||to_char(CURRENT_TIMESTAMP...) $$` block ("maintenance will catch up");
+	// the runtime-built EXECUTE is rejected, and because psql runs with
+	// ON_ERROR_STOP the whole file aborts mid-plan (ran < declared → plan
+	// mismatch). Real pg_partman usage is unaffected — create_parent /
+	// run_maintenance are installed at CREATE EXTENSION time and their internal
+	// dynamic SQL never passes through the gateway's body analysis. Running just
+	// these files with unsafe connection lets them run in full while every other
+	// file keeps exercising the rejections. See runExternalPgTAP.
+	UnsafeConnectionGlobs []string
+
+	// PreseedFile, when non-empty, names a SQL file (its key in externalPreseeds,
+	// backed by an embed under testdata/pg<major>/external/) run directly on the
+	// primary — bypassing multigateway — after the public-schema reset and before
+	// this extension's suite. Use it for a test helper whose body the gateway
+	// rejects by design (a dynamic EXECUTE) but which the suite then calls: seeding
+	// it on the primary (it replicates to every pooled backend via WAL) lets those
+	// calls resolve, while the test's own CREATE is still rejected and recorded as
+	// the single honest divergence. hypopg's do_explain is the first user. Unlike
+	// FixturesFile (loaded THROUGH the gateway), this runs on the primary precisely
+	// because the gateway would reject it.
+	PreseedFile string
+
 	// PreCreateExtensions lists extensions to CREATE EXTENSION through multigateway,
 	// in order, before the suite runs — each optionally into a specific schema. Used
 	// by every harness path for fixtures that assume an extension already exists:
@@ -504,11 +535,23 @@ var externalSpecs = map[string]ExternalExtension{
 		// excluded: its four prepared/execute assertions run inside throws_ok's
 		// exception trap, so the file completes and a narrow patch documents just
 		// those by-design failures.
+		//
+		// privs.sql is excluded for the same "absorb the whole file" reason via a
+		// different mechanism: its entire suite runs behind set_search_path(), a
+		// helper whose body does `EXECUTE 'SET search_path = …' || current_setting(…)`
+		// — a runtime-built session SET the gateway rejects (it mutates backend GUC
+		// state the pooler cannot track; the p_force_parellel_mode case). With that
+		// helper's CREATE rejected and the missing-helper call aborting the wrapping
+		// transaction at the top of the file, zero of its 372 table_privs_are
+		// assertions run, so a patch would delete the whole file. The FDW-tail
+		// files (aretap/hastap/ownership) are NOT excluded: they reject late, so the
+		// bulk of each file runs and a bounded tail patch documents the rest.
 		ExcludeGlobs: []string{
 			"sql/performs_ok.sql",
 			"sql/performs_within.sql",
 			"sql/resultset.sql",
 			"sql/valueset.sql",
+			"sql/privs.sql",
 		},
 	},
 	"pg_partman": {
@@ -527,6 +570,24 @@ var externalSpecs = map[string]ExternalExtension{
 		// without the gateway (74≠91 on 2026-06-08) — the test's own date assumption,
 		// not a multigres behavior — so it's excluded from the deterministic set.
 		ExcludeGlobs: []string{"test_pg17plus/test-time-monthly-source-generated.sql"},
+		// The daily / gap-fill / mixed-case time tests each run a
+		// `DO $$ ... EXECUTE 'DROP TABLE '||to_char(CURRENT_TIMESTAMP...) $$`
+		// scaffolding block ("Test that maintenance will catch up"). The
+		// runtime-built EXECUTE is rejected by the enforcing gateway's PL/pgSQL body
+		// analysis, and ON_ERROR_STOP then aborts the whole file mid-plan (they
+		// pass 221/221 on stock postgres but stop at 167/221 through the enforcing
+		// gateway). They exercise pg_partman for real, so run them on a direct
+		// connection rather than dropping them — see UnsafeConnectionGlobs.
+		UnsafeConnectionGlobs: []string{
+			"test-time-daily.sql",
+			"test-text-time-daily.sql",
+			"test-time-gap-fill.sql",
+			"test-text-gap-fill.sql",
+			"test-time-mixed-case.sql",
+			"test-uuid-daily.sql",
+			"test-uuid-gap-fill.sql",
+			"test_no_search_path/test-time-daily_nosearchpath.sql",
+		},
 		// pgtap (public) and pg_partman (partman schema) must both exist before any
 		// test file runs — the files assume them and never CREATE EXTENSION. pgtap
 		// goes in public; pg_partman MUST go in the `partman` schema (its tests
@@ -563,6 +624,11 @@ var externalSpecs = map[string]ExternalExtension{
 			"hypo_hash",
 			"hypo_hide_index",
 		},
+		// do_explain (a dynamic-EXECUTE EXPLAIN wrapper) is defined once at the top
+		// of hypopg.sql and called by all six files; the gateway rejects its CREATE,
+		// which cascades to "function does not exist" everywhere. Seed it on the
+		// primary so the calls resolve; only hypopg.sql's own rejected CREATE remains.
+		PreseedFile: "hypopg_preseed.sql",
 	},
 	// pgsql-http. Build needs libcurl (the Makefile locates it via curl-config;
 	// CI installs libcurl4-openssl-dev). The harness serves the local httpbin

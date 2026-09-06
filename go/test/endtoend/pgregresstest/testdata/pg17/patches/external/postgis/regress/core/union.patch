@@ -1,0 +1,20 @@
+# Known divergences (by design): p_force_parellel_mode() issues SET/RESET in its
+# body -- session state the pooler cannot track -- so its CREATE is rejected and
+# the dependent calls report "does not exist". It is not seedable: running that
+# SET through the pooler is exactly the leak the feature prevents. Geometry parse
+# messages also differ only in "at character N" cursor position.
+--- a
++++ b
+@@ -4,9 +4,12 @@
+ t
+ POINT EMPTY
+ POLYGON EMPTY
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
++ERROR: procedure p_force_parellel_mode(text) does not exist at character 6
+ 400|0|0|20|20
+ 400|0|0|20|20
+ t
+ t
+ POINT EMPTY
+ POLYGON EMPTY
++NOTICE: procedure p_force_parellel_mode(text) does not exist, skipping

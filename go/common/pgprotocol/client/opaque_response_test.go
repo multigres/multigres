@@ -159,6 +159,31 @@ func TestProcessResponseLoops(t *testing.T) {
 				if opaque {
 					assert.Equal(t, 2, passthroughRows, "both rows delivered opaquely")
 					assert.Zero(t, structRows, "opaque mode must not parse structured rows")
+
+					var blocks [][]byte
+					var sawRowFragment bool
+					for _, r := range *got {
+						if len(r.PassthroughBlock) == 0 {
+							continue
+						}
+						blocks = append(blocks, r.PassthroughBlock)
+						assert.LessOrEqual(t, len(r.PassthroughBlock), DefaultStreamingBatchSize,
+							"every opaque result must remain bounded")
+						if r.PassthroughRowCount == 0 {
+							sawRowFragment = true
+							assert.True(t, r.PassthroughRowInProgress,
+								"an intermediate fragment must mark the DataRow incomplete")
+						} else {
+							assert.False(t, r.PassthroughRowInProgress,
+								"a block that completes the oversized row must restore a frame boundary")
+						}
+					}
+					expected := appendRawDataRow(nil, dataRowBody(bigValue))
+					expected = appendRawDataRow(expected, dataRowBody("small"))
+					assert.Equal(t, expected, bytes.Join(blocks, nil),
+						"concatenating chunks must reconstruct the exact DataRow stream")
+					assert.True(t, sawRowFragment,
+						"a row larger than the batch size must produce an intermediate zero-count fragment")
 				} else {
 					assert.Equal(t, 2, structRows, "both rows delivered structured")
 					assert.Zero(t, passthroughRows, "structured mode must not produce opaque blocks")

@@ -15,10 +15,21 @@
 package servenv
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 )
 
 func TestMtlsAuthPluginInitializer(t *testing.T) {
@@ -49,4 +60,36 @@ func TestMtlsAuthPluginInitializer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func generateTestPeerCert(t *testing.T, cn string) *x509.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert
+}
+
+func fakeGRPCContext(cert *x509.Certificate, bearerToken string) context.Context {
+	ctx := context.Background()
+	if cert != nil {
+		ctx = peer.NewContext(ctx, &peer.Peer{
+			AuthInfo: credentials.TLSInfo{
+				State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+			},
+		})
+	}
+	if bearerToken != "" {
+		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("authorization", "Bearer "+bearerToken))
+	}
+	return ctx
 }

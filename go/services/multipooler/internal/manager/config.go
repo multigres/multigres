@@ -32,10 +32,20 @@ type Config struct {
 	// advertises to the gateway (RecommendedStalenessTimeout). Zero keeps the
 	// built-in default (defaultRecommendedStalenessTimeout).
 	HealthStreamStalenessTimeout time.Duration
-	PgctldAddr                   string                  // Address of pgctld gRPC service
-	ConsensusEnabled             bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
-	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	// ReplicationStatsPollIntervalMs configures how often the
+	// replicationstats poller queries pg_stat_replication/pg_replication_slots
+	// for logical-replication connection metrics. Zero selects the built-in
+	// default (10s).
+	ReplicationStatsPollIntervalMs int
+	PgctldAddr                     string                  // Address of pgctld gRPC service
+	ConsensusEnabled               bool                    // Whether consensus gRPC service is enabled
+	ConnPoolConfig                 *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
+	BackendVpidTrackingEnabled     bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	// SlotBasedReplicationEnabled reads whether slot-based physical replication is
+	// enabled. It is a getter (not a bool) so the value is read live: the backing
+	// flag is dynamic and reloadable at runtime. Nil reads as disabled (see
+	// MultipoolerManager.slotBasedReplicationEnabled).
+	SlotBasedReplicationEnabled func() bool
 
 	// StandbyStuckDivergenceThreshold is how long a standby must stay unable to
 	// stream from its correctly-recorded leader before the monitor concludes its
@@ -43,6 +53,19 @@ type Config struct {
 	// (standbyStuckDivergenceThreshold). Not wired to a CLI flag — it exists as an
 	// internal, programmatic override for tests; production uses the default.
 	StandbyStuckDivergenceThreshold time.Duration
+
+	// PostgresUnrecoverableTimeout is how long postgres may continuously fail to
+	// start/rewind/restore before the monitor gives up and quarantines the pooler
+	// (LIFECYCLE_QUARANTINED) so it is replaced rather than FATAL-looping forever.
+	// The timeout is the primary gate; a small minimum-attempts floor
+	// (unrecoverableMinAttempts) additionally guards against quarantining on too
+	// few real attempts (e.g. a single hung attempt). 0 disables the classifier
+	// (the monitor keeps retrying indefinitely, the pre-quarantine behaviour).
+	PostgresUnrecoverableTimeout time.Duration
+
+	// PostgresUnrecoverableMinAttempts is the minimum-attempts floor described
+	// above. <= 0 falls back to defaultUnrecoverableMinAttempts.
+	PostgresUnrecoverableMinAttempts int
 
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 	PgBackRestCertFile string // TLS client certificate file path

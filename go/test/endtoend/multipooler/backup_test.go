@@ -1040,8 +1040,12 @@ func TestExpireBackups_Differential(t *testing.T) {
 			for _, b := range getResp.Backups {
 				afterIDs = append(afterIDs, b.BackupId)
 			}
-			assert.Equal(t, []string{full2ID, diff2ID}, afterIDs,
+			assert.ElementsMatch(t, []string{full2ID, diff2ID}, afterIDs,
 				"Only full2 and diff2 should remain after expire")
+			if assert.Len(t, afterIDs, 2) {
+				assert.Equal(t, diff2ID, afterIDs[0], "GetBackups should return the newer diff2 before full2")
+				assert.Equal(t, full2ID, afterIDs[1], "the older full2 should come last")
+			}
 			assert.NotContains(t, expireResp.ExpiredBackupIds, full2ID, "full2 should not be expired")
 			assert.NotContains(t, expireResp.ExpiredBackupIds, diff2ID, "diff2 should not be expired")
 			t.Logf("After expiration, remaining: %v, expired: %v", afterIDs, expireResp.ExpiredBackupIds)

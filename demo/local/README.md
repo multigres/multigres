@@ -7,6 +7,8 @@ Scripts and configuration for running Multigres locally.
 - `multigres` binary built (`make build` from repo root) and on `PATH`, e.g.
   `export PATH="$PWD/bin:$PATH"`
 - PostgreSQL 17.x installed locally (multigres invokes the system `postgres`)
+- `etcd` (used for topology storage)
+- `pgBackRest` >= 2.57.0 (used for backups)
 - Docker (only for the optional observability stack)
 - `psql` client (for connecting to the cluster)
 - `pgbench` (only for the traffic-generation example)

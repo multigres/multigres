@@ -94,7 +94,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
-		require.NoError(t, action.Execute(ctx, problem))
+		require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: problem}))
 		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
 			"must advance the rule on the leader")
 		assert.Contains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
@@ -111,7 +111,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		// follower's revocation, so no advance is needed — just reconnect.
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
 
-		require.NoError(t, action.Execute(ctx, problem))
+		require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: problem}))
 		assert.NotContains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
 			"must not advance when the rule already outranks the revocation")
 		assert.Contains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
@@ -135,7 +135,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		}}
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, undecided), slog.Default())
 
-		err := action.Execute(ctx, problem)
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
 		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
 		assert.Contains(t, err.Error(), "undecided proposal")
@@ -152,7 +152,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		}
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
-		err := action.Execute(ctx, problem)
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
 		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
 		assert.Contains(t, err.Error(), "still short of the follower's revocation")
@@ -167,7 +167,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
-		err := action.Execute(ctx, problem)
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "leader-led rule advance failed")
 		assert.Contains(t, err.Error(), "rpc boom")
@@ -181,7 +181,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		// to the failing SetPrimary.
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
 
-		err := action.Execute(ctx, problem)
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SetPrimary to reconnect stranded follower failed")
 		assert.Contains(t, err.Error(), "rpc boom")

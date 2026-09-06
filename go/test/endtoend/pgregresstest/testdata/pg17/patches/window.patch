@@ -1,6 +1,11 @@
 # Known divergence (cosmetic): multigateway rewrites the query before it reaches
 # PostgreSQL, so the "LINE 1: ...\n  ^" error-cursor column is offset while the
 # error (out-of-range interval) is identical.
+#
+# Accepted pooling divergence: CREATE FUNCTION pg_temp.f(...) is rejected by
+# the gateway (schema-qualified creation into the temporary namespace, see
+# temp.patch), so the GROUP_SIZE window-function section errors
+# deterministically instead of executing.
 --- a
 +++ b
 @@ -2953,7 +2953,7 @@
@@ -21,3 +26,36 @@
  ^
  HINT: Cast the offset value to an appropriate type.
  select max(enroll_date) over (order by enroll_date range between '1 year'::interval preceding and '-2 years'::interval following
+@@ -5383,23 +5383,14 @@
+ FROM generate_series(1,5) s
+ WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING)
+ $$ LANGUAGE SQL STABLE;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ EXPLAIN (costs off) SELECT * FROM pg_temp.f(2);
+-QUERY PLAN
+-------------------------------------------------------
+-Subquery Scan on f
+--> WindowAgg
+--> Sort
+-Sort Key: s.s
+--> Function Scan on generate_series s
+-(5 rows)
+-
++ERROR: function pg_temp.f(integer) does not exist
++LINE 1: EXPLAIN (costs off) SELECT * FROM pg_temp.f(2);
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ SELECT * FROM pg_temp.f(2);
+-f
+----------
+-{1,2,3}
+-{2,3,4}
+-{3,4,5}
+-{4,5}
+-{5}
+-(5 rows)
+-
++ERROR: function pg_temp.f(integer) does not exist
++LINE 1: SELECT * FROM pg_temp.f(2);
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.

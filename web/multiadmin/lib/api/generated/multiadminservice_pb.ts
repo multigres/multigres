@@ -446,6 +446,14 @@ export class GetGatewaysRequest extends Message<GetGatewaysRequest> {
    */
   cells: string[] = [];
 
+  /**
+   * only_reachable drops gateways whose grpc address does not accept a TCP
+   * connection, filtering out stale registrations left by dead pods.
+   *
+   * @generated from field: bool only_reachable = 2;
+   */
+  onlyReachable = false;
+
   constructor(data?: PartialMessage<GetGatewaysRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -455,6 +463,7 @@ export class GetGatewaysRequest extends Message<GetGatewaysRequest> {
   static readonly typeName = "multiadmin.GetGatewaysRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "cells", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 2, name: "only_reachable", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetGatewaysRequest {

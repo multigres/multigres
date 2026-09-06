@@ -224,7 +224,7 @@ func testConnectivity(config *Config) error {
 	client, err := newAdminClient(config.AdminServer)
 	if err != nil {
 		logError(fmt.Sprintf("Failed to connect to cluster: %v", err))
-		logError("Make sure the cluster is running: ./bin/multigres cluster up")
+		logError("Make sure the cluster is running: ./bin/multigres cluster start")
 		return err
 	}
 	defer client.Close()
@@ -235,7 +235,7 @@ func testConnectivity(config *Config) error {
 	_, err = client.GetPoolers(ctx, &multiadminpb.GetPoolersRequest{})
 	if err != nil {
 		logError(fmt.Sprintf("Failed to connect to cluster: %v", err))
-		logError("Make sure the cluster is running: ./bin/multigres cluster up")
+		logError("Make sure the cluster is running: ./bin/multigres cluster start")
 		return err
 	}
 

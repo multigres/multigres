@@ -104,7 +104,8 @@ func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 // Execute demotes the stale leader using SetPrimary with the correct leader's rule.
 // This is safer than Recruit because we use the correct leader's existing rule rather than
 // minting a new term, so both leaders end up agreeing on the same term and rule.
-func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
+func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) (retErr error) {
+	problem := rechecked.Problem
 	poolerIDStr := topoclient.ComponentIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale leader action",

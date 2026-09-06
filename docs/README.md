@@ -29,6 +29,9 @@ Browse the design and reference docs by area:
 
 ## Alpha Deployment Notes
 
+- **[Integration with Kubernetes](./kubernetes/integration.md)** — how the
+  Multipooler and pgctld present to Kubernetes, and what the readiness and
+  liveness probes mean.
 - **[Getting started on EKS](./kubernetes/eks.md)**
 
 ## Release Documentation

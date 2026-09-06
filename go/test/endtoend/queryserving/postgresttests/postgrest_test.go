@@ -72,10 +72,10 @@ func TestPostgREST(t *testing.T) {
 	defer writeReport(t, rep)
 
 	// Gateway run — the path we validate. The direct-PostgreSQL baseline is an
-	// asserted invariant: every non-skipped spec passes on plain postgres (see
-	// DIVERGENCES.md), so any gateway failure is by definition a divergence and
-	// the default run is gateway-only — no second postgres run. Known gaps are
-	// tracked in DIVERGENCES.md; as they are closed the run goes green.
+	// asserted invariant: every non-skipped spec passes on plain postgres, so any
+	// gateway failure is by definition a divergence and the default run is
+	// gateway-only — no second postgres run. The suite currently runs green; a new
+	// failure here means a real behavioural gap on the proxied path.
 	gw := runGateway(t, ctx, src, match)
 	rep.Gateway = gw
 	t.Logf("gateway: %d examples, %d passed, %d failed, %d pending",
@@ -88,7 +88,7 @@ func TestPostgREST(t *testing.T) {
 			t.Logf("  DIVERGE: %s", f)
 		}
 		if len(gw.Failing) > 0 {
-			t.Errorf("%d gateway divergence(s) — see DIVERGENCES.md", len(gw.Failing))
+			t.Errorf("%d gateway divergence(s) — spec(s) fail through the gateway but pass on direct PostgreSQL", len(gw.Failing))
 		}
 		return
 	}
@@ -132,7 +132,7 @@ func TestPostgREST(t *testing.T) {
 	}
 
 	if len(divergences) > 0 {
-		t.Errorf("%d gateway divergence(s) — see DIVERGENCES.md", len(divergences))
+		t.Errorf("%d gateway divergence(s) — spec(s) fail through the gateway but pass on direct PostgreSQL", len(divergences))
 	}
 }
 

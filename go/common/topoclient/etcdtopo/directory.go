@@ -71,7 +71,8 @@ func (s *etcdtopo) ListDir(ctx context.Context, dirPath string, full bool) ([]to
 			if full {
 				e.Type = t
 				if ev.Lease != 0 {
-					// Only locks have a lease associated with them.
+					// Lease-backed keys are ephemeral: lock files,
+					// election files, and PutEphemeral registrations.
 					e.Ephemeral = true
 				}
 			}

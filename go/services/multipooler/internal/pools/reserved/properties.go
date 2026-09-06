@@ -134,8 +134,18 @@ const (
 	ReleasePortalComplete
 
 	// ReleaseAdvisoryUnlock indicates the session released its last session-level
-	// advisory lock, so the backend no longer needs to stay pinned.
+	// advisory lock, so the backend — which held the reservation across statements
+	// specifically for that lock — is unpinned and returns to the pool.
 	ReleaseAdvisoryUnlock
+
+	// ReleaseUnreserved indicates a connection took the reserved path but never
+	// ultimately reserved a backend — a pg_try_advisory_lock that did not acquire,
+	// or a maxRows portal that completed on its first Execute without suspending.
+	// It was reset clean before re-entering the pool, since the statement's own
+	// (pinned) set_config may have committed session state the release label would
+	// not otherwise describe. Distinct from ReleaseAdvisoryUnlock, which unpins a
+	// reservation that genuinely existed across statements.
+	ReleaseUnreserved
 
 	// ReleaseTimeout indicates the reservation timed out.
 	ReleaseTimeout
@@ -164,7 +174,7 @@ const (
 // to taint.
 func (r ReleaseReason) preventsReuse() bool {
 	switch r {
-	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock, ReleaseStatementError:
+	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock, ReleaseUnreserved, ReleaseStatementError:
 		return false
 	default:
 		return true
@@ -182,6 +192,8 @@ func (r ReleaseReason) String() string {
 		return "portal_complete"
 	case ReleaseAdvisoryUnlock:
 		return "advisory_unlock"
+	case ReleaseUnreserved:
+		return "unreserved"
 	case ReleaseStatementError:
 		return "statement_error"
 	case ReleaseTimeout:

@@ -177,12 +177,13 @@ func (dt *RecoveryGracePeriodTracker) ForceExpireAll() {
 
 // ShouldExecute checks if recovery action should execute for this problem.
 // Returns true if action should execute (deadline expired or no grace period needed).
-// Returns false if still within grace period window (should wait longer).
+// Returns false if still within grace period window (should wait longer), along
+// with the deadline it's waiting on (zero if the action needs no grace period).
 //
 // This assumes Reconcile() has already run this cycle for the detected set that
 // includes this problem. If the action doesn't require grace period tracking,
 // returns true (execute immediately).
-func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool {
+func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) (deadline time.Time, ready bool) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
@@ -190,7 +191,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	gracePeriodCfg := problem.RecoveryAction.GracePeriod()
 	if gracePeriodCfg == nil {
 		// Action doesn't require grace period tracking - execute immediately
-		return true
+		return time.Time{}, true
 	}
 
 	entityID := problem.EntityID()
@@ -203,13 +204,13 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 		dt.logger.WarnContext(dt.ctx, "grace period deadline not found, skipping recovery",
 			"problem_code", problem.Code,
 			"entity_id", entityID)
-		return false
+		return time.Time{}, false
 	}
 
 	// Check if deadline has expired
 	now := time.Now()
 	if now.After(deadline) || now.Equal(deadline) {
-		return true
+		return deadline, true
 	}
 
 	// Deadline not reached yet - log that we're deferring
@@ -219,5 +220,5 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 		"time_remaining_seconds", timeRemaining.Seconds(),
 		"deadline", deadline,
 	)
-	return false
+	return deadline, false
 }

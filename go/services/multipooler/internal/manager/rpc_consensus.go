@@ -477,7 +477,7 @@ func (pm *MultipoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	return resp, err
 }
 
-func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (resp *consensusdatapb.PromoteResponse, err error) {
 	proposal := req.GetProposal()
 	revocation := proposal.GetTermRevocation()
 	proposalLeader := proposal.GetProposalLeader()
@@ -564,27 +564,60 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if reason == "" {
 		reason = "promote"
 	}
+
+	promotionHook := func(hookCtx context.Context) error {
+		if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
+			return mterrors.Wrap(err, "failed to clear resigned primary term")
+		}
+
+		recordMetric := pm.slotBasedReplicationEnabled()
+		slotsStart := time.Now()
+		slotsErr := pm.manageLogicalFailoverSlots(hookCtx, proposedRule.GetCohortMembers())
+		if recordMetric {
+			status := logicalFailoverStatusSuccess
+			if slotsErr != nil {
+				status = logicalFailoverStatusFailure
+			}
+			pm.metrics.recordLogicalFailover(hookCtx, status, time.Since(slotsStart))
+		}
+		if slotsErr != nil {
+			return slotsErr
+		}
+
+		return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
+	}
+
+	// The hook above clears resignation optimistically before promotion is
+	// confirmed, to shrink the window where other coordinators still see this
+	// node as needing replacement. If promotion then fails, re-establish it
+	// here — otherwise this node is stuck silently unpromoted and no longer
+	// signaling for replacement either.
+	defer func() {
+		if err != nil {
+			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {
+				pm.logger.ErrorContext(ctx, "failed to re-set resigned primary term after failed promote", "error", resignErr)
+			}
+		}
+	}()
+
 	ruleUpdate := consensus.NewRuleUpdate(
 		revokedBelowTerm,
 		proposedRule.GetCoordinatorId(),
 		"promotion",
 		reason,
-		proposedRule.GetCreationTime().AsTime()).
+		proposedRule.GetCreationTime().AsTime(),
+	).
 		WithLeader(pm.serviceID).
 		WithCohort(proposedRule.GetCohortMembers()).
 		WithDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
 		WithAcceptedMembers(req.GetAcceptedNodeIds()).
 		WithWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
-		WithPromotionHook(func(hookCtx context.Context) error {
-			if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
-				return mterrors.Wrap(err, "failed to clear resigned primary term")
-			}
-			return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
-		}).
+		WithPromotionHook(promotionHook).
 		// CAS catches drift across the whole Recruit-to-Promote window.
 		WithPreviousRule(
 			revocation.GetOutgoingRule().GetCoordinatorTerm(),
-			revocation.GetOutgoingRule().GetLeaderSubterm())
+			revocation.GetOutgoingRule().GetLeaderSubterm(),
+		)
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
@@ -599,7 +632,8 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// monitor can resign (if postgres never left recovery) or reconcile
 	// serving state (if it did) — either way, orch's next recovery cycle can
 	// finish or supersede this term instead of it going undetected.
-	if err := pm.consensusMgr.RecordTermPrimary(ctx,
+	if err := pm.consensusMgr.RecordTermPrimary(
+		ctx,
 		commonconsensus.ReplicationPrimaryFromProposal(proposal, false),
 	); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to record replication primary before promote", "error", err)
@@ -899,6 +933,30 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
+	}
+
+	// Slot-based replication (flag-gated): this node is now a standby of the
+	// leader. Drop any physical slots it still holds as a former primary (covers a
+	// stale-primary rejoin), then point primary_slot_name at its own deterministic
+	// slot (created on the primary during promotion / cohort-add) and enable the
+	// standby-side feedback and slot-sync GUCs. Best-effort — on failure the
+	// standby simply streams slot-less, as it does today.
+	if err := pm.dropManagedPhysicalSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop stale managed physical slots (non-fatal)", "error", err)
+	}
+	// Also drop any logical failover slots this node still owns as un-synced
+	// originals from when it was primary. Left in place they collide with the
+	// synced copy slot-sync would create, freeze, and invalidate — making this
+	// node an unusable failover target. Dropping them lets slot-sync recreate
+	// proper synced copies.
+	if err := pm.dropOrphanedFailoverSlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to drop orphaned logical failover slots (non-fatal)", "error", err)
+	}
+	if err := pm.resetSynchronizedStandbySlots(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to clear synchronized_standby_slots (non-fatal)", "error", err)
+	}
+	if err := pm.applyStandbySlotSettings(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to apply standby slot settings (non-fatal)", "error", err)
 	}
 
 	// Ensure topology reflects REPLICA. This matters when postgres has

@@ -3,7 +3,15 @@
 # differences in this test are intentionally left unpatched.
 --- a
 +++ b
-@@ -569,6 +569,8 @@
+@@ -363,6 +363,7 @@
+ END LOOP;
+ END;
+ $x$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ RESET enable_seqscan;
+ RESET enable_bitmapscan;
+ INSERT INTO brintest SELECT
+@@ -569,6 +570,8 @@
  RESET enable_seqscan;
  -- test an unlogged table, mostly to get coverage of brinbuildempty
  CREATE UNLOGGED TABLE brintest_unlogged (n numrange);

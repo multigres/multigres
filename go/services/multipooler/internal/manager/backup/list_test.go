@@ -136,6 +136,63 @@ func TestList_AppliesLimit(t *testing.T) {
 	limited, err := e.List(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, limited, 1)
+	assert.Equal(t, "20250104-110000F", limited[0].BackupId, "limit should keep the newest backup")
+}
+
+func TestListBackups_SortsByStartTimestampDescending(t *testing.T) {
+	// The mock JSON deliberately lists backups out of chronological order,
+	// and labels don't match timestamp order either (backup-mid is newer
+	// than backup-old despite sorting earlier alphabetically). This can only
+	// pass if ListBackups actually sorts by the parsed StartTimestamp value;
+	// a plain reverse of pgbackrest's raw output order (which assumes
+	// pgbackrest always reports backups oldest-first) would get this wrong.
+	json := `[{"backup":[
+		{"label":"backup-mid","type":"full","timestamp":{"start":2000,"stop":2010},"annotation":{"table_group":"tg1","shard":"0","job_id":"j1"}},
+		{"label":"backup-old","type":"full","timestamp":{"start":1000,"stop":1010},"annotation":{"table_group":"tg1","shard":"0","job_id":"j2"}},
+		{"label":"backup-new","type":"incr","timestamp":{"start":3000,"stop":3010},"annotation":{"table_group":"tg1","shard":"0","job_id":"j3"}}
+	]}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	all, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, "backup-new", all[0].BackupId, "newest backup should be first")
+	assert.Equal(t, "backup-mid", all[1].BackupId)
+	assert.Equal(t, "backup-old", all[2].BackupId, "oldest backup should be last")
+
+	for i := 0; i < len(all)-1; i++ {
+		require.NotNil(t, all[i].StartTimestamp)
+		require.NotNil(t, all[i+1].StartTimestamp)
+		assert.True(t, all[i].StartTimestamp.AsTime().After(all[i+1].StartTimestamp.AsTime()),
+			"backup at index %d (%s, %s) should be newer than backup at index %d (%s, %s)",
+			i, all[i].BackupId, all[i].StartTimestamp.AsTime(),
+			i+1, all[i+1].BackupId, all[i+1].StartTimestamp.AsTime())
+	}
+}
+
+func TestListBackups_FallsBackToBackupIdWhenTimestampMissing(t *testing.T) {
+	// Backups with no timestamp object (StartTimestamp nil for both, e.g.
+	// pgbackrest didn't report a start time) must still sort newest-first,
+	// using BackupId -- itself a sortable YYYYMMDD-HHMMSS-derived label -- as
+	// the fallback comparison.
+	json := `[{"backup":[
+		{"label":"20250104-100000F","type":"full","annotation":{"table_group":"tg1","shard":"0","job_id":"j1"}},
+		{"label":"20250104-110000F","type":"incr","annotation":{"table_group":"tg1","shard":"0","job_id":"j2"}}
+	]}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	all, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	assert.Nil(t, all[0].StartTimestamp)
+	assert.Equal(t, "20250104-110000F", all[0].BackupId, "newest backup should be first")
+	assert.Equal(t, "20250104-100000F", all[1].BackupId, "oldest backup should be last")
 }
 
 func TestListBackups_EmptyWhenStanzaMissing(t *testing.T) {

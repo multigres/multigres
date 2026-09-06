@@ -141,6 +141,99 @@ func (s ServerConnMetrics) RecordOpenError(ctx context.Context, poolType string,
 	))
 }
 
+// ScrubMetrics records session-state scrub outcomes: probes run, divergence
+// found (by kind), and probe failures. Created once by the pool owner
+// (connpoolmanager) and shared across pools; the bounded pool_type attribute
+// is supplied per call, like ServerConnMetrics.
+type ScrubMetrics struct {
+	checked    metric.Int64Counter
+	divergence metric.Int64Counter
+	errors     metric.Int64Counter
+}
+
+// NewScrubMetrics creates the session-state scrub instruments. Instruments
+// that fail to initialise fall back to noop and the joined error is returned
+// for logging.
+func NewScrubMetrics(m metric.Meter) (ScrubMetrics, error) {
+	var s ScrubMetrics
+	var errs []error
+	var err error
+
+	s.checked, err = m.Int64Counter(
+		"mg.pooler.session_scrub.checked",
+		metric.WithDescription("Idle connections probed for session-state divergence"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.session_scrub.checked counter: %w", err))
+		s.checked = noop.Int64Counter{}
+	}
+
+	s.divergence, err = m.Int64Counter(
+		"mg.pooler.session_scrub.divergence",
+		metric.WithDescription("GUCs found diverged between a connection's tracked settings label and its real session state (the connection is replaced); any nonzero value indicates session-state tracking was bypassed"),
+		metric.WithUnit("{guc}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.session_scrub.divergence counter: %w", err))
+		s.divergence = noop.Int64Counter{}
+	}
+
+	s.errors, err = m.Int64Counter(
+		"mg.pooler.session_scrub.errors",
+		metric.WithDescription("Session-state scrub probes that failed to produce a verdict"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.session_scrub.errors counter: %w", err))
+		s.errors = noop.Int64Counter{}
+	}
+
+	return s, errors.Join(errs...)
+}
+
+// RecordCheck records one completed scrub probe.
+func (s ScrubMetrics) RecordCheck(ctx context.Context, poolType string) {
+	if s.checked == nil {
+		return
+	}
+	s.checked.Add(ctx, 1, metric.WithAttributes(attribute.String("pool_type", poolType)))
+}
+
+// RecordDivergence records one checker's diverged names on a divergent
+// connection, attributed by checker and divergence kind. Only counts are
+// recorded, never names or values.
+func (s ScrubMetrics) RecordDivergence(ctx context.Context, poolType, checker string, div Divergence) {
+	if s.divergence == nil {
+		return
+	}
+	for kind, names := range map[string][]string{
+		"untracked":  div.Untracked,
+		"phantom":    div.Phantom,
+		"mismatched": div.Mismatched,
+	} {
+		if len(names) == 0 {
+			continue
+		}
+		s.divergence.Add(ctx, int64(len(names)), metric.WithAttributes(
+			attribute.String("pool_type", poolType),
+			attribute.String("checker", checker),
+			attribute.String("kind", kind),
+		))
+	}
+}
+
+// RecordError records a checker run that failed to produce a verdict.
+func (s ScrubMetrics) RecordError(ctx context.Context, poolType, checker string) {
+	if s.errors == nil {
+		return
+	}
+	s.errors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("pool_type", poolType),
+		attribute.String("checker", checker),
+	))
+}
+
 // openErrorReason maps a connection-establishment error to a bounded reason
 // label: "timeout" for context-deadline/cancel, "error" otherwise.
 func openErrorReason(err error) string {

@@ -27,6 +27,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -85,6 +86,17 @@ func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clu
 	if leader == nil || members.HighestKnownPosition == nil {
 		return
 	}
+
+	// Ensure the primary holds a physical replication slot for every
+	// cohort-eligible follower BEFORE any follower is pointed at it via
+	// SetPrimary below. A late-joining standby cannot stream — and therefore
+	// cannot join the cohort, and therefore cannot get its slot via the
+	// cohort-add path — until its slot already exists on the primary; this
+	// discovery-driven, declarative reconcile breaks that ordering deadlock
+	// (§2.6). Idempotent and level-triggered, so a missed event or a primary
+	// restart self-heals on the next tick.
+	re.reconcileFollowerSlots(ctx, leader, store.CohortEligibleFollowerIDs(members))
+
 	leaderAddress := topoclient.PoolerAddressFor(leader.Health().GetMultipooler())
 	leaderRewindReady := commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady()
 
@@ -104,6 +116,24 @@ func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clu
 		}(pooler)
 	}
 	wg.Wait()
+}
+
+// reconcileFollowerSlots notifies the leader of the current cohort-eligible
+// follower set so it pre-creates their per-follower physical replication slots.
+// Best-effort: a failure is logged and retried on the next tick. No-op when the
+// set is empty (single-node shard, or nothing discovered yet).
+func (re *Engine) reconcileFollowerSlots(ctx context.Context, leader *store.Pooler, followerIDs []*clustermetadatapb.ID) {
+	if len(followerIDs) == 0 {
+		return
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, setPrimaryPropagationTimeout)
+	defer cancel()
+	if _, err := re.rpcClient.ReconcileFollowers(rpcCtx, leader.Health().GetMultipooler(), &multipoolermanagerdatapb.ReconcileFollowersRequest{
+		Followers: followerIDs,
+	}); err != nil {
+		re.logger.WarnContext(ctx, "leader-info propagation: ReconcileFollowers failed, will retry next tick",
+			"leader", leader.Health().GetMultipooler().GetId().GetName(), "error", err)
+	}
 }
 
 // shouldPropagateLeaderInfo reports whether a pooler needs a SetPrimary call

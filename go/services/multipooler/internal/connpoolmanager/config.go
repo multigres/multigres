@@ -98,6 +98,10 @@ type Config struct {
 	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
 	// tests that exercise only the env-var or file paths).
 	flagSet *pflag.FlagSet
+	// reg is the registry the values below were configured against, saved so
+	// explicitness checks can ask whether a key was present in the loaded
+	// config file (Registry.InStaticConfig).
+	reg *viperutil.Registry
 
 	// --- PostgreSQL TLS (multipooler → postgres leg) ---
 	// libpq-style server verification. Mode + optional CA bundle. Client cert
@@ -124,6 +128,12 @@ type Config struct {
 	userReservedIdleTimeout       viperutil.Value[time.Duration] // For underlying pool connections
 	userReservedMaxLifetime       viperutil.Value[time.Duration]
 
+	// Session-state scrub interval for the per-user pools (0 = disabled).
+	// Each tick, every pool probes one idle connection for divergence between
+	// its tracked settings label and the backend's real session GUC state,
+	// replacing connections that diverged.
+	sessionScrubInterval viperutil.Value[time.Duration]
+
 	// Settings cache size (0 = use default)
 	settingsCacheSize viperutil.Value[int64]
 
@@ -131,6 +141,8 @@ type Config struct {
 
 	// Global capacity is the total number of PostgreSQL connections to manage.
 	// This is divided between regular and reserved pools based on reservedRatio.
+	// When not explicitly configured (see GlobalCapacityExplicit), the manager
+	// derives it from the server's max_connections at admin-pool open.
 	globalCapacity viperutil.Value[int64]
 
 	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
@@ -180,6 +192,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		userReservedIdleTimeout       = 5 * time.Minute  // Less aggressive - for pool size reduction
 		userReservedMaxLifetime       = 1 * time.Hour
 
+		// Session-state scrub interval. One idle connection per pool per tick
+		// is a single fast query on an otherwise-idle backend, so a short
+		// interval keeps the divergence-detection window small at negligible
+		// cost.
+		sessionScrubInterval = 10 * time.Second
+
 		// Settings cache size
 		settingsCacheSize int64 = 1024
 
@@ -206,6 +224,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
+		reg: reg,
 		// PostgreSQL superuser credentials (also used for internal system queries)
 		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
@@ -265,6 +284,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		userReservedMaxLifetime: viperutil.Configure(reg, "connpool.user.reserved.max-lifetime", viperutil.Options[time.Duration]{
 			Default:  userReservedMaxLifetime,
 			FlagName: "connpool-user-reserved-max-lifetime",
+		}),
+
+		// Session-state scrub interval
+		sessionScrubInterval: viperutil.Configure(reg, "connpool.session-scrub-interval", viperutil.Options[time.Duration]{
+			Default:  sessionScrubInterval,
+			FlagName: "connpool-session-scrub-interval",
 		}),
 
 		// Settings cache size
@@ -339,11 +364,14 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-user-reserved-idle-timeout", c.userReservedIdleTimeout.Default(), "How long a connection in the reserved pool can remain idle before being closed")
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
 
+	// Session-state scrub flag
+	fs.Duration("connpool-session-scrub-interval", c.sessionScrubInterval.Default(), "How often each user pool probes one idle connection for divergence between tracked and real backend state (session GUCs, prepared statements, advisory locks, holdable cursors, temp objects), replacing divergent connections (0 = disabled)")
+
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
 	// Fair share allocation flags
-	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools) (env: CONNPOOL_GLOBAL_CAPACITY)")
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools). When not set, derived from the server's max_connections at pool open (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
 
 	// Rebalancer flags
@@ -367,6 +395,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.userReservedInactivityTimeout,
 		c.userReservedIdleTimeout,
 		c.userReservedMaxLifetime,
+		c.sessionScrubInterval,
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
@@ -570,15 +599,42 @@ func (c *Config) UserReservedMaxLifetime() time.Duration {
 	return c.userReservedMaxLifetime.Get()
 }
 
+// SessionScrubInterval returns how often each user pool probes one idle
+// connection for session-state divergence (0 = disabled).
+func (c *Config) SessionScrubInterval() time.Duration {
+	return c.sessionScrubInterval.Get()
+}
+
 // SettingsCacheSize returns the settings cache size.
 func (c *Config) SettingsCacheSize() int {
 	return int(c.settingsCacheSize.Get())
 }
 
-// GlobalCapacity returns the total PostgreSQL connections to manage.
+// GlobalCapacity returns the configured total PostgreSQL connections to manage.
 // This is divided between regular and reserved pools based on ReservedRatio.
+// Manager.GlobalCapacity returns the value actually in effect, which is derived
+// from the server when this one was not explicitly configured.
 func (c *Config) GlobalCapacity() int64 {
 	return c.globalCapacity.Get()
+}
+
+// GlobalCapacityExplicit reports whether the operator explicitly configured
+// the global capacity (flag, env var, or config file). When false, the manager
+// derives the capacity from the server's max_connections at admin-pool open.
+func (c *Config) GlobalCapacityExplicit() bool {
+	if c.flagSet != nil {
+		if flag := c.flagSet.Lookup("connpool-global-capacity"); flag != nil && flag.Changed {
+			return true
+		}
+	}
+	if _, ok := os.LookupEnv("CONNPOOL_GLOBAL_CAPACITY"); ok {
+		return true
+	}
+	// Config-file values set neither Flag.Changed nor the env var; ask the
+	// registry whether the key was present in the loaded config file, so a
+	// config file pinning the capacity to exactly the default value still
+	// counts as explicit.
+	return c.reg.InStaticConfig(c.globalCapacity.Key())
 }
 
 // ReservedRatio returns the fraction of global capacity allocated to reserved pools (0.0-1.0).

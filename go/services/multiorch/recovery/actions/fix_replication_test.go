@@ -17,6 +17,7 @@ package actions
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -105,7 +106,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 		},
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to find affected replica")
@@ -149,7 +150,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no consensus leader known")
@@ -226,7 +227,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported problem code")
@@ -326,12 +327,22 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 	require.NoError(t, err)
 
 	// Verify SetPrimary was called on the replica, NOT SetPrimaryConnInfo.
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+
+	// Backstop (§2.6): the primary is told to ensure the follower's physical slot,
+	// and that ReconcileFollowers runs BEFORE SetPrimary points the replica at the
+	// primary — otherwise the replica's WAL receiver could START_REPLICATION on a
+	// slot that does not exist yet and strand itself.
+	assert.Contains(t, fakeClient.CallLog, "ReconcileFollowers(multipooler-cell1-primary)")
+	reconcileIdx := slices.Index(fakeClient.CallLog, "ReconcileFollowers(multipooler-cell1-primary)")
+	setPrimaryIdx := slices.Index(fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
+	require.GreaterOrEqual(t, reconcileIdx, 0, "ReconcileFollowers must have been called")
+	require.Less(t, reconcileIdx, setPrimaryIdx, "ReconcileFollowers must run before SetPrimary")
 
 	// Verify the request carried the primary's contact info and known position.
 	setPrimaryReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
@@ -430,7 +441,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// Should succeed without calling SetPrimaryConnInfo (already configured)
 	require.NoError(t, err)
@@ -554,7 +565,7 @@ func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// The null-LSN guard treats the first poll as not-yet-replicating, so
 	// Execute proceeds to call SetPrimary (fixNotReplicating path).
@@ -735,7 +746,7 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// Should succeed: the fix was re-run despite primary_conninfo being set
 	require.NoError(t, err)
@@ -877,7 +888,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		PoolerID: replicaID,
 	}
 
-	err := action.Execute(ctx, problem)
+	err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 
 	// SetPrimary configured the replica but the WAL receiver never reached
 	// "streaming", so verifyReplicationStarted fails and the action returns an

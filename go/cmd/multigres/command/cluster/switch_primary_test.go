@@ -15,7 +15,6 @@
 package cluster
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -61,8 +60,7 @@ func TestSwitchPrimaryCommandFlags(t *testing.T) {
 }
 
 func TestConfirmSwitchPrimary_Success(t *testing.T) {
-	cmd := &cobra.Command{}
-	cmd.SetIn(strings.NewReader("0-inf\n"))
+	cmd, out := makeConfirmCmd("0-inf\n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
 		ShardKey: &clustermetadatapb.ShardKey{
@@ -74,11 +72,16 @@ func TestConfirmSwitchPrimary_Success(t *testing.T) {
 	}
 	err := confirmSwitchPrimary(cmd, req)
 	require.NoError(t, err)
+
+	// Summary should mention the fields the operator needs to see before
+	// confirming.
+	output := out.String()
+	assert.Contains(t, output, "Shard:   db1/default/0-inf")
+	assert.Contains(t, output, "Reason:  maintenance")
 }
 
 func TestConfirmSwitchPrimary_WrongShard(t *testing.T) {
-	cmd := &cobra.Command{}
-	cmd.SetIn(strings.NewReader("wrong-shard\n"))
+	cmd, _ := makeConfirmCmd("wrong-shard\n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},
@@ -89,8 +92,7 @@ func TestConfirmSwitchPrimary_WrongShard(t *testing.T) {
 }
 
 func TestConfirmSwitchPrimary_EOF(t *testing.T) {
-	cmd := &cobra.Command{}
-	cmd.SetIn(strings.NewReader(""))
+	cmd, _ := makeConfirmCmd("")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},
@@ -101,8 +103,7 @@ func TestConfirmSwitchPrimary_EOF(t *testing.T) {
 }
 
 func TestConfirmSwitchPrimary_Whitespace(t *testing.T) {
-	cmd := &cobra.Command{}
-	cmd.SetIn(strings.NewReader("  0-inf  \n"))
+	cmd, _ := makeConfirmCmd("  0-inf  \n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},

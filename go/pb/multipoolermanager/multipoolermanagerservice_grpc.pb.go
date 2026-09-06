@@ -45,6 +45,7 @@ const (
 	MultipoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/VerifyBackups"
 	MultipoolerManager_ResignLeadership_FullMethodName           = "/multipoolermanager.MultipoolerManager/ResignLeadership"
 	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
+	MultipoolerManager_ReconcileFollowers_FullMethodName         = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
@@ -92,6 +93,15 @@ type MultipoolerManagerClient interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ReconcileFollowers declares to the primary the full set of cohort-eligible
+	// follower members it should hold per-follower physical replication slots for.
+	// The primary creates any missing slot and drops managed slots for members no
+	// longer in the set. It is level-triggered and declarative: the orchestrator
+	// re-sends the set each cycle, so a missed event or a primary restart
+	// self-heals. It creates only the physical slots (so a late-joining standby
+	// can stream); it does NOT touch synchronized_standby_slots — a follower is
+	// added there only once it is streaming and caught up, via the cohort path.
+	ReconcileFollowers(ctx context.Context, in *multipoolermanagerdata.ReconcileFollowersRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReconcileFollowersResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -232,6 +242,16 @@ func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Contex
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) ReconcileFollowers(ctx context.Context, in *multipoolermanagerdata.ReconcileFollowersRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReconcileFollowersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ReconcileFollowersResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ReconcileFollowers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.ReloadConfigResponse)
@@ -298,6 +318,15 @@ type MultipoolerManagerServer interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ReconcileFollowers declares to the primary the full set of cohort-eligible
+	// follower members it should hold per-follower physical replication slots for.
+	// The primary creates any missing slot and drops managed slots for members no
+	// longer in the set. It is level-triggered and declarative: the orchestrator
+	// re-sends the set each cycle, so a missed event or a primary restart
+	// self-heals. It creates only the physical slots (so a late-joining standby
+	// can stream); it does NOT touch synchronized_standby_slots — a follower is
+	// added there only once it is streaming and caught up, via the cohort path.
+	ReconcileFollowers(context.Context, *multipoolermanagerdata.ReconcileFollowersRequest) (*multipoolermanagerdata.ReconcileFollowersResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -360,6 +389,9 @@ func (UnimplementedMultipoolerManagerServer) ResignLeadership(context.Context, *
 }
 func (UnimplementedMultipoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) ReconcileFollowers(context.Context, *multipoolermanagerdata.ReconcileFollowersRequest) (*multipoolermanagerdata.ReconcileFollowersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReconcileFollowers not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
@@ -586,6 +618,24 @@ func _MultipoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_ReconcileFollowers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ReconcileFollowersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).ReconcileFollowers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_ReconcileFollowers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).ReconcileFollowers(ctx, req.(*multipoolermanagerdata.ReconcileFollowersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.ReloadConfigRequest)
 	if err := dec(in); err != nil {
@@ -661,6 +711,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetPostgresRestartsEnabled",
 			Handler:    _MultipoolerManager_SetPostgresRestartsEnabled_Handler,
+		},
+		{
+			MethodName: "ReconcileFollowers",
+			Handler:    _MultipoolerManager_ReconcileFollowers_Handler,
 		},
 		{
 			MethodName: "ReloadConfig",

@@ -445,6 +445,138 @@ func TestHandleStartupMessage(t *testing.T) {
 	}
 }
 
+// TestStartupSearchPathPgTempRejected pins the connect-time half of the
+// pg_temp guard: a search_path startup parameter naming the temp namespace —
+// directly or smuggled via options=-c — fails startup pre-auth with a FATAL
+// feature_not_supported, so it can never reach a pooled backend's session
+// settings (see pgsettings.RejectTempSchemaSearchPath).
+func TestStartupSearchPathPgTempRejected(t *testing.T) {
+	tests := []struct {
+		name   string
+		params map[string]string
+	}{
+		{"direct parameter", map[string]string{"user": "postgres", "search_path": "pg_temp, public"}},
+		{"via options", map[string]string{"user": "postgres", "options": "-c search_path=pg_temp"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverConn, clientConn := newPipeConnPair()
+			defer serverConn.Close()
+			defer clientConn.Close()
+
+			listener := testListener(t)
+			c := &Conn{
+				conn:               serverConn,
+				listener:           listener,
+				handler:            listener.handler,
+				credentialProvider: listener.credentialProvider,
+				bufferedReader:     bufio.NewReader(serverConn),
+				bufferedWriter:     bufio.NewWriter(serverConn),
+				params:             make(map[string]string),
+				txnStatus:          protocol.TxnStatusIdle,
+			}
+			c.ctx = context.Background()
+			c.logger = testLogger(t)
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- c.handleStartup()
+			}()
+
+			writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, tt.params)
+
+			err := <-errCh
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag), "startup rejection should be a PgDiagnostic")
+			assert.Equal(t, "FATAL", diag.Severity)
+			assert.Contains(t, diag.Message, "pg_temp")
+		})
+	}
+}
+
+// TestStartupRestrictedGUCRejected pins the connect-time half of the
+// cluster-managed GUC guard. A startup parameter flows into the session
+// settings replayed onto pooled backends, so a GUC that SET refuses must be
+// refused here too — otherwise `options=-c synchronous_commit=off` is a way
+// around the durability guarantee the SET guard exists to protect (PostgreSQL
+// accepts that connection string; verified against a real server).
+//
+// Rejected by name against every startup parameter, so adding an entry to
+// pgsettings.restrictedGUCs covers this surface automatically.
+func TestStartupRestrictedGUCRejected(t *testing.T) {
+	tests := []struct {
+		name   string
+		params map[string]string
+	}{
+		{"direct parameter", map[string]string{"user": "postgres", "synchronous_commit": "off"}},
+		{"via options", map[string]string{"user": "postgres", "options": "-c synchronous_commit=off"}},
+		{"case-insensitive", map[string]string{"user": "postgres", "SYNCHRONOUS_COMMIT": "off"}},
+		// Even a value matching the managed setting is refused: there is no
+		// revert form at startup, so supplying it at all is an assignment.
+		{"managed value still refused", map[string]string{"user": "postgres", "synchronous_commit": "on"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverConn, clientConn := newPipeConnPair()
+			defer serverConn.Close()
+			defer clientConn.Close()
+
+			listener := testListener(t)
+			c := &Conn{
+				conn:               serverConn,
+				listener:           listener,
+				handler:            listener.handler,
+				credentialProvider: listener.credentialProvider,
+				bufferedReader:     bufio.NewReader(serverConn),
+				bufferedWriter:     bufio.NewWriter(serverConn),
+				params:             make(map[string]string),
+				txnStatus:          protocol.TxnStatusIdle,
+			}
+			c.ctx = context.Background()
+			c.logger = testLogger(t)
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- c.handleStartup()
+			}()
+
+			writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, tt.params)
+
+			err := <-errCh
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag), "startup rejection should be a PgDiagnostic")
+			assert.Equal(t, "FATAL", diag.Severity)
+			assert.Contains(t, diag.Message, "synchronous_commit")
+		})
+	}
+}
+
+// TestStartupOrdinaryGUCAccepted guards against the restricted-GUC check
+// over-reaching: an ordinary setting supplied at connect time must still be
+// accepted, including one whose name merely contains a restricted name.
+func TestStartupOrdinaryGUCAccepted(t *testing.T) {
+	for _, params := range []map[string]string{
+		{"user": "postgres", "application_name": "app"},
+		{"user": "postgres", "options": "-c work_mem=64MB"},
+		{"user": "postgres", "search_path": "public, extensions"},
+	} {
+		require.NoError(t, startupParamErrorForParams(params), "params %v", params)
+	}
+}
+
+// startupParamErrorForParams applies the startup guard to each entry, mirroring
+// the loop in handleStartupMessage.
+func startupParamErrorForParams(params map[string]string) error {
+	for k, v := range params {
+		if err := startupParamError(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func TestSSLRequest(t *testing.T) {
 	// Create pipe-based connection for bidirectional communication.
 	serverConn, clientConn := newPipeConnPair()

@@ -28,6 +28,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_case_when(in)
 	case *PLpgSQL_condition:
 		return CloneRefOfPLpgSQL_condition(in)
+	case *PLpgSQL_cursor_arg:
+		return CloneRefOfPLpgSQL_cursor_arg(in)
 	case *PLpgSQL_diag_item:
 		return CloneRefOfPLpgSQL_diag_item(in)
 	case *PLpgSQL_exception:
@@ -172,6 +174,17 @@ func CloneRefOfPLpgSQL_condition(n *PLpgSQL_condition) *PLpgSQL_condition {
 	}
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_cursor_arg creates a deep clone of the input.
+func CloneRefOfPLpgSQL_cursor_arg(n *PLpgSQL_cursor_arg) *PLpgSQL_cursor_arg {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Value = CloneRefOfPLpgSQL_expr(n.Value)
 	return &out
 }
 
@@ -505,7 +518,7 @@ func CloneRefOfPLpgSQL_stmt_open(n *PLpgSQL_stmt_open) *PLpgSQL_stmt_open {
 	}
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
-	out.Argquery = CloneRefOfPLpgSQL_expr(n.Argquery)
+	out.Args = CloneSliceOfRefOfPLpgSQL_cursor_arg(n.Args)
 	out.Query = CloneRefOfPLpgSQL_expr(n.Query)
 	out.DynQuery = CloneRefOfPLpgSQL_expr(n.DynQuery)
 	out.Params = CloneSliceOfRefOfPLpgSQL_expr(n.Params)
@@ -802,6 +815,18 @@ func CloneSliceOfRefOfPLpgSQL_if_elsif(n []*PLpgSQL_if_elsif) []*PLpgSQL_if_elsi
 	res := make([]*PLpgSQL_if_elsif, len(n))
 	for i, x := range n {
 		res[i] = CloneRefOfPLpgSQL_if_elsif(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_cursor_arg creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_cursor_arg(n []*PLpgSQL_cursor_arg) []*PLpgSQL_cursor_arg {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_cursor_arg, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_cursor_arg(x)
 	}
 	return res
 }

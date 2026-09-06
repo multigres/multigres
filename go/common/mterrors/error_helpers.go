@@ -47,6 +47,18 @@ func IsCachedPlanError(err error) bool {
 		strings.Contains(diag.Message, "cached plan must not change result type")
 }
 
+// IsGatewayRejection reports whether err is a GatewayRejection — a
+// feature_not_supported policy rejection that multigres raised itself, before
+// the statement reached the backend, rather than a diagnostic forwarded from a
+// PostgreSQL backend. Because the backend never saw the statement, its
+// transaction is left intact; callers use this to avoid marking the session
+// transaction aborted for a rejection the backend never saw, which would desync
+// the gateway's transaction status from the still-open backend transaction.
+func IsGatewayRejection(err error) bool {
+	var g *GatewayRejection
+	return errors.As(err, &g)
+}
+
 // ClassifyErrorSource categorises the origin of an error for metric attribution.
 // Returns one of:
 //   - "backend"  — real PostgreSQL SQLSTATE (not MT-prefixed)

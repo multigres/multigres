@@ -179,7 +179,7 @@ func TestBuildPolicyTransition(t *testing.T) {
 		{
 			name:       "mixed policy families: error",
 			outgoing:   pwc(AtLeastNPolicy{N: 2}, a, b, c),
-			incoming:   pwc(MultiCellPolicy{N: 2}, a, b, c),
+			incoming:   pwc(multiCellPolicy{}, a, b, c),
 			wantErrMsg: "policy types must match",
 		},
 		{
@@ -193,18 +193,11 @@ func TestBuildPolicyTransition(t *testing.T) {
 			wantErrMsg: "policies must be AtLeastN or MultiCellAtLeastN",
 		},
 		{
-			name:         "MultiCell: N increases, same cohort",
-			outgoing:     pwc(MultiCellPolicy{N: 2}, a, b, c),
-			incoming:     pwc(MultiCellPolicy{N: 3}, a, b, c),
-			wantBoth:     pwc(MultiCellPolicy{N: 3}, a, b, c),
-			wantIncoming: pwc(MultiCellPolicy{N: 3}, a, b, c),
-		},
-		{
 			name:         "MultiCell: cohort shrinks, same N",
-			outgoing:     pwc(MultiCellPolicy{N: 2}, a, b, c),
-			incoming:     pwc(MultiCellPolicy{N: 2}, a, b),
-			wantBoth:     pwc(MultiCellPolicy{N: 2}, a, b),
-			wantIncoming: pwc(MultiCellPolicy{N: 2}, a, b),
+			outgoing:     pwc(multiCellPolicy{}, a, b, c),
+			incoming:     pwc(multiCellPolicy{}, a, b),
+			wantBoth:     pwc(multiCellPolicy{}, a, b),
+			wantIncoming: pwc(multiCellPolicy{}, a, b),
 		},
 	}
 
@@ -239,7 +232,7 @@ func TestNewPolicyFromProto(t *testing.T) {
 		{
 			name:   "MULTI_CELL_AT_LEAST_N returns MultiCellPolicy",
 			policy: topoclient.MultiCellAtLeastN(2),
-			wantOK: func(p DurabilityPolicy) bool { _, ok := p.(MultiCellPolicy); return ok },
+			wantOK: func(p DurabilityPolicy) bool { _, ok := p.(multiCellPolicy); return ok },
 		},
 		{
 			name:    "nil policy returns error",
@@ -276,7 +269,7 @@ func TestNewPolicyFromProto(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 				RequiredCount: 0,
 			},
-			wantErr: "MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1",
+			wantErr: "MULTI_CELL_AT_LEAST_N requires RequiredCount == 2, got 0",
 		},
 	}
 
