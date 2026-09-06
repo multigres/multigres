@@ -307,6 +307,19 @@ func (pm *MultipoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 	return state, ch, nil
 }
 
+// shouldPollFailoverSlotReadiness reports whether the health heartbeat should
+// sample failoverSlotReadiness this tick: slot-based replication must be
+// enabled, and this pooler must not currently be the primary.
+// failoverSlotReadiness only counts synced=true slots, a standby-only
+// property set by the slot-sync worker — the primary's own failover-slot
+// originals are always synced=false, so sampling there would always report
+// ready=0.
+func (pm *MultipoolerManager) shouldPollFailoverSlotReadiness() bool {
+	return pm.healthStreamer != nil &&
+		pm.slotBasedReplicationEnabled() &&
+		pm.healthStreamer.getState().RoutingState.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+}
+
 // runHealthHeartbeat runs the periodic health heartbeat loop.
 // It broadcasts the current health state at the specified interval.
 // This should be started as a goroutine when the manager opens.
@@ -325,6 +338,18 @@ func (pm *MultipoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 				if lag, err := pm.ReplicationLag(ctx); err == nil {
 					pm.healthStreamer.SetReplicationLag(lag.Nanoseconds())
 				}
+			}
+			// Steady-state failover-slot readiness, so it's visible before a
+			// failover is ever needed, not just via the advisory check at
+			// promotion time. Best-effort, like replication lag above. This
+			// backs mg.pooler.logical_failover.slots, unrelated to the health
+			// stream broadcast above.
+			if pm.shouldPollFailoverSlotReadiness() {
+				if ready, total, err := pm.failoverSlotReadiness(ctx); err == nil {
+					pm.metrics.setFailoverSlotReadiness(ready, total)
+				}
+			} else if pm.metrics != nil {
+				pm.metrics.failoverSlotReadinessSnapshot.Store(nil)
 			}
 			pm.broadcastHealth()
 		}

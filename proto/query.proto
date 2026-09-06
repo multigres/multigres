@@ -64,18 +64,17 @@ message QueryResult {
   // ConcludeTransaction) use this field to preserve backend notice ordering.
   repeated PgDiagnostic notices = 6;
 
-  // passthrough_block is the opaque row-passthrough representation. When set, it
-  // contains the concatenated raw PostgreSQL DataRow ('D') frames for this
-  // batch, exactly as read from the backend, and rows is empty. The multipooler
-  // captures the frames without parsing them into columns and the multigateway
-  // writes the block straight to the client socket, avoiding per-row
-  // marshalling and re-framing on both ends. Requested via
-  // ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+  // passthrough_block is the opaque row-passthrough representation. When set,
+  // it contains the next ordered chunk of raw PostgreSQL DataRow ('D') wire
+  // bytes and rows is empty. A block may contain complete frames or a frame
+  // fragment; concatenating blocks in stream order reconstructs the exact
+  // DataRow byte stream from the backend. The multigateway writes the block
+  // straight to the client socket. fields (RowDescription) remain structured.
   bytes passthrough_block = 7;
 
-  // passthrough_row_count is the number of DataRow frames packed into
-  // passthrough_block. rows is empty in passthrough mode, so this preserves the
-  // row count for metrics and row-limit accounting.
+  // passthrough_row_count is the number of DataRow frames completed in this
+  // block. It may be zero when the block contains only a fragment of a large
+  // DataRow. This preserves row accounting while rows is empty.
   uint32 passthrough_row_count = 8;
 
   // parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
@@ -85,6 +84,12 @@ message QueryResult {
   // client, covering the paths that run the real statement on PostgreSQL
   // (SET/RESET inside a transaction, and the revert on ROLLBACK).
   map<string, string> parameter_status = 9;
+
+  // passthrough_row_in_progress reports that this block ends inside a DataRow
+  // frame. If the upstream stream fails before a later block completes that
+  // frame, the gateway must close the client connection instead of appending
+  // an ErrorResponse to the incomplete DataRow.
+  bool passthrough_row_in_progress = 10;
 }
 
 // Field represents metadata about a column in the result set.

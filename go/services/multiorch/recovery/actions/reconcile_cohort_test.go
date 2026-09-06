@@ -50,6 +50,15 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
 
+	// rule is the highest known consensus position setupStore's primary
+	// publishes. Tests pass it as RecheckedProblem.HighestKnownRule to stand
+	// in for what the engine's recheck would have supplied — Execute no
+	// longer derives it from the store itself.
+	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+		LeaderId:   primaryID,
+	}}
+
 	setupStore := func(t *testing.T, fakeClient *rpcclient.FakeClient) (*store.PoolerCache, func()) {
 		t.Helper()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -65,14 +74,9 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			LastSeen: timestamppb.Now(),
 			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:             primaryID,
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
-						LeaderId:   primaryID,
-					}},
-				},
+				Id:              primaryID,
+				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule},
 			},
 		}, nil))
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
@@ -104,11 +108,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		defer cleanup()
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.NoError(t, err)
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
@@ -134,6 +138,12 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	})
 
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {
+		// Removal safety (durability-policy quorum survival) is enforced by
+		// CohortMismatchAnalyzer before this problem is ever produced — see
+		// cohort_mismatch_analyzer_test.go — and re-verified by construction
+		// via the RecheckedProblem the engine passes in (Execute trusts it
+		// rather than re-deriving safety here). This test only exercises the
+		// REMOVE plumbing itself.
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
@@ -149,11 +159,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		defer cleanup()
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemCohortMemberIneligible,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.NoError(t, err)
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
@@ -170,44 +180,35 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		// No poolers added to the store — FindPoolerByID will fail.
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "find target pooler")
 		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
-	t.Run("returns error when no consensus leader is known for the shard", func(t *testing.T) {
+	t.Run("returns error when no consensus rule is known for the shard", func(t *testing.T) {
+		// HighestKnownRule is nil — the engine's recheck found no rule for the
+		// shard (e.g. no poolers ever reported one). Execute trusts that
+		// verdict directly rather than re-deriving it from the store.
 		fakeClient := &rpcclient.FakeClient{}
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 		ps := store.NewTestCache(t)
-		// Add only the target replica; the shard search uses the
-		// (database, table_group, shard) tuple, so an unrelated shard tuple
-		// finds no poolers and therefore no leader.
-		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{
-				Id:       replicaID,
-				ShardKey: shardKey,
-				Type:     clustermetadatapb.PoolerType_REPLICA,
-			},
-		}, nil))
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
-			Code: types.ProblemPoolerNotInCohort,
-			ShardKey: &clustermetadatapb.ShardKey{
-				Database: "otherdb", TableGroup: "default", Shard: "0",
-			},
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no consensus leader known")
+		assert.Contains(t, err.Error(), "no consensus rule known")
 	})
 
 	t.Run("rejects when the leader does not look able to commit writes", func(t *testing.T) {
@@ -226,18 +227,9 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			LastSeen: timestamppb.New(time.Now().Add(-time.Hour)),
-			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:             primaryID,
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
-						LeaderId:   primaryID,
-					}},
-				},
-			},
+			LastSeen:        timestamppb.New(time.Now().Add(-time.Hour)),
+			Status:          &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: primaryID, TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}, CurrentPosition: &clustermetadatapb.PoolerPosition{Position: rule}},
 		}, nil))
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
@@ -248,11 +240,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		}, nil))
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not look able to commit writes right now")
@@ -273,76 +265,43 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		defer cleanup()
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "UpdateConsensusRule failed")
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
-	t.Run("rejects when the leader's highest known position has an undecided proposal", func(t *testing.T) {
-		// Propagation isn't supported yet: the cohort must not be updated
-		// against an outgoing rule that isn't decided. LeaderWritesProgressing
-		// enforces this (via IsRuleDecided) alongside the leader-health checks.
-		// Seed the cache directly (bypassing setupStore's decided-only primary)
-		// with a proposal beyond the decision.
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-		defer ts.Close()
-		ps := store.NewTestCache(t)
-		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{
-				Id:       primaryID,
-				ShardKey: shardKey,
-				Type:     clustermetadatapb.PoolerType_PRIMARY,
-				Hostname: "primary.example.com",
-				PortMap:  map[string]int32{"postgres": 5432},
+	t.Run("rejects when the highest known rule has an undecided proposal", func(t *testing.T) {
+		// Propagation isn't supported yet: a cohort change is leader-led and
+		// meaningless against an outstanding, not-yet-decided proposal.
+		undecided := &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+				LeaderId:   primaryID,
 			},
-			// Otherwise healthy (fresh, genuinely primary) so the undecided
-			// proposal below is what LeaderWritesProgressing actually rejects on.
-			LastSeen: timestamppb.Now(),
-			Status:   &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:             primaryID,
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{
-						Decision: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
-							LeaderId:   primaryID,
-						},
-						Proposal: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 8},
-							LeaderId:   primaryID,
-						},
-					},
-				},
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 8},
+				LeaderId:   primaryID,
 			},
-		}, nil))
-		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{
-				Id:       replicaID,
-				ShardKey: shardKey,
-				Type:     clustermetadatapb.PoolerType_REPLICA,
-			},
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-			},
-		}, nil))
-
+		}
 		fakeClient := &rpcclient.FakeClient{}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: undecided})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "does not look able to commit writes right now")
+		assert.Contains(t, err.Error(), "undecided rule proposal")
 		assert.Empty(t, fakeClient.CallLog, "no RPC should be dispatched")
 	})
 
@@ -359,11 +318,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		defer cleanup()
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemReplicaNotReplicating,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		})
+		}, HighestKnownRule: rule})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported problem code")

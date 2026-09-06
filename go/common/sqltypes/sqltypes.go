@@ -170,17 +170,21 @@ type Result struct {
 	// Rows contains the actual data rows.
 	Rows []*Row
 
-	// PassthroughBlock, when non-nil, holds the opaque row-passthrough payload: the
-	// concatenated raw PostgreSQL DataRow frames for this batch, exactly as read
-	// from the backend. When set, Rows is empty and the rows are never parsed
-	// into columns. The multigateway writes PassthroughBlock straight to the client. See
-	// QueryResult.passthrough_block.
+	// PassthroughBlock, when non-nil, holds the next ordered chunk of opaque
+	// PostgreSQL DataRow wire bytes. It may contain complete frames or a frame
+	// fragment. Rows is empty and the multigateway writes the bytes directly to
+	// the client. See QueryResult.passthrough_block.
 	PassthroughBlock []byte
 
-	// PassthroughRowCount is the number of DataRow frames packed into PassthroughBlock. Preserves
-	// the row count for metrics and row-limit accounting, since Rows is empty in
-	// passthrough mode.
+	// PassthroughRowCount is the number of DataRow frames completed in
+	// PassthroughBlock. It may be zero for an intermediate fragment of a large
+	// row and preserves row accounting while Rows is empty.
 	PassthroughRowCount int
+
+	// PassthroughRowInProgress reports that PassthroughBlock ends inside a
+	// DataRow frame. A downstream pgwire server must close the client connection
+	// if the upstream stream fails before a later block completes that frame.
+	PassthroughRowInProgress bool
 
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
@@ -250,14 +254,15 @@ func (r *Result) ToProto() *query.QueryResult {
 	// each row into a proto Row. Rows is empty in this mode.
 	if len(r.PassthroughBlock) > 0 {
 		return &query.QueryResult{
-			Fields:              r.Fields,
-			HasFields:           r.Fields != nil,
-			RowsAffected:        r.RowsAffected,
-			PassthroughBlock:    r.PassthroughBlock,
-			PassthroughRowCount: uint32(r.PassthroughRowCount),
-			CommandTag:          r.CommandTag,
-			Notices:             protoNotices,
-			ParameterStatus:     r.ParameterStatus,
+			Fields:                   r.Fields,
+			HasFields:                r.Fields != nil,
+			RowsAffected:             r.RowsAffected,
+			PassthroughBlock:         r.PassthroughBlock,
+			PassthroughRowCount:      uint32(r.PassthroughRowCount),
+			PassthroughRowInProgress: r.PassthroughRowInProgress,
+			CommandTag:               r.CommandTag,
+			Notices:                  protoNotices,
+			ParameterStatus:          r.ParameterStatus,
 		}
 	}
 	protoRows := make([]*query.Row, len(r.Rows))
@@ -295,13 +300,14 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	// nil; the multigateway writes PassthroughBlock straight to the client.
 	if pr.PassthroughBlock != nil {
 		return &Result{
-			Fields:              fields,
-			RowsAffected:        pr.RowsAffected,
-			PassthroughBlock:    pr.PassthroughBlock,
-			PassthroughRowCount: int(pr.PassthroughRowCount),
-			CommandTag:          pr.CommandTag,
-			Notices:             notices,
-			ParameterStatus:     pr.ParameterStatus,
+			Fields:                   fields,
+			RowsAffected:             pr.RowsAffected,
+			PassthroughBlock:         pr.PassthroughBlock,
+			PassthroughRowCount:      int(pr.PassthroughRowCount),
+			PassthroughRowInProgress: pr.PassthroughRowInProgress,
+			CommandTag:               pr.CommandTag,
+			Notices:                  notices,
+			ParameterStatus:          pr.ParameterStatus,
 		}
 	}
 	rows := make([]*Row, len(pr.Rows))

@@ -1,20 +1,66 @@
-# Known pooled-backend divergences: LOAD remains blocked, LISTEN is gateway-
-# managed, and function execution can observe backend-local work_mem.
-# pg_prepared_statements result tables are normalized separately because they
-# expose scheduling-dependent internal ppstmt caches.
+# Known pooled-backend divergences, all by design:
+#
+# - LOAD remains blocked (loading shared libraries through the pooler is not
+#   permitted), so the plpgsql reserved-prefix probe reports its error before the
+#   LOAD rather than the post-LOAD warning.
+# - LISTEN is gateway-managed, so pg_listening_channels() shows no backend-local
+#   channel.
+# - pg_prepared_statements is normalized separately: it exposes the gateway
+#   consolidator's internal (scheduling-dependent) prepared statements.
+# - The "function-local GUC settings" section defines PL/pgSQL functions whose
+#   bodies run SET / SET LOCAL work_mem. A SET inside a body is untrackable
+#   session state, so the gateway rejects the CREATE FUNCTION; the previous
+#   definition of myfunc survives, so the following select myfunc(...) returns
+#   that stale function's result instead of the expected value or error. Note it
+#   is the body SET that is rejected, not the function's own trailing SET clause
+#   (e.g. report_guc, which has only a SET clause, runs fine).
 --- a
 +++ b
-@@ -553,0 +554,2 @@
+@@ -551,9 +551,10 @@
+ -- Check what happens when you try to set a "custom" GUC within the
+ -- namespace of an extension.
+ SET plpgsql.extra_foo_warnings = true; -- allowed if plpgsql is not loaded yet
 +ERROR: invalid configuration parameter name "plpgsql.extra_foo_warnings"
 +DETAIL: "plpgsql" is a reserved prefix.
-@@ -555,2 +557 @@
+ LOAD 'plpgsql'; -- this will throw a warning and delete the variable
 -WARNING: invalid configuration parameter name "plpgsql.extra_foo_warnings", removing it
 -DETAIL: "plpgsql" is now a reserved prefix.
 +ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
-@@ -593,2 +594 @@
+ SET plpgsql.extra_foo_warnings = true; -- now, it's an error
+ ERROR: invalid configuration parameter name "plpgsql.extra_foo_warnings"
+ DETAIL: "plpgsql" is a reserved prefix.
+@@ -590,8 +591,7 @@
+ SELECT pg_listening_channels();
+ pg_listening_channels
+ -----------------------
 -foo_event
 -(1 row)
 +(0 rows)
-@@ -762 +762 @@
--3MB
+ 
+ SELECT name FROM pg_prepared_statements;
+ <pooler internal prepared statements>
+@@ -736,6 +736,7 @@
+ end $$
+ language plpgsql
+ set work_mem = '1MB';
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ select myfunc(0), current_setting('work_mem');
+ myfunc | current_setting
+ --------+-----------------
+@@ -752,10 +753,13 @@
+ end $$
+ language plpgsql
+ set work_mem = '1MB';
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ select myfunc(0);
+-ERROR: division by zero
+-CONTEXT: SQL statement "SELECT 1/$1"
+-PL/pgSQL function myfunc(integer) line 4 at PERFORM
++myfunc
++--------
 +2MB
++(1 row)
++
+ select current_setting('work_mem');
+ current_setting
+ -----------------

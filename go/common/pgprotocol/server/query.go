@@ -223,6 +223,12 @@ func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 // down without emitting its own error reply.
 var errFatalDiagnosticSent = errors.New("fatal diagnostic sent; closing connection")
 
+// errIncompleteDataRow signals that opaque passthrough already wrote the
+// beginning of a DataRow but the upstream stream ended before that frame was
+// completed. No PostgreSQL message can be appended safely because the client
+// would interpret it as row data.
+var errIncompleteDataRow = errors.New("upstream failed during a DataRow frame")
+
 // fatalDiagnostic returns the *PgDiagnostic that writeError would put on the
 // wire if it carries a FATAL/PANIC severity, nil otherwise. It mirrors
 // writeError's extraction (RootCause + errors.As) so the close decision always
@@ -275,6 +281,20 @@ func (c *Conn) writeError(err error) error {
 // ErrorResponse before tearing the connection down.
 func (c *Conn) WriteError(err error) error {
 	if werr := c.writeError(err); werr != nil {
+		return werr
+	}
+	return c.flush()
+}
+
+// WriteNotice writes a NoticeResponse to the client and flushes it. Like
+// WriteError, it is the exported entry point for handlers in other packages
+// that take over a connection outside the normal command loop and need to emit
+// an informational NOTICE — e.g. the replication preamble telling a client its
+// slot was registered for failover. The diagnostic's Severity should be a
+// notice level ("NOTICE", "WARNING", ...); a NoticeResponse is advisory and
+// valid at any point in a command cycle.
+func (c *Conn) WriteNotice(diag *mterrors.PgDiagnostic) error {
+	if werr := c.writeNoticeResponse(diag); werr != nil {
 		return werr
 	}
 	return c.flush()

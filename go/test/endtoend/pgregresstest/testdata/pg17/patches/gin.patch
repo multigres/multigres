@@ -1,9 +1,61 @@
-# Known divergence (by design): CREATE UNLOGGED TABLE emits an extra WARNING +
-# HINT because unlogged data is not replicated and is lost on failover. Planner
-# differences in this test are intentionally left unpatched.
+# Known divergences (by design):
+# - CREATE UNLOGGED TABLE emits an extra WARNING + HINT (unlogged data is not
+#   replicated and is lost on failover).
+# - the explain_query_json / execute_text_query_* helpers issue SET enable_seqscan
+#   inside their bodies — session state the pooler cannot track — so their runtime
+#   CREATE is rejected and the dependent index-usage checks are skipped.
 --- a
 +++ b
-@@ -290,6 +290,8 @@
+@@ -141,6 +141,7 @@
+ return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql;
+ end;
+ $$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ create function execute_text_query_index(query_sql text)
+ returns setof text
+ language plpgsql
+@@ -152,6 +153,7 @@
+ return query execute query_sql;
+ end;
+ $$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ create function execute_text_query_heap(query_sql text)
+ returns setof text
+ language plpgsql
+@@ -163,6 +165,7 @@
+ return query execute query_sql;
+ end;
+ $$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ -- check number of rows returned by index and removed by recheck
+ select
+ query,
+@@ -185,20 +188,10 @@
+ lateral explain_query_json($$select * from t_gin_test_tbl where $$ || query) js,
+ lateral execute_text_query_index($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_index,
+ lateral execute_text_query_heap($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_heap;
+-query | return by index | removed by recheck | match
+--------------------------------------------+-----------------+--------------------+-------
+-i @> '{}' | 7 | 0 | t
+-j @> '{}' | 6 | 0 | t
+-i @> '{}' and j @> '{}' | 4 | 0 | t
+-i @> '{1}' | 5 | 0 | t
+-i @> '{1}' and j @> '{}' | 3 | 0 | t
+-i @> '{1}' and i @> '{}' and j @> '{}' | 3 | 0 | t
+-j @> '{10}' | 4 | 0 | t
+-j @> '{10}' and i @> '{}' | 3 | 0 | t
+-j @> '{10}' and j @> '{}' and i @> '{}' | 3 | 0 | t
+-i @> '{1}' and j @> '{10}' | 2 | 0 | t
+-(10 rows)
+-
++ERROR: function explain_query_json(text) does not exist
++LINE 18: ) q(query),
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ reset enable_seqscan;
+ reset enable_bitmapscan;
+ -- re-purpose t_gin_test_tbl to test scans involving posting trees
+@@ -290,6 +283,8 @@
  drop table t_gin_test_tbl;
  -- test an unlogged table, mostly to get coverage of ginbuildempty
  create unlogged table t_gin_test_tbl(i int4[], j int4[]);

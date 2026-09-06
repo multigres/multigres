@@ -106,6 +106,17 @@ const (
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
 
+	// RewindSentinelFile marks an in-progress pg_rewind. Written before the actual
+	// (mutating) pg_rewind runs and removed only after postgres is verified back up
+	// as a standby; its presence on startup means a prior rewind was interrupted
+	// (e.g. the pod was killed mid-rewind) and the data directory is partially
+	// rewound — unstartable and, per PostgreSQL guidance, generally unrecoverable.
+	// The monitor uses it to force the rewind-repair path instead of starting
+	// postgres on the half-rewound directory, and to quarantine if repair keeps
+	// failing. Lives in pooler_dir (not PGDATA) so it stays out of pgBackRest
+	// backups, and on the local volume so it survives a pod restart on the same PVC.
+	RewindSentinelFile = ".multigres-rewind-in-progress"
+
 	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
 	// puts the server into standby mode. Notably, postgres --single refuses to
 	// run with it present, so crash recovery removes and recreates it.
@@ -129,7 +140,95 @@ const (
 	// visible here is session-level (transaction-level advisory locks are
 	// released at transaction end), so a false result means the session has
 	// released all of its advisory locks and the backend can be unpinned.
-	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
+	// Schema-qualified so a pg_temp relation or a search_path function cannot
+	// shadow the catalog (see SessionSourceProbeSQL).
+	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND pid = pg_catalog.pg_backend_pid())"
+
+	// PreparedStatementsProbeSQL lists the named prepared statements the
+	// current backend holds with their bodies, protocol-level (Parse) and
+	// SQL-level (PREPARE) alike. The unnamed statement is never listed. For a
+	// Parse-created statement the body is the query string as submitted; for
+	// a SQL PREPARE it is the full PREPARE text. Run by the multipooler
+	// scrubber to compare against the pool's tracked prepared statements,
+	// body included: a name can survive a hidden DEALLOCATE plus re-PREPARE
+	// with a different body.
+	PreparedStatementsProbeSQL = "SELECT name, statement FROM pg_catalog.pg_prepared_statements"
+
+	// HoldableCursorsProbeSQL lists the current backend's open cursors. Run
+	// only outside a transaction, where every cursor still listed is WITH
+	// HOLD (others close at transaction end), so any row means a holdable
+	// cursor outlived its transaction on a pooled backend. Run by the
+	// multipooler scrubber; an idle pooled backend must hold none.
+	HoldableCursorsProbeSQL = "SELECT name FROM pg_catalog.pg_cursors"
+
+	// TempObjectsProbeSQL returns one row per object in the current backend's
+	// temporary schema, tagged by kind, across every namespace-scoped catalog
+	// the gateway's pg_temp CREATE rejection covers: a relkind code per
+	// pg_class entry, 'function' per pg_proc entry (aggregates included),
+	// 'type:' plus the typtype code per standalone pg_type entry (domains,
+	// enums, ranges, multiranges), and a fixed tag per operator, collation,
+	// statistics object, operator class, operator family, conversion, and
+	// text-search parser/dictionary/template/configuration. Composite types
+	// are counted through pg_class, and the array type PostgreSQL creates
+	// alongside every type is skipped, so each user-created object yields
+	// one row. pg_my_temp_schema() is 0 when the session has no temp schema,
+	// which no namespace OID matches, so the probe returns no rows.
+	//
+	// Run by the multipooler scrubber; an idle pooled backend must own none.
+	// Relations and types are the dangerous classes: pg_temp is searched
+	// before pg_catalog for unqualified relation and type names (verified: a
+	// pg_temp domain named text captures unqualified ::text), so a leftover
+	// shadows the catalog for the next borrower. Operators, collations, and
+	// the rest are never resolved through pg_temp, even with pg_temp listed
+	// in search_path; they are reported as stale state for completeness.
+	TempObjectsProbeSQL = "SELECT relkind::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'function' FROM pg_catalog.pg_proc WHERE pronamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'type:' || typtype::text FROM pg_catalog.pg_type WHERE typnamespace = pg_catalog.pg_my_temp_schema()" +
+		" AND typtype <> 'c' AND NOT (typtype = 'b' AND typelem <> 0)" +
+		" UNION ALL SELECT 'operator' FROM pg_catalog.pg_operator WHERE oprnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'collation' FROM pg_catalog.pg_collation WHERE collnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'statistics' FROM pg_catalog.pg_statistic_ext WHERE stxnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'operator_class' FROM pg_catalog.pg_opclass WHERE opcnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'operator_family' FROM pg_catalog.pg_opfamily WHERE opfnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'conversion' FROM pg_catalog.pg_conversion WHERE connamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_parser' FROM pg_catalog.pg_ts_parser WHERE prsnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_dictionary' FROM pg_catalog.pg_ts_dict WHERE dictnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_template' FROM pg_catalog.pg_ts_template WHERE tmplnamespace = pg_catalog.pg_my_temp_schema()" +
+		" UNION ALL SELECT 'ts_config' FROM pg_catalog.pg_ts_config WHERE cfgnamespace = pg_catalog.pg_my_temp_schema()"
+
+	// SessionSourceProbeSQL is the session-state probe run by the multipooler
+	// scrubber. It reads the backend's real session GUC state in one
+	// round trip and compares it against the connection's tracked settings label.
+	// Three sources are combined, because pg_settings alone cannot see everything
+	// (verified on PostgreSQL 17):
+	//
+	//   - 'session' rows: pg_settings WHERE source = 'session' — every defined
+	//     GUC whose current value was installed by this session (SET,
+	//     set_config(..., false), including any hidden inside routine bodies).
+	//     current_setting() is used instead of pg_settings.setting because it
+	//     returns the SHOW-style display form, which is also what set_config
+	//     returns in the normalization probe, keeping comparisons
+	//     apples-to-apples.
+	//     Both pg_settings and current_setting are schema-qualified: pg_temp
+	//     is searched before pg_catalog for unqualified relation names, and a
+	//     client's search_path could shadow an unqualified function name.
+	//   - 'identity' rows: role and session_authorization are GUC_NO_SHOW_ALL —
+	//     they NEVER appear in pg_settings — so they are read explicitly.
+	//     current_setting('role') reports 'none' when no SET ROLE is in effect;
+	//     session_user is the current session authorization.
+	//   - 'custom' rows: placeholder GUCs (names with a dot, e.g. 'my.tenant')
+	//     are also hidden from pg_settings until an extension defines them, so
+	//     every custom name in the tracked label is read explicitly with
+	//     current_setting(name, missing_ok := true), which returns NULL when the
+	//     session has never seen the GUC.
+	//
+	// Known blind spot: a custom GUC set behind tracking's back on a connection
+	// whose label does not contain it is undetectable — placeholder GUCs cannot
+	// be enumerated from SQL. The creation-time rejection gates remain the
+	// defense for that class.
+	SessionSourceProbeSQL = "SELECT name, pg_catalog.current_setting(name), 'session' FROM pg_catalog.pg_settings WHERE source = 'session'" +
+		" UNION ALL SELECT 'role', pg_catalog.current_setting('role'), 'identity'" +
+		" UNION ALL SELECT 'session_authorization', session_user::text, 'identity'"
 
 	// RestoreCommandPIDFile is the filename (joined onto the pooler directory)
 	// that `pgctld restore-wrapper` writes its own PID to, so pgctld's
@@ -142,4 +241,9 @@ const (
 	// survives restore_command being cleared and PGDATA being wiped by a
 	// subsequent restore.
 	RestoreCommandPIDFile = "restore_command.pid"
+
+	// PostmasterPIDFile is the filename (joined onto PGDATA) postgres itself
+	// writes its lock file to, recording the postmaster's PID and start time
+	// among other fields. Fixed by PostgreSQL itself, not configurable.
+	PostmasterPIDFile = "postmaster.pid"
 )

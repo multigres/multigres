@@ -1,3 +1,11 @@
+# Known divergence (by design): multigateway blocks CREATE FOREIGN DATA WRAPPER,
+# CREATE SERVER, and CREATE LANGUAGE — all pooler-unsafe (outbound connections /
+# installing procedural languages). Every difference below is deterministic
+# fallout from those blocks: the wrappers, servers, and languages never exist,
+# so the ALTER RENAME/OWNER, catalog SELECTs, and CASCADE DROPs that reference
+# them all resolve to "does not exist" instead of the upstream name-conflict,
+# ownership, and cascade-notice output.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -157,57 +157,63 @@

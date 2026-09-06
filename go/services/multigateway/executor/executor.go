@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -31,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/plancache"
 	"github.com/multigres/multigres/go/services/multigateway/planner"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 const (
@@ -123,42 +121,7 @@ func (e *Executor) StreamExecute(
 			"plan", plan.String(),
 			"error", err)
 	}
-	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return result, err
-}
-
-// setConfigReleaseTimeout bounds the post-statement set_config reservation
-// hand-back so a hung multipooler cannot stall the client's response path.
-const setConfigReleaseTimeout = 5 * time.Second
-
-// releaseSetConfigReservations hands back any backend held solely for
-// set_config capture (ReasonSetConfig) once the statement's plan has finished.
-// Runs on success AND failure: on success the silent trackers have recorded
-// the new value, so the release built now carries the updated map; on failure
-// the statement aborted atomically and the unchanged map is equally correct.
-func (e *Executor) releaseSetConfigReservations(ctx context.Context, plan *engine.Plan, conn *server.Conn, state *handler.MultigatewayConnectionState) {
-	if !plan.ExecInfo.PersistingSetConfig || state == nil {
-		return
-	}
-	// Detach from the statement's cancellation and deadline: a statement that
-	// finished just under its deadline, or a client cancellation landing
-	// between completion and this hook, would otherwise fail the release
-	// instantly and strand a healthy backend until the pooler's inactivity
-	// timeout. ctxutil.Detach drops cancellation while preserving the
-	// telemetry linkage, and the explicit bound keeps a hung pooler from
-	// blocking the client's response path.
-	releaseCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), setConfigReleaseTimeout)
-	defer cancel()
-	// ctxutil.Detach preserves telemetry linkage but drops context values; the
-	// caller id must ride along explicitly or this release RPC is the one
-	// anonymous call among the release paths (the gRPC client stamps
-	// CallerId from the context).
-	if cid := callerid.FromContext(ctx); cid != nil {
-		releaseCtx = callerid.NewContext(releaseCtx, cid)
-	}
-	if err := e.exec.ReleaseSetConfigReservations(releaseCtx, conn, state); err != nil {
-		e.logger.ErrorContext(releaseCtx, "set_config reservation release failed", "error", err)
-	}
 }
 
 // resolvePlan obtains a query plan, using the plan cache when possible.
@@ -173,7 +136,12 @@ func (e *Executor) resolvePlan(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	if !isCacheable(astStmt) {
+	// A unsafe connection is kept off the shared plan cache: its
+	// planning depends on the per-connection opt-out (accept/reject decisions and
+	// the ReasonUnsafeConnection pin), so a plan built for it must never be served to
+	// another connection. Route it through the non-cacheable path with State, like
+	// any other statement whose plan depends on live connection state.
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err
@@ -224,7 +192,7 @@ func isCacheable(stmt ast.Stmt) bool {
 		// Exclude SELECT INTO — temp-table variants use a different primitive
 		// (TempTableRoute), and non-temp variants are DDL-like (they create a
 		// table), so caching their plans is not useful.
-		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.IntoClause != nil {
+		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.LeafIntoClause() != nil {
 			return false
 		}
 		return true
@@ -279,7 +247,6 @@ func (e *Executor) PortalStreamExecute(
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"plan", plan.String(), "error", err)
 	}
-	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return &handler.ExecuteResult{
 		TablesUsed:    plan.TablesUsed,
 		PlanType:      plan.Type,
@@ -322,7 +289,13 @@ func (e *Executor) resolvePortalPlan(
 	// is built identically regardless of protocol, so a plan cached by one path
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
-	if !isCacheable(astStmt) {
+	//
+	// A unsafe connection is also forced down this path (mirroring resolvePlan):
+	// its plan is built with the unsafe-statement rejections suppressed, so it
+	// must never enter the shared cache where a normal connection could receive it
+	// as a database-wide hit — that would bypass analyzeStatement's function
+	// blocklist (e.g. a cached SELECT dblink(...) served to another client).
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err

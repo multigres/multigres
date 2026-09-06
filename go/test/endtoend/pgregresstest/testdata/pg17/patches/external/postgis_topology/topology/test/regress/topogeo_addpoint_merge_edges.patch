@@ -1,0 +1,16 @@
+# Known divergence (by design): this test's runTest helper contains a plain SET
+# (set client_min_messages, guarded by IF debug) inside its PL/pgSQL body, so
+# Tier-1 body analysis rejects its CREATE (the single +ERROR line below). The
+# helper is re-seeded directly on the primary per test (postgis_preseed.sql,
+# applied by the patched run_test.pl); runTest is defined with a different body in
+# another file, so it is renamed per file (patchPostGISConflictingHelpers) to keep
+# seeding unambiguous. Seeding is safe here because every call uses the default
+# debug => false, so the SET branch never runs through the pooler. Only the
+# rejected CREATE remains.
+--- a
++++ b
+@@ -1,3 +1,4 @@
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ sn.CW-back-merge|-checking-
+ sn.CW-back-merge.ep-edges|-checking-
+ sn.CW-back-merge.ep-edges-back|-checking-

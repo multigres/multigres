@@ -26,6 +26,15 @@
  
  -- Load a file
  CREATE TABLE lotest_stash_values (loid oid, fd integer);
+@@ -189,7 +191,7 @@
+ \set dobody :dobody 'EXCEPTION WHEN UNDEFINED_FILE THEN '
+ \set dobody :dobody 'RAISE NOTICE ''could not open file, as expected''; END'
+ DO :'dobody';
+-NOTICE: could not open file, as expected
++ERROR: lo_export is not supported: server filesystem access is not permitted through the connection pooler
+ -- Test truncation.
+ BEGIN;
+ UPDATE lotest_stash_values SET fd=lo_open(loid, CAST(x'20000' | x'40000' AS integer));
 @@ -347,80 +349,70 @@
  TRUNCATE lotest_stash_values;
  \set filename :abs_srcdir '/data/tenk.data'

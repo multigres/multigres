@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -36,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -48,9 +46,6 @@ import (
 // mockExec is a minimal IExecute mock that records calls for verification.
 type mockExec struct {
 	streamExecuteCalls              atomic.Int32
-	releaseSetConfigCalls           atomic.Int32
-	releaseSetConfigCtxErr          error
-	releaseSetConfigCallerID        *mtrpcpb.CallerID
 	portalStreamExecuteCalls        atomic.Int32
 	lastStreamExecuteSQL            atomic.Value // string
 	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
@@ -104,13 +99,6 @@ func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.Mul
 }
 
 func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
-	return nil
-}
-
-func (m *mockExec) ReleaseSetConfigReservations(ctx context.Context, _ *server.Conn, _ *handler.MultigatewayConnectionState) error {
-	m.releaseSetConfigCalls.Add(1)
-	m.releaseSetConfigCtxErr = ctx.Err()
-	m.releaseSetConfigCallerID = callerid.FromContext(ctx)
 	return nil
 }
 
@@ -290,6 +278,49 @@ func TestPortalStreamExecute_CacheHitOnRepeatedPortal(t *testing.T) {
 	assert.True(t, res2.CacheHit, "repeated portal should hit cache")
 
 	assert.Equal(t, int32(2), mock.portalStreamExecuteCalls.Load())
+}
+
+// TestPortalStreamExecute_UnsafeConnectionNotCached is the regression guard for
+// the cross-protocol plan-cache poisoning vector. A unsafe connection's plan is
+// built with the unsafe-statement rejections suppressed, so it must never enter
+// the shared, database-wide plan cache: otherwise a normal connection could
+// receive it as a cache hit and run a blocklisted call the planner would reject
+// (SELECT pg_read_file(...) — an LFI/SSRF bypass). The extended-protocol
+// resolvePortalPlan must exclude unsafe connections just as resolvePlan does.
+//
+// Uses the doorkeeper-disabled test cache (newTestExecutor) so admission is
+// deterministic — the same reason this cannot be verified reliably end-to-end.
+func TestPortalStreamExecute_UnsafeConnectionNotCached(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+
+	// A blocklisted call: rejected on an enforcing connection, accepted on a
+	// direct one. Cacheable (a plain SELECT), so absent the guard its accepted
+	// plan would be cached.
+	const sql = "SELECT pg_read_file('/etc/passwd')"
+
+	// Sanity: an enforcing connection is rejected outright, so nothing is cached.
+	_, err := exec.PortalStreamExecute(ctx, testConn(), nil, makePortalInfo(t, sql), 0, false, noopCallback)
+	require.Error(t, err, "blocklisted call must be rejected on an enforcing connection")
+
+	// A unsafe connection accepts and executes it. Absent the guard, its plan is
+	// put into the shared cache here.
+	direct := server.NewTestConn(&bytes.Buffer{}, server.WithTestUnsafeConnection()).Conn
+	res, err := exec.PortalStreamExecute(ctx, direct, nil, makePortalInfo(t, sql), 0, false, noopCallback)
+	require.NoError(t, err, "unsafe connection must accept the blocklisted call")
+	assert.False(t, res.CacheHit, "an unsafe connection must never serve from or populate the shared cache")
+
+	// theine processes writes asynchronously; give any (erroneous) write time to land.
+	time.Sleep(50 * time.Millisecond)
+
+	// The crux: a normal connection running the same statement must STILL be
+	// rejected — the unsafe connection's accepted plan must not have poisoned the
+	// shared cache.
+	_, err = exec.PortalStreamExecute(ctx, testConn(), nil, makePortalInfo(t, sql), 0, false, noopCallback)
+	require.Error(t, err, "unsafe-connection plan must not be cached for a normal connection")
+	assert.Contains(t, err.Error(), "pg_read_file is not supported")
 }
 
 // ---------- Cross-protocol plan cache tests ----------
@@ -517,10 +548,10 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
-	// The Route reissues the portal verbatim: the set_config genuinely
-	// persists on the backend, and the ReasonSetConfig reservation +
-	// post-tracking release (exercised in scatterconn/e2e tests) is what keeps
-	// that safe on a pooled connection.
+	// On this unpinned session the SessionStateBranch reissues the portal with
+	// the set_config rewritten to is_local := true, so nothing persists on the
+	// pooled backend; the value lives only in the gateway map (asserted above)
+	// and is replayed at the next checkout.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
 		"the portal must be forwarded to the backend before silent tracking")
 }
@@ -694,32 +725,4 @@ func TestStreamReplication_PropagatesError(t *testing.T) {
 
 	require.ErrorIs(t, err, wantErr)
 	assert.Nil(t, stream)
-}
-
-// TestReleaseSetConfigReservations_RunsOnCancelledStatementContext pins the
-// detached release context: a statement whose context is already cancelled
-// (client went away, or the gateway statement_timeout deadline expired just
-// as the statement finished) must still hand its capture reservation back —
-// otherwise a healthy backend strands until the pooler's inactivity timeout.
-func TestReleaseSetConfigReservations_RunsOnCancelledStatementContext(t *testing.T) {
-	mock := &mockExec{}
-	exec := newTestExecutor(mock)
-	defer exec.planCache.Close()
-
-	plan := &engine.Plan{}
-	plan.ExecInfo.PersistingSetConfig = true
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ctx = callerid.NewContext(ctx, &mtrpcpb.CallerID{Principal: "app_user"})
-	cancel()
-
-	exec.releaseSetConfigReservations(ctx, plan, testConn(), handler.NewMultigatewayConnectionState())
-
-	assert.Equal(t, int32(1), mock.releaseSetConfigCalls.Load(),
-		"the release must be attempted even though the statement context is done")
-	assert.NoError(t, mock.releaseSetConfigCtxErr,
-		"the release must run on a context detached from the statement's cancellation")
-	require.NotNil(t, mock.releaseSetConfigCallerID,
-		"the caller id must survive the detach — the release RPC stamps it from the context")
-	assert.Equal(t, "app_user", mock.releaseSetConfigCallerID.GetPrincipal())
 }

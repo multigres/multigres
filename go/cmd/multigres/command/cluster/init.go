@@ -288,7 +288,7 @@ func AddInitCommand(clusterCmd *cobra.Command) {
 		Long: `Initialize a new Multigres cluster configuration for local development.
 
 Currently, only the 'local' provisioner is supported. This creates a multi-cell
-cluster configuration on a single machine that can be started with 'multigres cluster up'.
+cluster configuration on a single machine that can be started with 'multigres cluster start'.
 
 The cluster can be configured with either local filesystem backups or S3-compatible
 backups (including AWS S3, s3mock for testing, etc.). Backups can optionally be

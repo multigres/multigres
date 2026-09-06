@@ -116,6 +116,22 @@ func loadFixtures(t *testing.T, ctx context.Context, conn pgConn, srcDir string)
 		}
 	}
 
+	// effective_io_concurrency needs the same reset (it is GUC_EXPLAIN and pgctld
+	// pins it to 0), but can't be a static literal like the ones above: its correct
+	// value is the platform boot default, and that is platform-dependent —
+	// DEFAULT_EFFECTIVE_IO_CONCURRENCY is 1 where posix_fadvise is available (Linux
+	// CI) and 0 otherwise (macOS, which rejects any non-zero value outright). So the
+	// pinned 0 differs from boot on Linux (leaking into the PlanSpec settings output)
+	// but matches boot on macOS (invisible in local dev). ALTER DATABASE ... SET
+	// only accepts a literal, not a subquery, so read boot_val from the catalog and
+	// apply it via dynamic SQL — this is the one GUC that genuinely needs a DO block.
+	const resetEIC = `DO $$ BEGIN EXECUTE format(` +
+		`'ALTER DATABASE postgres SET effective_io_concurrency TO %L', ` +
+		`(SELECT boot_val FROM pg_settings WHERE name = 'effective_io_concurrency')); END $$;`
+	if err := runPsql(ctx, conn, []string{"-v", "ON_ERROR_STOP=1", "-c", resetEIC}); err != nil {
+		return fmt.Errorf("reset planner GUC (effective_io_concurrency): %w", err)
+	}
+
 	// Create the authenticator role first (idempotently), with a password so it
 	// can authenticate over TCP/scram. NOINHERIT + no elevated attributes match
 	// upstream; SET ROLE relies on the grants in roles.sql.

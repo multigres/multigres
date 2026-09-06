@@ -60,6 +60,7 @@ package topoclient
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -106,12 +107,32 @@ const (
 	GatewaysPath  = "gateways"
 	PoolersPath   = "poolers"
 	OrchsPath     = "orchs"
+	// GatewayPrefixesPath holds one claim file per PID prefix, in the
+	// global topology: prefixes route query-cancels across cells, so the
+	// namespace must be unique cluster-wide.
+	GatewayPrefixesPath = "gateway_prefixes"
 )
 
 // Factory is a factory interface to create Conn objects.
 // Topology implementations must provide an implementation for this interface.
 type Factory interface {
 	Create(topoName, root string, serverAddrs []string) (Conn, error)
+}
+
+// TLSOptions holds per-connection TLS material for topology clients.
+// Config cannot be combined with the PEM fields.
+type TLSOptions struct {
+	CertPEM []byte
+	KeyPEM  []byte
+	CAPEM   []byte
+	Config  *tls.Config
+}
+
+// FactoryWithTLS creates topology connections with caller-provided TLS options.
+// Implementations that do not support TLS can continue to implement Factory.
+type FactoryWithTLS interface {
+	Factory
+	CreateWithTLS(topoName, root string, serverAddrs []string, tlsOptions *TLSOptions) (Conn, error)
 }
 
 // GlobalStore defines APIs for cluster-level static metadata.
@@ -180,6 +201,7 @@ type CellStore interface {
 	UpdateMultigatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.Multigateway) error) (*clustermetadatapb.Multigateway, error)
 	UnregisterMultigateway(ctx context.Context, id *clustermetadatapb.ID) error
 	RegisterMultigateway(ctx context.Context, multigateway *clustermetadatapb.Multigateway, allowUpdate bool) error
+	ClaimGatewayPrefix(ctx context.Context, prefix uint32, id *clustermetadatapb.ID) error
 
 	// Multiorch CRUD operations
 	GetMultiorch(ctx context.Context, id *clustermetadatapb.ID) (*MultiorchInfo, error)
@@ -305,8 +327,10 @@ type cellConn struct {
 	conn Conn
 }
 
-// TopoConfig holds topology configuration using viperutil values
+// TopoConfig holds topology connection settings.
 type TopoConfig struct {
+	// TLS applies to connections created by this topology store.
+	TLS                    *TLSOptions
 	globalServerAddresses  viperutil.Value[[]string]
 	globalRoot             viperutil.Value[string]
 	readConcurrency        viperutil.Value[int64]
@@ -391,6 +415,23 @@ func (tc *TopoConfig) SetRemoteOperationTimeout(d time.Duration) {
 	tc.remoteOperationTimeout.Set(d)
 }
 
+func createConn(factory Factory, topoName, root string, serverAddrs []string, tlsOptions *TLSOptions) (Conn, error) {
+	if tlsOptions != nil {
+		if tlsFactory, ok := factory.(FactoryWithTLS); ok {
+			return tlsFactory.CreateWithTLS(topoName, root, serverAddrs, tlsOptions)
+		}
+		return nil, fmt.Errorf("topology factory %T does not support TLS connections", factory)
+	}
+	return factory.Create(topoName, root, serverAddrs)
+}
+
+func tlsOptionsFromConfig(config *TopoConfig) *TLSOptions {
+	if config == nil {
+		return nil
+	}
+	return config.TLS
+}
+
 // factories contains the registered factories for creating topology connections.
 // Each implementation (e.g., etcd, memory) registers its factory here.
 var factories = make(map[string]Factory)
@@ -428,7 +469,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 	ts.status[GlobalCell] = ""
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return factory.Create(GlobalCell, root, serverAddrs)
+			return createConn(factory, GlobalCell, root, serverAddrs, tlsOptionsFromConfig(config))
 		},
 		func(s string) {
 			ts.setStatus(GlobalCell, s)
@@ -525,7 +566,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	ts.setStatus(cell, "")
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
+			return createConn(ts.factory, cell, ci.Root, ci.ServerAddresses, tlsOptionsFromConfig(ts.config))
 		},
 		func(s string) {
 			ts.setStatus(cell, s)

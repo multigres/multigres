@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/pgsettings"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -67,6 +68,14 @@ func (p *Planner) planVariableSetStmt(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, error) {
+	// multigres.unsafe_connection (and its deprecated alias
+	// multigres.direct_connection) is a gateway control, not a backend GUC: a
+	// one-way latch handled entirely here.
+	if strings.EqualFold(stmt.Name, constants.UnsafeConnectionParam) ||
+		strings.EqualFold(stmt.Name, constants.DirectConnectionParam) {
+		return p.planUnsafeConnectionSet(sql, stmt)
+	}
+
 	// Transaction-only variables are backend state, not replayable session GUCs.
 	// In particular, RESET transaction_isolation/read_only/deferrable must reach
 	// PostgreSQL so it can raise "parameter ... cannot be reset", and SET
@@ -164,7 +173,7 @@ func (p *Planner) planVariableSetStmt(
 		// routes unchanged. For a GUC the client set in its startup packet the
 		// raw RESET would diverge: pooled backends receive startup params via
 		// replayed SET (never a real startup packet), so PostgreSQL's reset
-		// value there is the server default — while on a direct connection
+		// value there is the server default — while on an unsafe connection
 		// startup-packet GUCs are the session baseline (PGC_S_CLIENT) and
 		// RESET restores them. The merged gateway map (GetSessionSettings)
 		// already implements the correct semantics, so the backend is brought
@@ -269,21 +278,16 @@ func (p *Planner) planVariableSetStmt(
 }
 
 // sessionPinned reports whether a statement routed to tableGroup/shard will
-// execute on a session-affine backend: inside an explicit transaction
-// (including its deferred-BEGIN first statement, whose reservation is created
-// on the routed target) or on a session already holding a reserved connection
-// FOR THAT TARGET (temp tables, cursors, advisory locks). Pinned statements
-// may mutate that backend's session state for real, because the backend stays
-// with the logical session and moves in lockstep with the gateway map;
-// unpinned statements must never leave session state on a pooled backend.
+// execute on a session-affine backend. It delegates to engine.SessionPinned so
+// the SET planner and the SessionStateBranch primitive (which makes the same
+// pinned/unpinned decision at execute time for cacheable set_config plans)
+// share one definition of "pinned".
 //
 // The target scoping is load-bearing: ScatterConn reuses a reservation only
 // when the shard state matches the statement's target, so a session-wide
 // check would let a statement planned as pinned fall through to a pooled
-// connection on its own target and mutate it untracked.
-//
-// Callers must pass exactly the tablegroup/shard they hand to the Route they
-// build, so predicate and routing cannot drift apart.
+// connection on its own target and mutate it untracked. Callers must pass
+// exactly the tablegroup/shard they hand to the Route they build.
 //
 // Known gap, not closed here: with a reservation on a DIFFERENT shard, a
 // tracked map change has no propagation path onto that pinned backend — the
@@ -291,10 +295,7 @@ func (p *Planner) planVariableSetStmt(
 // settings need their own design; today every plan routes to the default
 // tablegroup/shard, so the situation is unreachable.
 func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState, tableGroup, shard string) bool {
-	if conn != nil && conn.IsInTransaction() {
-		return true
-	}
-	return state != nil && state.HasReservedConnectionFor(tableGroup, shard)
+	return engine.SessionPinned(conn, state, tableGroup, shard)
 }
 
 // translateSessionCharacteristics maps SET SESSION CHARACTERISTICS AS
@@ -359,6 +360,33 @@ func isGatewayManagedVariable(name string) bool {
 // planGatewayManagedVariable creates a GatewaySessionState primitive for a
 // gateway-managed variable. All parsing and validation happens here at plan
 // time so the primitive's execute path is a simple assignment.
+// planUnsafeConnectionSet handles `SET multigres.unsafe_connection = on` (and
+// the deprecated alias `SET multigres.direct_connection = on`). It is a one-way
+// latch: only turning it on is supported (RESET or a falsy value errors),
+// because a connection that has run under an unsafe connection may hold
+// untracked backend state and its backend is discarded at teardown. Enabling it
+// is intentionally not gated on a role privilege (see Conn.unsafeConnection). The
+// returned primitive latches the flag on the connection at execute time; every
+// later statement then reads it to suppress the rejections and pin+quarantine the
+// backend. Error messages echo stmt.Name so a client using the deprecated alias
+// sees the name it supplied.
+func (p *Planner) planUnsafeConnectionSet(sql string, stmt *ast.VariableSetStmt) (*engine.Plan, error) {
+	if stmt.Kind != ast.VAR_SET_VALUE {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+			stmt.Name+" cannot be reset once set", "")
+	}
+	on, valid := sqltypes.ParseBool(extractVariableValue(stmt.Args))
+	if !valid {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+			"parameter "+stmt.Name+" requires a Boolean value", "")
+	}
+	if !on {
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+			stmt.Name+" cannot be turned off once set", "")
+	}
+	return engine.NewPlan(sql, engine.NewEnableUnsafeConnection(sql)), nil
+}
+
 func (p *Planner) planGatewayManagedVariable(
 	sql string,
 	stmt *ast.VariableSetStmt,

@@ -73,15 +73,21 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	return err
 }
 
-// HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
+// HTTPRegisterProfile registers the default pprof HTTP endpoints with the
+// internal servenv mux. pprof discloses CPU/heap/goroutine internals and can
+// itself be used as a cheap DoS vector (repeated profile/trace captures), so
+// each endpoint is gated by RequireBearerAuth via resolveAuthPlugin. For
+// every service that never calls SetAuthPlugin, resolveAuthPlugin always
+// returns nil and these endpoints behave exactly as before (unauthenticated,
+// gated only by --pprof-http).
 func (sv *ServEnv) HTTPRegisterPprofProfile() {
 	if !sv.httpPprof.Get() {
 		return
 	}
 
-	sv.HTTPHandleFunc("/debug/pprof/", pprof.Index)
-	sv.HTTPHandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	sv.HTTPHandleFunc("/debug/pprof/profile", pprof.Profile)
-	sv.HTTPHandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	sv.HTTPHandleFunc("/debug/pprof/trace", pprof.Trace)
+	sv.HTTPHandleFunc("/debug/pprof/", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Index))
+	sv.HTTPHandleFunc("/debug/pprof/cmdline", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Cmdline))
+	sv.HTTPHandleFunc("/debug/pprof/profile", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Profile))
+	sv.HTTPHandleFunc("/debug/pprof/symbol", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Symbol))
+	sv.HTTPHandleFunc("/debug/pprof/trace", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Trace))
 }

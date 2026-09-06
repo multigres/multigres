@@ -1,0 +1,18 @@
+# Known divergence (by design): make_test_raster's body runs a dynamic EXECUTE, so
+# the gateway rejects its CREATE (the single +ERROR line below). make_test_raster
+# is defined across ~23 raster test files, but only this file's copy is actually
+# rejected, so its calls are renamed per-file to make_test_raster_tickets (by
+# patchPostGISConflictingHelpers) and that name is seeded on the primary -- which
+# keeps the dependent SELECT calls working without colliding with the 22 other,
+# self-created make_test_raster variants ("function is not unique"). The lone
+# residual is thus the honest rejection of the test's own CREATE.
+--- a
++++ b
+@@ -3,6 +3,7 @@
+ #2532.2|
+ NOTICE: Raster has default geotransform. Adjusting metadata for use of GDAL Warp API
+ #2911|0|0|5|5|2|-2|0|0|0|1
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ t
+ test_raster_scale_regular|rast||1
+ ERROR: new row for relation "test_raster_scale_regular" violates check constraint "enforce_scaley_rast"

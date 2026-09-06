@@ -25,9 +25,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -506,6 +508,40 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
+	// multigres.unsafe_connection is a gateway-only connect-time property, not a
+	// backend GUC. Extract and strip it here so it never reaches a backend (it
+	// would be rejected as unrecognized) and does not trip the restricted-GUC
+	// vetting below. A truthy value latches unsafe connection for the connection.
+	// The deprecated alias multigres.direct_connection is handled the same way.
+	if err := c.extractUnsafeConnectionParam(); err != nil {
+		return err
+	}
+
+	// A GUC supplied at connect time (directly or via options=-c ...) flows
+	// through GetStartupParams into the session settings applied to pooled
+	// backends, bypassing the planner's SET guard — so every guard the SET
+	// path enforces has to be enforced here too, or the connect path is a way
+	// around it. FATAL pre-auth, matching the replication parameter handling
+	// above.
+	//
+	// Two guards apply:
+	//   - cluster-managed GUCs may not be assigned at all (see
+	//     pgsettings.RestrictedGUCStartupError). Checked by NAME against every
+	//     parameter rather than a hardcoded list, so a new entry in
+	//     restrictedGUCs is covered here automatically.
+	//   - search_path is value-restricted: pg_temp in it would make a pooled
+	//     backend's temporary namespace the creation target (see
+	//     pgsettings.RejectTempSchemaSearchPath).
+	for key, value := range c.params {
+		if err := startupParamError(key, value); err != nil {
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				return mterrors.NewPgError("FATAL", diag.Code, diag.Message, "")
+			}
+			return err
+		}
+	}
+
 	c.logger.Info("startup message parsed",
 		"user", c.user,
 		"database", c.database,
@@ -513,6 +549,48 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 
 	// Now perform authentication.
 	return c.authenticate()
+}
+
+// extractUnsafeConnectionParam pulls multigres.unsafe_connection
+// (constants.UnsafeConnectionParam) — and its deprecated alias
+// multigres.direct_connection (constants.DirectConnectionParam) — out of the
+// startup parameters and, if truthy, latches unsafe connection for the
+// connection. It removes the keys so they never flow to a backend or trip the
+// restricted-GUC vetting. A malformed Boolean value is a FATAL startup error,
+// matching how PostgreSQL rejects a bad Boolean GUC. Enabling unsafe connection
+// is not gated on a role privilege — see Conn.unsafeConnection.
+func (c *Conn) extractUnsafeConnectionParam() error {
+	// Recognize the current name and the deprecated alias. Both are stripped so
+	// neither reaches a backend; either being truthy latches the connection.
+	for _, name := range []string{constants.UnsafeConnectionParam, constants.DirectConnectionParam} {
+		value, ok := c.params[name]
+		if !ok {
+			continue
+		}
+		delete(c.params, name)
+		on, valid := sqltypes.ParseBool(value)
+		if !valid {
+			return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("parameter %q requires a Boolean value", name), "")
+		}
+		if on {
+			c.unsafeConnection = true
+		}
+	}
+	return nil
+}
+
+// startupParamError vets one startup parameter against the guards that also
+// apply to a SET of the same GUC, returning nil when it is acceptable. Split
+// out so the checks read as a list and a new one has an obvious home.
+func startupParamError(key, value string) error {
+	if err := pgsettings.RestrictedGUCStartupError(key); err != nil {
+		return err
+	}
+	if strings.EqualFold(key, "search_path") {
+		return pgsettings.RejectTempSchemaSearchPath(value)
+	}
+	return nil
 }
 
 // errAuthRejected signals that the auth flow rejected the client and a FATAL

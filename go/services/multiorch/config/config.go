@@ -157,6 +157,7 @@ type Config struct {
 	leaderFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 	verifyReplicationTimeout           viperutil.Value[time.Duration]
 	leaderPostgresResponseThreshold    viperutil.Value[time.Duration]
+	allowUnsafeInitialCohort           viperutil.Value[bool]
 }
 
 // Constants
@@ -234,6 +235,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_LEADER_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
+		allowUnsafeInitialCohort: viperutil.Configure(reg, "allow-unsafe-initial-cohort", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "allow-unsafe-initial-cohort",
+			EnvVars:  []string{"MT_ALLOW_UNSAFE_INITIAL_COHORT"},
+		}),
 	}
 }
 
@@ -283,6 +289,14 @@ func (c *Config) GetLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Get()
 }
 
+// GetAllowUnsafeInitialCohort reports whether ShardInitAction may bootstrap
+// a cohort that merely satisfies the durability policy without surviving
+// the loss of any single member. False (the safe default) in production;
+// tests that specifically exercise a minimum-size cohort opt in.
+func (c *Config) GetAllowUnsafeInitialCohort() bool {
+	return c.allowUnsafeInitialCohort.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -329,6 +343,10 @@ func (c *Config) DefaultLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Default()
 }
 
+func (c *Config) DefaultAllowUnsafeInitialCohort() bool {
+	return c.allowUnsafeInitialCohort.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -342,6 +360,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
+	fs.Bool("allow-unsafe-initial-cohort", c.DefaultAllowUnsafeInitialCohort(), "allow bootstrapping a cohort that satisfies the durability policy but can't survive losing any single member (test use only)")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -353,7 +372,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.leaderFailoverGracePeriodBase,
 		c.leaderFailoverGracePeriodMaxJitter,
 		c.verifyReplicationTimeout,
-		c.leaderPostgresResponseThreshold)
+		c.leaderPostgresResponseThreshold,
+		c.allowUnsafeInitialCohort)
 }
 
 // Test helper functions
@@ -427,5 +447,12 @@ func WithLeaderFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
 func WithLeaderPostgresResponseThreshold(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.leaderPostgresResponseThreshold.Set(d)
+	}
+}
+
+// WithAllowUnsafeInitialCohort sets allow-unsafe-initial-cohort for testing.
+func WithAllowUnsafeInitialCohort(allow bool) func(*Config) {
+	return func(cfg *Config) {
+		cfg.allowUnsafeInitialCohort.Set(allow)
 	}
 }

@@ -85,10 +85,10 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 			wantMessage: "CREATE SERVER is not supported",
 		},
 
-		// -- Tier 1: currently allowed pending body analysis.
-		// Blocking outright breaks real workloads and does not close the
-		// session-state leak (reachable via SELECT set_config(...)).
-		// Will be conditionally blocked once the PL/pgSQL body walker lands.
+		// -- Tier 1: not rejected by this Tier 2 statement check. Their bodies
+		// are analyzed separately by analyzeProceduralBody (unsafe_plpgsql.go),
+		// which rejects only bodies that reach an unsafe construct; the bare
+		// nodes here carry no such body, so they pass through either way.
 		{
 			name:    "DO block is allowed",
 			stmt:    &ast.DoStmt{BaseNode: ast.BaseNode{Tag: ast.T_DoStmt}},

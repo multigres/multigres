@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -164,6 +165,28 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Re-enable postgres restarts so multipooler manages R1 going forward
 	resumeRestarts()
 
+	// Confirm P is the writable primary.
+	var inRecovery bool
+	err = primaryDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	require.NoError(t, err, "should query primary recovery status")
+	require.False(t, inRecovery, "primary should be writable, not in recovery")
+
+	// R1's pre-rewind rule position becomes the floor it must advance past to
+	// count toward a recruitment quorum again. Bumping the rule number is the
+	// most reliable way to make sure that happens, mirroring a real failover.
+	primaryClient, err := shardsetup.NewMultipoolerClient(primaryInst.Multipooler.GrpcPort)
+	require.NoError(t, err, "should create primary multipooler client")
+	defer primaryClient.Close()
+
+	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "should get primary status")
+	ruleNumber := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
+	_, err = primaryClient.Consensus.UpdateConsensusRule(utils.WithTimeout(t, 15*time.Second), &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+		Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,
+		ExpectedOutgoingRule: ruleNumber,
+	})
+	require.NoError(t, err, "should advance leader rule past R1's recruit-position floor")
+
 	// Block until the shard is problem-free again: orch delivers the leader
 	// identity via SetPrimary and the pooler's monitor rewinds R1 locally, after
 	// which the not-replicating problem clears.
@@ -201,10 +224,6 @@ func TestRewindDivergedReplica(t *testing.T) {
 
 	// Verify R1 is streaming from P and added to P's synchronous standby list
 	verifyReplicaReplicating(t, setup, r1Name, pName)
-
-	primaryClient, err := shardsetup.NewMultipoolerClient(primaryInst.Multipooler.GrpcPort)
-	require.NoError(t, err, "should create primary multipooler client")
-	defer primaryClient.Close()
 
 	require.Eventually(t, func() bool {
 		return isReplicaInStandbyList(t, primaryClient, r1Name)

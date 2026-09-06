@@ -29,9 +29,10 @@ import (
 
 // QueryService is a mock implementation of executor.InternalQueryService for testing.
 type QueryService struct {
-	mu       sync.Mutex
-	patterns []queryPattern
-	beginErr error
+	mu           sync.Mutex
+	patterns     []queryPattern
+	beginErr     error
+	adminQueries int
 }
 
 type queryPattern struct {
@@ -185,20 +186,35 @@ func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...a
 	return m.Query(ctx, queryStr)
 }
 
+// AdminQueryCount returns the number of QueryAdmin* calls.
+func (m *QueryService) AdminQueryCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.adminQueries
+}
+
+func (m *QueryService) recordAdminQuery() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.adminQueries++
+}
+
 // QueryAdmin implements executor.InternalQueryService.
-// The mock records admin-pool queries through the same pattern matcher as Query;
-// tests assert on the query string regardless of which pool it targets.
+// The mock records admin-pool queries through the same pattern matcher as Query.
 func (m *QueryService) QueryAdmin(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	m.recordAdminQuery()
 	return m.Query(ctx, queryStr)
 }
 
 // QueryAdminArgs implements executor.InternalQueryService (delegates to Query).
 func (m *QueryService) QueryAdminArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
+	m.recordAdminQuery()
 	return m.Query(ctx, queryStr)
 }
 
 // QueryAdminMultiStatement implements executor.InternalQueryService (delegates to Query).
 func (m *QueryService) QueryAdminMultiStatement(ctx context.Context, queryStr string) error {
+	m.recordAdminQuery()
 	_, err := m.Query(ctx, queryStr)
 	return err
 }
@@ -228,6 +244,12 @@ func (m *QueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
 		return nil, err
 	}
 	return &mockTx{m: m}, nil
+}
+
+// BeginAdmin implements executor.InternalQueryService. The mock has no
+// separate admin pool, so this behaves identically to Begin.
+func (m *QueryService) BeginAdmin(ctx context.Context) (executor.InternalTx, error) {
+	return m.Begin(ctx)
 }
 
 // queryIfMatched runs queryStr through the matcher only if a pattern matches it,

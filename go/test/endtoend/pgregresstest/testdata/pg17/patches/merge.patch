@@ -1,0 +1,29 @@
+# Known divergences (by design):
+# - the explain_merge helper runs a dynamic EXECUTE the pooler cannot vet, so its
+#   runtime CREATE is rejected. It is pre-seeded on the primary
+#   (testdata/pg17/regress_preseed.sql) so the MERGE-plan checks still run.
+# - the test creates and drops explain_merge while running as regress_merge_privs
+#   (SET SESSION AUTHORIZATION), so in stock PostgreSQL that role owns the function
+#   and can drop it. The pre-seeded copy is instead owned by the superuser that
+#   seeded it, so the final DROP FUNCTION — correctly still running as
+#   regress_merge_privs — reports "must be owner". Session authorization is
+#   tracked correctly; only the seed's owner differs. The MERGE checks themselves
+#   are unaffected because EXECUTE is granted to PUBLIC.
+--- a
++++ b
+@@ -1629,6 +1629,7 @@
+ END LOOP;
+ END;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- only updates
+ SELECT explain_merge('
+ MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a
+@@ -1807,6 +1808,7 @@
+ 
+ DROP TABLE ex_msource, ex_mtarget;
+ DROP FUNCTION explain_merge(text);
++ERROR: must be owner of function explain_merge
+ -- EXPLAIN SubPlans and InitPlans
+ CREATE TABLE src (a int, b int, c int, d int);
+ CREATE TABLE tgt (a int, b int, c int, d int);

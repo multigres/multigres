@@ -216,6 +216,9 @@ message GetDatabaseNamesResponse {
 message GetGatewaysRequest {
   // cells is a comma-separated list of cell names to filter by (optional)
   repeated string cells = 1;
+  // only_reachable drops gateways whose grpc address does not accept a TCP
+  // connection, filtering out stale registrations left by dead pods.
+  bool only_reachable = 2;
 }
 
 // GetGatewaysResponse contains the filtered gateways

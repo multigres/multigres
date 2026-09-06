@@ -145,10 +145,52 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 	}
 	patched = bytes.Replace(patched, []byte(waitFnSuffixOrig), []byte(waitFnSuffixReplacement), 1)
 
+	// Route the control connection (conns[0]) directly at the primary. conns[0]
+	// runs global setup, teardown, and the lock-wait watchdog — trusted
+	// scaffolding, not test steps — so it must bypass multigateway's PL/pgSQL
+	// body analysis (e.g. a setup block that CREATEs a function using a
+	// runtime-built EXECUTE). The per-session connections (conns[1..n]) still go
+	// through the gateway, so the concurrency under test stays on the pooled
+	// query path with the feature enabled. See RunIsolationTests, which sets
+	// ISOLATION_CONTROL_CONNINFO. This is the isolation analogue of the
+	// regression preseed: trusted scaffolding runs directly on the primary.
+	controlDeclOrig := "\tconst char *conninfo;"
+	controlDeclReplacement := "\tconst char *conninfo;\n\tconst char *control_conninfo;"
+	if bytes.Count(patched, []byte(controlDeclOrig)) != 1 {
+		return fmt.Errorf("%s: conninfo declaration not found exactly once (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(controlDeclOrig), []byte(controlDeclReplacement), 1)
+
+	controlAssignOrig := "\tif (argc > optind)\n" +
+		"\t\tconninfo = argv[optind];\n" +
+		"\telse\n" +
+		"\t\tconninfo = \"dbname = postgres\";"
+	controlAssignReplacement := controlAssignOrig + "\n\n" +
+		"\t/*\n" +
+		"\t * multigres patch: when ISOLATION_CONTROL_CONNINFO is set, the control\n" +
+		"\t * connection (conns[0]) connects directly to the primary so its global\n" +
+		"\t * setup/teardown bypasses the gateway's body analysis. Empty means\n" +
+		"\t * unset, so fall back to the shared (gateway) conninfo.\n" +
+		"\t */\n" +
+		"\tcontrol_conninfo = getenv(\"ISOLATION_CONTROL_CONNINFO\");\n" +
+		"\tif (control_conninfo && control_conninfo[0] == '\\0')\n" +
+		"\t\tcontrol_conninfo = NULL;"
+	if !bytes.Contains(patched, []byte(controlAssignOrig)) {
+		return fmt.Errorf("%s: conninfo assignment block not found (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(controlAssignOrig), []byte(controlAssignReplacement), 1)
+
+	controlConnectOrig := "\t\tconns[i].conn = PQconnectdb(conninfo);"
+	controlConnectReplacement := "\t\tconns[i].conn = PQconnectdb((i == 0 && control_conninfo) ? control_conninfo : conninfo);"
+	if !bytes.Contains(patched, []byte(controlConnectOrig)) {
+		return fmt.Errorf("%s: PQconnectdb call not found (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(controlConnectOrig), []byte(controlConnectReplacement), 1)
+
 	if err := os.WriteFile(abs, patched, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", abs, err)
 	}
-	t.Logf("Patched %s: clear/skip application_name + public.multigres_test_session_is_blocked", rel)
+	t.Logf("Patched %s: clear/skip application_name + public.multigres_test_session_is_blocked + direct control connection", rel)
 	return nil
 }
 
@@ -553,6 +595,15 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
 		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
 	}
+
+	// The patched isolationtester routes its control connection (conns[0]) —
+	// global setup, teardown, and lock-wait watchdog — through this direct
+	// conninfo, bypassing the gateway so trusted scaffolding is not rejected by
+	// the PL/pgSQL body analysis. Session connections still use the PG* env
+	// (gateway) set by runTestSuite. Explicit host/port here override those.
+	cmd.AddEnv(fmt.Sprintf(
+		"ISOLATION_CONTROL_CONNINFO=host=localhost port=%d user=postgres password=%s dbname=postgres",
+		directPgPort, password))
 
 	results, runErr := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 		suiteName: "Isolation",

@@ -37,16 +37,56 @@ const (
 	// Shard bootstrap problems (highest priority - shard cannot function at all).
 	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
-	// Leader problems (catastrophic - block everything else).
-	ProblemLeaderIsDead      ProblemCode = "LeaderIsDead"
-	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
-	ProblemLeaderDiskStalled ProblemCode = "LeaderDiskStalled"
-	ProblemStaleLeader       ProblemCode = "StaleLeader"
+	// Leader problems (catastrophic - block everything else). Each names a leader
+	// that must be replaced; they differ in the evidence that convicted it, so
+	// dashboards and failover reasons can distinguish the cause. They share one
+	// recovery action and one per-shard failover throttle — the throttle keys on
+	// the outgoing decision, not the cause.
+	//
+	// Predictors vs backstop: the property we actually care about is whether the
+	// shard is making durable (quorum-commit) write progress. The eventual
+	// LeaderStuck (see TODO below) measures that directly and is the backstop that
+	// catches a stall from any cause. The codes here are faster, higher-confidence
+	// *predictors* of (imminent) stuckness — they let us act before, or explain
+	// why, progress stops — but they are not exhaustive.
+	//
+	// The dividing principle is first-hand vs observer-derived evidence:
+	//   - LeaderUnspecified: the rule has a cohort but names no leader (e.g. a leader
+	//     was removed and none recruited yet) — recruit one. There is no leader to
+	//     reason about, so only the feasibility gate applies. (An *empty* cohort is
+	//     the unbootstrapped case and belongs to ShardNeedsInitialization instead.)
+	//   - LeaderResigned: the leader voluntarily signalled it should step down.
+	//     First-hand; act immediately.
+	//   - LeaderUnhealthy: the leader is observed live but reports its own postgres
+	//     dead/unresponsive. First-hand about itself, so no quorum corroboration is
+	//     required.
+	//   - LeaderUnreachableByCohort: observer-derived — a durability-sufficient set
+	//     of the cohort no longer reaches the leader, so it cannot maintain quorum.
+	//     Quorum-gated precisely because we are inferring rather than being told.
+	//
+	// TODO(LeaderStuck): a further cause — leader reachable and claiming health but
+	// the quorum-commit position is not advancing — is not yet split out. Detecting
+	// it correctly needs a quorum-commit signal (per-replica replay lag is not
+	// quorum-safe: standbys replay WAL ahead of the synchronous-quorum ack). That
+	// waits on a quorum-commit watermark in the heartbeat row; see the failover
+	// detection redesign note.
+	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
+	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
+	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
+	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
+)
 
-	// Leader configuration problems (can fix while leader alive).
-	ProblemLeaderNotAcceptingWrites ProblemCode = "LeaderNotAcceptingWrites"
-	ProblemLeaderMisconfigured      ProblemCode = "LeaderMisconfigured"
-	ProblemLeaderIsReadOnly         ProblemCode = "LeaderIsReadOnly"
+// IsFailoverProblem reports whether this problem is resolved by
+// leader-replacement recruitment — true for exactly the Leader* codes above,
+// which share one recovery action and one per-shard failover throttle.
+func (c ProblemCode) IsFailoverProblem() bool {
+	return c == ProblemLeaderUnspecified ||
+		c == ProblemLeaderUnreachableByCohort ||
+		c == ProblemLeaderUnhealthy ||
+		c == ProblemLeaderResigned
+}
+
+const (
 
 	// Replica problems (require healthy leader).
 	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"
@@ -62,14 +102,43 @@ const (
 	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
 	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
 	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
+	ProblemStaleLeader             ProblemCode = "StaleLeader"
 
 	// Cohort drift problems (require healthy leader; not service-impacting on
 	// their own, but durability degrades if left unaddressed).
 	ProblemPoolerNotInCohort      ProblemCode = "PoolerNotInCohort"
 	ProblemCohortMemberIneligible ProblemCode = "CohortMemberIneligible"
 
-	// Non-actionable: if all hosts are down, there is no way we can failover.
-	ProblemLeaderAndReplicasDead ProblemCode = "LeaderAndReplicasDead"
+	// Shard-level assessments the leader-health analyzer emits about failover
+	// feasibility and observability, rather than a specific leader fault. The
+	// Shard* prefix marks these as not directly actionable by orch, in contrast to
+	// the Leader* problems above (which the shard recovers from by failing over).
+	// None implies data loss — committed transactions met quorum and remain durable;
+	// only forward progress is blocked or (when health is unknown) unverifiable. All
+	// are non-actionable alerts (no-op recovery action; the detected-problems metric
+	// is the signal), distinguished by whether the shard is progressing, stuck, or
+	// unobservable:
+	//   - ShardAtRisk: the leader is healthy and progressing, but a loss of it could
+	//     not be recovered from. A warning — the shard is up but fragile.
+	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
+	//     reachable, so progress is halted and cannot resume automatically. Critical
+	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
+	//   - NoHealthyCohortMembers: orch has no fresh, valid health from any initialized
+	//     pooler in the shard, so it is blind — it can determine the leader/rule only
+	//     from stale observations. Rather than convict the leader on stale evidence
+	//     (which would misreport ShardStuck), it surfaces the blind spot. Distinct
+	//     from ShardStuck, a confident verdict backed by fresh health showing the
+	//     leader failed with no reachable quorum. Often transient (an orch-side health
+	//     gap) and clears once fresh health returns.
+	//   - LeaderHealthUnknown: orch has a fresh, recoverable cohort but cannot conclude
+	//     whether the leader is serving a quorum or cut off from it — it hasn't gathered
+	//     conclusive evidence either way. A warning, not an emergency: the leader may be
+	//     fine. Transient at cold start (clears as evidence arrives); persistent means
+	//     orch has genuinely lost sight of the leader with an ambiguous cohort.
+	ProblemShardAtRisk            ProblemCode = "ShardAtRisk"
+	ProblemShardStuck             ProblemCode = "ShardStuck"
+	ProblemNoHealthyCohortMembers ProblemCode = "NoHealthyCohortMembers"
+	ProblemLeaderHealthUnknown    ProblemCode = "LeaderHealthUnknown"
 )
 
 // Category groups checks by what they monitor.
@@ -151,10 +220,26 @@ type GracePeriodConfig struct {
 	MaxJitter time.Duration
 }
 
+// RecheckedProblem pairs a Problem with the exact consensus rule the engine's
+// pre-execution recheck just re-verified it against (the same ShardAnalysis
+// that redetected the problem — see recovery_loop.go's recheckProblem). The
+// two are bundled deliberately: an action performing a CAS-anchored mutation
+// must judge safety and anchor its CAS on the same rule, or the two could
+// silently disagree. Passing them as independent parameters would let a
+// caller pass a mismatched pair and still compile; this makes that
+// structurally impossible — the only way to obtain one is from a successful
+// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck time; actions that don't mutate the consensus rule can ignore it.
+type RecheckedProblem struct {
+	Problem
+	HighestKnownRule *clustermetadatapb.RulePosition
+}
+
 // RecoveryAction is a function that fixes a problem.
 type RecoveryAction interface {
-	// Execute performs the recovery.
-	Execute(ctx context.Context, problem Problem) error
+	// Execute performs the recovery against the problem and rule the
+	// engine's pre-execution recheck just reconfirmed together.
+	Execute(ctx context.Context, rechecked RecheckedProblem) error
 
 	// Metadata returns info about this recovery.
 	Metadata() RecoveryMetadata

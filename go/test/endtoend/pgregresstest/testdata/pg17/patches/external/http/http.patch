@@ -1,4 +1,14 @@
-# Known divergence: the statement_timeout cancellation message. Upstream's
+# Two known divergences, both by design:
+#
+# 1. The suite's second statement is a fallback DO block ("if local server not
+#    up use global one") whose EXCEPTION handler runs `SET http.server_host =
+#    'http://httpbin.org'`. That SET inside a PL/pgSQL body is untrackable session
+#    state, so the gateway rejects the DO block. It is a no-op here regardless:
+#    the harness serves a local httpbin (NeedsHTTPBin), so the guarded http_get
+#    succeeds, the exception never fires, and the rejected SET is dead code -- the
+#    rest of the suite runs against localhost:9080 as intended.
+#
+# 2. The statement_timeout cancellation message. Upstream's
 # expected file says "canceling statement due to user request" — in pgsql-http
 # the cancel lands inside libcurl's wait loop and is re-raised by the
 # extension's interrupt handling as a generic cancel. Through multigres the
@@ -11,7 +21,15 @@
 # cancellation — survives. Only the message wording differs.
 --- a
 +++ b
-@@ -307,7 +307,7 @@
+@@ -17,6 +17,7 @@
+ END;
+ END;
+ $$;
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
+ -- Status code
+ SELECT status
+ FROM http_get(current_setting('http.server_host') || '/status/202');
+@@ -307,7 +308,7 @@
  SELECT now() AS start;
  SELECT *
  FROM http_get(current_setting('http.server_host') || '/delay/7');

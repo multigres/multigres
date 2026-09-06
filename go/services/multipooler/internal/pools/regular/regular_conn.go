@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -519,23 +520,216 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 		callbackInvoked = true
 		return callback(ctx, result)
 	}
-	_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
-		if callbackInvoked {
-			// Callback was already called in a previous attempt — retrying
-			// would replay the query and send duplicate rows. Return the
-			// sentinel to stop the retry loop; we swap it for the real
-			// error below.
-			return struct{}{}, errStreamingAlreadyStarted
+	// One streaming attempt with the standard connection-error retry/socket
+	// hygiene. Used for the initial attempt and reused after a temp_buffers
+	// reconnect below, so both attempts close or reconnect the socket the
+	// same way on connection-class failures.
+	attempt := func() error {
+		_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
+			if callbackInvoked {
+				// Callback was already called in a previous attempt — retrying
+				// would replay the query and send duplicate rows. Return the
+				// sentinel to stop the retry loop; we swap it for the real
+				// error below.
+				return struct{}{}, errStreamingAlreadyStarted
+			}
+			streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
+			return struct{}{}, streamErr
+		})
+		// Replace the internal sentinel with the actual PostgreSQL error so
+		// callers can inspect it via errors.As / errors.Is.
+		if errors.Is(err, errStreamingAlreadyStarted) {
+			return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
 		}
-		streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
-		return struct{}{}, streamErr
-	})
-	// Replace the internal sentinel with the actual PostgreSQL error so
-	// callers can inspect it via errors.As / errors.Is.
-	if errors.Is(err, errStreamingAlreadyStarted) {
-		return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
+		return err
 	}
-	return err
+
+	err := attempt()
+	if err == nil || callbackInvoked || !tempBuffersRequireFreshSession(err) || !tempBuffersRetrySafe(sql) {
+		return err
+	}
+
+	// PostgreSQL cannot change temp_buffers after this physical session has
+	// touched a temporary table. A pooled logical session has not observed any
+	// result yet, so replace the contaminated backend in the same pool slot,
+	// restore its tracked settings, and retry this stateless validation once.
+	// If the replacement itself fails, surface the original PostgreSQL
+	// diagnostic (with the reconnect failure as context) — the client caused
+	// the statement error and must see it, not a connection error.
+	if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
+		c.conn.Close()
+		return mterrors.Wrapf(err, "backend replacement after temp_buffers contamination failed: %v", reconnectErr)
+	}
+	return attempt()
+}
+
+// tempBuffersRequireFreshSession recognizes the temporary-access freeze on
+// this general streaming path, which carries arbitrary client SQL including
+// the gateway's set_config validation probes whose values are by definition
+// not yet validated — the shared predicate's DETAIL discrimination is what
+// keeps a client-supplied bad value from triggering a reconnect here. See
+// mterrors.IsTempBuffersFreeze; the settings-replay counterpart lives in
+// connpool.applySettingsWithReconnect.
+func tempBuffersRequireFreshSession(err error) bool {
+	return mterrors.IsTempBuffersFreeze(err)
+}
+
+// tempBuffersRetrySafe reports whether sql may be replayed by the temp_buffers
+// freeze recovery. The replay is safe only when the statement's SOLE effect is
+// a GUC assignment — not, as an earlier version of this predicate assumed,
+// because a failed statement rolls everything back.
+//
+// That assumption is wrong: non-transactional side effects materialize before
+// the error and outlive it. Verified on PostgreSQL 17 — in
+// `SELECT nextval('s'), set_config('temp_buffers','100',false)` that fails with
+// the freeze, the sequence is still consumed (is_called flips to true), and the
+// pg_advisory_lock variant leaves the lock held. Target-list evaluation order
+// is not guaranteed either, so whether the effect lands is order-dependent.
+// The same principle is documented for the reserved path in
+// executor.reserveAndStreamExecute, which pins rather than releases for exactly
+// this reason. Replaying such a statement would run the effect a second time.
+//
+// So the gate is structural, decided by parsing rather than by inspecting the
+// leading token:
+//
+//   - a single SET/RESET (VariableSetStmt) assigns a GUC and nothing else;
+//   - a single bare SELECT whose target list is entirely set_config(...) calls,
+//     with no FROM/WHERE/CTE/set-operation or any other clause that could
+//     evaluate an unrelated expression.
+//
+// The second shape is the one the recovery exists for and cannot be dropped: a
+// client's plain `SET temp_buffers = ...` reaches the pooler as the gateway's
+// `set_config(..., is_local := true)` validation probe, not as a SET.
+//
+// Everything else fails closed to surfacing the error (the pre-recovery
+// behavior), including a CALL or DO that can COMMIT mid-statement and any
+// multi-statement batch. Parsing runs only on the freeze error path, which is
+// rare, and an unparsable statement is refused.
+func tempBuffersRetrySafe(sql string) bool {
+	stmts, err := parser.ParseSQL(sql)
+	if err != nil || len(stmts) != 1 {
+		return false
+	}
+	switch stmt := stmts[0].(type) {
+	case *ast.VariableSetStmt:
+		return true
+	case *ast.SelectStmt:
+		return isBareSetConfigSelect(stmt)
+	}
+	return false
+}
+
+// isBareSetConfigSelect reports whether stmt is `SELECT set_config(<constants>)
+// [, ...]` and nothing more: every target is a set_config call whose arguments
+// are compile-time constants, and no other clause is present that could
+// evaluate an unrelated expression (a FROM-list function, a WHERE predicate
+// calling nextval, a CTE, a set operation, ...).
+//
+// The argument check is as load-bearing as the clause check. PostgreSQL
+// evaluates a function's arguments BEFORE the function runs, so in
+// `set_config('temp_buffers', nextval('s')::text, true)` the sequence is
+// consumed and then the GUC assign hook raises the freeze — verified on
+// PostgreSQL 17, where is_called flips to true on the failed statement.
+// Replaying that consumes a second value and hands it back as the only result.
+// Matching on the target being a set_config call alone would check what the
+// statement projects rather than what evaluating it does.
+func isBareSetConfigSelect(stmt *ast.SelectStmt) bool {
+	if stmt.Op != ast.SETOP_NONE || stmt.Larg != nil || stmt.Rarg != nil {
+		return false
+	}
+	if stmt.IntoClause != nil || stmt.WithClause != nil || stmt.WhereClause != nil ||
+		stmt.HavingClause != nil || stmt.LimitOffset != nil || stmt.LimitCount != nil ||
+		stmt.DistinctClause != nil || stmt.ValuesLists != nil {
+		return false
+	}
+	if nodeListLen(stmt.FromClause) != 0 || nodeListLen(stmt.GroupClause) != 0 ||
+		nodeListLen(stmt.WindowClause) != 0 || nodeListLen(stmt.SortClause) != 0 ||
+		nodeListLen(stmt.LockingClause) != 0 {
+		return false
+	}
+	if nodeListLen(stmt.TargetList) == 0 {
+		return false
+	}
+	for _, item := range stmt.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			return false
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok || !isSetConfigFuncName(fc.Funcname) {
+			return false
+		}
+		if !isConstantSetConfigCall(fc) {
+			return false
+		}
+	}
+	return true
+}
+
+// isConstantSetConfigCall reports whether every part of a set_config call is a
+// compile-time constant, so re-running it performs no work beyond the GUC
+// write. Anything else — a nested function call, a sub-select, a column
+// reference, a bound parameter, or an aggregate/window decoration — fails
+// closed, because this predicate cannot prove it is free of effects that
+// outlive the failed statement.
+func isConstantSetConfigCall(fc *ast.FuncCall) bool {
+	if fc.AggOrder != nil || fc.AggFilter != nil || fc.Over != nil ||
+		fc.AggWithinGroup || fc.AggStar || fc.AggDistinct || fc.FuncVariadic {
+		return false
+	}
+	if fc.Args == nil || fc.Args.Len() == 0 {
+		return false
+	}
+	for _, arg := range fc.Args.Items {
+		if !isConstantExpr(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isConstantExpr reports whether n is a literal constant, optionally wrapped in
+// casts (`'100'::text`). Deliberately an allow-list: an unrecognized node is
+// treated as potentially effectful.
+func isConstantExpr(n ast.Node) bool {
+	switch v := n.(type) {
+	case *ast.TypeCast:
+		return v.Arg != nil && isConstantExpr(v.Arg)
+	case *ast.A_Const:
+		return true
+	case *ast.String, *ast.Integer, *ast.Float, *ast.Boolean:
+		return true
+	}
+	return false
+}
+
+// isSetConfigFuncName matches set_config and pg_catalog.set_config.
+func isSetConfigFuncName(funcname *ast.NodeList) bool {
+	if funcname == nil {
+		return false
+	}
+	names := make([]string, 0, funcname.Len())
+	for _, part := range funcname.Items {
+		s, ok := part.(*ast.String)
+		if !ok {
+			return false
+		}
+		names = append(names, strings.ToLower(s.SVal))
+	}
+	switch len(names) {
+	case 1:
+		return names[0] == "set_config"
+	case 2:
+		return names[0] == "pg_catalog" && names[1] == "set_config"
+	}
+	return false
+}
+
+func nodeListLen(l *ast.NodeList) int {
+	if l == nil {
+		return 0
+	}
+	return l.Len()
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query

@@ -13,6 +13,8 @@ require (
 require (
 	connectrpc.com/connect v1.20.0
 	connectrpc.com/vanguard v0.4.0
+	github.com/MicahParks/jwkset v0.11.1
+	github.com/MicahParks/keyfunc/v3 v3.8.1
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.26
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
@@ -20,6 +22,7 @@ require (
 	github.com/dave/jennifer v1.7.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gammazero/deque v1.2.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-github/v68 v68.0.0
 	github.com/google/uuid v1.6.0
@@ -163,6 +166,7 @@ require (
 	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

@@ -19,12 +19,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -270,4 +272,37 @@ func TestRunCrashRecoveryInDir_RemoveFailureSkipsRecovery(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to remove standby.signal")
 	assert.False(t, called, "recovery must not run when standby.signal could not be removed")
+}
+
+// TestRunCrashRecoveryInDir_SkipsWhenPostgresRunning verifies the guard that
+// crash recovery never disturbs a live postmaster: it must not touch
+// standby.signal and must not run recovery. A live postmaster is simulated by
+// a postmaster.pid plus a pg_isready mock reporting the server as accepting
+// connections, which is what checkPostgreSQLRunning now checks.
+func TestRunCrashRecoveryInDir_SkipsWhenPostgresRunning(t *testing.T) {
+	dir := t.TempDir()
+	s := testPgCtldService(dir)
+	signalPath, err1 := s.createStandbySignal()
+	require.NoError(t, err1)
+
+	binDir := t.TempDir()
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 0")
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "postmaster.pid"),
+		[]byte(strconv.Itoa(os.Getpid())+"\n"),
+		0o644,
+	))
+
+	called := false
+	runner := func(ctx context.Context) ([]byte, error) {
+		called = true
+		return []byte("recovery complete"), nil
+	}
+
+	err := s.runCrashRecoveryInDir(context.Background(), runner, fastRetry())
+	require.NoError(t, err)
+	assert.False(t, called, "recovery must not run against a live postmaster")
+	assert.True(t, fileExists(t, signalPath), "standby.signal must be left untouched while postgres is running")
 }

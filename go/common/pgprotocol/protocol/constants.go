@@ -120,6 +120,11 @@ const (
 	ProtocolVersionNumber = (ProtocolVersionMajor << 16) | ProtocolVersionMinor
 )
 
+// PostgreSQL's PQ_LARGE_MESSAGE_LIMIT is MaxAllocSize - 1: one byte below
+// 0x3fffffff so its message buffer still has room for a trailing NUL. This is
+// the body limit; the wire length field additionally includes its own 4 bytes.
+const MaxFrontendMessageBodyLength = uint32(0x3ffffffe)
+
 // Special protocol version codes
 const (
 	CancelRequestCode = (1234 << 16) | 5678 // Cancel request code
@@ -129,8 +134,9 @@ const (
 
 // Packet length constants
 const (
-	MaxStartupPacketLength = 10000 // Maximum startup packet length
-	PacketHeaderSize       = 4     // Size of packet length field (does not include message type byte)
+	MaxStartupPacketLength = 10000                // Maximum startup packet length
+	PacketHeaderSize       = 4                    // Size of packet length field (does not include message type byte)
+	MessageHeaderSize      = 1 + PacketHeaderSize // Message type byte plus packet length field
 )
 
 // ALPN protocol identifier for PostgreSQL

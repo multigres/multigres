@@ -95,6 +95,49 @@ func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 	return p.Health().GetMultipooler().GetId()
 }
 
+// freshAndInitialized reports whether p's health snapshot is within freshness
+// and initialized — the bar for treating p's report as usable evidence at all
+// (its consensus state, replication status, identity, etc.), independent of
+// whether p could actually be recruited into a new term. Use this for "do I
+// have any trustworthy signal to reason from" judgments; use recruitable for
+// "could this member actually win a Recruit round" judgments — a pooler's
+// report can be fresh and initialized while it is not recruitable (e.g.
+// draining), and the two questions must not be conflated. Named for exactly
+// what it checks, not "reachable": this is purely about data trustworthiness,
+// a third axis distinct from both network connectivity (StreamConnected) and
+// recruitment eligibility (recruitable).
+func freshAndInitialized(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+	hs, ok := p.HealthWithin(now, freshness)
+	return ok && hs.GetStatus().GetIsInitialized()
+}
+
+// recruitable reports whether p is, as of now, usable as a target for
+// recruitment or cohort admission. Each check here is also enforced
+// synchronously server-side (Recruit/ValidateRevocation refuses the same
+// cases with FAILED_PRECONDITION), so this doesn't itself guard correctness —
+// it exists so callers' feasibility judgments (is a recruitment quorum
+// reachable, is this pooler admissible) agree with what an actual Recruit
+// attempt would do, instead of counting a member that would just be refused.
+func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+	if !freshAndInitialized(p, now, freshness) {
+		return false
+	}
+	hs, _ := p.HealthWithin(now, freshness)
+	// Draining (graceful shutdown or an admin-stopped WAL receiver).
+	if types.PoolerIsCohortIneligible(hs.GetAvailabilityStatus()) {
+		return false
+	}
+	// No cached position — e.g. a flapping pooler whose consensus status
+	// hasn't completed a read yet. Without this, a failover could look
+	// feasible forever while every real Recruit attempt is refused, so
+	// collective backoff never engages (nothing ever persists).
+	if hs.GetConsensusStatus().GetCurrentPosition() == nil {
+		return false
+	}
+	// Hasn't caught back up from a pg_rewind yet.
+	return hs.GetConsensusStatus().GetRecruitBlockedUntil() == nil
+}
+
 // walReplayNotPaused reports whether the standby's WAL replay is active. A
 // pooler with no replication status returns false; callers that distinguish an
 // unavailable observation from a negative one must check for nil first.

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ import (
 func (pm *MultipoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+	result, err := pm.adminQuery(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
 		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
@@ -96,7 +97,7 @@ func (pm *MultipoolerManager) archiverStats(ctx context.Context) (backupengine.A
 		COALESCE(EXTRACT(EPOCH FROM last_failed_time)::bigint, 0)   AS last_failed,
 		failed_count
 	FROM pg_stat_archiver`
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to query pg_stat_archiver")
 	}
@@ -130,7 +131,7 @@ func (pm *MultipoolerManager) backupSettings(ctx context.Context) (backupengine.
 		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
 		COALESCE(current_setting('restore_command', true), '') AS restore_command,
 		COALESCE(split_part(current_setting('server_version', true), ' ', 1), '') AS server_version`
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
 	}
@@ -151,7 +152,7 @@ func (pm *MultipoolerManager) backupSettings(ctx context.Context) (backupengine.
 func (pm *MultipoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_current_wal_lsn()::text")
+	result, err := pm.adminQuery(queryCtx, "SELECT pg_current_wal_lsn()::text")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get current WAL LSN")
 	}
@@ -190,7 +191,7 @@ func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, erro
 		(SELECT timeline_id FROM pg_control_checkpoint())
 		= ('x' || substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8))::bit(32)::int
 	END`
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to query rewind-source readiness")
 	}
@@ -205,7 +206,7 @@ func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, erro
 func (pm *MultipoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
+	result, err := pm.adminQuery(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get replay LSN")
 	}
@@ -221,7 +222,7 @@ func (pm *MultipoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'multigres')"
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check schema exists")
 	}
@@ -236,7 +237,7 @@ func (pm *MultipoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 func (pm *MultipoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.queryArgs(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn)
+	result, err := pm.adminQueryArgs(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
 	}
@@ -275,7 +276,7 @@ SELECT	pg_last_wal_replay_lsn(),
 func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, sqlGetReplicationStatus)
+	result, err := pm.adminQuery(queryCtx, sqlGetReplicationStatus)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -449,7 +450,7 @@ func (pm *MultipoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 func (pm *MultipoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true)")
+	result, err := pm.adminQuery(queryCtx, "SELECT current_setting('primary_conninfo', true)")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to read primary_conninfo")
 	}
@@ -470,7 +471,7 @@ func (pm *MultipoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo s
 	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
 	sql := "ALTER SYSTEM SET primary_conninfo = " + ast.QuoteStringLiteral(connInfo)
-	if err := pm.exec(execCtx, sql); err != nil {
+	if err := pm.adminExec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to set primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
@@ -486,7 +487,7 @@ func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 
 	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET primary_conninfo"); err != nil {
+	if err := pm.adminExec(execCtx, "ALTER SYSTEM RESET primary_conninfo"); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to clear primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to clear primary_conninfo")
 	}
@@ -494,12 +495,128 @@ func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return pm.reloadPostgresConfig(ctx)
 }
 
+type postgresOption struct {
+	name  string
+	value string
+}
+
+// alterSystemSetOptions applies a list of ALTER SYSTEM SET commands. Each
+// option's value is quoted as a string literal, but its name is interpolated
+// verbatim — so name must be a trusted constant (a hardcoded GUC name), never
+// client-derived input.
+func (pm *MultipoolerManager) alterSystemSetOptions(ctx context.Context, options []postgresOption) error {
+	for _, opt := range options {
+		// Explicit cancel (not defer) so timeouts don't accumulate across the loop.
+		execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+		sql := fmt.Sprintf("ALTER SYSTEM SET %s = %s", opt.name, ast.QuoteStringLiteral(opt.value))
+		err := pm.adminExec(execCtx, sql)
+		execCancel()
+		if err != nil {
+			return mterrors.Wrapf(err, "failed to set option %q", opt.name)
+		}
+	}
+	return nil
+}
+
+// applyStandbySlotSettings configures the standby-side GUCs for slot-based
+// physical replication when the flag is on: primary_slot_name (this node's own
+// deterministic slot, which its primary creates for it), hot_standby_feedback,
+// and sync_replication_slots. Applied via ALTER SYSTEM + reload; idempotent.
+// No-op when the flag is off, so the default stays slot-less streaming.
+func (pm *MultipoolerManager) applyStandbySlotSettings(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	slot, err := LogicalSlotName(pm.serviceID.GetName())
+	if err != nil {
+		return mterrors.Wrapf(err, "compute primary_slot_name for %q", pm.serviceID.GetName())
+	}
+
+	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer execCancel()
+	// LogicalSlotName restricts the slot to [a-z0-9_]; quote it as a string
+	// literal regardless. hot_standby_feedback + sync_replication_slots are the
+	// standby half of native slot sync.
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "primary_slot_name", value: slot},
+		{name: "hot_standby_feedback", value: "on"},
+		{name: "sync_replication_slots", value: "on"},
+	}); err != nil {
+		return err
+	}
+	return pm.reloadPostgresConfig(execCtx)
+}
+
+// followerPhysicalSlotNames returns the deterministic physical-slot names for
+// every follower in cohort (cohort minus this pooler), sorted so the derived
+// synchronized_standby_slots value is stable across calls.
+func (pm *MultipoolerManager) followerPhysicalSlotNames(cohort []*clustermetadatapb.ID) ([]string, error) {
+	selfName := pm.serviceID.GetName()
+	slots := make([]string, 0, len(cohort))
+	for _, member := range cohort {
+		if member.GetName() == selfName {
+			continue
+		}
+		slot, err := LogicalSlotName(member.GetName())
+		if err != nil {
+			return nil, mterrors.Wrapf(err, "compute physical slot name for follower %q", member.GetName())
+		}
+		slots = append(slots, slot)
+	}
+	sort.Strings(slots)
+	return slots, nil
+}
+
+// setSynchronizedStandbySlots points synchronized_standby_slots at the cohort's
+// follower physical slots so the primary's failover logical slots hold their
+// restart_lsn and catalog_xmin back to what those standbys have received.
+// Without it a standby's catalog horizon can outrun a freshly-created failover
+// slot, and the standby's slot-sync worker refuses to persist the synced slot
+// ("synchronization could lead to data loss"). An empty cohort clears it to ”
+// so logical decoding is not stalled when no follower slot exists yet. Applied
+// via ALTER SYSTEM + reload; no-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) setSynchronizedStandbySlots(ctx context.Context, cohort []*clustermetadatapb.ID) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	slots, err := pm.followerPhysicalSlotNames(cohort)
+	if err != nil {
+		return err
+	}
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "synchronized_standby_slots", value: strings.Join(slots, ",")},
+	}); err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer cancel()
+	return pm.reloadPostgresConfig(execCtx)
+}
+
+// resetSynchronizedStandbySlots clears synchronized_standby_slots. A standby has
+// no followers; leaving a stale list would, on a later promotion, make the node
+// wait on physical slots that may no longer exist and stall logical decoding
+// (§2.3). No-op unless slot-based replication is enabled.
+func (pm *MultipoolerManager) resetSynchronizedStandbySlots(ctx context.Context) error {
+	if !pm.slotBasedReplicationEnabled() {
+		return nil
+	}
+	if err := pm.alterSystemSetOptions(ctx, []postgresOption{
+		{name: "synchronized_standby_slots", value: ""},
+	}); err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
+	defer cancel()
+	return pm.reloadPostgresConfig(execCtx)
+}
+
 // readRestoreCommand reads the currently configured restore_command, or ""
 // if unset.
 func (pm *MultipoolerManager) readRestoreCommand(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT current_setting('restore_command', true)")
+	result, err := pm.adminQuery(queryCtx, "SELECT current_setting('restore_command', true)")
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to read restore_command")
 	}
@@ -534,7 +651,7 @@ func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
 
 	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET restore_command"); err != nil {
+	if err := pm.adminExec(execCtx, "ALTER SYSTEM RESET restore_command"); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to clear restore_command", "error", err)
 		return mterrors.Wrap(err, "failed to clear restore_command")
 	}
@@ -732,7 +849,7 @@ func isNoMoreWalToReplay(waitEvent string) bool {
 func (pm *MultipoolerManager) checkNoWALSource(ctx context.Context) error {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true), current_setting('restore_command', true)")
+	result, err := pm.adminQuery(queryCtx, "SELECT current_setting('primary_conninfo', true), current_setting('restore_command', true)")
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read WAL-source settings")
 	}
@@ -788,7 +905,7 @@ func (pm *MultipoolerManager) queryReplayProgress(ctx context.Context) (replayPr
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	result, err := pm.query(queryCtx, `SELECT
+	result, err := pm.adminQuery(queryCtx, `SELECT
 		pg_last_wal_replay_lsn(),
 		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
@@ -856,7 +973,7 @@ func (pm *MultipoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 		func(waitCtx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, bool, error) {
 			// Pull the count, the walreceiver status, and the live primary_conninfo
 			// in a single query so each poll is also a diagnostic snapshot.
-			result, err := pm.query(waitCtx, `SELECT
+			result, err := pm.adminQuery(waitCtx, `SELECT
 				(SELECT COUNT(*) FROM pg_stat_wal_receiver),
 				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
 				current_setting('primary_conninfo')`)
@@ -916,7 +1033,7 @@ func (pm *MultipoolerManager) pauseReplication(ctx context.Context, mode multipo
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer execCancel()
 
-		if err := pm.exec(execCtx, "SELECT pg_wal_replay_pause()"); err != nil {
+		if err := pm.adminExec(execCtx, "SELECT pg_wal_replay_pause()"); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to pause WAL replay", "error", err)
 			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
 		}
@@ -974,7 +1091,7 @@ func (pm *MultipoolerManager) pauseReplication(ctx context.Context, mode multipo
 		// Now that receiver is disconnected, pause replay
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer execCancel()
-		if err := pm.exec(execCtx, "SELECT pg_wal_replay_pause()"); err != nil {
+		if err := pm.adminExec(execCtx, "SELECT pg_wal_replay_pause()"); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to pause WAL replay", "error", err)
 			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
 		}
@@ -1004,7 +1121,7 @@ func (pm *MultipoolerManager) resumeWALReplay(ctx context.Context) error {
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
 
-	if err := pm.exec(execCtx, "SELECT pg_wal_replay_resume()"); err != nil {
+	if err := pm.adminExec(execCtx, "SELECT pg_wal_replay_resume()"); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to resume WAL replay", "error", err)
 		return mterrors.Wrap(err, "failed to resume WAL replay")
 	}
@@ -1027,7 +1144,7 @@ func (pm *MultipoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to get current replay LSN and pause state", "error", err)
 		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
@@ -1079,7 +1196,7 @@ func (pm *MultipoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 
 	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
 	sql := "ALTER SYSTEM SET synchronous_standby_names = " + ast.QuoteStringLiteral(value)
-	if err := pm.exec(execCtx, sql); err != nil {
+	if err := pm.adminExec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
 	}
@@ -1103,7 +1220,7 @@ func (pm *MultipoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		defer execCancel()
 
 		pm.logger.InfoContext(ctx, "clearing synchronous_standby_names (empty standby list)")
-		if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
+		if err := pm.adminExec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to clear synchronous_standby_names", "error", err)
 			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 		}
@@ -1190,7 +1307,7 @@ func (pm *MultipoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 
 	// ALTER SYSTEM writes to postgresql.auto.conf (not WAL), so it doesn't require
 	// sync replication acknowledgment and won't block.
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
+	if err := pm.adminExec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
 		pm.logger.WarnContext(ctx, "failed to clear synchronous_standby_names for demotion", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names for demotion")
 	}
@@ -1248,7 +1365,7 @@ func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to query pg_stat_replication", "error", err)
 		return nil, mterrors.Wrap(err, "failed to query connected followers")

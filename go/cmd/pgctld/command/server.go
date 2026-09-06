@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -127,19 +126,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	// Get the configured logger
 	logger := s.senv.GetLogger()
 
-	// Start reaping orphaned children to prevent zombie processes.
-	// Only start when running as PID 1 (container init process). pg_ctl with -W
-	// forks a child that gets reparented to PID 1 on exit; without this reaper
-	// those children become zombies.
-	//
-	// When pgctld is NOT PID 1 (tests, CI, systemd), orphaned children are
-	// reparented to the system init — not pgctld — so the reaper is unnecessary.
-	// Starting it anyway races with cmd.Wait() in RPC handlers (initdb, pg_rewind)
-	// causing "waitid: no child processes" errors.
-	if os.Getpid() == 1 {
-		go reapOrphanedChildren(logger)
-	}
-
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
 	pgbackrestPort := s.pgbackrestPort.Get()
@@ -187,6 +173,17 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 			"http_port", s.senv.GetHTTPPort(),
 		)
 
+		// Start reaping the postmaster to prevent a zombie. Only needed when
+		// pgctld is PID 1 (container init): `pg_ctl start -W` forks the postmaster
+		// and exits, so it is reparented to pgctld and must be wait()ed on. When
+		// pgctld is NOT PID 1 (tests, CI, systemd) orphans reparent to the system
+		// init instead, so no reaper is needed. See childReaper for why it tracks
+		// exact PIDs rather than using Wait4(-1).
+		if os.Getpid() == 1 {
+			pgctldService.reaper = newChildReaper(logger)
+			go pgctldService.reaper.Run()
+		}
+
 		// Start pgBackRest management
 		pgctldService.StartPgBackRestManagement()
 
@@ -202,31 +199,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	return s.senv.RunDefault(s.grpcServer)
-}
-
-// reapOrphanedChildren handles SIGCHLD signals to reap zombie processes.
-// This is necessary because pg_ctl with -W flag creates child processes that get
-// reparented to pgctld (when running as PID 1 in a container). Without this reaper,
-// these child processes remain in defunct (zombie) state after exit.
-//
-// The function runs in a goroutine and continuously waits for SIGCHLD signals,
-// then reaps all available zombie children using Wait4 with WNOHANG.
-func reapOrphanedChildren(logger *slog.Logger) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGCHLD)
-
-	for range sigCh {
-		// Reap all zombie children
-		for {
-			var status syscall.WaitStatus
-			pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
-			if err != nil || pid <= 0 {
-				// No more children to reap
-				break
-			}
-			logger.Debug("reaped orphaned child process", "pid", pid, "status", status)
-		}
-	}
 }
 
 // PgCtldServiceConfig holds the PostgreSQL instance identity and initialization
@@ -272,6 +244,9 @@ type PgCtldService struct {
 	statusMu         sync.RWMutex
 	restartCount     int32
 	metrics          *Metrics
+
+	// reaper reaps the postmaster when pgctld runs as PID 1. Nil otherwise.
+	reaper *childReaper
 }
 
 // pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
@@ -317,19 +292,9 @@ func NewPgCtldService(
 	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
 	// postgres subprocess and inherits this process's environment) can authenticate
 	// against PostgreSQL without exposing the password in the process environment.
-	pgpassDir := filepath.Join(poolerDir, "pgbackrest")
-	if err := os.MkdirAll(pgpassDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create pgbackrest directory: %w", err)
-	}
-	pgpassPath := filepath.Join(pgpassDir, "pgbackrest.pgpass")
-	pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", cfg.User, cfg.Password)
-	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
-	}
-	// enforce 0600 explicitly, as the operator might have changed these permissions
-	// during volume mount.
-	if err := os.Chmod(pgpassPath, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to set pgbackrest pgpass file permissions: %w", err)
+	pgpassPath, err := backup.WritePgpassFile(poolerDir, cfg.User, cfg.Password)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
 		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
@@ -625,39 +590,56 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	// does not set it.
 	var crashRecoveryRan bool
 	if req.GetAllowCrashRecovery() {
-		needed, nErr := s.crashRecoveryNeeded(ctx)
-		if nErr != nil {
-			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
-		} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
-			// A not-cleanly-stopped standby that the caller suspects may have
-			// diverged (a former primary being demoted, or a node already flagged
-			// for rewind) is force-recovered in single-user mode. runCrashRecovery
-			// removes standby.signal first — postgres --single refuses to run with
-			// it — and recreates it afterwards; this reaches the clean-shutdown
-			// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
-			// stamped minRecoveryPoint onto the wrong timeline).
-			//
-			// A clean follower is deliberately NOT sent here: single-user
-			// recovery runs in primary mode and does not follow timeline-history
-			// switches, so it would finalize the node on its old timeline past the
-			// leader's fork and wedge the standby start ("requested timeline N is not
-			// a child"). Its crash recovery — and that of a node without
-			// standby.signal — is handled by the postmaster on the normal start
-			// below, which in standby mode follows the timeline switch. crashRecoveryRan
-			// therefore reports specifically whether single-user recovery ran.
-			crashRecoveryRan = true
-			if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
-				// Best effort: the start below may still surface a clearer error.
-				s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+		running, err := checkPostgreSQLRunning(ctx, s.logger, s.pgConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if PostgreSQL is running: %w", err)
+		}
+		if running {
+			// Never crash-recover a running postmaster: runCrashRecovery removes
+			// standby.signal for single-user recovery, and doing that to a postmaster
+			// that is up — or still starting after a Start whose success was misreported
+			// — can bring it up read-write on a timeline it must not claim. A Start
+			// against an already-running node is an idempotent no-op via
+			// StartPostgreSQLWithResult below.
+			s.logger.InfoContext(ctx, "skipping crash recovery before start: postgres is already running")
+		} else {
+			needed, nErr := s.crashRecoveryNeeded(ctx)
+			if nErr != nil {
+				s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
+			} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
+				// A not-cleanly-stopped standby that the caller suspects may have
+				// diverged (a former primary being demoted, or a node already flagged
+				// for rewind) is force-recovered in single-user mode. runCrashRecovery
+				// removes standby.signal first — postgres --single refuses to run with
+				// it — and recreates it afterwards; this reaches the clean-shutdown
+				// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
+				// stamped minRecoveryPoint onto the wrong timeline).
+				//
+				// A clean follower is deliberately NOT sent here: single-user
+				// recovery runs in primary mode and does not follow timeline-history
+				// switches, so it would finalize the node on its old timeline past the
+				// leader's fork and wedge the standby start ("requested timeline N is not
+				// a child"). Its crash recovery — and that of a node without
+				// standby.signal — is handled by the postmaster on the normal start
+				// below, which in standby mode follows the timeline switch. crashRecoveryRan
+				// therefore reports specifically whether single-user recovery ran.
+				crashRecoveryRan = true
+				if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
+					// Best effort: the start below may still surface a clearer error.
+					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+				}
 			}
 		}
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := s.StartPostgreSQLWithResult()
+	result, err := s.StartPostgreSQLWithResult(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
+
+	// Reap this postmaster when it exits (no-op unless pgctld is PID 1).
+	s.reaper.TrackPID(result.PID)
 
 	pid, err := intToInt32(result.PID)
 	if err != nil {
@@ -681,7 +663,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := s.StopPostgreSQLWithResult(req.Mode)
+	result, err := s.StopPostgreSQLWithResult(ctx, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -701,10 +683,13 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := s.RestartPostgreSQLWithResult(req.Mode, req.AsStandby)
+	result, err := s.RestartPostgreSQLWithResult(ctx, req.Mode, req.AsStandby)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
+
+	// Reap the restarted postmaster when it exits (no-op unless pgctld is PID 1).
+	s.reaper.TrackPID(result.PID)
 
 	pid, err := intToInt32(result.PID)
 	if err != nil {
@@ -727,7 +712,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	}
 
 	// Use the pre-configured PostgreSQL config for reload operation
-	result, err := ReloadPostgreSQLConfigWithResult(s.logger, s.pgConfig)
+	result, err := ReloadPostgreSQLConfigWithResult(ctx, s.logger, s.pgConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}

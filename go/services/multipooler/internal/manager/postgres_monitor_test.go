@@ -917,7 +917,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log error and take no action
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -940,7 +940,7 @@ func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log info and take no action (no type mismatch)
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -963,7 +963,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should attempt to start postgres
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
@@ -987,10 +987,61 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should handle error gracefully
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
+}
+
+// TestTakeRemedialAction_RewindToLeaderFails verifies that a failed rewind
+// propagates its error out of takeRemedialAction (so the unrecoverable-FATAL-loop
+// classifier counts it). A recorded, rewind-ready foreign leader makes
+// RewindTarget return ok, so the action proceeds into restartAsStandbyLocked;
+// with no pgctld client wired, that fails FAILED_PRECONDITION.
+func TestTakeRemedialAction_RewindToLeaderFails(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "z", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "z", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	rule := &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:   otherID,
+	}
+
+	pm := newTestManager(t,
+		withServiceID(selfID),
+		withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:     otherAddr,
+			RewindReady: true,
+		}),
+	)
+	pm.pgctldClient = nil // makes restartAsStandbyLocked fail early
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	got := pm.takeRemedialAction(lockCtx, remedialActionRewindToLeader, postgresState{})
+	require.Error(t, got, "a failed rewind must propagate its error so the classifier counts it")
+}
+
+// TestTakeRemedialAction_RestoreFromBackupFails verifies that a failed
+// restore-from-backup propagates its error out of takeRemedialAction. pgctld
+// reports NOT_INITIALIZED so restoreAndStartPostgres proceeds to list backups;
+// with no real pgBackRest repo there are no complete backups, so restore errors.
+func TestTakeRemedialAction_RestoreFromBackupFails(t *testing.T) {
+	pm := newTestManager(t)
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_NOT_INITIALIZED},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	got := pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
+	require.Error(t, got, "a failed restore must propagate its error so the classifier counts it")
 }
 
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
@@ -1007,7 +1058,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// With no backups and uninitialized dir, action is None - doesn't do anything
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// takeRemedialAction with None action doesn't modify last logged reason
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -1029,17 +1080,17 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Call multiple times with same action - reason should stay the same (log deduplication)
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
 	// Change action type - reason should change
-	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
 	assert.Equal(t, "restoring_from_backup", pm.pgMonitorLastLoggedReason)
 }
 
@@ -1150,7 +1201,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				}))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
+			_ = pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
@@ -1173,7 +1224,7 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{pgMode: pgmode.Primary})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{pgMode: pgmode.Primary})
 
 	assert.True(t, frs.reconcileGUCCalled, "ReconcileGUC should have been called")
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
@@ -1309,7 +1360,7 @@ func TestTakeRemedialAction_DisableRestoreCommand(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
 
 	assert.NoError(t, m.ExpectationsWereMet(), "resetRestoreCommand's queries should have run")
 	assert.Len(t, mockPgctld.StopRestoreCommandCalls, 1, "stopRestoreCommand should have called the pgctld RPC")
@@ -1336,7 +1387,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileState,
+	_ = pm.takeRemedialAction(lockCtx, remedialActionReconcileState,
 		postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary})
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
@@ -1393,6 +1444,32 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 
 	require.Error(t, err)
 	assert.False(t, result)
+}
+
+func TestLatestCompleteBackup_PicksFirstCompleteInNewestFirstOrder(t *testing.T) {
+	// ListBackups now returns backups newest-first, so latestCompleteBackup
+	// must pick the first COMPLETE entry -- not the last -- skipping over
+	// any newer INCOMPLETE ones. Getting this backwards would restore from
+	// the oldest complete backup instead of the newest.
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "newest-incomplete", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+		{BackupId: "newest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+		{BackupId: "oldest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+	}
+
+	got := latestCompleteBackup(backups)
+
+	require.NotNil(t, got)
+	assert.Equal(t, "newest-complete", got.BackupId)
+}
+
+func TestLatestCompleteBackup_NilWhenNoneComplete(t *testing.T) {
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "b1", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+	}
+
+	assert.Nil(t, latestCompleteBackup(backups))
+	assert.Nil(t, latestCompleteBackup(nil))
 }
 
 func TestStartPostgres_Success(t *testing.T) {
@@ -1749,7 +1826,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:   true,
-			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
+			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase,
 			matchPassfile: true,
 			want:          false,
 		},
@@ -1764,7 +1841,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase,
 			want:         true,
 		},
 		{
@@ -1776,7 +1853,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " passfile=/stale/path/pgpass",
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " dbname=" + constants.DefaultPostgresDatabase + " passfile=/stale/path/pgpass",
 			want:         true,
 		},
 		{
@@ -1893,7 +1970,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 
 // TestConnInfoDrifted is the single-comparison-site guard: it asserts drift is
 // detected for a mismatch in EVERY field the builder emits (host, port, user,
-// application_name, passfile) and NOT detected when every field matches. If a
+// application_name, passfile, dbname) and NOT detected when every field matches. If a
 // future field is added to buildPrimaryConnInfo / expectedPrimaryConnInfo but
 // not to connInfoDrifted, the "all match" round-trip stays green while the new
 // per-field case must be added here — forcing the field through the comparison.
@@ -1907,6 +1984,7 @@ func TestConnInfoDrifted(t *testing.T) {
 		User:            "postgres",
 		ApplicationName: "zone1_test-pooler",
 		Passfile:        "/var/lib/pgpass",
+		Dbname:          "postgres",
 	}
 
 	// clone returns a fresh copy of expected so each mutator starts from a
@@ -1918,6 +1996,7 @@ func TestConnInfoDrifted(t *testing.T) {
 			User:            expected.User,
 			ApplicationName: expected.ApplicationName,
 			Passfile:        expected.Passfile,
+			Dbname:          expected.Dbname,
 		}
 	}
 
@@ -1981,6 +2060,15 @@ func TestConnInfoDrifted(t *testing.T) {
 			}(),
 			want: true,
 		},
+		{
+			name: "DbnameDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.Dbname = "otherdb"
+				return a
+			}(),
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1993,7 +2081,7 @@ func TestConnInfoDrifted(t *testing.T) {
 	// per-field mismatch case above. This is a soft tripwire — if a new field is
 	// added to PrimaryConnInfo and the builder starts emitting it, add a case.
 	// (Raw is not builder-emitted; it is the parser's redacted round-trip copy.)
-	const managedFieldCases = 5 // host, port, user, application_name, passfile
+	const managedFieldCases = 6 // host, port, user, application_name, passfile, dbname
 	mismatchCases := 0
 	for _, tt := range tests {
 		if tt.want && tt.actual != nil {
@@ -2016,6 +2104,20 @@ func TestConnInfoDrifted(t *testing.T) {
 		noPassfile := clone()
 		noPassfile.Passfile = ""
 		assert.False(t, connInfoDrifted(noPassfile, exp))
+	})
+
+	// The dbname comparison is asymmetric for the same reason: an empty expected
+	// dbname means "nothing to reconcile toward yet", so any actual dbname is
+	// tolerated.
+	t.Run("UnknownExpectedDbnameToleratesAny", func(t *testing.T) {
+		exp := clone()
+		exp.Dbname = ""
+		withDbname := clone()
+		withDbname.Dbname = "whatever"
+		assert.False(t, connInfoDrifted(withDbname, exp))
+		noDbname := clone()
+		noDbname.Dbname = ""
+		assert.False(t, connInfoDrifted(noDbname, exp))
 	})
 }
 

@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 func TestConnectionStateGetSetSettings(t *testing.T) {
@@ -45,4 +47,18 @@ func TestConnectionStateNilReceiverSafe(t *testing.T) {
 		state.SetSettings(NewSettings(nil, 0))
 		state.Close()
 	})
+}
+
+func TestConnectionStatePreparedStatementNames(t *testing.T) {
+	var nilState *ConnectionState
+	assert.Nil(t, nilState.PreparedStatementNames())
+
+	state := NewConnectionState()
+	assert.Empty(t, state.PreparedStatementNames())
+
+	state.StorePreparedStatement(&query.PreparedStatement{Name: "ppstmt1"})
+	state.StorePreparedStatement(&query.PreparedStatement{Name: ""})
+	state.DeletePreparedStatement("ppstmt1")
+	state.StorePreparedStatement(&query.PreparedStatement{Name: "ppstmt2"})
+	assert.ElementsMatch(t, []string{"", "ppstmt2"}, state.PreparedStatementNames())
 }

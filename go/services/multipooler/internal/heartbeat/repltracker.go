@@ -17,37 +17,37 @@ package heartbeat
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 )
 
 // TODO: add stats for heartbeat reads and writes
 
-// ReplTracker tracks replication lag using heartbeats.
+// ReplTracker tracks replication lag using heartbeats. The writer runs
+// while this pooler is the writable leader; the reader runs otherwise —
+// see switcher.RoleSwitcher for the shared start/stop-on-state-change
+// mechanism.
 type ReplTracker struct {
-	mu sync.Mutex
-
 	hw *Writer
 	hr *Reader
+	sw *switcher.RoleSwitcher
 }
 
 // NewReplTracker creates a new ReplTracker.
 func NewReplTracker(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
-	return &ReplTracker{
-		hw: NewWriter(queryService, logger, shardID, poolerID, intervalMs),
-		hr: NewReader(queryService, logger, shardID),
-	}
+	hw := NewWriter(queryService, logger, shardID, poolerID, intervalMs)
+	hr := NewReader(queryService, logger, shardID)
+	return &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr)}
 }
 
 // newReplTrackerWithReaderInterval creates a ReplTracker with a custom reader interval for testing.
 func newReplTrackerWithReaderInterval(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int, readerInterval time.Duration) *ReplTracker {
-	return &ReplTracker{
-		hw: NewWriter(queryService, logger, shardID, poolerID, intervalMs),
-		hr: newReader(queryService, logger, shardID, readerInterval),
-	}
+	hw := NewWriter(queryService, logger, shardID, poolerID, intervalMs)
+	hr := newReader(queryService, logger, shardID, readerInterval)
+	return &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr)}
 }
 
 // HeartbeatWriter returns the heartbeat writer used by this tracker.
@@ -58,36 +58,6 @@ func (rt *ReplTracker) HeartbeatWriter() *Writer {
 // HeartbeatReader returns the heartbeat reader used by this tracker.
 func (rt *ReplTracker) HeartbeatReader() *Reader {
 	return rt.hr
-}
-
-// startWriting switches to writer mode: stops the reader, starts the writer.
-// Called when this pooler is the writable routing primary. No-op if the
-// writer is already running, so redundant notifications (e.g. a rule-only
-// bump that doesn't change writability) don't needlessly close and reopen an
-// already-running component.
-func (rt *ReplTracker) startWriting() {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-
-	if rt.hw.IsOpen() {
-		return
-	}
-	rt.hr.Close()
-	rt.hw.Open()
-}
-
-// stopWriting switches to reader mode: stops the writer, starts the reader.
-// Called whenever this pooler is not the writable routing primary. No-op if
-// the reader is already running (see startWriting).
-func (rt *ReplTracker) stopWriting() {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-
-	if rt.hr.IsOpen() {
-		return
-	}
-	rt.hw.Close()
-	rt.hr.Open()
 }
 
 // OnStateChange transitions the heartbeat tracker based on the routing role: the
@@ -103,23 +73,15 @@ func (rt *ReplTracker) stopWriting() {
 // lag/health signal. The writes go through the internal query service (not the
 // user-facing serving gate) and are not counted by the drain, so writing while
 // not serving is both possible and safe.
-//
-// See startWriting/stopWriting for why redundant notifications (e.g. a
-// rule-only bump that doesn't change writability) don't flap the running
-// component.
-func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
-	if state.Writable() {
-		rt.startWriting()
-	} else {
-		rt.stopWriting()
-	}
-	return nil
+func (rt *ReplTracker) OnStateChange(ctx context.Context, state servingstate.State) error {
+	return rt.sw.OnStateChange(ctx, state)
 }
 
-// Close closes ReplTracker.
+// Close closes both the writer and reader, regardless of which was active.
+// Callers on a real shutdown path must call this explicitly — see
+// switcher.RoleSwitcher.Close.
 func (rt *ReplTracker) Close() {
-	rt.hw.Close()
-	rt.hr.Close()
+	rt.sw.Close()
 }
 
 // isWritingHeartbeats reports whether this tracker is running the heartbeat
@@ -130,7 +92,9 @@ func (rt *ReplTracker) isWritingHeartbeats() bool {
 }
 
 // EnableHeartbeat enables or disables writes of heartbeat.
-// This functionality is primarily used by tests.
+// This functionality is primarily used by tests. It bypasses the
+// switcher.RoleSwitcher deliberately — it's a manual override for tests,
+// not a state-change reaction.
 func (rt *ReplTracker) EnableHeartbeat(enable bool) {
 	if enable {
 		rt.hw.Open()

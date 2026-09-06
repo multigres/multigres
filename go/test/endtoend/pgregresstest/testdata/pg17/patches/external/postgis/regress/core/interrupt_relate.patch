@@ -1,0 +1,14 @@
+# Known divergence (not feature-related): a statement hits the harness statement
+# timeout and is canceled where stock PostGIS completes it -- a timing/pooling
+# difference, not a PL/pgSQL body-analysis rejection.
+--- a
++++ b
+@@ -9,7 +9,7 @@
+ ERROR: canceling statement due to statement timeout
+ equals interrupted on time
+ ERROR: canceling statement due to statement timeout
+-intersects interrupted on time
++ERROR: canceling statement due to statement timeout
+ ERROR: canceling statement due to statement timeout
+ overlaps interrupted on time
+ ERROR: canceling statement due to statement timeout

@@ -552,7 +552,10 @@ func (x *GetDatabaseNamesResponse) GetNames() []string {
 type GetGatewaysRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// cells is a comma-separated list of cell names to filter by (optional)
-	Cells         []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
+	Cells []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
+	// only_reachable drops gateways whose grpc address does not accept a TCP
+	// connection, filtering out stale registrations left by dead pods.
+	OnlyReachable bool `protobuf:"varint,2,opt,name=only_reachable,json=onlyReachable,proto3" json:"only_reachable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -592,6 +595,13 @@ func (x *GetGatewaysRequest) GetCells() []string {
 		return x.Cells
 	}
 	return nil
+}
+
+func (x *GetGatewaysRequest) GetOnlyReachable() bool {
+	if x != nil {
+		return x.OnlyReachable
+	}
+	return false
 }
 
 // GetGatewaysResponse contains the filtered gateways
@@ -2463,9 +2473,10 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x05names\x18\x01 \x03(\tR\x05names\"\x19\n" +
 	"\x17GetDatabaseNamesRequest\"0\n" +
 	"\x18GetDatabaseNamesResponse\x12\x14\n" +
-	"\x05names\x18\x01 \x03(\tR\x05names\"*\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"Q\n" +
 	"\x12GetGatewaysRequest\x12\x14\n" +
-	"\x05cells\x18\x01 \x03(\tR\x05cells\"P\n" +
+	"\x05cells\x18\x01 \x03(\tR\x05cells\x12%\n" +
+	"\x0eonly_reachable\x18\x02 \x01(\bR\ronlyReachable\"P\n" +
 	"\x13GetGatewaysResponse\x129\n" +
 	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultigatewayR\bgateways\"[\n" +
 	"\x11GetPoolersRequest\x12\x14\n" +

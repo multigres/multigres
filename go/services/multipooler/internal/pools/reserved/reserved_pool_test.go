@@ -87,6 +87,43 @@ func TestPool_NewConn(t *testing.T) {
 	conn.Release(ReleaseCommit, nil)
 }
 
+func TestPool_StatsActiveByReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// c1 holds two reasons at once (overlapping breakdown).
+	c1, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	c1.AddReservationReason(protoutil.ReasonTransaction)
+	c1.AddReservationReason(protoutil.ReasonUnsafeConnection)
+
+	// c2 holds only the unsafe reason.
+	c2, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	c2.AddReservationReason(protoutil.ReasonUnsafeConnection)
+
+	stats := pool.Stats()
+	assert.Equal(t, 2, stats.Active)
+	assert.Equal(t, 2, stats.ActiveByReason["unsafe_connection"], "both conns are unsafe")
+	assert.Equal(t, 1, stats.ActiveByReason["transaction"], "only c1 is in a transaction")
+	// Overlap: per-reason counts sum to more than Active.
+	assert.Equal(t, 0, stats.ActiveByReason["portal"], "no reason absent-key returns zero")
+
+	// Releasing c1 drops its reasons from the breakdown.
+	c1.Release(ReleaseError, nil)
+	stats = pool.Stats()
+	assert.Equal(t, 1, stats.Active)
+	assert.Equal(t, 1, stats.ActiveByReason["unsafe_connection"])
+	assert.Equal(t, 0, stats.ActiveByReason["transaction"])
+
+	c2.Release(ReleaseError, nil)
+}
+
 func TestPool_ReleaseCleanupRunsOnCleanRelease(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -468,6 +505,59 @@ func TestConn_PortalReservation(t *testing.T) {
 		assert.False(t, conn.IsReservedForPortal())
 		assert.False(t, conn.HasPortal("p1"))
 	})
+}
+
+func TestTempTableStateClosesConnectionOnRelease(t *testing.T) {
+	// Adding the temp reason alone (pre-execution) must NOT taint: the
+	// executor unwinds the reason when PostgreSQL rejects the statement, and a
+	// rejected statement leaves no temp state behind. Only MarkTempTainted —
+	// called on statement success — latches the close-on-release flag.
+	conn := &Conn{}
+	conn.AddReservationReason(protoutil.ReasonTempTable)
+	assert.False(t, conn.closeOnRelease.Load())
+	conn.MarkTempTainted()
+	assert.True(t, conn.closeOnRelease.Load())
+
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Clean releases need a SettingsCache to stamp the released backend's
+	// settings label, or the release itself would taint and mask the
+	// assertion below.
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(10),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     4,
+				MaxIdleCount: 4,
+			},
+		},
+	})
+	defer pool.Close()
+
+	// A clean release of a temp-tainted connection must close the backend but
+	// keep the caller's reason for metrics — the taint must not masquerade as
+	// an error release.
+	rc, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.MarkTempTainted()
+	rc.Release(ReleaseCommit, nil)
+
+	assert.True(t, rc.IsClosed(), "temp-tainted backend must be closed, not recycled")
+	assert.Equal(t, int64(1), pool.Stats().TxCommitCount, "commit metric must keep the true release reason")
+
+	// An untainted temp-reason connection (statement never succeeded) is
+	// recycled normally on a clean release.
+	rc, err = pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.RemoveReservationReason(protoutil.ReasonTempTable)
+	rc.Release(ReleaseCommit, nil)
+	assert.False(t, rc.IsClosed(), "untainted backend must be recycled, not closed")
 }
 
 func TestConn_MultipleReasons(t *testing.T) {
@@ -1050,4 +1140,15 @@ func TestPool_CleanReleaseWithoutSettingsCacheTaints(t *testing.T) {
 	underlying = conn.Conn()
 	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
 	assert.False(t, underlying.IsClosed(), "with a cache the clean release relabels and recycles")
+}
+
+func TestPool_NewConnAfterCloseReturnsErrPoolClosed(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	pool := newTestPool(t, server)
+	pool.Close()
+
+	_, err := pool.NewConn(context.Background(), nil)
+	require.ErrorIs(t, err, connpool.ErrPoolClosed, "must be retryable by the manager's closed-pool path")
 }

@@ -120,7 +120,7 @@ func (pm *MultipoolerManager) isPostgresRunning(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
 		// No pgctld client — fall back to connection-based check.
 		// Without pgctld we can't distinguish a stopped-but-alive process from a dead one.
-		_, err := pm.query(ctx, "SELECT 1")
+		_, err := pm.adminQuery(ctx, "SELECT 1")
 		return err == nil
 	}
 
@@ -140,7 +140,7 @@ func (pm *MultipoolerManager) isPostgresRunning(ctx context.Context) bool {
 func (pm *MultipoolerManager) isPostgresReady(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
 		// No pgctld client, try a simple query to check if PostgreSQL is responding
-		_, err := pm.query(ctx, "SELECT 1")
+		_, err := pm.adminQuery(ctx, "SELECT 1")
 		return err == nil
 	}
 
@@ -225,7 +225,7 @@ func (pm *MultipoolerManager) removeDataDirectory() error {
 // waitForDatabaseConnection waits for the database connection to become available
 func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) error {
 	// Test if database is already reachable
-	if _, err := pm.query(ctx, "SELECT 1"); err == nil {
+	if _, err := pm.adminQuery(ctx, "SELECT 1"); err == nil {
 		// Start heartbeat tracker if not already running
 		if pm.replTracker == nil {
 			shardID := []byte("0") // default shard ID
@@ -255,7 +255,7 @@ func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		}
 
 		// Try to query the database
-		if _, queryErr := pm.query(ctx, "SELECT 1"); queryErr == nil {
+		if _, queryErr := pm.adminQuery(ctx, "SELECT 1"); queryErr == nil {
 			pm.logger.InfoContext(ctx, "database connection established successfully", "attempts", attempt)
 
 			// Start heartbeat tracker if not already running

@@ -1,23 +1,36 @@
-# Known partial-coverage divergence: HypoPG's hypothetical indexes live in
-# backend-local memory. In stock PostgreSQL, pg_regress runs this test on one
-# backend, so a later EXPLAIN and hypopg() call see the hypothetical index
-# created earlier in the same autocommit script. Through multigateway's
-# transaction pool, separate autocommit statements may use different pooled
-# backends, so those later statements can land on a backend that never saw the
-# hypopg_create_index() call.
+# Two by-design divergences:
 #
-# This patch documents the current drop-in compatibility gap until the gateway
-# can automatically pin sessions after observing HypoPG state-creating functions.
+# 1. do_explain (defined once at the top of this file) wraps EXPLAIN in a dynamic
+#    EXECUTE, so multigateway's Tier-1 PL/pgSQL body analysis rejects its CREATE
+#    (the first +ERROR hunk). do_explain is seeded directly on the primary before
+#    the suite (hypopg_preseed.sql), so all six test files' do_explain(...) calls
+#    still resolve; only the test's own rejected CREATE remains here.
+#
+# 2. HypoPG's hypothetical indexes live in backend-local memory. In stock
+#    PostgreSQL this autocommit script runs on one backend, so a later EXPLAIN sees
+#    the hypothetical index created by an earlier statement. Through multigateway's
+#    transaction pool that EXPLAIN can use another pooled backend and not see it,
+#    so the index-usage counts drop to 0 (the -1/+0 hunks). This is the drop-in
+#    gap the catalog marks StatusPartial, until the gateway can automatically pin
+#    sessions after observing HypoPG state-creating functions.
 --- a
 +++ b
-@@ -125,15 +125,14 @@
+@@ -11,6 +11,7 @@
+ END;
+ $_$
+ LANGUAGE plpgsql;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ CREATE EXTENSION hypopg;
+ CREATE TABLE hypo (id integer, val text, "Id2" bigint);
+ INSERT INTO hypo SELECT i, 'line ' || i
+@@ -125,15 +126,14 @@
  WHERE e ~ 'Index.*<\d+>btree_hypo.*';
  count
  -------
 -1
 +0
  (1 row)
-
+ 
  -- Remove one hypothetical index
  SELECT hypopg_drop_index(indexrelid) FROM hypopg() ORDER BY indexrelid LIMIT 1;
  hypopg_drop_index
@@ -25,6 +38,6 @@
 -t
 -(1 row)
 +(0 rows)
-
+ 
  -- Remove all the hypothetical indexes
  SELECT hypopg_reset();

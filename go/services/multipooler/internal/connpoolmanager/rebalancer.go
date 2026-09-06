@@ -99,6 +99,14 @@ func (m *Manager) rebalance(ctx context.Context) {
 
 // garbageCollectInactivePools removes user pools that have been inactive
 // longer than the configured timeout.
+//
+// Removal is atomic with respect to acquisitions: UserPool.tryMarkInactive
+// decides "idle" and blocks new borrows in one step, the replacement snapshot
+// is published before any pool is closed (so a caller retrying
+// ErrPoolClosed lands on a fresh pool, not the one being torn down), and
+// Close runs outside createMu so it can never stall pool creation. createMu
+// itself is only ever TryLock'd here, because shutdown joins the rebalancer
+// while holding it.
 func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	inactiveTimeout := m.config.InactiveTimeout()
 	if inactiveTimeout <= 0 {
@@ -113,58 +121,61 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	now := time.Now().UnixNano()
 	cutoff := now - inactiveTimeout.Nanoseconds()
 
-	// Find inactive pools
-	var inactiveUsers []string
+	// Lock-free pre-scan so the common case (nothing to collect) takes no lock.
+	var candidates []string
 	for user, pool := range *pools {
-		if pool.LastActivity() < cutoff {
-			inactiveUsers = append(inactiveUsers, user)
+		if pool.LastActivity() < cutoff && !pool.HasCheckedOutConns() {
+			candidates = append(candidates, user)
 		}
 	}
-
-	if len(inactiveUsers) == 0 {
+	if len(candidates) == 0 {
 		return
 	}
 
-	// Remove inactive pools using copy-on-write
-	m.createMu.Lock()
-	defer m.createMu.Unlock()
-
-	// Re-read snapshot with lock held
-	pools = m.userPoolsSnapshot.Load()
-	if pools == nil {
+	// Claim and unpublish under createMu (copy-on-write, same as creation).
+	// TryLock, never Lock: Close and CloseForReopen hold createMu while they
+	// cancel and join this goroutine, so blocking here would deadlock
+	// shutdown. GC is opportunistic — a busy lock just means "next tick".
+	if !m.createMu.TryLock() {
 		return
 	}
-
-	// Create new map without inactive pools
-	newPools := make(map[string]*UserPool, len(*pools)-len(inactiveUsers))
+	pools = m.userPoolsSnapshot.Load() // never nil once Open has run
+	newPools := make(map[string]*UserPool, len(*pools))
 	maps.Copy(newPools, *pools)
 
-	var closedCount int
-	for _, user := range inactiveUsers {
+	var removed []*UserPool
+	for _, user := range candidates {
 		pool, ok := newPools[user]
 		if !ok {
 			continue
 		}
-
-		// Double-check activity timestamp (may have been updated since first check)
-		if pool.LastActivity() >= cutoff {
+		// Authoritative check: fails if an acquisition is in flight or the
+		// pool was touched/borrowed since the pre-scan.
+		if !pool.tryMarkInactive(cutoff) {
 			continue
 		}
-
-		// Close and remove the pool
-		pool.Close()
 		delete(newPools, user)
-		closedCount++
+		removed = append(removed, pool)
+	}
+	if len(removed) > 0 {
+		m.userPoolsSnapshot.Store(&newPools)
+	}
+	m.createMu.Unlock()
 
+	if len(removed) == 0 {
+		return
+	}
+
+	// Close outside createMu. The pools are unpublished and refuse new
+	// acquisitions, and they hold no checked-out connections, so Close does
+	// not wait on drain.
+	for _, pool := range removed {
+		pool.Close()
 		m.logger.InfoContext(ctx, "garbage collected inactive user pool",
-			"user", user,
+			"user", pool.Username(),
 			"inactive_duration", time.Duration(now-pool.LastActivity()))
 	}
-
-	if closedCount > 0 {
-		m.userPoolsSnapshot.Store(&newPools)
-		m.logger.InfoContext(ctx, "garbage collection complete",
-			"removed_pools", closedCount,
-			"remaining_pools", len(newPools))
-	}
+	m.logger.InfoContext(ctx, "garbage collection complete",
+		"removed_pools", len(removed),
+		"remaining_pools", len(newPools))
 }

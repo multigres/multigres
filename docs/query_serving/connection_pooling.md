@@ -152,6 +152,28 @@ failures for the non-reserved query path.
 - Explicit transactions (`BEGIN`/`COMMIT`/`ROLLBACK`)
 - Cursor operations requiring persistent portal state
 - Any operation requiring connection affinity
+- Unsafe connections (`multigres.unsafe_connection`), pinned to one backend for
+  the session's life via the sticky `ReasonUnsafeConnection` reason
+
+**Active-by-reason metrics:**
+
+Every pin is a reservation _reason_ (`transaction`, `portal`, `temp_table`,
+`copy`, `listen`, `logical_replication`, `session_advisory_lock`, `set_seed`,
+`unsafe_connection`). Two gauges track active reserved connections:
+
+| Metric                                  | Type  | Meaning                                         |
+| --------------------------------------- | ----- | ----------------------------------------------- |
+| `mg.pooler.reserved.active_connections` | Gauge | Total active reserved connections               |
+| `mg.pooler.reserved.active_by_reason`   | Gauge | Active reserved connections holding each reason |
+
+`active_by_reason` carries a `reason` attribute, so e.g. active unsafe
+connections are `mg_pooler_reserved_active_by_reason{reason="unsafe_connection"}`.
+It is an **overlapping** breakdown — a connection holding several reasons at once
+(say `transaction` + `portal`) is counted under each — so the per-reason values
+sum to more than `active_connections`; do not treat it as a partition of the
+total. Both are observable gauges aggregated across all per-user reserved pools
+in the connection-pool manager's callback, so they stay correct regardless of
+how connections are torn down.
 
 **Timeout Handling:**
 
@@ -536,11 +558,15 @@ regularConn, _ := mgr.GetRegularConnWithSettings(ctx, map[string]string{
 The gateway is the sole authority on a logical session's GUC state. A settings
 bucket label is valid because backend session state can only change in
 lockstep with the gateway map: unpinned SET validates via a statement-local
-probe that leaves nothing behind; a session-persisting `set_config` routes
-unmodified but reserves its backend (`ReasonSetConfig`) until the gateway has
-recorded the applied value and releases it with the updated map; and pinned
-statements (transactions, reservations) route real SET/RESET to the pinned
-backend while the gateway records the same change.
+probe that leaves nothing behind; an unpinned session-persisting `set_config`
+is rewritten to `is_local := true` so it reverts on the pooled backend exactly
+like that SET probe (the value lives only in the gateway map, replayed at the
+next checkout); and pinned statements (transactions, reservations) route real
+SET/RESET — or a real `set_config` — to the pinned backend while the gateway
+records the same change. The choice between reverting and persisting a
+`set_config` is made per live session state at execute time (a
+`SessionStateBranch` primitive), so its plan stays cacheable and no
+per-statement capture reservation is needed.
 
 At final reservation release, the gateway's map is stamped onto the physical
 connection as its new settings label — zero reconciliation SQL — and the
@@ -550,6 +576,106 @@ map.
 
 See [session_settings.md](./session_settings.md) for statement
 classification and known limitations.
+
+### Session-state scrubber
+
+Because the pool trusts settings labels absolutely (a pointer-equal bucket
+hit and a clean-stack checkout both run zero SQL), any backend mutation that
+escapes gateway tracking — a `set_config` hidden in a routine body, a
+tracking bug, out-of-band DDL — would silently leak to the next borrower.
+The scrubber is the detection net for that class of failure.
+
+A background worker per pool pops one idle connection per tick (rotating
+across the clean stack and all settings buckets), runs every registered
+**state checker** against it, and either returns it — with its idle clock
+intact, so scrubbing never defeats idle-timeout shrinking — or, on any
+divergence, closes it and eagerly opens a replacement into the same slot
+(eager because a freed slot cannot wake a waitlisted client). Divergent
+backends are always replaced, never reconciled: divergence means tracking
+was bypassed, and what a checker observes is only part of what the untracked
+code may have done. A probe that fails or times out is treated the same way:
+an unverified backend may still carry hidden state, and a client could
+induce probe failures deliberately, so the scrubber fails closed and
+replaces it (churn is bounded to one connection per tick). While a probe is
+in flight the held connection counts as borrowed, so `Available` and the
+idle-limit math stay accurate; pool close cancels the scrub context before
+draining, so a slow probe never delays shutdown.
+
+Checkers implement `connpool.ConnChecker` (`Name` + `Check`) and are
+registered on a pool before `Open`; checkers only detect, the scrubber acts.
+The first checker, `session_state`, compares the tracked settings label
+against the backend's real session GUC state in one round trip:
+`pg_settings WHERE source = 'session'` for ordinary GUCs, explicit
+`current_setting('role')` / `session_user` for the identity GUCs
+(`GUC_NO_SHOW_ALL` — never visible in `pg_settings`), and per-name
+`current_setting(name, missing_ok)` for tracked custom (placeholder) GUCs,
+which `pg_settings` also hides. Value spellings are normalized through a
+statement-local `set_config(..., is_local := true)` probe so `'65536'` vs
+`'64MB'` never counts as divergence. Findings carry GUC names only, never
+values. One blind spot remains: an _untracked_ custom GUC set behind
+tracking's back is unenumerable from SQL; the creation-time rejection gates
+are the defense for that class.
+
+Four more checkers cover the rest of the backend state the pool trusts:
+
+- `prepared_statements` diffs the connection's tracked prepared statements
+  against `pg_prepared_statements`, names and bodies. Idle connections
+  legitimately keep prepared statements across borrowers, so this is a
+  two-sided comparison: a backend statement tracking does not know is
+  untracked, a tracked statement the backend lost is phantom, and a tracked
+  statement whose backend body differs from the tracked query is mismatched
+  — a hidden `DEALLOCATE` plus re-`PREPARE` keeps the name, and the pool
+  would otherwise hand the redefined statement to the next borrower's
+  `EXECUTE`. Tracked names are consolidator identifiers and are reported
+  verbatim; every untracked name is redacted to `foreign_name`, one entry
+  per statement, since a name that arrived on a backend by another route
+  may embed client data and the consolidator's `ppstmt<N>` shape is
+  reachable from any session.
+- `holdable_cursors` reports one `holdable_cursor` finding per cursor still
+  open on the idle backend. Outside a transaction only `WITH HOLD` cursors
+  remain, and portals pin a reserved connection, so an open cursor here was
+  declared behind tracking (an `EXECUTE 'DECLARE ... WITH HOLD'` inside a
+  routine body). Cursor names are never reported.
+- `advisory_locks` reports a single `session_advisory_lock` finding when the
+  idle backend holds any advisory lock. Acquiring functions route to a
+  reserved connection whose release runs `pg_advisory_unlock_all`, so a lock
+  on an idle pooled backend means the acquisition escaped tracking. Lock keys
+  are never reported.
+- `temp_objects` reports one finding per kind of object (`table`, `index`,
+  `sequence`, `function`, `domain`, `enum`, `range`, `operator`,
+  `collation`, `statistics`, ...) in the backend's temporary schema. It
+  scans every namespace-scoped catalog the gateway's pg_temp CREATE
+  rejection covers: `pg_class`, `pg_proc` (aggregates included), standalone
+  `pg_type` entries, `pg_operator`, `pg_collation`, `pg_statistic_ext`,
+  `pg_opclass`, `pg_opfamily`, `pg_conversion`, and the four text-search
+  catalogs. Temp statements pin a reserved connection that is closed at
+  release and pg_temp-qualified CREATE is rejected, so any object on an
+  idle backend escaped tracking. Relations and types are the dangerous
+  classes: pg_temp is searched before `pg_catalog` for unqualified relation
+  and type names (a pg_temp domain named `text` captures an unqualified
+  `::text`), so a leftover shadows the catalog for the next borrower.
+  Operators, collations, and the other classes are never resolved through
+  pg_temp, even with it listed in `search_path`, and are reported as stale
+  state for completeness. Object names are never reported.
+
+All five checkers run against the same idle connection each tick; the
+divergence log line and the `checker` metric attribute name which one fired.
+
+The untracked rule imposes a bootstrap invariant: connection setup must not
+create session-source GUC state outside the settings label — bootstrap
+settings must arrive via startup-packet parameters (`source='client'`) or be
+reflected in the label, or the scrubber would replace every connection each
+sweep. The e2e scrubber test asserts zero divergence from normal traffic as
+the canary for this invariant.
+
+Operationally: `--connpool-session-scrub-interval` (default 10s, `0`
+disables) controls the tick on both the regular pool and the reserved pool's
+underlying pool. Outcomes are exported as
+`mg.pooler.session_scrub.{checked,divergence,errors}` with `pool_type`,
+`checker`, and divergence-`kind` attributes — **any nonzero divergence count
+means session-state tracking was bypassed and warrants investigation**. The
+scrubber is a sampler: it narrows the leak window and raises the alarm, but
+the gateway's tracking and rejection gates remain the correctness boundary.
 
 ## User Management and RLS
 

@@ -1,0 +1,107 @@
+# Known divergences (by design):
+# - explain_parallel_append runs a dynamic EXECUTE the pooler cannot vet, so its
+#   runtime CREATE is rejected. It is pre-seeded on the primary
+#   (testdata/pg17/regress_preseed.sql) so the parallel-append plan checks run.
+# - explain_parallel_append('execute ab_q4/ab_q5 ...') additionally fails: the
+#   prepared statement is prepared on one pooled backend, but the seeded
+#   function's dynamic EXECUTE runs on another that has not prepared it.
+--- a
++++ b
+@@ -2355,6 +2355,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ prepare ab_q4 (int, int) as
+ select avg(a) from ab where a between $1 and $2 and b < 4;
+ -- Encourage use of parallel plans
+@@ -2363,81 +2364,21 @@
+ set min_parallel_table_scan_size = 0;
+ set max_parallel_workers_per_gather = 2;
+ select explain_parallel_append('execute ab_q4 (2, 2)');
+-explain_parallel_append
+-------------------------------------------------------------------------------------
+-Finalize Aggregate (actual rows=N loops=N)
+--> Gather (actual rows=N loops=N)
+-Workers Planned: 2
+-Workers Launched: N
+--> Partial Aggregate (actual rows=N loops=N)
+--> Parallel Append (actual rows=N loops=N)
+-Subplans Removed: 6
+--> Parallel Seq Scan on ab_a2_b1 ab_1 (actual rows=N loops=N)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 4))
+--> Parallel Seq Scan on ab_a2_b2 ab_2 (actual rows=N loops=N)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 4))
+--> Parallel Seq Scan on ab_a2_b3 ab_3 (actual rows=N loops=N)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 4))
+-(13 rows)
+-
++ERROR: prepared statement "ab_q4" does not exist
++CONTEXT: PL/pgSQL function explain_parallel_append(text) line 5 at FOR over EXECUTE statement
+ -- Test run-time pruning with IN lists.
+ prepare ab_q5 (int, int, int) as
+ select avg(a) from ab where a in($1,$2,$3) and b < 4;
+ select explain_parallel_append('execute ab_q5 (1, 1, 1)');
+-explain_parallel_append
+-------------------------------------------------------------------------------------
+-Finalize Aggregate (actual rows=N loops=N)
+--> Gather (actual rows=N loops=N)
+-Workers Planned: 2
+-Workers Launched: N
+--> Partial Aggregate (actual rows=N loops=N)
+--> Parallel Append (actual rows=N loops=N)
+-Subplans Removed: 6
+--> Parallel Seq Scan on ab_a1_b1 ab_1 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a1_b2 ab_2 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a1_b3 ab_3 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+-(13 rows)
+-
++ERROR: prepared statement "ab_q5" does not exist
++CONTEXT: PL/pgSQL function explain_parallel_append(text) line 5 at FOR over EXECUTE statement
+ select explain_parallel_append('execute ab_q5 (2, 3, 3)');
+-explain_parallel_append
+-------------------------------------------------------------------------------------
+-Finalize Aggregate (actual rows=N loops=N)
+--> Gather (actual rows=N loops=N)
+-Workers Planned: 2
+-Workers Launched: N
+--> Partial Aggregate (actual rows=N loops=N)
+--> Parallel Append (actual rows=N loops=N)
+-Subplans Removed: 3
+--> Parallel Seq Scan on ab_a2_b1 ab_1 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a2_b2 ab_2 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a2_b3 ab_3 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a3_b1 ab_4 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a3_b2 ab_5 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+--> Parallel Seq Scan on ab_a3_b3 ab_6 (actual rows=N loops=N)
+-Filter: ((b < 4) AND (a = ANY (ARRAY[$1, $2, $3])))
+-(19 rows)
+-
++ERROR: prepared statement "ab_q5" does not exist
++CONTEXT: PL/pgSQL function explain_parallel_append(text) line 5 at FOR over EXECUTE statement
+ -- Try some params whose values do not belong to any partition.
+ select explain_parallel_append('execute ab_q5 (33, 44, 55)');
+-explain_parallel_append
+------------------------------------------------------------
+-Finalize Aggregate (actual rows=N loops=N)
+--> Gather (actual rows=N loops=N)
+-Workers Planned: 2
+-Workers Launched: N
+--> Partial Aggregate (actual rows=N loops=N)
+--> Parallel Append (actual rows=N loops=N)
+-Subplans Removed: 9
+-(7 rows)
+-
++ERROR: prepared statement "ab_q5" does not exist
++CONTEXT: PL/pgSQL function explain_parallel_append(text) line 5 at FOR over EXECUTE statement
+ -- Test Parallel Append with PARAM_EXEC Params
+ select explain_parallel_append('select count(*) from ab where (a = (select 1) or a = (select 3)) and b = 2');
+ explain_parallel_append

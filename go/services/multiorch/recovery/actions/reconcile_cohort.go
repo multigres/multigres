@@ -75,8 +75,20 @@ func NewReconcileCohortAction(
 	}
 }
 
-// Execute applies the cohort change on the shard leader.
-func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Problem) error {
+// Execute applies the cohort change on the shard leader. rechecked.HighestKnownRule
+// is the exact position the engine's recheck just re-verified this problem
+// against (recovery_loop.go's recheckProblem re-runs
+// CohortMismatchAnalyzer.Analyze against it). Because that analyzer only
+// emits ProblemCohortMemberIneligible when IsCohortMemberRemovalSafe already
+// holds for this same rule — a pure, deterministic function of (rule,
+// targetID) — a REMOVE problem surviving the recheck already proves removal
+// is safe against the rule; Execute does not re-verify it. CAS-ing on the
+// same rule (ExpectedOutgoingRule below) rather than a fresh, independent
+// store read means the mutation can't apply against any rule other than the
+// one just proven safe.
+func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
+	problem := rechecked.Problem
+	rule := rechecked.HighestKnownRule
 	a.logger.InfoContext(ctx, "executing reconcile cohort action",
 		"shard_key", problem.ShardKey.String(),
 		"pooler", problem.PoolerID.Name,
@@ -93,9 +105,28 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
 	}
 
+	if rule == nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no consensus rule known for shard %s", problem.ShardKey)
+	}
+	// A cohort change is leader-led: it's meaningless to compute one from an
+	// outstanding, not-yet-decided proposal (no cohort is settled to add to
+	// or remove from yet). Require a decided rule rather than relying on
+	// LeaderWritesProgressing below to reject this incidentally.
+	//
+	// TODO: allow non-promotion rule changes to ride along with an
+	// outstanding proposal via propagation, instead of always waiting for
+	// decision.
+	if !commonconsensus.IsRuleDecided(rule) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardKey)
+	}
+	decidedRule := rule.GetDecision()
+
 	// For ADD we need the pooler to be live in the cache (the cohort grows
-	// only if we have a healthy replica). For REMOVE the pooler may already
-	// be gone from the cache (the whole point of "cohort member is no longer
+	// only if we have a healthy replica) and we use it afterward to clear the
+	// joining member's archive. For REMOVE the pooler may already be gone
+	// from the cache (the whole point of "cohort member is no longer
 	// tracked"), so we operate on the problem's raw ID directly.
 	var targetID *clustermetadatapb.ID
 	var target *store.Pooler
@@ -110,16 +141,16 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		targetID = problem.PoolerID
 	}
 
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
-	leader := members.Leader
-	if leader == nil || members.HighestKnownPosition == nil {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", problem.ShardKey)
+	// The leader named by rule may not be the pooler we happen to have
+	// freshest connectivity/liveness data for — look it up by the ID the
+	// rule itself names, rather than independently re-deriving "the leader"
+	// from the cache the way the rule's own content already settles.
+	leader, err := store.FindPoolerByID(a.poolerStore, decidedRule.GetLeaderId())
+	if err != nil {
+		return mterrors.Wrap(err, "failed to find leader named by consensus rule")
 	}
-	// TODO: allow non-promotion rule changes to do propagation. Until then,
-	// LeaderWritesProgressing's decided-rule check below is what keeps this
-	// from firing against an outstanding proposal.
-	if !store.LeaderWritesProgressing(leader, members.HighestKnownPosition, time.Now(), store.DefaultLeaderWriteFreshness) {
+
+	if !store.LeaderWritesProgressing(leader, rule, time.Now(), store.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}
@@ -134,7 +165,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{targetID},
-		ExpectedOutgoingRule: members.HighestKnownPosition.GetDecision().GetRuleNumber(),
+		ExpectedOutgoingRule: rule.GetDecision().GetRuleNumber(),
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {

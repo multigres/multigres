@@ -137,6 +137,12 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 func buildPrimaryConnInfo(ci *multipoolermanagerdata.PrimaryConnInfo) string {
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
 		ci.GetHost(), ci.GetPort(), ci.GetUser(), ci.GetApplicationName())
+	// dbname is required by the PostgreSQL 17 slot-sync worker, which opens an
+	// ordinary SQL connection to the primary to synchronize failover slots; it is
+	// ignored for physical streaming replication. Omitted when empty, like passfile.
+	if ci.GetDbname() != "" {
+		connInfo += " dbname=" + ci.GetDbname()
+	}
 	if ci.GetPassfile() != "" {
 		connInfo += " passfile=" + ci.GetPassfile()
 	}
@@ -194,6 +200,8 @@ func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.
 			connInfo.ApplicationName = value
 		case "passfile":
 			connInfo.Passfile = value
+		case "dbname":
+			connInfo.Dbname = value
 		}
 	}
 

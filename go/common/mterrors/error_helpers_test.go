@@ -89,6 +89,33 @@ func TestIsCachedPlanError(t *testing.T) {
 	require.False(t, IsCachedPlanError(errors.New("plain")))
 }
 
+func TestIsGatewayRejection(t *testing.T) {
+	// A gateway rejection is produced as a *GatewayRejection at construction.
+	gatewayReject := NewFeatureNotSupported("SET/RESET inside a PL/pgSQL body is not supported")
+
+	// A backend 0A000 is a bare *PgDiagnostic (as the wire parser builds it) — the
+	// same SQLSTATE, but not a gateway rejection, so it must still abort the txn.
+	backendFeature := &PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR",
+		Code: PgSSFeatureNotSupported, Message: "cannot insert multiple commands into a prepared statement",
+	}
+	backendSyntax := &PgDiagnostic{MessageType: 'E', Code: "42601", Message: "syntax error"}
+
+	require.True(t, IsGatewayRejection(gatewayReject))
+	require.True(t, IsGatewayRejection(fmt.Errorf("wrapped: %w", gatewayReject)))
+	require.False(t, IsGatewayRejection(backendFeature),
+		"a backend 0A000 is not a gateway rejection and must still abort the transaction")
+	require.False(t, IsGatewayRejection(backendSyntax))
+	require.False(t, IsGatewayRejection(nil))
+	require.False(t, IsGatewayRejection(errors.New("plain")))
+
+	// The wrapped diagnostic is still reachable via errors.As, so the client
+	// ErrorResponse and proto paths continue to work through the wrapper.
+	var diag *PgDiagnostic
+	require.True(t, errors.As(gatewayReject, &diag))
+	require.Equal(t, PgSSFeatureNotSupported, diag.Code)
+}
+
 func TestClassifyErrorSource(t *testing.T) {
 	tests := []struct {
 		name string

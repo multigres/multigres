@@ -56,19 +56,6 @@ type PlanExecInfo struct {
 	// per-statement hot path.
 	RecheckAdvisoryLocks bool
 
-	// PersistingSetConfig requests a reserved connection with ReasonSetConfig:
-	// the statement carries a session-persisting set_config(..., false) whose
-	// new value must be recorded into the gateway's session map before the
-	// backend may re-enter the pool. Set for direct SELECT set_config plans,
-	// the dynamic pg_settings shape, and SQL EXECUTE of a prepared body
-	// containing such a call. After the statement succeeds and tracking runs,
-	// the executor releases the reservation explicitly when ReasonSetConfig is
-	// the only reason held — that release's options carry the updated map,
-	// which the multipooler stamps onto the connection as its settings label.
-	// Set unconditionally for these statement shapes (never derived from
-	// session state), so their plans remain cacheable.
-	PersistingSetConfig bool
-
 	// PinPortals lists cursor names to pin on the reserved backend's portal set
 	// (ReasonPortal). Set by HoldCursorRoute for DECLARE ... WITH HOLD.
 	PinPortals []string
@@ -317,20 +304,6 @@ type IExecute interface {
 		conn *server.Conn,
 		state *handler.MultigatewayConnectionState,
 		keepStickyReservations bool,
-	) error
-
-	// ReleaseSetConfigReservations releases every reserved connection whose
-	// ONLY reason is ReasonSetConfig — the per-statement custody hold for a
-	// session-persisting set_config. Called by the executor after such a
-	// statement's plan finishes; the release options are built at call time so
-	// they carry the post-tracking session-settings map that the multipooler
-	// stamps onto the connection's label. Best-effort: errors are logged and
-	// joined, and orphaned pooler-side reservations fall back to the
-	// inactivity timeout.
-	ReleaseSetConfigReservations(
-		ctx context.Context,
-		conn *server.Conn,
-		state *handler.MultigatewayConnectionState,
 	) error
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---

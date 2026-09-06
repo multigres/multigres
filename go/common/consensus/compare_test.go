@@ -408,6 +408,62 @@ func TestFormatRulePosition(t *testing.T) {
 	}
 }
 
+func TestFormatRuleNumberPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.RuleNumberPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{"decision only", &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0)}, "5.0"},
+		{
+			"decision and proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: rn(6, 0)},
+			"5.0 proposal=6.0",
+		},
+		{
+			// A zero-valued (unset-sentinel) Proposal must not render as a
+			// phantom "proposal=0.0" suffix.
+			"decision with zero-valued proposal",
+			&clustermetadatapb.RuleNumberPosition{Decision: rn(5, 0), Proposal: &clustermetadatapb.RuleNumber{}},
+			"5.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatRuleNumberPosition(tt.pos))
+		})
+	}
+}
+
+func TestFormatLsnPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.LsnPosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{
+			"decision only",
+			&clustermetadatapb.LsnPosition{Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(1, 0)}, Lsn: "0/6000000"},
+			"1.0@0/6000000",
+		},
+		{
+			"decision and proposal",
+			&clustermetadatapb.LsnPosition{
+				Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(5, 1), Proposal: rn(6, 0)},
+				Lsn:      "0/6000000",
+			},
+			"5.1 proposal=6.0@0/6000000",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatLsnPosition(tt.pos))
+		})
+	}
+}
+
 func TestIsRuleDecided(t *testing.T) {
 	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
 	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
@@ -512,6 +568,45 @@ func TestHighestKnownRule(t *testing.T) {
 		}
 		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{phantom}))
 		assert.Equal(t, "leader", got.GetLeaderId().GetName(), "real position rule should win over phantom 0/0 replication primary")
+	})
+}
+
+func TestHighestDecidedRule(t *testing.T) {
+	posStatus := func(term int64) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)},
+				},
+			},
+		}
+	}
+
+	t.Run("nil when no statuses carry a decision", func(t *testing.T) {
+		assert.Nil(t, HighestDecidedRule(nil))
+		assert.Nil(t, HighestDecidedRule([]*clustermetadatapb.ConsensusStatus{{}}))
+	})
+
+	t.Run("highest decided term across statuses wins", func(t *testing.T) {
+		got := HighestDecidedRule([]*clustermetadatapb.ConsensusStatus{posStatus(5), posStatus(7), posStatus(6)})
+		require.NotNil(t, got)
+		assert.Equal(t, int64(7), got.GetCoordinatorTerm())
+	})
+
+	t.Run("ignores ReplicationPrimary, unlike HighestKnownRule", func(t *testing.T) {
+		// A follower decided at term 5 but replicating from a leader it has
+		// learned is at term 8 via ReplicationPrimary. Must not be picked up —
+		// NewTermRevocation's ReplaceDecision computation doesn't see it either,
+		// and the two must stay in exact agreement.
+		follower := posStatus(5)
+		follower.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(8, 0)},
+			},
+		}
+		got := HighestDecidedRule([]*clustermetadatapb.ConsensusStatus{follower})
+		require.NotNil(t, got)
+		assert.Equal(t, int64(5), got.GetCoordinatorTerm())
 	})
 }
 

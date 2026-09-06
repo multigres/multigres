@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/web"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 )
 
 // Link represents a link on the status page.
@@ -48,7 +49,8 @@ type Status struct {
 	PgctldAddr     string `json:"pgctld_addr"`
 	SocketFilePath string `json:"socket_file_path"`
 
-	Backups BackupStatusView `json:"backups"`
+	Backups          BackupStatusView     `json:"backups"`
+	ReplicationStats ReplicationStatsView `json:"replication_stats"`
 
 	Links []Link `json:"links"`
 }
@@ -74,6 +76,48 @@ type BackupStatusView struct {
 	LastRefreshed string `json:"last_refreshed"`
 }
 
+// ReplicationStatsView is the formatted, template-ready view of the
+// replicationstats poller's health and latest polled connections. This is
+// the status-page surface for the guidelines' "who am I connected to, and
+// what are the stats for each" — it does not depend on a Prometheus scrape,
+// so it stays useful when debugging a pooler whose /metrics endpoint isn't
+// reachable.
+type ReplicationStatsView struct {
+	// Open is true while this pooler is the writable leader and the poller
+	// is actively running. Always false on a standby.
+	Open       bool  `json:"open"`
+	Polls      int64 `json:"polls"`
+	PollErrors int64 `json:"poll_errors"`
+
+	Connections []ReplicationConnView `json:"connections"`
+}
+
+// ReplicationConnView is the formatted view of one polled logical-replication
+// connection.
+type ReplicationConnView struct {
+	ConnID      string `json:"conn_id"`
+	User        string `json:"user"`
+	ReplayLag   string `json:"replay_lag"`   // formatted duration; "—" if unset
+	LastAckAge  string `json:"last_ack_age"` // formatted duration; "—" if unset
+	LastMsgAge  string `json:"last_msg_age"` // formatted duration; "—" if unset
+	SlotName    string `json:"slot_name"`    // "—" if no matching slot
+	RetainedWAL string `json:"retained_wal"` // bytes; "—" if no matching slot
+}
+
+// unknownValue is rendered for a value that wasn't available this poll
+// tick (e.g. no ack yet, no matching slot) — distinct from a real zero
+// duration.
+const unknownValue = "—"
+
+// formatSeconds renders secs as a duration string, or unknownValue if have
+// is false.
+func formatSeconds(secs float64, have bool) string {
+	if !have {
+		return unknownValue
+	}
+	return time.Duration(secs * float64(time.Second)).Round(time.Millisecond).String()
+}
+
 // formatAge renders the time elapsed since t, rounded to the second, or "" if t
 // is the zero time.
 func formatAge(t time.Time) string {
@@ -96,6 +140,7 @@ func (mp *Multipooler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mp.serverStatus.SocketFilePath = mp.socketFilePath.Get()
 	mp.serverStatus.TopoStatus = mp.ts.Status()
 	mp.serverStatus.Backups = mp.backupStatusView()
+	mp.serverStatus.ReplicationStats = mp.replicationStatsView()
 	err := web.Templates.ExecuteTemplate(w, "pooler_index.html", &mp.serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
@@ -137,6 +182,48 @@ func buildBackupStatusView(snap backupengine.Snapshot) BackupStatusView {
 	}
 	if !snap.LastRefresh.IsZero() {
 		view.LastRefreshed = fmt.Sprintf("%s (%s ago)", snap.LastRefresh.Format(time.RFC3339), formatAge(snap.LastRefresh))
+	}
+	return view
+}
+
+// replicationStatsView builds the template-ready replicationstats view from
+// the manager's poller status. During early startup the manager may not
+// exist yet; in that case it returns the zero view (closed, no connections)
+// rather than panicking — the same fallback the manager's own accessor uses
+// when the poller hasn't started (see MultipoolerManager.ReplicationStatsStatus).
+func (mp *Multipooler) replicationStatsView() ReplicationStatsView {
+	if mp.poolerManager == nil {
+		return ReplicationStatsView{}
+	}
+	return buildReplicationStatsView(mp.poolerManager.ReplicationStatsStatus())
+}
+
+// buildReplicationStatsView maps a poller status into the template-ready
+// view, pre-formatting durations. Pure (no manager) so it is directly
+// unit-testable.
+func buildReplicationStatsView(status replicationstats.PollerStatus) ReplicationStatsView {
+	view := ReplicationStatsView{
+		Open:        status.Open,
+		Polls:       status.Polls,
+		PollErrors:  status.PollErrors,
+		Connections: make([]ReplicationConnView, 0, len(status.Connections)),
+	}
+	for _, c := range status.Connections {
+		connView := ReplicationConnView{
+			ConnID:     c.ConnID,
+			User:       c.User,
+			ReplayLag:  formatSeconds(c.ReplayLag, c.HaveReplayLag),
+			LastAckAge: formatSeconds(c.LastAckAge, c.HaveAck),
+			LastMsgAge: formatSeconds(c.LastMsgAge, c.HaveMsgAge),
+		}
+		if c.HaveSlot {
+			connView.SlotName = c.SlotName
+			connView.RetainedWAL = fmt.Sprintf("%d bytes", c.RetainedWAL)
+		} else {
+			connView.SlotName = unknownValue
+			connView.RetainedWAL = unknownValue
+		}
+		view.Connections = append(view.Connections, connView)
 	}
 	return view
 }

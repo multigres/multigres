@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,7 @@ type mockConnection struct {
 	settings   *connstate.Settings
 	closed     atomic.Bool
 	applyCalls atomic.Int64
+	applyErr   error // returned (and cleared) by the next ApplySettings call
 }
 
 func newMockConnection() *mockConnection {
@@ -52,6 +54,11 @@ func (m *mockConnection) Close() error {
 
 func (m *mockConnection) ApplySettings(ctx context.Context, settings *connstate.Settings) error {
 	m.applyCalls.Add(1)
+	if m.applyErr != nil {
+		err := m.applyErr
+		m.applyErr = nil
+		return err
+	}
 	m.settings = settings
 	return nil
 }
@@ -71,6 +78,56 @@ func newTestPool(capacity int64) *Pool[*mockConnection] {
 		return newMockConnection(), nil
 	}, nil)
 	return pool
+}
+
+// TestApplySettingsWithReconnect_TempBuffersFreeze verifies the checkout-time
+// repair for a backend whose failed temp statement froze temp_buffers (the
+// local-buffer latch is not transactional, so the failure path recycles the
+// backend untainted): the freeze diagnostic replaces the backend and reapplies
+// the settings, so the borrower never sees the error. A client-shaped bad
+// value (22023 without DETAIL) must NOT trigger the replacement.
+func TestApplySettingsWithReconnect_TempBuffersFreeze(t *testing.T) {
+	ctx := context.Background()
+	desired := connstate.NewSettings(map[string]string{"temp_buffers": "16MB"}, 1)
+
+	t.Run("freeze diagnostic replaces backend and reapplies", func(t *testing.T) {
+		pool := newTestPool(2)
+		defer pool.Close()
+
+		conn, err := pool.Get(ctx)
+		require.NoError(t, err)
+		frozen := conn.Conn
+		frozen.applyErr = &mterrors.PgDiagnostic{
+			Severity: "ERROR",
+			Code:     mterrors.PgSSInvalidParameterValue,
+			Message:  `invalid value for parameter "temp_buffers": 16384`,
+			Detail:   `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		}
+
+		require.NoError(t, pool.applySettingsWithReconnect(ctx, conn, desired))
+		assert.True(t, frozen.IsClosed(), "frozen backend must be closed")
+		assert.NotSame(t, frozen, conn.Conn, "slot must hold a replacement backend")
+		assert.Equal(t, desired, conn.Conn.Settings(), "settings must be applied on the replacement")
+		conn.Recycle()
+	})
+
+	t.Run("client-shaped invalid value surfaces without replacement", func(t *testing.T) {
+		pool := newTestPool(2)
+		defer pool.Close()
+
+		conn, err := pool.Get(ctx)
+		require.NoError(t, err)
+		orig := conn.Conn
+		orig.applyErr = &mterrors.PgDiagnostic{
+			Severity: "ERROR",
+			Code:     mterrors.PgSSInvalidParameterValue,
+			Message:  `invalid value for parameter "temp_buffers": "abc"`,
+		}
+
+		err = pool.applySettingsWithReconnect(ctx, conn, desired)
+		require.Error(t, err)
+		assert.True(t, orig.IsClosed(), "errored slot is closed, not handed out")
+	})
 }
 
 func TestPoolBasicGetPut(t *testing.T) {
