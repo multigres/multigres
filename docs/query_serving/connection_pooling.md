@@ -606,9 +606,10 @@ tracking bug, out-of-band DDL — would silently leak to the next borrower.
 The scrubber is the detection net for that class of failure.
 
 A background worker per pool takes one idle connection per tick, runs every
-registered **state checker** against it, and either returns it — to the top
-of its stack, with its idle clock intact, so scrubbing never defeats LIFO
-reuse or idle-timeout shrinking — or, on any divergence, closes it and
+registered **state checker** against it, and either returns it — at the
+depth of its stack it was taken from, with its idle clock intact, so
+scrubbing never promotes a cold connection into client traffic and never
+defeats idle-timeout shrinking — or, on any divergence, closes it and
 eagerly opens a replacement into the same slot
 (eager because a freed slot cannot wake a waitlisted client). Divergent
 backends are always replaced, never reconciled: divergence means tracking

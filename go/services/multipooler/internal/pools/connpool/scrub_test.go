@@ -296,10 +296,9 @@ func TestScrubWalksEveryConnInStack(t *testing.T) {
 	assert.EqualValues(t, 0, pool.Metrics.ScrubDivergentCount())
 }
 
-func TestScrubPassSpansStacksAndKeepsTopOrder(t *testing.T) {
-	// A pass covers every stack before repeating any connection, and a
-	// probed connection returns to the TOP of its stack (LIFO reuse and
-	// idle-timeout shrinking depend on that), not the bottom.
+func TestScrubPassSpansStacks(t *testing.T) {
+	// A pass covers every stack before repeating any connection, and probed
+	// connections stay in their own stacks.
 	pool := newScrubTestPool(t, 3, nil)
 	settings := connstate.NewSettings(map[string]string{"work_mem": "64MB"}, 1)
 	// Hold all three before recycling, or LIFO reuse hands back the same
@@ -323,15 +322,54 @@ func TestScrubPassSpansStacksAndKeepsTopOrder(t *testing.T) {
 	for name, conn := range map[string]*scrubMockConnection{"clean1": clean1, "clean2": clean2, "labelled": labelled} {
 		assert.EqualValues(t, 1, conn.verifyCalls.Load(), "%s must be probed once per pass", name)
 	}
-
-	// Probed connections went back on top of their own stacks: the clean
-	// stack still holds exactly its two connections and a plain Get hands
-	// out one of them, not a connection from another bucket.
 	assert.Equal(t, 2, pool.clean.Len())
-	pooled, err := pool.Get(context.Background())
-	require.NoError(t, err)
-	assert.Contains(t, []*scrubMockConnection{clean1, clean2}, pooled.Conn)
-	pooled.Recycle()
+	assert.Equal(t, 1, pool.states[settings.Bucket()&stackMask].Len())
+}
+
+func TestScrubKeepsHotConnClientFacingAndColdConnsExpire(t *testing.T) {
+	// Client traffic interleaved with scrub ticks: the hot connection must
+	// stay the one clients get, and the cold ones beneath it must still
+	// idle-expire. Returning a probed middle connection to the top (or
+	// rotating the stack) would promote a cold connection into traffic,
+	// refresh its idle clock, and keep the pool from shrinking.
+	const idleTimeout = time.Minute
+	pool := newScrubTestPool(t, 3, nil)
+	pool.SetIdleTimeout(idleTimeout)
+
+	var pooled []*Pooled[*scrubMockConnection]
+	for range 3 {
+		p, err := pool.Get(context.Background())
+		require.NoError(t, err)
+		pooled = append(pooled, p)
+	}
+	for _, p := range pooled {
+		p.Recycle() // stack: pooled[2] on top (hot), pooled[1], pooled[0]
+	}
+	hot, cold := pooled[2], pooled[:2]
+	for _, p := range cold {
+		p.timeUsed.set(monotonicNow() - 2*idleTimeout)
+	}
+
+	// One full pass, with a client checkout after every tick.
+	cursor := 0
+	for tick := range 3 {
+		assert.True(t, pool.scrubOne(&cursor))
+		got, err := pool.Get(context.Background())
+		require.NoError(t, err)
+		assert.Same(t, hot.Conn, got.Conn, "tick %d: a cold connection was promoted into client traffic", tick)
+		got.Recycle()
+	}
+	for _, p := range pooled {
+		assert.EqualValues(t, 1, p.Conn.verifyCalls.Load(), "every connection is still probed once per pass")
+	}
+
+	// The cold connections kept their old idle clocks and expire; the hot
+	// one, refreshed by real use, survives.
+	pool.closeIdleResources(time.Now())
+	for i, p := range cold {
+		assert.True(t, p.Conn.IsClosed(), "cold conn %d should have idle-expired", i)
+	}
+	assert.False(t, hot.Conn.IsClosed(), "hot conn must survive")
 }
 
 func TestScrubPreservesIdleClock(t *testing.T) {

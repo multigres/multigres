@@ -61,14 +61,19 @@ func (s *connStack[C]) Push(conn *Pooled[C]) {
 }
 
 // PopFirst removes and returns the topmost connection for which match
-// returns true, leaving every other connection in place and in order.
-// Returns nil and false if none matches. match runs under the lock, so it
-// must be fast and non-blocking. Unlinking a middle node is safe here
-// because every stack operation, including ForEach, holds the mutex.
-func (s *connStack[C]) PopFirst(match func(*Pooled[C]) bool) (*Pooled[C], bool) {
+// returns true, leaving every other connection in place and in order, along
+// with its depth: the number of connections that were above it. Returns
+// nil, 0, false if none matches. match runs under the lock, so it must be
+// fast and non-blocking. Unlinking a middle node is safe here because every
+// stack operation, including ForEach, holds the mutex.
+//
+// Pair with InsertAt to put the connection back where it was: pushing a
+// middle connection onto the top would promote it into client traffic.
+func (s *connStack[C]) PopFirst(match func(*Pooled[C]) bool) (*Pooled[C], int, bool) {
 	s.mu.Lock()
 	var prev *Pooled[C]
-	for conn := s.top; conn != nil; prev, conn = conn, conn.next {
+	depth := 0
+	for conn := s.top; conn != nil; prev, conn, depth = conn, conn.next, depth+1 {
 		if !match(conn) {
 			continue
 		}
@@ -83,10 +88,36 @@ func (s *connStack[C]) PopFirst(match func(*Pooled[C]) bool) (*Pooled[C], bool) 
 		if s.onPop != nil {
 			s.onPop()
 		}
-		return conn, true
+		return conn, depth, true
 	}
 	s.mu.Unlock()
-	return nil, false
+	return nil, 0, false
+}
+
+// InsertAt adds a connection below the first depth connections of the stack,
+// or at the bottom if the stack is shorter than that. InsertAt(conn, 0) is
+// Push. Clients may have pushed or popped since a PopFirst measured depth,
+// so the position is best effort; it is exact in the case that matters, a
+// hot top and a cold tail, and never lifts the connection above one that
+// was above it.
+func (s *connStack[C]) InsertAt(conn *Pooled[C], depth int) {
+	s.mu.Lock()
+	if depth <= 0 || s.top == nil {
+		conn.next = s.top
+		s.top = conn
+	} else {
+		prev := s.top
+		for i := 1; i < depth && prev.next != nil; i++ {
+			prev = prev.next
+		}
+		conn.next = prev.next
+		prev.next = conn
+	}
+	s.count++
+	s.mu.Unlock()
+	if s.onPush != nil {
+		s.onPush()
+	}
 }
 
 // Pop removes and returns the connection from the top of the stack.
