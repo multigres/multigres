@@ -54,6 +54,15 @@ import (
 // SQLSTATE. Direct postgres is the reference; any multigateway cell that
 // differs is a consolidator divergence.
 //
+// The full matrix is logged for characterization, but the test also ASSERTS a
+// regression invariant: the multigateway may only diverge from PostgreSQL on the
+// autocommit reuse-without-reparse path (where the reactive heal transparently
+// re-Parses instead of surfacing PostgreSQL's stale-plan error). Everything a
+// well-behaved driver does — re-Parse after a schema reload — and everything
+// inside a transaction MUST match PostgreSQL. Exact per-cell outcomes/SQLSTATEs
+// are not asserted (they vary with PostgreSQL version and pooling timing); only
+// the structural invariant is. See mayDiverge.
+//
 // A unique table (and therefore a unique canonical prepared statement at the
 // pooler) per scenario isolates PoolerConsolidator state across cells, and the
 // pool is settled to a single backend so a single connection's reuse is
@@ -119,6 +128,15 @@ func TestPreparedDDLMatrix(t *testing.T) {
 	targets := setup.GetComparisonTargets(t)
 	// results[cellKey][targetName] = outcome
 	results := map[string]map[string]string{}
+	// mayDiverge marks the cells the multigateway is allowed to answer
+	// differently from direct PostgreSQL. The only accepted divergence is the
+	// autocommit "reuse" path: a client that reuses a prepared statement across a
+	// schema change without re-Parsing gets PostgreSQL's stale-plan error
+	// (0A000/22P02/42883), whereas the gateway transparently re-Parses and heals
+	// it (the reactive cachedPlanRetry). Every other cell — anything a
+	// well-behaved driver does (re-Parse after a reload), and everything inside a
+	// transaction — MUST match PostgreSQL, so a divergence there is a regression.
+	mayDiverge := map[string]bool{}
 	var order []string
 
 	tbl := 0
@@ -128,6 +146,7 @@ func TestPreparedDDLMatrix(t *testing.T) {
 				for _, op := range ops {
 					key := fmt.Sprintf("%-11s %-10s %-22s %s", txn, reuse, ddl.name, op)
 					order = append(order, key)
+					mayDiverge[key] = txn == "autocommit" && reuse == "reuse"
 					results[key] = map[string]string{}
 					for _, target := range targets {
 						tbl++
@@ -143,8 +162,10 @@ func TestPreparedDDLMatrix(t *testing.T) {
 	// Render the matrix, flagging cells where multigateway != postgres.
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n%-55s | %-28s | %-28s | %s\n", "txn / reuse / ddl / op", "postgres", "multigateway", "")
-	b.WriteString(strings.Repeat("-", 130) + "\n")
+	b.WriteString(strings.Repeat("-", 130))
+	b.WriteByte('\n')
 	diverged := 0
+	var unexpected []string
 	for _, key := range order {
 		pg := results[key]["postgres"]
 		gw := results[key]["multigateway"]
@@ -152,11 +173,23 @@ func TestPreparedDDLMatrix(t *testing.T) {
 		if pg != gw {
 			flag = "  <-- DIVERGES"
 			diverged++
+			if !mayDiverge[key] {
+				unexpected = append(unexpected, fmt.Sprintf("%s: postgres=%q multigateway=%q", strings.TrimSpace(key), pg, gw))
+			}
 		}
 		fmt.Fprintf(&b, "%-55s | %-28s | %-28s |%s\n", key, pg, gw, flag)
 	}
 	fmt.Fprintf(&b, "\n%d / %d cells diverge between postgres and multigateway\n", diverged, len(order))
 	t.Log(b.String())
+
+	// The matrix is logged above for characterization; the regression assertion is
+	// only that no disallowed cell diverges. Exact per-cell outcomes and SQLSTATEs
+	// are deliberately NOT asserted (they vary with PostgreSQL version and pooling
+	// timing) — only the structural invariant that reprepare and in-transaction
+	// behavior matches PostgreSQL. See mayDiverge for what is allowed to differ.
+	require.Empty(t, unexpected,
+		"multigateway must match PostgreSQL except on the autocommit reuse-without-reparse path; "+
+			"a reprepare or in-transaction divergence is a regression:\n%s", strings.Join(unexpected, "\n"))
 }
 
 // runMatrixCell runs one scenario on a fresh connection and returns the
