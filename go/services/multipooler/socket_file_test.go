@@ -17,7 +17,9 @@ package multipooler
 import (
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveSocketFilePath(t *testing.T) {
@@ -55,4 +57,20 @@ func TestResolveSocketFilePath(t *testing.T) {
 			assert.Equal(t, tt.want, resolveSocketFilePath(tt.configured, tt.explicitlySet, tt.poolerDir, tt.pgPort))
 		})
 	}
+}
+
+func TestFlagExplicitlySet(t *testing.T) {
+	// No FlagSet registered (minimal test setups): never explicit.
+	mp := &Multipooler{}
+	assert.False(t, mp.flagExplicitlySet("socket-file"))
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("socket-file", "", "")
+	mp.flagSet = fs
+
+	assert.False(t, mp.flagExplicitlySet("socket-file"), "registered but untouched flag is not explicit")
+	assert.False(t, mp.flagExplicitlySet("no-such-flag"))
+
+	require.NoError(t, fs.Set("socket-file", ""))
+	assert.True(t, mp.flagExplicitlySet("socket-file"), "explicitly set to empty is still explicit")
 }
