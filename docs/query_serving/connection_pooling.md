@@ -333,6 +333,23 @@ Derived:
   globalReservedCapacity = 500 * 0.2 = 100
 ```
 
+With **elastic quotas** (`--connpool-elastic-quotas`, on by default) these are
+targets under contention, not ceilings. Each rebalance cycle re-splits the
+global capacity from the summed demand of both classes:
+
+1. Each class gets `min(demand, target)`.
+2. Unused capacity is lent to whichever class demands more than its target.
+3. Capacity nobody demands is split by the ratio as burst headroom.
+4. Each class keeps a floor of `min(userPools, target)` slots so every user
+   pool stays usable in both classes.
+
+So a single user running only transactions can hold 499 of 500 slots on the
+reserved side, and when regular demand returns the split drifts back toward
+80/20 as reserved connections are released (nothing is preempted; the shrink
+is applied as connections are recycled, exactly like a per-user shrink).
+Borrowing lags demand by up to one rebalance interval plus the demand window.
+Set `--connpool-elastic-quotas=false` to pin the ratio as a hard split.
+
 A `FairShareAllocator` instance manages each resource type independently. This
 mirrors the `DemandTracker` design (also resource-agnostic, one per pool type).
 
@@ -472,16 +489,19 @@ Rebalancing runs as a **periodic background goroutine**:
 │     └─ regularTracker.GetPeakAndRotate() for each user          │
 │     └─ reservedTracker.GetPeakAndRotate() for each user         │
 │                                                                  │
-│  2. Run fair share algorithm (two allocators, one per resource)  │
+│  2. Split global capacity between classes by summed demand       │
+│     └─ splitClassCapacity() (elastic quotas; else fixed ratio)  │
+│                                                                  │
+│  3. Run fair share algorithm (two allocators, one per resource)  │
 │     └─ regularAlloc.Allocate(regularDemands)                    │
 │     └─ reservedAlloc.Allocate(reservedDemands)                  │
 │                                                                  │
-│  3. Apply new capacities                                         │
+│  4. Apply new capacities                                         │
 │     └─ pool.SetCapacity(ctx, newRegularCap, newReservedCap)     │
 │        (non-blocking - excess borrowed connections closed on     │
 │         recycle)                                                 │
 │                                                                  │
-│  4. Garbage collect inactive pools                               │
+│  5. Garbage collect inactive pools                               │
 │     └─ Remove pools with no activity for > inactive timeout     │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -852,6 +872,7 @@ These flags control how pool capacities are distributed across users:
 | ---------------------------------- | ------- | ---------------------------------------------- |
 | `--connpool-global-capacity`       | 100     | Total PostgreSQL connections to manage         |
 | `--connpool-reserved-ratio`        | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-elastic-quotas`        | true    | Let classes borrow each other's unused share   |
 | `--connpool-rebalance-interval`    | 10s     | How often to run rebalancing                   |
 | `--connpool-demand-window`         | 30s     | Sliding window for peak demand tracking        |
 | `--connpool-inactive-timeout`      | 5m      | Remove user pools after this inactivity        |

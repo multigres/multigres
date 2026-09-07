@@ -258,6 +258,8 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 
 	// Use configurable minCapacityPerUser as the minimum per-user floor.
 	// This ensures light users always have enough capacity for burst demand.
+	// These are the nominal shares; with elastic quotas the rebalancer moves
+	// capacity between the two allocators each cycle based on demand.
 	m.regularAllocator = NewFairShareAllocator(regularCapacity, regularMinPerUser)
 	m.reservedAllocator = NewFairShareAllocator(reservedCapacity, reservedMinPerUser)
 
@@ -277,6 +279,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 		"settings_cache_size", m.config.SettingsCacheSize(),
 		"global_capacity", globalCapacity,
 		"reserved_ratio", reservedRatio,
+		"elastic_quotas", m.config.ElasticQuotas(),
 		"regular_allocation", regularCapacity,
 		"reserved_allocation", reservedCapacity,
 		"rebalance_interval", m.config.RebalanceInterval(),
