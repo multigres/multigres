@@ -65,6 +65,11 @@ func GetServerAddress(cmd *cobra.Command) (string, error) {
 		return adminServer, nil
 	}
 
+	// Fall back to the MULTIGRES_ADMIN_SERVER environment variable
+	if v := os.Getenv("MULTIGRES_ADMIN_SERVER"); v != "" {
+		return v, nil
+	}
+
 	// Fall back to config file
 	configPaths, err := cmd.Flags().GetStringSlice("config-path")
 	if err != nil {

@@ -114,6 +114,9 @@ provisioner-config:
 	})
 
 	t.Run("falls back to config path", func(t *testing.T) {
+		// Ensure the env var doesn't interfere with the config-path fallback.
+		t.Setenv("MULTIGRES_ADMIN_SERVER", "")
+
 		// Create a mock command with only config-path set
 		cmd := &cobra.Command{}
 		cmd.Flags().String("admin-server", "", "")
@@ -127,7 +130,37 @@ provisioner-config:
 		assert.Equal(t, "localhost:12345", address)
 	})
 
+	t.Run("falls back to MULTIGRES_ADMIN_SERVER env var", func(t *testing.T) {
+		// Env var is used when the flag is empty and no config-path is given.
+		t.Setenv("MULTIGRES_ADMIN_SERVER", "env:8080")
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String("admin-server", "", "")
+		cmd.Flags().StringSlice("config-path", []string{}, "")
+
+		address, err := GetServerAddress(cmd)
+		require.NoError(t, err)
+		assert.Equal(t, "env:8080", address)
+	})
+
+	t.Run("admin-server flag takes precedence over env var", func(t *testing.T) {
+		t.Setenv("MULTIGRES_ADMIN_SERVER", "env:8080")
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String("admin-server", "", "")
+		cmd.Flags().StringSlice("config-path", []string{}, "")
+
+		require.NoError(t, cmd.Flags().Set("admin-server", "flag:9999"))
+
+		address, err := GetServerAddress(cmd)
+		require.NoError(t, err)
+		assert.Equal(t, "flag:9999", address)
+	})
+
 	t.Run("error when neither flag is provided", func(t *testing.T) {
+		// Ensure the env var doesn't interfere with the error path.
+		t.Setenv("MULTIGRES_ADMIN_SERVER", "")
+
 		// Create a mock command with no flags set
 		cmd := &cobra.Command{}
 		cmd.Flags().String("admin-server", "", "")

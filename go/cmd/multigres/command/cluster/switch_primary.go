@@ -96,7 +96,7 @@ Examples:
 	cmd.Flags().String("reason", pf.reason.Default(), "Free-text reason for the failover (recorded for audit)")
 	cmd.Flags().Bool("yes", pf.yes.Default(), "Skip the interactive confirmation prompt")
 	cmd.Flags().Duration("timeout", pf.timeout.Default(), "Overall RPC timeout")
-	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 
 	viperutil.BindFlags(cmd.Flags(),
 		pf.database, pf.tableGroup, pf.shard,
