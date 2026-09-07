@@ -516,8 +516,20 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// An empty or comment-only query string parses to zero statements;
 	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
 	// the gateway answers with EmptyQueryResponse — matching PostgreSQL.
-	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
-	return err
+	psi, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
+	if err != nil {
+		return err
+	}
+
+	// A client Parse means "give me a freshly-planned statement" — PostgreSQL
+	// always re-plans on Parse. The multipooler shares one backend statement per
+	// (query, param types) across connections and never re-Parses it after a
+	// schema change, so mark this statement pending: the first backend
+	// Describe/Execute forces a re-Parse instead of reusing a stale plan. Keyed by
+	// the consolidator's canonical name (psi.Name), which is what portals and
+	// Describe carry downstream — the client-provided name is not visible there.
+	h.getConnectionState(conn).MarkReparsePending(psi.Name)
+	return nil
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.

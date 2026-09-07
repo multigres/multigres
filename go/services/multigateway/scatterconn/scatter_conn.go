@@ -625,8 +625,11 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"portal", portalInfo.Portal.Name,
 		"mode", target.GetMode().String())
 
-	// Use the query from the prepared statement
-	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
+	// Use the query from the prepared statement. preparedStatementForSend consumes
+	// this connection's pending force-reparse signal (set by HandleParse) so the
+	// multipooler re-Parses the consolidated backend plan after a schema change
+	// rather than reusing a stale one.
+	reservedState, err := qs.PortalStreamExecute(ctx, target, preparedStatementForSend(portalInfo.PreparedStatementInfo, state), portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
 		// PostgreSQL-level portal errors can leave an existing reserved backend
 		// alive (for example an explicit transaction that is now aborted). Apply any
@@ -660,6 +663,31 @@ func (sc *ScatterConn) PortalStreamExecute(
 	return nil
 }
 
+// preparedStatementForSend returns the wire PreparedStatement to send for a
+// backend materialization, consuming this connection's pending force-reparse
+// signal for the statement (recorded by HandleParse when the client freshly
+// Parsed it). When set, the multipooler re-Parses the consolidated backend plan
+// instead of reusing one built before a schema change. The consolidator shares
+// one PreparedStatementInfo (and its embedded proto) across connections, so the
+// per-connection flag is carried on a copy rather than by mutating the shared
+// message; on the steady-state path (no pending Parse) the shared proto is sent
+// as-is with no allocation.
+func preparedStatementForSend(psi *preparedstatement.PreparedStatementInfo, state *handler.MultigatewayConnectionState) *querypb.PreparedStatement {
+	if psi == nil {
+		return nil
+	}
+	ps := psi.PreparedStatement
+	if !state.ConsumeReparsePending(psi.GetName()) {
+		return ps
+	}
+	return &querypb.PreparedStatement{
+		Name:         ps.GetName(),
+		Query:        ps.GetQuery(),
+		ParamTypes:   ps.GetParamTypes(),
+		ForceReparse: true,
+	}
+}
+
 // Describe returns metadata about a prepared statement or portal.
 // This is the implementation of engine.IExecute.Describe().
 func (sc *ScatterConn) Describe(
@@ -690,10 +718,10 @@ func (sc *ScatterConn) Describe(
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
 	if portalInfo != nil {
-		preparedStatement = portalInfo.PreparedStatementInfo.PreparedStatement
+		preparedStatement = preparedStatementForSend(portalInfo.PreparedStatementInfo, state)
 		portal = portalInfo.Portal
 	} else if preparedStatementInfo != nil {
-		preparedStatement = preparedStatementInfo.PreparedStatement
+		preparedStatement = preparedStatementForSend(preparedStatementInfo, state)
 	}
 
 	var qs queryservice.QueryService = sc.gateway

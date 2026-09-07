@@ -1284,7 +1284,7 @@ func cachedPlanRetry[T any](
 	op func(canonicalName string) (T, error),
 ) (T, error) {
 	result, err := op(canonicalName)
-	if err != nil && mterrors.IsCachedPlanError(err) {
+	if err != nil && mterrors.IsStalePreparedStatementError(err) {
 		_ = conn.CloseStatement(ctx, canonicalName)
 		conn.State().DeletePreparedStatement(canonicalName)
 
@@ -1562,8 +1562,21 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	connState := conn.State()
 	existing := connState.GetPreparedStatement(canonicalName)
 	if existing != nil && existing.Query == stmt.Query {
-		// Statement already prepared on this connection, reuse it
-		return canonicalName, nil
+		if !stmt.GetForceReparse() {
+			// Statement already prepared on this connection, reuse it
+			return canonicalName, nil
+		}
+		// The client issued a fresh Parse for this query (force_reparse), which in
+		// PostgreSQL always re-plans against the current catalog. The consolidated
+		// backend statement on THIS connection may have been Parsed before a schema
+		// change, so drop and re-Parse it rather than hand back a stale plan. This
+		// covers the in-transaction path (a transaction is pinned to one backend,
+		// so re-Parsing it here is sufficient); the reactive cachedPlanRetry heal
+		// backstops the autocommit case where a later Bind/Execute lands on a
+		// different pooled backend that still has the stale statement. Uses the
+		// same invalidation primitives as that heal.
+		_ = conn.CloseStatement(ctx, canonicalName)
+		connState.DeletePreparedStatement(canonicalName)
 	}
 
 	// Parse the statement on this connection

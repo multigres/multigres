@@ -967,7 +967,17 @@ type PreparedStatement struct {
 	Query string `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
 	// param_types contains the OIDs of the parameter types.
 	// This is sent by the client in the Parse message.
-	ParamTypes    []uint32 `protobuf:"varint,3,rep,packed,name=param_types,json=paramTypes,proto3" json:"param_types,omitempty"`
+	ParamTypes []uint32 `protobuf:"varint,3,rep,packed,name=param_types,json=paramTypes,proto3" json:"param_types,omitempty"`
+	// force_reparse asks the multipooler to Close and re-Parse the consolidated
+	// backend statement (ppstmt*) instead of reusing the cached one, even when a
+	// statement with the same (query, param_types) is already prepared on the
+	// chosen connection. The gateway sets this for the first backend
+	// materialization after a client Parse, so a freshly-parsed statement always
+	// reflects the current catalog — matching PostgreSQL, where a Parse always
+	// re-plans. This is how a client recovers from a schema change (including DDL
+	// run inside a function) that would otherwise leave the shared backend
+	// statement stale (0A000 / 22P02 / 42883 on first use).
+	ForceReparse  bool `protobuf:"varint,4,opt,name=force_reparse,json=forceReparse,proto3" json:"force_reparse,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1021,6 +1031,13 @@ func (x *PreparedStatement) GetParamTypes() []uint32 {
 		return x.ParamTypes
 	}
 	return nil
+}
+
+func (x *PreparedStatement) GetForceReparse() bool {
+	if x != nil {
+		return x.ForceReparse
+	}
+	return false
 }
 
 // ExecuteSqlPreparedStatement carries a SQL-level EXECUTE wrapper whose
@@ -1688,12 +1705,13 @@ const file_query_proto_rawDesc = "" +
 	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOid\"a\n" +
 	"\x06Target\x126\n" +
 	"\tshard_key\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12\x1f\n" +
-	"\x04mode\x18\x05 \x01(\x0e2\v.query.ModeR\x04mode\"^\n" +
+	"\x04mode\x18\x05 \x01(\x0e2\v.query.ModeR\x04mode\"\x83\x01\n" +
 	"\x11PreparedStatement\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
-	"paramTypes\"\xd4\x01\n" +
+	"paramTypes\x12#\n" +
+	"\rforce_reparse\x18\x04 \x01(\bR\fforceReparse\"\xd4\x01\n" +
 	"\x1bExecuteSqlPreparedStatement\x12G\n" +
 	"\x12prepared_statement\x18\x01 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12\x1d\n" +
 	"\n" +

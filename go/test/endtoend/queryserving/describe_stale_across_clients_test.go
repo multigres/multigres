@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -135,4 +136,105 @@ func TestDescribeStaleAcrossClients(t *testing.T) {
 	if len(descAfter.Fields) == 1 {
 		assert.Equal(t, "a", descAfter.Fields[0].Name)
 	}
+}
+
+// TestReprepareParamTypeAfterDDLInTransaction is the regression for the
+// in-transaction half of the PostgREST notify_reloading_catalog_cache class of
+// bug. After a DDL recreates a table changing the $1 column's type (uuid →
+// bigint), a client that re-Parses the same query and Binds a value must run
+// against the CURRENT schema, not a backend statement the pooler cached with the
+// old parameter type. Reusing the stale plan makes Bind decode the new value
+// against the old type and raise SQLSTATE 22P02 (invalid_text_representation).
+//
+// This is the case the reactive cachedPlanRetry heal CANNOT recover: the error
+// lands inside the transaction, which is now aborted, so the heal's re-Parse +
+// retry would run in a failed block and is skipped. The gateway's force_reparse
+// (a client Parse re-Parses the consolidated backend statement) must prevent the
+// staleness proactively. Everything runs inside one transaction on purpose: a
+// transaction is pinned to a single backend, so the warm, the DDL, and the
+// reprepare all share the backend carrying the stale statement — deterministic
+// without settling the pool. A non-canonical query text (extra whitespace) makes
+// the gateway's normalized route query differ from the client's, exercising the
+// portal rewrite path that must still carry the force-reparse signal.
+// Gateway-only: a direct PostgreSQL connection never inherits a stale pooled
+// statement.
+func TestReprepareParamTypeAfterDDLInTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping end-to-end tests in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
+		shardsetup.WithMultigateway(),
+	)
+	defer cleanup()
+	setup.WaitForMultigatewayQueryServing(t)
+
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	// Extra whitespace so the gateway's normalized route query differs from the
+	// client's text, exercising the portal rewrite path.
+	const reQuery = "SELECT  *  FROM  reptest  WHERE  id = $1"
+
+	conn := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+
+	_, err := conn.Query(ctx, "DROP TABLE IF EXISTS reptest")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "CREATE TABLE reptest (id uuid, a int)")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "INSERT INTO reptest VALUES ('11111111-1111-1111-1111-111111111111', 10)")
+	require.NoError(t, err)
+	defer func() {
+		c := connectLowLevelToPort(t, context.Background(), setup.MultigatewayPgPort)
+		defer c.Close()
+		_, _ = c.Query(context.Background(), "DROP TABLE IF EXISTS reptest")
+	}()
+
+	// Everything below runs in one transaction, which pins a single backend.
+	_, err = conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	defer func() { _, _ = conn.Query(ctx, "ROLLBACK") }()
+
+	// Warm the canonical backend statement on the pinned backend: $1 is uuid.
+	require.NoError(t, conn.Parse(ctx, "rp_s1", reQuery, nil))
+	_, err = conn.BindAndExecute(ctx, "", "rp_s1",
+		[][]byte{[]byte("11111111-1111-1111-1111-111111111111")}, nil, nil, 0,
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err, "warm execute with the uuid value should succeed")
+
+	// Recreate the table with id as bigint inside the same transaction (the
+	// notify_reloading_catalog_cache DDL), so the pinned backend's cached
+	// statement is now stale.
+	_, err = conn.Query(ctx, "DROP TABLE reptest")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "CREATE TABLE reptest (id bigint, a int)")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "INSERT INTO reptest VALUES (1, 20)")
+	require.NoError(t, err)
+
+	// Re-Parse under a fresh name and Bind the bigint value "1". Pre-fix: the
+	// pooler reuses the stale $1::uuid statement on the pinned backend, Bind fails
+	// 22P02, the transaction aborts, and the heal cannot retry inside it.
+	require.NoError(t, conn.CloseStatement(ctx, "rp_s1"))
+	require.NoError(t, conn.Parse(ctx, "rp_s2", reQuery, nil))
+
+	var got *sqltypes.Result
+	_, err = conn.BindDescribeAndExecute(ctx, "", "rp_s2",
+		[][]byte{[]byte("1")}, nil, nil, 0,
+		func(_ context.Context, r *sqltypes.Result) error {
+			if r != nil && len(r.Rows) > 0 {
+				got = r
+			}
+			return nil
+		})
+	require.NoError(t, err,
+		"re-Parse + Bind of the bigint value after the DDL must run against the current schema, not the stale uuid-typed cached statement (22P02)")
+	require.NotNil(t, got, "the row with id = 1 should be returned")
+	require.Len(t, got.Rows, 1)
+	require.NotEmpty(t, got.Rows[0].Values)
+	assert.Equal(t, "1", string(got.Rows[0].Values[0]), "id column of the matched row")
 }
