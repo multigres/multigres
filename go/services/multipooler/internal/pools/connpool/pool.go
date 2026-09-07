@@ -1133,8 +1133,12 @@ func (pool *Pool[C]) Requested() int64 {
 // PeakRequestedAndReset returns the peak demand since the last reset and resets the peak.
 // This captures burst demand that point-in-time sampling might miss. For accurate demand
 // tracking, call this method periodically to get the peak demand over an interval.
+//
+// The peak is reset to the current requested count, not zero: connections held
+// across the whole interval (e.g. a long transaction on a reserved conn) are
+// still demand even though no new Get raised the peak.
 func (pool *Pool[C]) PeakRequestedAndReset() int64 {
-	return pool.peakRequested.Swap(0)
+	return pool.peakRequested.Swap(pool.requested.Load())
 }
 
 // Waiting returns the number of clients currently waiting for a connection.

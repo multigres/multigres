@@ -149,6 +149,11 @@ type Config struct {
 	// Regular pools get (1 - reservedRatio) of the global capacity.
 	reservedRatio viperutil.Value[float64]
 
+	// Elastic quotas lets each pool class borrow the other class's unused
+	// share of the global capacity. When false, the reserved ratio is a fixed
+	// ceiling for both classes.
+	elasticQuotas viperutil.Value[bool]
+
 	// --- Rebalancer configuration ---
 
 	// Rebalance interval is how often the rebalancer runs to adjust pool capacities.
@@ -308,6 +313,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  reservedRatio,
 			FlagName: "connpool-reserved-ratio",
 		}),
+		elasticQuotas: viperutil.Configure(reg, "connpool.elastic-quotas", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "connpool-elastic-quotas",
+			EnvVars:  []string{"CONNPOOL_ELASTIC_QUOTAS"},
+		}),
 
 		// Rebalancer
 		rebalanceInterval: viperutil.Configure(reg, "connpool.rebalance-interval", viperutil.Options[time.Duration]{
@@ -373,6 +383,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Fair share allocation flags
 	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools). When not set, derived from the server's max_connections at pool open (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
+	fs.Bool("connpool-elastic-quotas", c.elasticQuotas.Default(), "Let regular and reserved pools borrow each other's unused share of global capacity; the reserved ratio is then a target under contention, not a ceiling (env: CONNPOOL_ELASTIC_QUOTAS)")
 
 	// Rebalancer flags
 	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
@@ -399,6 +410,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
+		c.elasticQuotas,
 		c.rebalanceInterval,
 		c.demandWindow,
 		c.inactiveTimeout,
@@ -641,6 +653,11 @@ func (c *Config) GlobalCapacityExplicit() bool {
 // Regular pools get (1 - reservedRatio) of the global capacity.
 func (c *Config) ReservedRatio() float64 {
 	return c.reservedRatio.Get()
+}
+
+// ElasticQuotas reports whether pool classes may borrow each other's unused capacity.
+func (c *Config) ElasticQuotas() bool {
+	return c.elasticQuotas.Get()
 }
 
 // RebalanceInterval returns how often the rebalancer runs to adjust pool capacities.
