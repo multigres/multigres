@@ -415,3 +415,30 @@ func TestConsolidator_Stats(t *testing.T) {
 	require.Contains(t, stmtMap, "SELECT 2")
 	require.Equal(t, 1, stmtMap["SELECT 2"].UsageCount)
 }
+
+// TestSetResolvedDescription_LastWriterWins verifies that re-Describing a
+// statement (as every PREPARE now does) refreshes the resolved parameter types
+// rather than keeping the first resolution. This is the re-PREPARE-after-DDL
+// self-heal: a parameter inferred as uuid before an ALTER, then bigint after.
+func TestSetResolvedParamTypes_LastWriterWins(t *testing.T) {
+	desc := func(oid uint32) *querypb.StatementDescription {
+		return &querypb.StatementDescription{
+			Parameters: []*querypb.ParameterDescription{{DataTypeOid: oid}},
+		}
+	}
+
+	psi, err := NewPreparedStatementInfo(&querypb.PreparedStatement{Query: "SELECT $1"})
+	require.NoError(t, err)
+
+	// First PREPARE: parameter inferred as uuid (2950).
+	psi.SetResolvedParamTypes(desc(2950))
+	require.Equal(t, []uint32{2950}, psi.ResolvedParamTypeOids())
+
+	// A later PREPARE after DDL re-Describes: bigint (20) now wins.
+	psi.SetResolvedParamTypes(desc(20))
+	require.Equal(t, []uint32{20}, psi.ResolvedParamTypeOids())
+
+	// A nil description is ignored and leaves the last resolution intact.
+	psi.SetResolvedParamTypes(nil)
+	require.Equal(t, []uint32{20}, psi.ResolvedParamTypeOids())
+}
