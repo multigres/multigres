@@ -24,6 +24,7 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
+	PgSSSuccessfulCompletion    = "00000" // successful_completion (used by NOTICE messages)
 	PgSSProtocolViolation       = "08P01" // protocol_violation
 	PgSSConnectionFailure       = "08006" // connection_failure
 	PgSSFeatureNotSupported     = "0A000" // feature_not_supported

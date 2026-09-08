@@ -18,6 +18,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
@@ -60,6 +62,30 @@ func fixture(t *testing.T, name, expected, actual, patch string) VerifyInput {
 		PatchDir:     patchDir,
 		RepoRoot:     dir,
 	}
+}
+
+func patchedVariantFixture(t *testing.T) (VerifyInput, []string) {
+	t.Helper()
+	const (
+		name      = "patched_variant"
+		canonical = "header\nplan: index only\ncommon\nfooter\n"
+		alternate = "header\nplan: bitmap\ncommon\nfooter\n"
+		actual    = "header\nplan: bitmap\ncommon\nmultigres warning\nfooter\n"
+		patch     = `--- a
++++ b
+@@ -3,2 +3,3 @@
+ common
++multigres warning
+ footer
+`
+	)
+
+	in := fixture(t, name, canonical, actual, patch)
+	alternatePath := filepath.Join(filepath.Dir(in.ExpectedPath), name+"_1.out")
+	if err := os.WriteFile(alternatePath, []byte(alternate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return in, []string{in.ExpectedPath, alternatePath}
 }
 
 func requirePatchTool(t *testing.T) {
@@ -376,6 +402,19 @@ func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
 	}
 }
 
+func TestVerifyPatchedVariants_Alternate(t *testing.T) {
+	requirePatchTool(t)
+	in, variants := patchedVariantFixture(t)
+
+	outcome, err := verifyPatchedVariants(t.Context(), in.Name, in.ActualPath, in.RepoRoot, in.PatchDir, in.RepoRoot, variants, PatchModeVerify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != "pass" || !outcome.PatchApplied {
+		t.Fatalf("patched alternate was not accepted: %+v", outcome)
+	}
+}
+
 func TestMarkdownSummaryClassifiesCompatibilityResults(t *testing.T) {
 	pb := &PostgresBuilder{Builder: &pgbuilder.Builder{OutputDir: t.TempDir()}}
 	results := &TestResults{
@@ -599,5 +638,33 @@ func TestNormalizeRunPaths(t *testing.T) {
 	// Lines without a run path pass through untouched.
 	if got := string(normalizeRunPaths([]byte("SELECT 1;\n"))); got != "SELECT 1;\n" {
 		t.Fatalf("plain line changed: %q", got)
+	}
+}
+
+// TestNormalizeEventTriggerLoginCount pins the masking of the user_logins row
+// count in the event_trigger_login test. The count reflects pooled-backend
+// logins after the login trigger is enabled — a backend-lifecycle number that
+// varies run to run (observed as 0 or 1) rather than tracking client \c
+// reconnects — so it must collapse to a stable token, or no committed patch
+// could verify across runs.
+func TestNormalizeEventTriggerLoginCount(t *testing.T) {
+	block := func(count int) string {
+		return "SELECT COUNT(*) FROM user_logins;\n count \n-------\n     " +
+			strconv.Itoa(count) + "\n(1 row)\n"
+	}
+	got0 := string(normalizeEventTriggerLoginCount([]byte(block(0))))
+	got1 := string(normalizeEventTriggerLoginCount([]byte(block(1))))
+	got2 := string(normalizeEventTriggerLoginCount([]byte(block(2))))
+	if got0 != got1 || got1 != got2 {
+		t.Fatalf("counts not masked to a stable form:\n0: %q\n1: %q\n2: %q", got0, got1, got2)
+	}
+	if !strings.Contains(got0, "<user_logins_count>") {
+		t.Fatalf("expected masked placeholder, got: %q", got0)
+	}
+
+	// A COUNT result that is NOT the user_logins query must be left intact.
+	other := "SELECT COUNT(*) FROM other;\n count \n-------\n     5\n(1 row)\n"
+	if strings.Contains(string(normalizeEventTriggerLoginCount([]byte(other))), "<user_logins_count>") {
+		t.Fatalf("masked an unrelated COUNT result")
 	}
 }

@@ -44,6 +44,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -82,6 +83,7 @@ type MultipoolerManager struct {
 	servicePoolerID consensus.ReplicaID
 	replTracker     *heartbeat.ReplTracker
 	pubsubListener  *pubsub.Listener
+	replStats       *replicationstats.Tracker
 	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -482,43 +484,11 @@ func (pm *MultipoolerManager) DoUpdateRule(ctx context.Context, update *consensu
 	return pm.consensusMgr.Rules().UpdateRule(ruleWriteCtx, update)
 }
 
-// query executes a query using the internal query service and returns the result.
-// This is a convenience method for internal manager operations.
-func (pm *MultipoolerManager) query(ctx context.Context, sql string) (*sqltypes.Result, error) {
-	queryService := pm.internalQueryService()
-	if queryService == nil {
-		return nil, errors.New("internal query service not available")
-	}
-	return queryService.Query(ctx, sql)
-}
-
-// exec executes a command that doesn't return rows.
-// This is a convenience method for internal manager operations.
-func (pm *MultipoolerManager) exec(ctx context.Context, sql string) error {
-	_, err := pm.query(ctx, sql)
-	return err
-}
-
-// queryArgs executes a parameterized query using the internal query service and returns the result.
-// This is a convenience method for internal manager operations that helps prevent SQL injection.
-func (pm *MultipoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
-	queryService := pm.internalQueryService()
-	if queryService == nil {
-		return nil, errors.New("internal query service not available")
-	}
-	return queryService.QueryArgs(ctx, sql, args...)
-}
-
-// execArgs executes a parameterized command that doesn't return rows.
-// This is a convenience method for internal manager operations that helps prevent SQL injection.
-func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...any) error {
-	_, err := pm.queryArgs(ctx, sql, args...)
-	return err
-}
-
 // adminQuery executes a query on the admin (true-superuser) pool via the
-// InternalQueryService's QueryAdmin method and returns the result. Use for
-// reads/writes of the multigres sidecar schema.
+// InternalQueryService's QueryAdmin method. Every manager query is
+// control-plane work (recovery probes, replication and consensus control,
+// promotion, sidecar schema), which must not queue behind saturated user
+// pools — so these admin-pool helpers are the only query path the manager has.
 func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -528,14 +498,14 @@ func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqlt
 }
 
 // adminExec executes a command that doesn't return rows on the admin
-// (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+// (true-superuser) pool.
 func (pm *MultipoolerManager) adminExec(ctx context.Context, sql string) error {
 	_, err := pm.adminQuery(ctx, sql)
 	return err
 }
 
 // adminQueryArgs executes a parameterized query on the admin (true-superuser)
-// pool and returns the result. Use for reads/writes of the multigres sidecar schema.
+// pool and returns the result. Parameterization helps prevent SQL injection.
 func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -544,8 +514,8 @@ func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, ar
 	return queryService.QueryAdminArgs(ctx, sql, args...)
 }
 
-// adminExecArgs executes a parameterized command that doesn't return rows on the
-// admin (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+// adminExecArgs executes a parameterized command that doesn't return rows on
+// the admin (true-superuser) pool.
 func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, args ...any) error {
 	_, err := pm.adminQueryArgs(ctx, sql, args...)
 	return err
@@ -737,6 +707,22 @@ func (pm *MultipoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	return pm.stateManager.RegisterAndSync(ctx, pm.replTracker)
 }
 
+// startReplicationStats starts the reserved-connection replication-stats
+// poller and syncs it to the current serving state. Like the heartbeat
+// writer, it only produces data while this pooler is the writable leader —
+// only the primary has active logical-replication walsenders in
+// pg_stat_replication — so replicationstats.Tracker internally wraps the
+// poller in a leader-only switch, the same shape heartbeat.ReplTracker uses
+// for its writer/reader pair.
+func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
+	metrics, err := replicationstats.NewMetrics()
+	if err != nil {
+		pm.logger.WarnContext(ctx, "failed to initialise some replicationstats metrics", "error", err)
+	}
+	pm.replStats = replicationstats.NewTracker(pm.qsc.InternalQueryService(), metrics, pm.logger, pm.config.ReplicationStatsPollIntervalMs)
+	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -846,6 +832,14 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			pm.logger.Error("failed to start PubSub listener", "error", err)
 		}
 	}
+
+	// Start the replication-stats poller (reserved connection metrics for
+	// logical replication), alongside heartbeat/pubsub.
+	if pm.replStats == nil {
+		if err := pm.startReplicationStats(context.TODO()); err != nil {
+			pm.logger.Error("failed to start replication stats poller", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -867,6 +861,11 @@ func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
 	if pm.pubsubListener != nil {
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
+	}
+
+	if pm.replStats != nil {
+		pm.replStats.Close()
+		pm.replStats = nil
 	}
 
 	// Close connection pool manager
@@ -922,6 +921,17 @@ func (pm *MultipoolerManager) shardKey() *clustermetadatapb.ShardKey {
 // tracker for the status page.
 func (pm *MultipoolerManager) BackupStatusSnapshot() backupengine.Snapshot {
 	return pm.backup.Health().Snapshot()
+}
+
+// ReplicationStatsStatus returns the replicationstats poller's current
+// health and latest polled connections, for the status page. Returns the
+// zero value (closed, no connections) if the poller hasn't started yet —
+// e.g. during early startup, or on a standby, where it never runs.
+func (pm *MultipoolerManager) ReplicationStatsStatus() replicationstats.PollerStatus {
+	if pm.replStats == nil {
+		return replicationstats.PollerStatus{}
+	}
+	return pm.replStats.Poller().Status()
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -1139,11 +1149,9 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// with password authentication, and we cannot use a ephemeral file in a
 		// temp directory because pgbackrest needs to be able to read it after
 		// we exec (and the temp file would be cleaned up when closed).
-		pgpassPath := filepath.Join(pm.record.PoolerDir(), "pgbackrest", "pgbackrest.pgpass")
-		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
-		// #nosec G703 -- pgpassPath is built from the pooler's own PoolerDir, not external input.
-		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
-			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
+		pgpassPath, err := backup.WritePgpassFile(pm.record.PoolerDir(), pg1User, pg1Password)
+		if err != nil {
+			pm.setStateError(err)
 			return
 		}
 
@@ -1289,7 +1297,7 @@ func (pm *MultipoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 		  AND query NOT ILIKE 'ROLLBACK%'
 		  AND query != '<IDLE>'`
 
-	result, err := pm.query(ctx, sql)
+	result, err := pm.adminQuery(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -1327,7 +1335,7 @@ func (pm *MultipoolerManager) terminateWriteConnections(ctx context.Context) (in
 
 	// Terminate each write connection
 	for _, pid := range pids {
-		if err := pm.execArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
+		if err := pm.adminExecArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
 			pm.logger.WarnContext(ctx, "failed to terminate write connection", "pid", pid, "error", err)
 		}
 	}
@@ -1446,7 +1454,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.broadcastHealth()
 	}()
 
-	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
+	if err := pm.adminExec(ctx, "SELECT pg_promote()"); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to call pg_promote()", "error", err)
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
@@ -1476,7 +1484,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// it observes the completed checkpoint.
 	checkpointCtx := pm.ctx
 	go func() {
-		if err := pm.exec(checkpointCtx, "CHECKPOINT"); err != nil {
+		if err := pm.adminExec(checkpointCtx, "CHECKPOINT"); err != nil {
 			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until Postgres's own checkpoint completes", "error", err)
 			return
 		}
@@ -1561,7 +1569,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		  AND c.relkind = 'r'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
 
-	result, err := pm.query(ctx, listSQL)
+	result, err := pm.adminQuery(ctx, listSQL)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "failed to list unlogged tables after promotion; skipping drop", "error", err)
 		return
@@ -1581,7 +1589,7 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		if name == "multigres.backend_vpid" {
 			continue
 		}
-		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
+		if err := pm.adminExec(ctx, "DROP TABLE "+name); err != nil {
 			pm.logger.WarnContext(ctx, "best-effort drop of unlogged table after promotion failed; table left empty",
 				"table", name, "error", err)
 			continue
@@ -1705,13 +1713,13 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 		}
 		pm.logger.Info("manager reached ready state, will register gRPC services")
 
-		pm.logger.Info("MultipoolerManager started") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager started")
 		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("query service controller registered")
 
 		// Register manager gRPC services
 		pm.registerGRPCServices()
-		pm.logger.Info("MultipoolerManager gRPC services registered") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager gRPC services registered")
 		return nil
 	})
 }
@@ -1784,7 +1792,7 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+				pm.logger.InfoContext(ctx, "monitorPostgres: postgres state changed, broadcasting health",
 					"postgres_running", newState.postgresRunning)
 				pm.broadcastHealth()
 			}

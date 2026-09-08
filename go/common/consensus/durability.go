@@ -57,7 +57,7 @@ type DurabilityPolicy interface {
 	//
 	// cohort is the full set of poolers participating in the term, including
 	// the primary. The method derives the eligible standby set per policy
-	// (e.g., MultiCellPolicy excludes the primary's cell). Passing the full
+	// (e.g., multiCellPolicy excludes the primary's cell). Passing the full
 	// cohort keeps the caller-side contract simple.
 	//
 	// On success the config is always non-nil — every promotion explicitly
@@ -107,11 +107,12 @@ func NewPolicyFromProto(policy *clustermetadatapb.DurabilityPolicy) (DurabilityP
 		}
 		return AtLeastNPolicy{N: int(policy.RequiredCount)}, nil
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N:
-		// N=0 would make revocation (|uncovered cells| < N) unsatisfiable for any recruitment.
-		if policy.RequiredCount < 1 {
-			return nil, fmt.Errorf("MULTI_CELL_AT_LEAST_N requires RequiredCount >= 1, got %d", policy.RequiredCount)
+		// Only RequiredCount = 2 is currently supported. It's not currently possible to represent any other number in
+		// sync_standby_names. We could expand this in the future.
+		if policy.RequiredCount != 2 {
+			return nil, fmt.Errorf("MULTI_CELL_AT_LEAST_N requires RequiredCount == 2, got %d", policy.RequiredCount)
 		}
-		return MultiCellPolicy{N: int(policy.RequiredCount)}, nil
+		return multiCellPolicy{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported quorum type: %v", policy.QuorumType)
 	}
@@ -200,7 +201,7 @@ func cohortIsSubsetOf(a, b []*clustermetadatapb.ID) bool {
 // the larger N, ensuring the WAL record is acknowledged under the stricter policy.
 // When outgoing and incoming are identical Both matches incoming.
 //
-// Both AtLeastNPolicy and MultiCellPolicy are supported; mixing the two types
+// Both AtLeastNPolicy and multiCellPolicy are supported; mixing the two types
 // returns an error.
 func BuildPolicyTransition(outgoing, incoming PolicyWithCohort) (*PolicyTransition, error) {
 	outN, outFamily := policyFamily(outgoing.Policy)
@@ -241,13 +242,13 @@ func BuildPolicyTransition(outgoing, incoming PolicyWithCohort) (*PolicyTransiti
 }
 
 // policyFamily returns the RequiredCount and a string tag identifying the policy
-// family for AtLeastNPolicy and MultiCellPolicy. Returns (0, "") for unsupported types.
+// family for AtLeastNPolicy and multiCellPolicy. Returns (0, "") for unsupported types.
 func policyFamily(p DurabilityPolicy) (n int, family string) {
 	switch v := p.(type) {
 	case AtLeastNPolicy:
 		return v.N, "at_least_n"
-	case MultiCellPolicy:
-		return v.N, "multi_cell_at_least_n"
+	case multiCellPolicy:
+		return 2, "multi_cell_at_least_n"
 	default:
 		return 0, ""
 	}

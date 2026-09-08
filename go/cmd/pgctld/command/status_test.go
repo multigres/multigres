@@ -17,6 +17,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -188,61 +189,32 @@ func TestRunStatus(t *testing.T) {
 	})
 }
 
-func TestIsServerReady(t *testing.T) {
+func TestClassifyPgIsReady(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupBinary func(string)
-		isReady     bool
+		exitCode    int
+		runErr      error
+		wantRunning bool
+		wantReady   bool
+		wantErr     bool
 	}{
-		{
-			name: "server is ready",
-			setupBinary: func(binDir string) {
-				testutil.CreateMockPostgreSQLBinaries(t, binDir)
-			},
-			isReady: true,
-		},
-		{
-			name: "server not ready",
-			setupBinary: func(binDir string) {
-				// Create pg_isready that fails
-				testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
-			},
-			isReady: false,
-		},
+		{name: "exit 0: accepting", exitCode: 0, wantRunning: true, wantReady: true},
+		{name: "exit 1: rejecting", exitCode: 1, wantRunning: true, wantReady: false},
+		{name: "exit 2: no response", exitCode: 2, wantRunning: false, wantReady: false},
+		{name: "exit 3: no attempt made", exitCode: 3, wantErr: true},
+		{name: "pg_isready could not be run at all", runErr: errors.New("exec: not found"), wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			baseDir, cleanup := testutil.TempDir(t, "pgctld_ready_test")
-			defer cleanup()
-
-			binDir := filepath.Join(baseDir, "bin")
-			require.NoError(t, os.MkdirAll(binDir, 0o755))
-			tt.setupBinary(binDir)
-
-			originalPath := os.Getenv("PATH")
-			os.Setenv("PATH", binDir+":"+originalPath)
-			defer os.Setenv("PATH", originalPath)
-
-			// Create initialized data directory with postgresql.conf
-			testutil.CreateDataDir(t, baseDir, true)
-
-			// Create config directly for the test
-			config, err := pgctld.NewPostgresCtlConfig(
-				5432,
-				"postgres",
-				"postgres",
-				30,
-				pgctld.PostgresDataDir(),
-				pgctld.PostgresConfigFile(),
-				baseDir,
-				"localhost",
-				pgctld.PostgresSocketDir(baseDir),
-			)
-			require.NoError(t, err)
-
-			result := isServerReadyWithConfig(t.Context(), config)
-			assert.Equal(t, tt.isReady, result)
+			running, ready, err := classifyPgIsReady(tt.exitCode, tt.runErr)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantRunning, running)
+			assert.Equal(t, tt.wantReady, ready)
 		})
 	}
 }

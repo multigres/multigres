@@ -22,6 +22,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -520,12 +521,69 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 	decision, got, err := s.buildCert(ctx, req, rule)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), decision.GetRuleNumber().GetCoordinatorTerm())
+
+	initiatedAt := got.GetTermRevocation().GetCoordinatorInitiatedAt()
+	require.NotNil(t, initiatedAt, "CoordinatorInitiatedAt anchors the collective recruitment backoff and must be set")
+	assert.WithinDuration(t, time.Now(), initiatedAt.AsTime(), 5*time.Second)
+
 	prototest.AssertEqual(t, &clustermetadatapb.ExternallyCertifiedRevocation{
 		FrozenLsn: "0/300",
 		TermRevocation: &clustermetadatapb.TermRevocation{
-			OutgoingRule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			CoordinatorInitiatedAt: initiatedAt,
+			RecruitIntent: &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+				Attempt:         1,
+			},
 		},
 	}, got)
+}
+
+// TestBuildCert_UnsafeDerive_ReplaceDecisionExcludesUndecidedProposal verifies
+// that when the most-advanced probed position carries an undecided proposal,
+// RecruitIntent.ReplaceDecision uses only the decided portion — unlike
+// OutgoingRule, which can legitimately be the proposal for certified changes.
+func TestBuildCert_UnsafeDerive_ReplaceDecisionExcludesUndecidedProposal(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+					Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7}},
+				},
+				Lsn: "0/200",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert{
+			UnsafeDeriveCert: &multiadminpb.UnsafeDeriveCertOptions{},
+		},
+	}
+	rule := &clustermetadatapb.ShardRule{
+		CohortMembers:    []*clustermetadatapb.ID{mp1.Id},
+		DurabilityPolicy: atLeastN(1),
+	}
+
+	decision, got, err := s.buildCert(ctx, req, rule)
+	require.NoError(t, err)
+
+	// decision/OutgoingRule are allowed to be the undecided proposal.
+	assert.Equal(t, int64(7), decision.GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, int64(7), got.GetTermRevocation().GetOutgoingRule().GetCoordinatorTerm())
+
+	// ReplaceDecision must stay the decided rule, not the proposal.
+	assert.Equal(t, int64(4), got.GetTermRevocation().GetRecruitIntent().GetReplaceDecision().GetCoordinatorTerm())
 }
 
 func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {

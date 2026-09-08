@@ -128,6 +128,19 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
 	}
 
+	// Fully close leader-only periodic components now that DISABLED has been
+	// fanned out above. OnStateChange only swaps them into their not-writable
+	// mode — it does not tear anything down — so without this explicit
+	// Close, their tickers (and periodic Postgres queries) would keep
+	// running until process exit. Nil guards: some unit tests construct
+	// MultipoolerManager via struct literal without a replTracker/replStats.
+	if pm.replTracker != nil {
+		pm.replTracker.Close()
+	}
+	if pm.replStats != nil {
+		pm.replStats.Close()
+	}
+
 	// Signal long-lived subscribers (health-stream gRPC handlers) that the
 	// manager is shutting down. Their cleanup goroutines close subscriber
 	// channels, which makes the gRPC handlers return Unavailable and unblocks

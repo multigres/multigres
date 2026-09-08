@@ -75,6 +75,20 @@ const (
 	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
 	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
 	ProblemLeaderStuck               ProblemCode = "LeaderStuck"
+)
+
+// IsFailoverProblem reports whether this problem is resolved by
+// leader-replacement recruitment — true for exactly the Leader* codes above,
+// which share one recovery action and one per-shard failover throttle.
+func (c ProblemCode) IsFailoverProblem() bool {
+	return c == ProblemLeaderUnspecified ||
+		c == ProblemLeaderUnreachableByCohort ||
+		c == ProblemLeaderUnhealthy ||
+		c == ProblemLeaderResigned ||
+		c == ProblemLeaderStuck
+}
+
+const (
 
 	// Replica problems (require healthy leader).
 	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"

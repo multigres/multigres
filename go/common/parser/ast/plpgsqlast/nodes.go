@@ -88,6 +88,7 @@ const (
 	T_PLpgSQL_diag_item                 // one item of a GET DIAGNOSTICS list
 	T_PLpgSQL_stmt_commit               // COMMIT [AND [NO] CHAIN]
 	T_PLpgSQL_stmt_rollback             // ROLLBACK [AND [NO] CHAIN]
+	T_PLpgSQL_cursor_arg                // one bound-cursor OPEN argument ([name :=] value)
 )
 
 // String returns the string representation of a NodeTag.
@@ -175,6 +176,8 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_commit"
 	case T_PLpgSQL_stmt_rollback:
 		return "T_PLpgSQL_stmt_rollback"
+	case T_PLpgSQL_cursor_arg:
+		return "T_PLpgSQL_cursor_arg"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

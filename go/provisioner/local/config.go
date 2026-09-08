@@ -135,6 +135,13 @@ type MultiorchConfig struct {
 	LogLevel                  string `yaml:"log-level"`
 	PoolerHealthCheckInterval string `yaml:"pooler-health-check-interval,omitempty"`
 	RecoveryCycleInterval     string `yaml:"recovery-cycle-interval,omitempty"`
+	// AllowUnsafeInitialCohort lets a shard bootstrap with a cohort that
+	// satisfies the durability policy but can't survive losing any single
+	// member. Test topologies that only ever provision the bare minimum
+	// number of poolers per shard (as this provisioner's own e2e tests do)
+	// can never be failure-safe by construction, so they need this set;
+	// production and any test exercising real HA should leave it false.
+	AllowUnsafeInitialCohort bool `yaml:"allow-unsafe-initial-cohort,omitempty"`
 }
 
 // MultiadminConfig holds multiadmin service configuration
@@ -518,6 +525,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"log_level":                    cellServices.Multiorch.LogLevel,
 			"pooler_health_check_interval": cellServices.Multiorch.PoolerHealthCheckInterval,
 			"recovery_cycle_interval":      cellServices.Multiorch.RecoveryCycleInterval,
+			"allow_unsafe_initial_cohort":  cellServices.Multiorch.AllowUnsafeInitialCohort,
 		}, nil
 	case constants.ServicePgctld:
 		return map[string]any{

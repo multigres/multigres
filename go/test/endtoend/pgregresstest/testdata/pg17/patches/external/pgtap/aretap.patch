@@ -1,0 +1,46 @@
+# Known divergence, by design: multigres rejects CREATE FOREIGN DATA WRAPPER
+# (Tier-2 — foreign data wrappers / foreign tables are not supported through the
+# connection pooler; see go/services/multigateway/planner/unsafe_stmt.go). aretap
+# builds its foreign-table fixtures inside a helper function via a constant
+# EXECUTE, so the gateway rejects that helper's CREATE FUNCTION; the missing
+# helper then breaks the file's single wrapping transaction, so the trailing
+# foreign_tables_are assertions (the last section of the file) cannot run. Every
+# assertion before it (~428) runs and stays verified. Recording the real
+# limitation rather than hiding it: multigres has no foreign tables.
+--- a
++++ b
+@@ -429,33 +429,4 @@
+ ok 427 - materialized_views_are(materialized_views) extra and missing should fail
+ ok 428 - materialized_views_are(materialized_views) extra and missing should have the proper description
+ ok 429 - materialized_views_are(materialized_views) extra and missing should have the proper diagnostics
+-ok 430 - foreign_tables_are(schema, tables, desc) should pass
+-ok 431 - foreign_tables_are(schema, tables, desc) should have the proper description
+-ok 432 - foreign_tables_are(schema, tables, desc) should have the proper diagnostics
+-ok 433 - foreign_tables_are(tables, desc) should pass
+-ok 434 - foreign_tables_are(tables, desc) should have the proper description
+-ok 435 - foreign_tables_are(tables, desc) should have the proper diagnostics
+-ok 436 - foreign_tables_are(schema, tables) should pass
+-ok 437 - foreign_tables_are(schema, tables) should have the proper description
+-ok 438 - foreign_tables_are(schema, tables) should have the proper diagnostics
+-ok 439 - foreign_tables_are(tables) should pass
+-ok 440 - foreign_tables_are(tables) should have the proper description
+-ok 441 - foreign_tables_are(tables) should have the proper diagnostics
+-ok 442 - foreign_tables_are(schema, tables) missing should fail
+-ok 443 - foreign_tables_are(schema, tables) missing should have the proper description
+-ok 444 - foreign_tables_are(schema, tables) missing should have the proper diagnostics
+-ok 445 - foreign_tables_are(tables) missing should fail
+-ok 446 - foreign_tables_are(tables) missing should have the proper description
+-ok 447 - foreign_tables_are(tables) missing should have the proper diagnostics
+-ok 448 - foreign_tables_are(schema, tables) extra should fail
+-ok 449 - foreign_tables_are(schema, tables) extra should have the proper description
+-ok 450 - foreign_tables_are(schema, tables) extra should have the proper diagnostics
+-ok 451 - foreign_tables_are(tables) extra should fail
+-ok 452 - foreign_tables_are(tables) extra should have the proper description
+-ok 453 - foreign_tables_are(tables) extra should have the proper diagnostics
+-ok 454 - foreign_tables_are(schema, tables) extra and missing should fail
+-ok 455 - foreign_tables_are(schema, tables) extra and missing should have the proper description
+-ok 456 - foreign_tables_are(schema, tables) extra and missing should have the proper diagnostics
+-ok 457 - foreign_tables_are(tables) extra and missing should fail
+-ok 458 - foreign_tables_are(tables) extra and missing should have the proper description
+-ok 459 - foreign_tables_are(tables) extra and missing should have the proper diagnostics
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler

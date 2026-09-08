@@ -245,9 +245,14 @@ func TestPgtapSpec_ExcludesPreparedStatementFixtures(t *testing.T) {
 	assert.Equal(t, []ExtensionInstall{{Name: "pgtap"}}, spec.PreCreateExtensions)
 	assert.Equal(t, []string{"citext", "isn", "ltree"}, spec.ContribDeps)
 	assert.Equal(t, []string{
+		// Files whose subject is SQL-level prepared statements (gateway-owned).
 		"sql/performs_ok.sql",
 		"sql/performs_within.sql",
 		"sql/resultset.sql",
 		"sql/valueset.sql",
+		// Excluded for a distinct reason (see the pgtap spec): its whole suite runs
+		// behind set_search_path()'s dynamic session SET, which the gateway rejects,
+		// aborting the wrapping transaction at the top of the file.
+		"sql/privs.sql",
 	}, spec.ExcludeGlobs)
 }

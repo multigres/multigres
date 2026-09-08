@@ -286,6 +286,20 @@ func (c *Conn) WriteError(err error) error {
 	return c.flush()
 }
 
+// WriteNotice writes a NoticeResponse to the client and flushes it. Like
+// WriteError, it is the exported entry point for handlers in other packages
+// that take over a connection outside the normal command loop and need to emit
+// an informational NOTICE — e.g. the replication preamble telling a client its
+// slot was registered for failover. The diagnostic's Severity should be a
+// notice level ("NOTICE", "WARNING", ...); a NoticeResponse is advisory and
+// valid at any point in a command cycle.
+func (c *Conn) WriteNotice(diag *mterrors.PgDiagnostic) error {
+	if werr := c.writeNoticeResponse(diag); werr != nil {
+		return werr
+	}
+	return c.flush()
+}
+
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
 // The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
 // This unified function handles all 14 PostgreSQL diagnostic fields.

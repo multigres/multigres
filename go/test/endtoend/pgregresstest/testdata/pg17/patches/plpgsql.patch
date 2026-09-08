@@ -1,0 +1,80 @@
+# Known divergences (by design): several definitions are rejected by the gateway's
+# PL/pgSQL body analysis: dynamic EXECUTE of runtime-built text (execute_into_test),
+# and bodies PostgreSQL itself rejects at compile (too many/too few RAISE
+# parameters, malformed SQL, an unbound cursor FOR loop) — the latter surface a
+# generic "could not be parsed" message instead of PG's specific error.
+--- a
++++ b
+@@ -2438,16 +2438,14 @@
+ return $1;
+ end;
+ $$ language plpgsql;
+-ERROR: too many parameters specified for RAISE
+-CONTEXT: compilation of PL/pgSQL function "raise_test1" near line 3
++ERROR: the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ create function raise_test2(int) returns int as $$
+ begin
+ raise notice 'This message has too few parameters: %, %, %', $1, $1;
+ return $1;
+ end;
+ $$ language plpgsql;
+-ERROR: too few parameters specified for RAISE
+-CONTEXT: compilation of PL/pgSQL function "raise_test2" near line 3
++ERROR: the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ create function raise_test3(int) returns int as $$
+ begin
+ raise notice 'This message has no parameters (despite having %% signs in it)!';
+@@ -2502,9 +2500,7 @@
+ a := 10;
+ return a;
+ end$$ language plpgsql;
+-ERROR: syntax error at or near "Johnny"
+-LINE 5: Johnny Yuma;
+-^
++ERROR: a PL/pgSQL body fragment could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ create function bad_sql2() returns int as $$
+ declare r record;
+ begin
+@@ -2513,9 +2509,7 @@
+ end loop;
+ return 5;
+ end;$$ language plpgsql;
+-ERROR: syntax error at or near "the"
+-LINE 4: for r in select I fought the law, the law won LOOP
+-^
++ERROR: a PL/pgSQL body fragment could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ -- a RETURN expression is mandatory, except for void-returning
+ -- functions, where it is not allowed
+ create function missing_return_expr() returns int as $$
+@@ -2577,15 +2571,12 @@
+ execute 'select 1,2' into _v;
+ return _v;
+ end; $$ language plpgsql;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ select execute_into_test('eifoo');
+-NOTICE: 10 1
+-NOTICE: 10 15
+-NOTICE: 10 15 20
+-execute_into_test
+--------------------
+-(1,2)
+-(1 row)
+-
++ERROR: function execute_into_test(unknown) does not exist
++LINE 1: select execute_into_test('eifoo');
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ drop table eifoo cascade;
+ drop type eitype cascade;
+ --
+@@ -3651,9 +3642,7 @@
+ end loop;
+ end;
+ $$ language plpgsql;
+-ERROR: cursor FOR loop must use a bound cursor variable
+-LINE 5: for r in c loop
+-^
++ERROR: the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler
+ -- test RETURN QUERY EXECUTE
+ create or replace function return_dquery()
+ returns setof int as $$

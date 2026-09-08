@@ -1030,6 +1030,151 @@ func TestCurrentSettingMaterialized(t *testing.T) {
 	}
 }
 
+// TestStatementTimeoutBoundName reproduces MUL-1468.
+//
+// PostgREST applies role-level settings — e.g. a timeout configured with
+// `ALTER ROLE authenticated SET statement_timeout = '3s'` — once per request
+// transaction, using its *dynamic-name* form (setConfigWithDynamicName in
+// PostgREST's SqlFragment.hs):
+//
+//	SELECT set_config($1, $2, true)   -- $1 and $2 bound; is_local literal true
+//
+// The GUC name is a bound parameter, not a literal. When $1 resolves to
+// statement_timeout (a gateway-managed variable), the multigateway rejects the
+// statement at execute time:
+//
+//	set_config with a parameter-bound name resolving to gateway-managed
+//	variable "statement_timeout" is not supported; use a literal name
+//
+// (engine/apply_session_state.go). Because PostgREST issued this on *every*
+// request for a role that had statement_timeout set, every such request failed.
+//
+// The fix stops rejecting in engine.resolveSetConfig for the is_local=true case:
+// the gateway applies the value to its own state (via
+// prepareTrackedSetActionWithExchange) instead of failing, and the paired Route
+// runs the set_config on the backend transaction-locally, so it reverts and never
+// persists on a pooled backend. PostgreSQL returns the same canonical value the
+// client sees. A session-scoped (is_local=false) bound-name GMV is still rejected
+// — a deliberate, documented limitation (a pinned session would persist it on the
+// reserved backend); PostgREST always uses is_local=true. This dual-target
+// differential test grounds the behavior in native PostgreSQL.
+//
+// Note on why PostgREST's imported test suite does not catch this: multigres
+// runs only PostgREST's Haskell hspec `test:spec` suite, whose fixtures
+// (test/spec/fixtures/) contain no `ALTER ROLE ... SET` and no function-level
+// `SET statement_timeout`, so the dynamic-name form is never emitted there. All
+// of PostgREST's statement_timeout coverage lives in its separate Python
+// `test/io/test_io.py` suite (via a helper that runs `ALTER ROLE ... SET
+// statement_timeout`), which multigres does not run.
+func TestStatementTimeoutBoundName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping bound-name statement_timeout test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping bound-name statement_timeout test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err)
+			defer db.Close()
+
+			// Pin one backend so session/txn GUC state persists across statements.
+			db.SetMaxOpenConns(1)
+
+			ctx := utils.WithTimeout(t, 150*time.Second)
+			require.NoError(t, db.PingContext(ctx))
+
+			show := func(t *testing.T, q querier) string {
+				t.Helper()
+				var v string
+				require.NoError(t, q.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&v))
+				return v
+			}
+
+			// The exact PostgREST role-setting shape: a bound NAME and a bound
+			// VALUE with a literal is_local=true, run inside a transaction (as
+			// PostgREST does). $1 resolves to statement_timeout.
+			t.Run("postgrest role-setting shape set_config($1,$2,true)", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "SET statement_timeout = 0")
+				require.NoError(t, err)
+
+				tx, err := db.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback() }()
+
+				var ret string
+				err = tx.QueryRowContext(ctx,
+					"SELECT set_config($1, $2, true)", "statement_timeout", "2000").Scan(&ret)
+				require.NoError(t, err,
+					"a bound set_config name resolving to statement_timeout must be handled, not rejected")
+				assert.Equal(t, "2s", ret, "set_config returns the canonical applied value")
+
+				assert.Equal(t, "2s", show(t, tx),
+					"the transaction-local statement_timeout must be the effective value")
+
+				require.NoError(t, tx.Commit())
+			})
+
+			// Ground truth: the bound-name set_config must actually enforce the
+			// timeout on a slow query in the same transaction.
+			t.Run("bound-name set_config enforces the timeout", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "SET statement_timeout = 0")
+				require.NoError(t, err)
+
+				tx, err := db.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback() }()
+
+				var ret string
+				require.NoError(t, tx.QueryRowContext(ctx,
+					"SELECT set_config($1, $2, true)", "statement_timeout", "300ms").Scan(&ret))
+				require.Equal(t, "300ms", ret)
+
+				start := time.Now()
+				_, err = tx.ExecContext(ctx, "SELECT pg_sleep(3)")
+				elapsed := time.Since(start)
+				assertQueryCanceled(t, err)
+				assert.Less(t, elapsed, 2*time.Second,
+					"timeout should fire well before the 3s sleep completes")
+			})
+
+			// Session-scoped variant of the same bound-name shape
+			// (set_config($1, $2, false)): a deliberate, documented divergence.
+			// PostgreSQL applies it as a session value; the multigateway rejects it
+			// because a pinned session would persist a gateway-managed variable on
+			// its reserved backend (see engine.resolveSetConfig). PostgREST always
+			// uses is_local=true, so it is unaffected. Relax when session-scoped
+			// dynamic-name GMVs are needed.
+			t.Run("session bound-name set_config($1,$2,false)", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "SET statement_timeout = 0")
+				require.NoError(t, err)
+
+				var ret string
+				err = db.QueryRowContext(ctx,
+					"SELECT set_config($1, $2, false)", "statement_timeout", "4000").Scan(&ret)
+				if target.Name == "postgres" {
+					require.NoError(t, err, "native PostgreSQL applies it as a session value")
+					assert.Equal(t, "4s", ret)
+				} else {
+					require.Error(t, err, "the multigateway rejects a session-scoped bound-name GMV set_config")
+					assert.Contains(t, err.Error(), "only supported with is_local=true",
+						"the rejection must point at the supported spelling")
+				}
+
+				// Reset so it does not bleed into later subtests.
+				_, err = db.ExecContext(ctx, "SET statement_timeout = 0")
+				require.NoError(t, err)
+			})
+		})
+	}
+}
+
 // querier is the subset of database/sql shared by *sql.DB and *sql.Tx that the
 // SHOW helper needs.
 type querier interface {

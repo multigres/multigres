@@ -206,6 +206,10 @@ func (ts *store) UpdateMultiorchFields(ctx context.Context, id *clustermetadatap
 }
 
 // CreateMultiorch creates a new multiorch and all associated paths.
+//
+// The record is permanent — it carries no liveness binding and will outlive
+// the process that wrote it. Component self-registration must go through
+// RegisterMultiorch, which creates an ephemeral record instead.
 func (ts *store) CreateMultiorch(ctx context.Context, mtorch *clustermetadatapb.Multiorch) error {
 	conn, err := ts.ConnForCell(ctx, mtorch.Id.Cell)
 	if err != nil {
@@ -239,22 +243,36 @@ func (ts *store) UnregisterMultiorch(ctx context.Context, id *clustermetadatapb.
 	return nil
 }
 
-// RegisterMultiorch creates or updates a multiorch. If allowUpdate is true,
-// and a multiorch with the same ID exists, just update it.
+// RegisterMultiorch creates or updates a multiorch. If allowUpdate is false
+// and a multiorch with the same ID already exists, it returns NodeExists.
+//
+// The registration is ephemeral: backends with liveness support (etcd
+// leases) bind it to this process, so a multiorch that dies without
+// unregistering — SIGKILL, OOM, node loss — disappears from the topology on
+// its own instead of leaking a permanent entry.
 func (ts *store) RegisterMultiorch(ctx context.Context, mtorch *clustermetadatapb.Multiorch, allowUpdate bool) error {
-	err := ts.CreateMultiorch(ctx, mtorch)
-	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
-		// Try to update then
-		oldMtOrch, err := ts.GetMultiorch(ctx, mtorch.Id)
-		if err != nil {
+	conn, err := ts.ConnForCell(ctx, mtorch.Id.Cell)
+	if err != nil {
+		return err
+	}
+
+	orchPath := path.Join(OrchsPath, string(ComponentIDString(mtorch.Id)), OrchFile)
+	if !allowUpdate {
+		// Existence check to preserve NodeExists semantics. Not atomic
+		// with the put below, but IDs are unique per process instance, so
+		// concurrent registration of the same ID doesn't happen in
+		// practice.
+		switch _, _, err := conn.Get(ctx, orchPath); {
+		case err == nil:
+			return NewError(NodeExists, orchPath)
+		case !errors.Is(err, &TopoError{Code: NoNode}):
 			return fmt.Errorf("failed reading existing mtorch %v: %w", ComponentIDString(mtorch.Id), err)
 		}
-
-		oldMtOrch.Multiorch = proto.Clone(mtorch).(*clustermetadatapb.Multiorch)
-		if err := ts.UpdateMultiorch(ctx, oldMtOrch); err != nil {
-			return fmt.Errorf("failed updating mtorch %v: %w", ComponentIDString(mtorch.Id), err)
-		}
-		return nil
 	}
-	return err
+
+	data, err := proto.Marshal(mtorch)
+	if err != nil {
+		return err
+	}
+	return conn.PutEphemeral(ctx, orchPath, data)
 }

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,7 +31,8 @@ import (
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// List retrieves backup metadata, applying the given limit when non-zero.
+// List retrieves backup metadata sorted newest-first by start time, applying
+// the given limit when non-zero.
 func (e *Engine) List(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	backups, err := e.ListBackups(ctx)
 	if err != nil {
@@ -45,7 +47,8 @@ func (e *Engine) List(ctx context.Context, limit uint32) ([]*multipoolermanagerd
 	return backups, nil
 }
 
-// ListBackups retrieves backup metadata from pgbackrest.
+// ListBackups retrieves backup metadata from pgbackrest, sorted newest-first
+// by start time.
 func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	configPath, err := e.requireConfigPath()
 	if err != nil {
@@ -73,7 +76,25 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 	if err := repoStatusError(infoData); err != nil {
 		return nil, err
 	}
-	return e.parseBackups(ctx, infoData), nil
+	backups := e.parseBackups(ctx, infoData)
+
+	// Sort by StartTimestamp descending rather than relying on pgbackrest to
+	// report backups in a particular order. Falls back to comparing BackupId
+	// (pgbackrest's label is itself a sortable YYYYMMDD-HHMMSS-derived
+	// string) when a timestamp is missing or tied, so ordering stays
+	// well-defined even for the rare backup pgbackrest didn't report a start
+	// time for.
+	slices.SortFunc(backups, func(a, b *multipoolermanagerdata.BackupMetadata) int {
+		at, bt := a.GetStartTimestamp(), b.GetStartTimestamp()
+		if at != nil && bt != nil {
+			if c := bt.AsTime().Compare(at.AsTime()); c != 0 {
+				return c
+			}
+		}
+		return strings.Compare(b.BackupId, a.BackupId)
+	})
+
+	return backups, nil
 }
 
 // repoStatusError inspects the per-repository status pgbackrest reports and

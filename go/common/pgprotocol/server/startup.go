@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
@@ -507,6 +508,15 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
 
+	// multigres.unsafe_connection is a gateway-only connect-time property, not a
+	// backend GUC. Extract and strip it here so it never reaches a backend (it
+	// would be rejected as unrecognized) and does not trip the restricted-GUC
+	// vetting below. A truthy value latches unsafe connection for the connection.
+	// The deprecated alias multigres.direct_connection is handled the same way.
+	if err := c.extractUnsafeConnectionParam(); err != nil {
+		return err
+	}
+
 	// A GUC supplied at connect time (directly or via options=-c ...) flows
 	// through GetStartupParams into the session settings applied to pooled
 	// backends, bypassing the planner's SET guard — so every guard the SET
@@ -539,6 +549,35 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 
 	// Now perform authentication.
 	return c.authenticate()
+}
+
+// extractUnsafeConnectionParam pulls multigres.unsafe_connection
+// (constants.UnsafeConnectionParam) — and its deprecated alias
+// multigres.direct_connection (constants.DirectConnectionParam) — out of the
+// startup parameters and, if truthy, latches unsafe connection for the
+// connection. It removes the keys so they never flow to a backend or trip the
+// restricted-GUC vetting. A malformed Boolean value is a FATAL startup error,
+// matching how PostgreSQL rejects a bad Boolean GUC. Enabling unsafe connection
+// is not gated on a role privilege — see Conn.unsafeConnection.
+func (c *Conn) extractUnsafeConnectionParam() error {
+	// Recognize the current name and the deprecated alias. Both are stripped so
+	// neither reaches a backend; either being truthy latches the connection.
+	for _, name := range []string{constants.UnsafeConnectionParam, constants.DirectConnectionParam} {
+		value, ok := c.params[name]
+		if !ok {
+			continue
+		}
+		delete(c.params, name)
+		on, valid := sqltypes.ParseBool(value)
+		if !valid {
+			return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidParameterValue,
+				fmt.Sprintf("parameter %q requires a Boolean value", name), "")
+		}
+		if on {
+			c.unsafeConnection = true
+		}
+	}
+	return nil
 }
 
 // startupParamError vets one startup parameter against the guards that also

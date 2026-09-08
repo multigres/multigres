@@ -301,8 +301,14 @@ func (sc *ScatterConn) StreamExecute(
 		// If this query touches a temp table, a session-level advisory lock, or
 		// a logical replication slot, add the corresponding reason(s) so the
 		// multipooler keeps the backend pinned accordingly. Promotes an existing
-		// reservation (e.g. an open transaction) to also hold these reasons.
-		if reasons := reservationReasonsForExecInfo(info); reasons != 0 {
+		// reservation (e.g. an open transaction) to also hold these reasons. A
+		// unsafe connection ORs in its reason too, so an already-reserved backend
+		// stays pinned+quarantined once the other reason (e.g. the transaction) ends.
+		reasons := reservationReasonsForExecInfo(info)
+		if conn.UnsafeConnection() {
+			reasons |= protoutil.ReasonUnsafeConnection
+		}
+		if reasons != 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
@@ -374,10 +380,15 @@ func (sc *ScatterConn) StreamExecute(
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || len(pinPortalNames) > 0 {
+	if conn.IsInTransaction() || conn.UnsafeConnection() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || len(pinPortalNames) > 0 {
 		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
+		}
+		// A unsafe connection reserves (and quarantines) its own backend on every
+		// statement — including plain ones that would otherwise skip reservation.
+		if conn.UnsafeConnection() {
+			reasons |= protoutil.ReasonUnsafeConnection
 		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
@@ -554,17 +565,27 @@ func (sc *ScatterConn) PortalStreamExecute(
 		if info.SetSeed {
 			reasons |= protoutil.ReasonSetSeed
 		}
+		// A unsafe connection keeps its reason on the already-reserved backend so
+		// it stays pinned+quarantined after the other reason ends.
+		if conn.UnsafeConnection() {
+			reasons |= protoutil.ReasonUnsafeConnection
+		}
 		if reasons != 0 {
 			reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed {
+	} else if conn.IsInTransaction() || conn.UnsafeConnection() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
-		// advisory lock, or a combination. Build reservation options the same way
-		// the simple StreamExecute path does and pass them on the portal RPC; the
-		// multipooler reserves-and-runs atomically.
+		// advisory lock, unsafe connection, or a combination. Build reservation
+		// options the same way the simple StreamExecute path does and pass them on
+		// the portal RPC; the multipooler reserves-and-runs atomically.
 		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
+		}
+		// A unsafe connection reserves (and quarantines) its own backend on every
+		// statement — including plain ones that would otherwise skip reservation.
+		if conn.UnsafeConnection() {
+			reasons |= protoutil.ReasonUnsafeConnection
 		}
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
@@ -1019,8 +1040,18 @@ func (sc *ScatterConn) CopyOutInitiate(
 		// AND CHAIN signal that the new transaction has not run a statement
 		// yet; clear it now that one has.
 		state.PendingBeginQuery = ""
-	} else if conn.IsInTransaction() {
-		reservationOpts = protoutil.NewTransactionReservationOptions()
+	} else if conn.IsInTransaction() || conn.UnsafeConnection() {
+		// A transaction needs a reserved connection (with a possibly deferred
+		// BEGIN); an unsafe connection needs its backend pinned and quarantined even
+		// for a first COPY, so untracked session state a trigger or function changes
+		// mid-COPY is never recycled to another client. Either — or both — reserves.
+		reservationOpts = &querypb.ReservationOptions{}
+		if conn.IsInTransaction() {
+			reservationOpts.Reasons |= protoutil.ReasonTransaction
+		}
+		if conn.UnsafeConnection() {
+			reservationOpts.Reasons |= protoutil.ReasonUnsafeConnection
+		}
 		if state.HasTempTableReservation() {
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
 		}
@@ -1176,10 +1207,19 @@ func (sc *ScatterConn) CopyInitiate(
 		// AND CHAIN signal that the new transaction has not run a statement
 		// yet; clear it now that one has.
 		state.PendingBeginQuery = ""
-	} else if conn.IsInTransaction() {
-		// Deferred BEGIN: pass transaction reservation options so the executor
-		// executes BEGIN on the new connection before initiating COPY.
-		reservationOpts = protoutil.NewTransactionReservationOptions()
+	} else if conn.IsInTransaction() || conn.UnsafeConnection() {
+		// A transaction needs a reserved connection with a (possibly deferred)
+		// BEGIN executed before COPY; an unsafe connection needs its backend pinned
+		// and quarantined even for a first COPY, so untracked session state a
+		// trigger or function changes mid-COPY is never recycled to another client.
+		// Either — or both — reserves here.
+		reservationOpts = &querypb.ReservationOptions{}
+		if conn.IsInTransaction() {
+			reservationOpts.Reasons |= protoutil.ReasonTransaction
+		}
+		if conn.UnsafeConnection() {
+			reservationOpts.Reasons |= protoutil.ReasonUnsafeConnection
+		}
 		if state.HasTempTableReservation() {
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
 		}

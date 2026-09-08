@@ -18,8 +18,11 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"testing"
 	"time"
+
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
@@ -71,7 +74,104 @@ func TestEtcd2Topo(t *testing.T) {
 	testDatabaseLock(t, ts)
 	testLockNameWithTTL(t, ts)
 	testTryLockName(t, ts)
+	testEphemeralLeaseRenewal(t, ts, clientAddr)
 	ts.Close()
+
+	// The expiry test closes its server itself, so it gets its own.
+	testEphemeralExpiresOnClose(t, newServer(), clientAddr)
+}
+
+// testEphemeralLeaseRenewal verifies that ephemeral files carry a lease, that
+// files sharing a connection share it, and that after the lease ends the
+// connection grants a fresh one on the next write rather than failing
+// forever. Re-writing after a lease loss is the owner's job (toporeg's
+// re-assertion loop); this covers the half the connection owns.
+func testEphemeralLeaseRenewal(t *testing.T, ts topoclient.Store, clientAddr string) {
+	restore := etcdtopo.SetLeaseTTLForTest(2)
+	defer restore()
+
+	ctx := context.Background()
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err, "ConnForCell failed")
+
+	require.NoError(t, conn.PutEphemeral(ctx, "ephemeral/gw-a", []byte("a")))
+	require.NoError(t, conn.PutEphemeral(ctx, "ephemeral/gw-b", []byte("b")))
+
+	// Raw client to inspect and revoke the lease out-of-band.
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{clientAddr}, DialTimeout: 5 * time.Second})
+	require.NoError(t, err, "raw etcd client failed")
+	defer cli.Close()
+
+	fullKeyA, leaseID := findEphemeralKey(t, cli, "ephemeral/gw-a")
+	require.NotZero(t, leaseID, "ephemeral file must carry a lease")
+	_, leaseB := findEphemeralKey(t, cli, "ephemeral/gw-b")
+	require.Equal(t, leaseID, leaseB, "files on one connection should share its lease")
+
+	// Revoking out-of-band is what an expiry after a long outage looks like:
+	// etcd deletes every key bound to the lease.
+	_, err = cli.Revoke(ctx, clientv3.LeaseID(leaseID))
+	require.NoError(t, err, "lease revoke failed")
+	require.Eventually(t, func() bool {
+		resp, err := cli.Get(ctx, fullKeyA)
+		return err == nil && len(resp.Kvs) == 0
+	}, 10*time.Second, 100*time.Millisecond, "revoking the lease should delete its files")
+
+	// The owner re-asserting: the write must succeed on a fresh lease
+	// instead of failing against the dead one.
+	require.Eventually(t, func() bool {
+		return conn.PutEphemeral(ctx, "ephemeral/gw-a", []byte("a")) == nil
+	}, 10*time.Second, 100*time.Millisecond, "write after lease loss should grant a fresh lease")
+
+	resp, err := cli.Get(ctx, fullKeyA)
+	require.NoError(t, err)
+	require.Len(t, resp.Kvs, 1)
+	require.NotZero(t, resp.Kvs[0].Lease, "re-written file must carry a lease")
+	require.NotEqual(t, leaseID, resp.Kvs[0].Lease, "re-written file must be on a fresh lease")
+}
+
+// testEphemeralExpiresOnClose verifies the core liveness promise: when the
+// process stops renewing (here: the store is closed), etcd deletes the
+// ephemeral files on its own within one TTL. This is what prevents a
+// SIGKILLed component from leaking a permanent registration.
+func testEphemeralExpiresOnClose(t *testing.T, ts topoclient.Store, clientAddr string) {
+	restore := etcdtopo.SetLeaseTTLForTest(2)
+	defer restore()
+
+	ctx := context.Background()
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err, "ConnForCell failed")
+	require.NoError(t, conn.PutEphemeral(ctx, "ephemeral/gw-dead", []byte("dead")))
+
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{clientAddr}, DialTimeout: 5 * time.Second})
+	require.NoError(t, err, "raw etcd client failed")
+	defer cli.Close()
+
+	fullKey, leaseID := findEphemeralKey(t, cli, "ephemeral/gw-dead")
+	require.NotZero(t, leaseID, "ephemeral file must carry a lease")
+
+	// "Kill" the process: renewals stop with the store.
+	require.NoError(t, ts.Close())
+
+	require.Eventually(t, func() bool {
+		resp, err := cli.Get(ctx, fullKey)
+		return err == nil && len(resp.Kvs) == 0
+	}, 15*time.Second, 200*time.Millisecond, "ephemeral file should expire after its owner stops renewing")
+}
+
+// findEphemeralKey locates the full etcd key ending in suffix and returns it
+// with its lease ID. The full key depends on the per-test root, so it is
+// discovered by scanning rather than computed.
+func findEphemeralKey(t *testing.T, cli *clientv3.Client, suffix string) (string, int64) {
+	t.Helper()
+	resp, err := cli.Get(context.Background(), "/", clientv3.WithPrefix())
+	require.NoError(t, err, "raw etcd scan failed")
+	for _, kv := range resp.Kvs {
+		if strings.HasSuffix(string(kv.Key), suffix) {
+			return string(kv.Key), kv.Lease
+		}
+	}
+	t.Fatalf("no etcd key found with suffix %q", suffix)
+	return "", 0
 }
 
 // testDatabaseLock tests etcd-specific heartbeat (TTL).

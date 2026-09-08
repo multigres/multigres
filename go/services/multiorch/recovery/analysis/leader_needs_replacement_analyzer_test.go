@@ -69,12 +69,18 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// freshFollower builds an initialized, freshly-observed follower rider. It has
 	// no replication status, so it counts as reachable/initialized (for recruitment
 	// feasibility) but is NOT streaming from the leader (does not vouch) until
-	// connectReplica gives it a live stream.
+	// connectReplica gives it a live stream. It carries a minimal cached
+	// position (recruitable requires one) but no rule, so it doesn't
+	// independently vouch for the leader either.
 	freshFollower := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:              id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/1"},
+			},
 		})
 	}
 
@@ -203,8 +209,9 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// ReplicasConnectedToLeader verdict.
 	connectReplica := func(sa *ShardAnalysis) {
 		for i, pa := range sa.Analyses {
+			id := poolerID(pa)
 			sa.Analyses[i] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{Id: poolerID(pa), ShardKey: shardKey},
+				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
@@ -214,6 +221,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 						WalReceiverStatus:  "streaming",
 						LastMsgReceiveTime: timestamppb.New(sa.Now),
 					},
+				},
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id:              id,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/1"},
 				},
 			}, nil)
 		}
@@ -379,6 +390,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 				LastSeen:    timestamppb.New(now),
 				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id:              id,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/1"},
 					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
 						Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -815,6 +828,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 						WalReceiverStatus:  "streaming",
 						LastMsgReceiveTime: timestamppb.New(sa.Now),
 					},
+				},
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id:              follower1ID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/1"},
 				},
 			}, nil)
 		})

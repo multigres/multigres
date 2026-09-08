@@ -151,6 +151,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 	if err := builder.EnsureSource(t, buildCtx); err != nil {
 		t.Fatalf("Failed to setup PostgreSQL source: %v", err)
 	}
+	if runRegress {
+		if err := builder.PrepareExpectedVariants(buildCtx); err != nil {
+			t.Fatalf("Failed to prepare PostgreSQL expected-output variants: %v", err)
+		}
+	}
 
 	// Phase 2: Build PostgreSQL
 	t.Logf("Phase 2: Building PostgreSQL...")
@@ -245,6 +250,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Run("regression", func(t *testing.T) {
 			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 			defer cancel()
+			// Scaffolding helper functions are pre-seeded through a gateway direct
+			// connection (see preseedRegressHelpers), so no direct-postgres port is needed.
 			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {

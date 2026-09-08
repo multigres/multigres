@@ -1446,6 +1446,32 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	assert.False(t, result)
 }
 
+func TestLatestCompleteBackup_PicksFirstCompleteInNewestFirstOrder(t *testing.T) {
+	// ListBackups now returns backups newest-first, so latestCompleteBackup
+	// must pick the first COMPLETE entry -- not the last -- skipping over
+	// any newer INCOMPLETE ones. Getting this backwards would restore from
+	// the oldest complete backup instead of the newest.
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "newest-incomplete", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+		{BackupId: "newest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+		{BackupId: "oldest-complete", Status: multipoolermanagerdatapb.BackupMetadata_COMPLETE},
+	}
+
+	got := latestCompleteBackup(backups)
+
+	require.NotNil(t, got)
+	assert.Equal(t, "newest-complete", got.BackupId)
+}
+
+func TestLatestCompleteBackup_NilWhenNoneComplete(t *testing.T) {
+	backups := []*multipoolermanagerdatapb.BackupMetadata{
+		{BackupId: "b1", Status: multipoolermanagerdatapb.BackupMetadata_INCOMPLETE},
+	}
+
+	assert.Nil(t, latestCompleteBackup(backups))
+	assert.Nil(t, latestCompleteBackup(nil))
+}
+
 func TestStartPostgres_Success(t *testing.T) {
 	ctx := t.Context()
 

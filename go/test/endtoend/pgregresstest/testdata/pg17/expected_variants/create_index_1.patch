@@ -1,0 +1,92 @@
+# Valid alternative under physical replication with hot_standby_feedback=on.
+# A freshly loaded table may not be all-visible when VACUUM first runs, making
+# PostgreSQL choose bitmap heap scans instead of index-only scans.
+--- a
++++ b
+@@ -1922,11 +1922,15 @@
+ SELECT unique1 FROM tenk1
+ WHERE unique1 IN (1,42,7)
+ ORDER BY unique1;
+-                      QUERY PLAN                       
+--------------------------------------------------------
+- Index Only Scan using tenk1_unique1 on tenk1
+-   Index Cond: (unique1 = ANY ('{1,42,7}'::integer[]))
+-(2 rows)
++                            QUERY PLAN                             
++-------------------------------------------------------------------
++ Sort
++   Sort Key: unique1
++   ->  Bitmap Heap Scan on tenk1
++         Recheck Cond: (unique1 = ANY ('{1,42,7}'::integer[]))
++         ->  Bitmap Index Scan on tenk1_unique1
++               Index Cond: (unique1 = ANY ('{1,42,7}'::integer[]))
++(6 rows)
+ 
+ SELECT unique1 FROM tenk1
+ WHERE unique1 IN (1,42,7)
+@@ -2037,11 +2041,13 @@
+ 
+ explain (costs off)
+ SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 >= 42;
+-                                 QUERY PLAN                                  
+------------------------------------------------------------------------------
+- Index Only Scan using tenk1_unique1 on tenk1
+-   Index Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 >= 42))
+-(2 rows)
++                                    QUERY PLAN                                     
++-----------------------------------------------------------------------------------
++ Bitmap Heap Scan on tenk1
++   Recheck Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 >= 42))
++   ->  Bitmap Index Scan on tenk1_unique1
++         Index Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 >= 42))
++(4 rows)
+ 
+ SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 >= 42;
+  unique1 
+@@ -2051,11 +2057,13 @@
+ 
+ explain (costs off)
+ SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 > 42;
+-                                 QUERY PLAN                                 
+-----------------------------------------------------------------------------
+- Index Only Scan using tenk1_unique1 on tenk1
+-   Index Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 > 42))
+-(2 rows)
++                                    QUERY PLAN                                    
++----------------------------------------------------------------------------------
++ Bitmap Heap Scan on tenk1
++   Recheck Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 > 42))
++   ->  Bitmap Index Scan on tenk1_unique1
++         Index Cond: ((unique1 = ANY ('{1,42,7}'::integer[])) AND (unique1 > 42))
++(4 rows)
+ 
+ SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 > 42;
+  unique1 
+@@ -2078,18 +2086,20 @@
+ 
+ explain (costs off)
+ SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 <= 3;
+-                    QUERY PLAN                    
+---------------------------------------------------
+- Index Only Scan using tenk1_unique1 on tenk1
+-   Index Cond: ((unique1 < 3) AND (unique1 <= 3))
+-(2 rows)
++                       QUERY PLAN                       
++--------------------------------------------------------
++ Bitmap Heap Scan on tenk1
++   Recheck Cond: ((unique1 < 3) AND (unique1 <= 3))
++   ->  Bitmap Index Scan on tenk1_unique1
++         Index Cond: ((unique1 < 3) AND (unique1 <= 3))
++(4 rows)
+ 
+ SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 <= 3;
+  unique1 
+ ---------
+-       0
++       2
+        1
+-       2
++       0
+ (3 rows)
+ 
+ explain (costs off)

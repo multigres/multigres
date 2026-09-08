@@ -168,10 +168,45 @@ func runReplicationPreamble(
 				}
 				return false, nil, rejectErr
 			}
+
+			// 3b. Enforce failover: with the feature on, refuse an
+			// ALTER_REPLICATION_SLOT that would turn FAILOVER off. Multigres
+			// auto-marks every non-temporary logical slot as a failover slot
+			// (step 3c), so it will not let a client silently opt back out and
+			// lose HA. Enabling failover or changing only TWO_PHASE passes
+			// through.
+			if admitFailoverSlots && alterReplicationSlotDisablesFailover(cmd) {
+				rejectErr := mterrors.NewFeatureNotSupported(
+					"ALTER_REPLICATION_SLOT cannot disable FAILOVER: Multigres keeps every non-temporary logical slot registered for failover",
+				)
+				if werr := conn.WriteError(rejectErr); werr != nil {
+					return false, nil, werr
+				}
+				return false, nil, rejectErr
+			}
+
+			// 3c. Auto-mark: with the feature on, inject FAILOVER into a
+			// non-temporary logical CREATE_REPLICATION_SLOT that omits it, so
+			// the slot is created as a failover slot without client opt-in.
+			// The rewritten command replaces the body forwarded to the pooler
+			// below; length stays in sync (== len(body)). A NOTICE tells the
+			// client its slot was registered for failover — advisory, and valid
+			// before the command's own result (postgres emits notices mid-command
+			// the same way). For a real subscriber it surfaces in that server's
+			// log via its notice processor.
+			if admitFailoverSlots {
+				if rewritten, changed := rewriteCreateReplicationSlotAddFailover(cmd); changed {
+					body = append([]byte(rewritten), 0)
+					length = len(body)
+					if werr := conn.WriteNotice(autoFailoverNotice); werr != nil {
+						return false, nil, werr
+					}
+				}
+			}
 		}
 
-		// 4. Forward the (accepted) command to the pooler's replication stream
-		// verbatim.
+		// 4. Forward the (accepted, possibly rewritten) command to the pooler's
+		// replication stream.
 		raw := rawClientMessage(msgType, length, body)
 		if serr := stream.Send(&multipoolerservice.StreamReplicationRequest{
 			Msg: &multipoolerservice.StreamReplicationRequest_Data{Data: raw},
@@ -230,28 +265,31 @@ func unsupportedPreambleMessageError(msgType byte) error {
 	)
 }
 
-// nonTemporaryCreateReplicationSlotError returns a rejection error if cmd is
-// a CREATE_REPLICATION_SLOT command that does not request a TEMPORARY slot,
-// or nil if cmd is anything else / already requests TEMPORARY. A non-temporary
+// nonTemporaryCreateReplicationSlotError returns a rejection error if cmd is a
+// CREATE_REPLICATION_SLOT command that does not request a TEMPORARY slot, or
+// nil if cmd is anything else / already requests TEMPORARY. A non-temporary
 // slot could not previously be carried across a primary failover, so only
 // ephemeral (client-lifetime) slots were safe.
 //
-// When admitFailoverSlots is true (the slot-based-replication feature is on) a
-// non-temporary LOGICAL slot registered for failover is also admitted: such a
-// slot is synced to standbys and can be transitioned across a promotion. This
-// is exactly the command a real PostgreSQL 17 subscriber sends for
-// CREATE SUBSCRIPTION ... WITH (failover = true) — the FAILOVER option rides in
-// the CREATE_REPLICATION_SLOT command itself (verified in
-// go/test/endtoend/subscriptionwire), so no ALTER_REPLICATION_SLOT follow-up
+// When admitFailoverSlots is true (the slot-based-replication feature is on)
+// every non-temporary LOGICAL slot is admitted, not just one that already
+// requests failover: a slot registered for failover (the command a real
+// PostgreSQL 17 subscriber sends for CREATE SUBSCRIPTION ... WITH (failover =
+// true), verified in go/test/endtoend/subscriptionwire) is admitted as-is, and
+// one that omits FAILOVER is auto-marked by
+// rewriteCreateReplicationSlotAddFailover before it reaches postgres so it too
+// becomes a failover slot. Only a deliberate FAILOVER false is an opt-out and
+// stays rejected. Because the FAILOVER option rides in the
+// CREATE_REPLICATION_SLOT command itself, no ALTER_REPLICATION_SLOT follow-up
 // needs to be tracked.
 //
 // No grammar exists in this codebase for the replication protocol's command
-// language (see go/common/parser/ast/replication.go — the AST nodes exist
-// but nothing constructs them), so this is deliberately a lightweight
-// tokenizer, not a parser: CREATE_REPLICATION_SLOT slot_name [TEMPORARY]
-// {PHYSICAL | LOGICAL output_plugin [ ( option [, ...] ) ]}. TEMPORARY, if
-// present, appears between the slot name and the PHYSICAL/LOGICAL keyword; the
-// FAILOVER option appears in the parenthesized list after the plugin.
+// language (see go/common/parser/ast/replication.go — the AST nodes exist but
+// nothing constructs them), so this is deliberately a lightweight tokenizer,
+// not a parser: CREATE_REPLICATION_SLOT slot_name [TEMPORARY] {PHYSICAL |
+// LOGICAL output_plugin [ ( option [, ...] ) ]}. TEMPORARY, if present, appears
+// between the slot name and the PHYSICAL/LOGICAL keyword; the FAILOVER option
+// appears in the parenthesized list after the plugin.
 func nonTemporaryCreateReplicationSlotError(cmd string, admitFailoverSlots bool) error {
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 || !strings.EqualFold(fields[0], "CREATE_REPLICATION_SLOT") {
@@ -273,52 +311,176 @@ func nonTemporaryCreateReplicationSlotError(cmd string, admitFailoverSlots bool)
 			break
 		}
 	}
-	// Non-temporary. Admit only a LOGICAL failover slot, and only when the
-	// feature is enabled.
+	// Non-temporary. With the feature enabled, admit any LOGICAL slot except an
+	// explicit opt-out: one that already requests failover is a failover slot
+	// as-is, and one that omits FAILOVER is auto-marked — the option is injected
+	// before the command reaches postgres (rewriteCreateReplicationSlotAddFailover).
+	// A deliberate FAILOVER false stays rejected, as do PHYSICAL slots, which
+	// cannot be failover slots.
 	if admitFailoverSlots && kindIdx >= 0 && strings.EqualFold(fields[kindIdx], "LOGICAL") &&
-		createReplicationSlotHasFailover(fields[kindIdx+1:]) {
+		createReplicationSlotFailover(fields[kindIdx+1:]) != failoverDisabled {
 		return nil
 	}
 	return mterrors.NewNonTemporaryReplicationSlotError("CREATE_REPLICATION_SLOT", "TEMPORARY")
 }
 
-// createReplicationSlotHasFailover reports whether the tokens following the
-// LOGICAL keyword of a CREATE_REPLICATION_SLOT command request failover. The
-// first token is the output plugin; its options follow in PostgreSQL 17's
-// parenthesized, comma-separated list — e.g. `pgoutput (FAILOVER, SNAPSHOT
-// 'nothing')`. Parentheses and commas are normalized to spaces so an option
-// glued to a paren or comma is still seen as its own token. A bare FAILOVER
-// means true; an explicit boolean value (FAILOVER false/off/no/0/...) is
-// interpreted with sqltypes.ParseBool, which mirrors PostgreSQL's own
-// parse_bool_with_len.
-//
-// It is conservative in the safe direction: it admits only when a FAILOVER
-// option is unambiguously present and not set false, so a parse it doesn't
-// understand rejects (never wrongly admits a non-failover, non-temporary slot).
-// The only false positive would be an output plugin literally named "failover",
-// which does not exist.
-func createReplicationSlotHasFailover(tokens []string) bool {
+// failoverOption is the state of the FAILOVER option in the parenthesized
+// option list of a CREATE_REPLICATION_SLOT ... LOGICAL command.
+type failoverOption int
+
+const (
+	failoverAbsent   failoverOption = iota // no FAILOVER option present
+	failoverEnabled                        // FAILOVER, or FAILOVER <true-ish>
+	failoverDisabled                       // FAILOVER <false-ish>
+)
+
+// slotOptionTokens splits a replication-command option list into individual
+// option tokens. Parentheses and commas are normalized to spaces so an option
+// glued to a paren or comma — e.g. the glued form `pgoutput(FAILOVER)` or
+// `(FAILOVER,SNAPSHOT ...)` — still separates into its own token, then the
+// result is whitespace-split.
+func slotOptionTokens(tokens []string) []string {
 	normalized := strings.Map(func(r rune) rune {
 		if r == '(' || r == ')' || r == ',' {
 			return ' '
 		}
 		return r
 	}, strings.Join(tokens, " "))
-	opts := strings.Fields(normalized)
+	return strings.Fields(normalized)
+}
+
+// failoverFromOptions classifies the FAILOVER option within an already-split
+// option list (no output plugin among the tokens). A bare FAILOVER means
+// enabled; an explicit boolean value (FAILOVER false/off/no/0/...) is
+// interpreted with sqltypes.ParseBool, which mirrors PostgreSQL's own
+// parse_bool_with_len. A value it can't parse leaves the option enabled (the
+// conservative direction — never silently disables). The three states let a
+// caller tell an absent option (auto-marked) apart from a deliberate opt-out
+// (rejected).
+func failoverFromOptions(opts []string) failoverOption {
 	for i, opt := range opts {
-		if strings.EqualFold(opt, "FAILOVER") {
-			// A bare FAILOVER means true; if an explicit boolean value follows,
-			// honor it. A following token that isn't a boolean (another option,
-			// or end of list) leaves FAILOVER at its bare "true".
-			if i+1 < len(opts) {
-				if v, ok := sqltypes.ParseBool(strings.Trim(opts[i+1], "'\"")); ok {
-					return v
+		if !strings.EqualFold(opt, "FAILOVER") {
+			continue
+		}
+		if i+1 < len(opts) {
+			if v, ok := sqltypes.ParseBool(strings.Trim(opts[i+1], "'\"")); ok {
+				if v {
+					return failoverEnabled
 				}
+				return failoverDisabled
 			}
-			return true
+		}
+		return failoverEnabled
+	}
+	return failoverAbsent
+}
+
+// createReplicationSlotFailover classifies the FAILOVER option in the tokens
+// following the LOGICAL keyword of a CREATE_REPLICATION_SLOT command, e.g.
+// `pgoutput (FAILOVER, SNAPSHOT 'nothing')` or the glued form
+// `pgoutput(FAILOVER)`. The first option token is the required output_plugin
+// argument, not an option, so it is dropped before scanning — otherwise a
+// plugin literally named "failover" (client-controlled) would be misread as an
+// already-enabled option and wrongly suppress auto-marking. Dropping the plugin
+// after normalization handles both the spaced and glued forms.
+func createReplicationSlotFailover(tokens []string) failoverOption {
+	opts := slotOptionTokens(tokens)
+	if len(opts) == 0 {
+		return failoverAbsent
+	}
+	return failoverFromOptions(opts[1:]) // opts[0] is the output_plugin
+}
+
+// createReplicationSlotHasFailover reports whether the option list requests
+// failover (present and not set false). Retained as the predicate the
+// command-form guard and its tests read.
+func createReplicationSlotHasFailover(tokens []string) bool {
+	return createReplicationSlotFailover(tokens) == failoverEnabled
+}
+
+// autoFailoverNotice is the advisory NOTICE the gateway sends a client when it
+// auto-marks the client's logical slot as a failover slot (preamble step 3c),
+// so the change is observable — in a PostgreSQL subscriber's server log via its
+// notice processor, or in any client's notice handler. The content is static,
+// and NoticeResponse serialization does not mutate the diagnostic, so a single
+// shared instance is safe.
+var autoFailoverNotice = mterrors.NewPgNotice(
+	"NOTICE", mterrors.PgSSSuccessfulCompletion,
+	"multigres registered this replication slot for failover so it survives primary failover",
+	"",
+)
+
+// rewriteCreateReplicationSlotAddFailover injects a FAILOVER option into a
+// non-temporary LOGICAL CREATE_REPLICATION_SLOT command that omits one, so the
+// slot is created as a failover slot without the client having to ask for it —
+// the auto-marking behavior enabled alongside slot-based replication. It
+// returns the rewritten command and true when a rewrite
+// applies, or ("", false) otherwise: for a temporary slot, a physical slot, a
+// slot that already carries FAILOVER (enabled or explicitly disabled), or any
+// command that is not CREATE_REPLICATION_SLOT.
+//
+// The grammar is the one nonTemporaryCreateReplicationSlotError tokenizes:
+// CREATE_REPLICATION_SLOT slot_name [TEMPORARY]
+// {PHYSICAL | LOGICAL output_plugin [ ( option [, ...] ) ]}. FAILOVER is
+// inserted as the first option of the parenthesized list (`(FAILOVER, ...)`),
+// or a fresh `(FAILOVER)` list is appended when the plugin has no option list.
+// A slot name and output plugin are PostgreSQL identifiers restricted to
+// [a-z0-9_], so the first '(' in the command is unambiguously the option
+// list's opening paren.
+func rewriteCreateReplicationSlotAddFailover(cmd string) (string, bool) {
+	fields := strings.Fields(cmd)
+	if len(fields) < 4 || !strings.EqualFold(fields[0], "CREATE_REPLICATION_SLOT") {
+		return "", false
+	}
+	kindIdx := -1
+	for i := 2; i < len(fields); i++ {
+		if strings.EqualFold(fields[i], "TEMPORARY") || strings.EqualFold(fields[i], "PHYSICAL") {
+			return "", false
+		}
+		if strings.EqualFold(fields[i], "LOGICAL") {
+			kindIdx = i
+			break
 		}
 	}
-	return false
+	if kindIdx < 0 || kindIdx+1 >= len(fields) {
+		return "", false // no output plugin
+	}
+	// Only inject when FAILOVER is entirely absent; a client-supplied value
+	// (enabled or a deliberate false) is left untouched.
+	if createReplicationSlotFailover(fields[kindIdx+1:]) != failoverAbsent {
+		return "", false
+	}
+	if open := strings.IndexByte(cmd, '('); open >= 0 {
+		rest := cmd[open+1:]
+		// An empty option list `()` must not become `(FAILOVER, )`.
+		if strings.HasPrefix(strings.TrimLeft(rest, " \t"), ")") {
+			return cmd[:open+1] + "FAILOVER" + rest, true
+		}
+		return cmd[:open+1] + "FAILOVER, " + rest, true
+	}
+	return strings.TrimRight(cmd, " \t") + " (FAILOVER)", true
+}
+
+// alterReplicationSlotDisablesFailover reports whether cmd is an
+// ALTER_REPLICATION_SLOT command that sets FAILOVER to a false value. PostgreSQL
+// emits exactly this for ALTER SUBSCRIPTION ... SET (failover = false):
+// `ALTER_REPLICATION_SLOT "slot" ( FAILOVER false );` (see libpqrcv_alter_slot;
+// the option always carries an explicit true/false, and TWO_PHASE may ride
+// alongside it). It is the only way to change a slot's failover after creation —
+// there is no pg_alter_replication_slot SQL function — so intercepting this
+// command fully enforces that an auto-marked slot stays a failover slot.
+// Enabling failover, or changing only TWO_PHASE, is left alone.
+//
+// The option list follows the slot name (fields[1]) and — unlike the CREATE
+// form — has no output_plugin, so it is classified directly with
+// failoverFromOptions (not createReplicationSlotFailover, which would drop the
+// first real option as if it were a plugin).
+func alterReplicationSlotDisablesFailover(cmd string) bool {
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 || !strings.EqualFold(fields[0], "ALTER_REPLICATION_SLOT") {
+		return false
+	}
+	return failoverFromOptions(slotOptionTokens(fields[2:])) == failoverDisabled
 }
 
 // nonTemporaryReplicationSlotSQLFuncError returns a rejection error if cmd

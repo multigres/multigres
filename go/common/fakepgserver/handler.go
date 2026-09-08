@@ -180,11 +180,12 @@ func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	return nil
 }
 
-// ConnectionEstablished records the replication mode of the freshly
-// authenticated connection so tests can assert on it via
-// Server.LastReplicationMode.
+// ConnectionEstablished records the replication mode and application_name of
+// the freshly authenticated connection so tests can assert on them via
+// Server.LastReplicationMode / Server.LastApplicationName.
 func (h *fakeHandler) ConnectionEstablished(conn *server.Conn) {
 	h.server.recordReplicationMode(conn.ReplicationMode())
+	h.server.recordApplicationName(conn.GetStartupParams()["application_name"])
 }
 
 // ConnectionClosed handles connection cleanup.

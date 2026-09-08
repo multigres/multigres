@@ -344,42 +344,60 @@ type statementAnalysis struct {
 // Centralizing both concerns here is the point — earlier versions ran only a
 // statement-type rejection on the extended-protocol path and silently let
 // blocklisted function calls through on non-cacheable portal queries.
-func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
-	if err := rejectUnsupportedStatement(stmt); err != nil {
-		return nil, err
-	}
-	if err := checkRestrictedGUCChange(stmt); err != nil {
-		return nil, err
+//
+// unsafeConnection is the per-connection opt-out: when set, every unsafe-statement
+// rejection layer (Tier 1 body analysis, the Tier 2 statement blocklist, the
+// restricted-GUC guard, and the expression-level function blocklist) is
+// suppressed, because the connection has its own dedicated, quarantined backend.
+// The planning signals — tracked set_config calls, advisory-lock pinning,
+// current_setting rewrites — are still gathered, so routing stays correct; only
+// the "reject this statement" behavior is relaxed.
+func analyzeStatement(stmt ast.Stmt, unsafeConnection bool) (*statementAnalysis, error) {
+	if !unsafeConnection {
+		if err := rejectUnsupportedStatement(stmt); err != nil {
+			return nil, err
+		}
+		if err := checkRestrictedGUCChange(stmt); err != nil {
+			return nil, err
+		}
+		if err := analyzeProceduralBody(stmt); err != nil {
+			return nil, err
+		}
 	}
 	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
-		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
+		if _, err := analyzeSQLPreparedBody(ps.Query, unsafeConnection); err != nil {
 			return nil, err
 		}
 		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
 		// effects are applied later by SQL EXECUTE.
 		return &statementAnalysis{}, nil
 	}
-	return analyzeFunctionCalls(stmt)
+	return analyzeFunctionCalls(stmt, !unsafeConnection)
 }
 
-func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
+func analyzeSQLPreparedBody(query ast.Node, unsafeConnection bool) (*statementAnalysis, error) {
 	stmt, ok := query.(ast.Stmt)
 	if !ok || stmt == nil {
 		return &statementAnalysis{}, nil
 	}
-	if err := rejectUnsupportedStatement(stmt); err != nil {
-		return nil, err
-	}
-	if err := checkRestrictedGUCChange(stmt); err != nil {
-		return nil, err
+	if !unsafeConnection {
+		if err := rejectUnsupportedStatement(stmt); err != nil {
+			return nil, err
+		}
+		if err := checkRestrictedGUCChange(stmt); err != nil {
+			return nil, err
+		}
+		if err := analyzeProceduralBody(stmt); err != nil {
+			return nil, err
+		}
 	}
 	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeFunctionCalls(stmt)
+	analysis, err := analyzeFunctionCalls(stmt, !unsafeConnection)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +462,13 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 // value when is_local is literal true: name and is_local stay literal, so
 // the gateway-managed check below still works; ordinary calls go untracked,
 // and the collapsed value keeps the plan cache stable for hot patterns.
-func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
+//
+// reject controls the safety rejections (blocklisted call, set_config in a
+// disallowed position, cluster-managed GUC via set_config). When false — the
+// unsafe-connection opt-out — those are skipped and the offending call simply
+// goes untracked, while the planning signals (accepted set_config, advisory
+// locks, current_setting) are still gathered so routing stays correct.
+func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error) {
 	if stmt == nil {
 		return &statementAnalysis{}, nil
 	}
@@ -473,8 +497,13 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			return true
 		}
 		if msg, blocked := funcBlocklist[name]; blocked {
-			walkErr = mterrors.NewFeatureNotSupported(msg)
-			return false
+			if reject {
+				walkErr = mterrors.NewFeatureNotSupported(msg)
+				return false
+			}
+			// unsafe-connection: operator accepts the risk; leave the call
+			// alone (it goes to PG untracked) and keep walking.
+			return true
 		}
 		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
 			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
@@ -530,14 +559,18 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			// set_config outside a top-level SELECT target — e.g. in a WHERE
 			// clause, subquery, or CTE. Its conditional / repeated evaluation
 			// semantics there can't be mirrored into a tracked SET, so we don't
-			// try. But a transaction-scoped call (is_local=true) on an ordinary
-			// GUC reverts at transaction end and leaves nothing for the pooler to
-			// track, so it may pass straight through to the backend untracked.
-			// This unblocks PostgREST's mutation row-count trick, which calls
-			// set_config('pgrst.inserted', …, true) inside an INSERT ... WHERE.
-			if err := allowTransactionLocalSetConfig(fc); err != nil {
-				walkErr = err
-				return false
+			// try. When the feature is on, a transaction-scoped call (is_local=true)
+			// on an ordinary GUC reverts at transaction end and leaves nothing for
+			// the pooler to track, so it may pass straight through to the backend
+			// untracked — this unblocks PostgREST's mutation row-count trick, which
+			// calls set_config('pgrst.inserted', …, true) inside an INSERT ... WHERE;
+			// other shapes are rejected. In unsafe-connection (reject=false)
+			// nothing is rejected: it all goes to PG as written.
+			if reject {
+				if err := allowTransactionLocalSetConfig(fc); err != nil {
+					walkErr = err
+					return false
+				}
 			}
 			return true
 		}
@@ -559,26 +592,40 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	// atomicity and argument type checking. Reject those shapes instead of trying
 	// to emulate them.
 	if targetListAllSetConfig(stmt, allowedSetConfigs) && slices.ContainsFunc(accepted, setConfigNeedsDynamic) {
-		if err := validateDynamicSetConfigShape(stmt, accepted); err != nil {
+		err := validateDynamicSetConfigShape(stmt, accepted)
+		if err != nil && reject {
 			return nil, err
 		}
-		// A cluster-managed GUC is still rejected when the name is a literal;
-		// the only supported dynamic name is pg_settings.name.
-		for _, fc := range accepted {
-			if name, ok := constStringArg(fc.Args.Items[0]); ok {
-				if err := restrictedGUCError(name); err != nil {
-					return nil, err
+		if err == nil {
+			// A cluster-managed GUC is still rejected when the name is a literal;
+			// the only supported dynamic name is pg_settings.name. Suppressed in
+			// unsafe-connection.
+			if reject {
+				for _, fc := range accepted {
+					if name, ok := constStringArg(fc.Args.Items[0]); ok {
+						if err := restrictedGUCError(name); err != nil {
+							return nil, err
+						}
+					}
 				}
 			}
+			result.DynamicSetConfig = true
+			return result, nil
 		}
-		result.DynamicSetConfig = true
-		return result, nil
+		// unsafe-connection with an unsupported dynamic shape: don't reject and
+		// don't synthesize the resolve-and-apply plan. Fall through to the
+		// per-call loop, which lets each set_config pass to PG untracked.
 	}
 
 	for _, fc := range accepted {
-		setCfg, err := validateAcceptedSetConfig(fc)
+		setCfg, err := validateAcceptedSetConfig(fc, reject)
 		if err != nil {
-			return nil, err
+			if reject {
+				return nil, err
+			}
+			// unsafe-connection: an untrackable set_config is not rejected; it
+			// goes to PG as written, just untracked.
+			continue
 		}
 		if setCfg != nil {
 			result.SetConfigs = append(result.SetConfigs, *setCfg)
@@ -1001,7 +1048,7 @@ func isPgSettingsNameColumnRef(n ast.Node, qualifiers map[string]struct{}) bool 
 //
 // A bound is_local cannot be short-circuited at plan time — the decision
 // to track is deferred to executeSetWithBinds.
-func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
+func validateAcceptedSetConfig(fc *ast.FuncCall, reject bool) (*setConfigCall, error) {
 	if fc.Args == nil || fc.Args.Len() != 3 {
 		return nil, mterrors.NewFeatureNotSupported(
 			"set_config requires three arguments: (name text, value text, is_local bool)")
@@ -1012,23 +1059,25 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	// checkRestrictedGUCChange. The normalizer keeps the name literal (see
 	// normalizer.go) so we can read it here on the cached and is_local=true
 	// paths too. A bound or otherwise non-literal name is a documented gap: we
-	// let it through rather than reject blindly.
-	if name, ok := constStringArg(fc.Args.Items[0]); ok {
-		if err := restrictedGUCError(name); err != nil {
-			return nil, err
-		}
+	// let it through rather than reject blindly. Suppressed in unsafe-connection.
+	if reject {
+		if name, ok := constStringArg(fc.Args.Items[0]); ok {
+			if err := restrictedGUCError(name); err != nil {
+				return nil, err
+			}
 
-		// search_path values must be vetted for pg_temp (see
-		// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
-		// here; a bound value is resolved and re-checked at execute time by
-		// resolveSetConfig, which runs during the Sequence's prepare phase —
-		// before the paired Route reaches the backend — on every is_local
-		// shape (false, bound, or literal true via the vet-only entry built
-		// below).
-		if strings.EqualFold(name, "search_path") {
-			if value, ok := constStringArg(fc.Args.Items[1]); ok {
-				if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
-					return nil, err
+			// search_path values must be vetted for pg_temp (see
+			// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
+			// here; a bound value is resolved and re-checked at execute time by
+			// resolveSetConfig, which runs during the Sequence's prepare phase —
+			// before the paired Route reaches the backend — on every is_local
+			// shape (false, bound, or literal true via the vet-only entry built
+			// below).
+			if strings.EqualFold(name, "search_path") {
+				if value, ok := constStringArg(fc.Args.Items[1]); ok {
+					if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}

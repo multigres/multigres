@@ -297,20 +297,33 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 				"set_config name argument cannot be NULL")
 		}
 		name = v
-		// A gateway-managed variable must never reach a backend, but a
-		// parameter-bound name is invisible to the planner's rewrite (it only
-		// strips literal gateway-managed names from the routed query), so the
-		// real set_config would execute there. This resolution runs during the
-		// Sequence's prepare phase — before the Route child is sent — so
-		// rejecting here aborts the statement with the backend untouched.
-		if handler.IsGatewayManagedVariable(name) {
+		// A parameter-bound name resolving to a gateway-managed variable is
+		// invisible to the planner's rewrite, so the paired Route runs the
+		// set_config on the backend. That is safe only when it runs
+		// transaction-locally and reverts:
+		//   - is_local=true runs verbatim (transaction-scoped), so it reverts and
+		//     never persists on a pooled backend. Allowed: this resolution falls
+		//     through to the tracker, prepareTrackedSetActionWithExchange applies
+		//     the value to gateway state (so SHOW and the gateway's own deadline
+		//     enforcement stay correct), and PostgreSQL returns the same canonical
+		//     value the client sees. This is PostgREST's role-setting form
+		//     set_config($1, $2, true) with $1='statement_timeout'.
+		//   - is_local=false would, on a *pinned* session, run verbatim on the
+		//     reserved backend and persist there — no cross-client leak (the
+		//     backend is dedicated), but a later gateway-intercepted change would
+		//     not reach it, so it could drift. Forcing the reverted route there
+		//     needs cross-primitive plumbing we don't have yet, so fail closed for
+		//     now; a literal name is the supported spelling for a session-scoped
+		//     change. Relax when session-scoped dynamic-name GMVs are needed.
+		if handler.IsGatewayManagedVariable(name) && !isLocal {
 			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(
-				fmt.Sprintf("set_config with a parameter-bound name resolving to gateway-managed variable %q is not supported; use a literal name", name))
+				fmt.Sprintf("set_config with a parameter-bound name resolving to gateway-managed variable %q is only supported with is_local=true; use a literal name for a session-scoped change", name))
 		}
-		// A bound name can also resolve to a cluster-restricted GUC
-		// (synchronous_commit): the plan-time guard only sees literal names,
-		// so the resolved name is re-checked here, on the same
-		// before-the-Route prepare pass as the GMV rejection above.
+		// Unlike a gateway-managed variable, a bound name that resolves to a
+		// cluster-restricted GUC (synchronous_commit) IS still rejected: the
+		// plan-time guard only sees literal names, so the resolved name is
+		// re-checked here, during the Sequence's prepare phase — before the paired
+		// Route reaches the backend.
 		if err := pgsettings.RestrictedGUCError(name); err != nil {
 			return resolvedSetConfig{}, err
 		}

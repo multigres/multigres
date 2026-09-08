@@ -131,3 +131,45 @@ func TestIsCohortMemberRemovalSafe_BoundaryFiveMemberAtLeastThree(t *testing.T) 
 	assert.False(t, IsCohortMemberRemovalSafe(tightRule, poolerID("b")),
 		"removing any cohort member from an N=3 / cohort=3 setup must fail")
 }
+
+func TestCohortSurvivesMemberLoss(t *testing.T) {
+	t.Run("nil policy is never safe", func(t *testing.T) {
+		assert.False(t, cohortSurvivesMemberLoss(nil, []*clustermetadatapb.ID{poolerID("a")}, poolerID("a")))
+	})
+
+	t.Run("two-member cohort cannot survive losing either member", func(t *testing.T) {
+		policy := AtLeastNPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{poolerID("a"), poolerID("b")}
+		assert.False(t, cohortSurvivesMemberLoss(policy, cohort, poolerID("a")))
+		assert.False(t, cohortSurvivesMemberLoss(policy, cohort, poolerID("b")))
+	})
+
+	t.Run("three-member cohort survives losing any one member", func(t *testing.T) {
+		policy := AtLeastNPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{poolerID("a"), poolerID("b"), poolerID("c")}
+		assert.True(t, cohortSurvivesMemberLoss(policy, cohort, poolerID("a")))
+		assert.True(t, cohortSurvivesMemberLoss(policy, cohort, poolerID("c")))
+	})
+
+	t.Run("nil leader skips the removal step", func(t *testing.T) {
+		policy := AtLeastNPolicy{N: 2}
+		cohort := []*clustermetadatapb.ID{poolerID("a"), poolerID("b"), poolerID("c")}
+		assert.True(t, cohortSurvivesMemberLoss(policy, cohort, nil))
+	})
+}
+
+func TestCohortSurvivesAnyMemberLoss(t *testing.T) {
+	t.Run("empty cohort is never safe", func(t *testing.T) {
+		assert.False(t, CohortSurvivesAnyMemberLoss(AtLeastNPolicy{N: 2}, nil))
+	})
+
+	t.Run("two-member cohort under AT_LEAST_N=2 has no redundancy", func(t *testing.T) {
+		cohort := []*clustermetadatapb.ID{poolerID("a"), poolerID("b")}
+		assert.False(t, CohortSurvivesAnyMemberLoss(AtLeastNPolicy{N: 2}, cohort))
+	})
+
+	t.Run("three-member cohort under AT_LEAST_N=2 survives any single loss", func(t *testing.T) {
+		cohort := []*clustermetadatapb.ID{poolerID("a"), poolerID("b"), poolerID("c")}
+		assert.True(t, CohortSurvivesAnyMemberLoss(AtLeastNPolicy{N: 2}, cohort))
+	})
+}

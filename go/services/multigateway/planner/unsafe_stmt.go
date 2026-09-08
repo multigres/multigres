@@ -28,12 +28,14 @@ import (
 // mitigation that could make them safe.
 //
 // Tier 1 statements (DO, CREATE FUNCTION / PROCEDURE, CREATE TRIGGER,
-// CREATE RULE, CREATE EVENT TRIGGER) embed procedural-language code. They
-// are NOT rejected here: blocking outright breaks real workloads (migrations,
-// ORMs, observability tooling) without closing the actual leak vector, since
-// equivalent session-state effects are reachable via SELECT set_config(...)
-// at the expression level. Tier 1 will be handled by body analysis once the
-// PL/pgSQL parser port lands; see docs/query_serving/unsafe_statement_rejection.md.
+// CREATE RULE, CREATE EVENT TRIGGER) embed procedural-language code and are
+// NOT rejected wholesale here — blocking outright breaks real workloads
+// (migrations, ORMs, observability tooling). They are instead handled by body
+// analysis: analyzeProceduralBody (unsafe_plpgsql.go) parses a DO / CREATE FUNCTION
+// PL/pgSQL or SQL body and runs the same expression-level filter over every
+// embedded fragment, while the embedded SQL of CREATE RULE / TRIGGER / EVENT
+// TRIGGER is already reached by analyzeFunctionCalls' top-level FuncCall walk.
+// See docs/query_serving/unsafe_statement_rejection.md.
 //
 // Returns a *mterrors.PgDiagnostic with SQLSTATE 0A000 (feature_not_supported)
 // if the statement is Tier 2, or nil otherwise.

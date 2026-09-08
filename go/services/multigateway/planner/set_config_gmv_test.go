@@ -60,7 +60,7 @@ func TestRewriteGatewayManagedSetConfig_ExpressionValueFailsClosed(t *testing.T)
 // is_local=true is still left untracked for PostgreSQL to execute via the Route.
 func TestSetConfig_GatewayManagedIsLocalTrueIsTracked(t *testing.T) {
 	t.Run("gateway-managed name is tracked as local", func(t *testing.T) {
-		res, err := analyzeStatement(parseOne(t, "SELECT set_config('statement_timeout', '5s', true)"))
+		res, err := analyzeStatement(parseOne(t, "SELECT set_config('statement_timeout', '5s', true)"), false)
 		require.NoError(t, err)
 		require.Len(t, res.SetConfigs, 1)
 		assert.Equal(t, "statement_timeout", res.SetConfigs[0].Name)
@@ -69,7 +69,7 @@ func TestSetConfig_GatewayManagedIsLocalTrueIsTracked(t *testing.T) {
 	})
 
 	t.Run("ordinary name with is_local=true is not tracked", func(t *testing.T) {
-		res, err := analyzeStatement(parseOne(t, "SELECT set_config('work_mem', '64MB', true)"))
+		res, err := analyzeStatement(parseOne(t, "SELECT set_config('work_mem', '64MB', true)"), false)
 		require.NoError(t, err)
 		assert.Empty(t, res.SetConfigs)
 	})

@@ -126,7 +126,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 
 			logger := slog.New(slog.DiscardHandler)
 			svc := &PgCtldService{logger: logger, pgConfig: config}
-			result, err := svc.StopPostgreSQLWithResult(tt.mode)
+			result, err := svc.StopPostgreSQLWithResult(t.Context(), tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -143,6 +143,49 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestStopPostgreSQLWithResult_PgCtlFailsButAlreadyStopped covers the actual
+// pg_ctl failure path (as opposed to pg_ctl being entirely missing from
+// PATH): pg_ctl stop reports failure because postgres was already down, and
+// the probe run afterward confirms that — treated as an idempotent success,
+// not an error, without ever pre-checking (and risking removing a lock file
+// out from under a still-running postmaster) before attempting the stop.
+func TestStopPostgreSQLWithResult_PgCtlFailsButAlreadyStopped(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_already_down_test")
+	defer cleanup()
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.CreateMockPostgreSQLBinaries(t, binDir)
+	// Override pg_ctl's mock "stop" to fail like the real binary does when
+	// there is no postmaster.pid, and pg_isready to confirm "not responding".
+	testutil.MockBinary(t, binDir, "pg_ctl", `
+case "$1" in
+    stop)
+        echo "pg_ctl: PID file does not exist" >&2
+        exit 1
+        ;;
+esac
+`)
+	testutil.MockBinary(t, binDir, "pg_isready", "exit 2")
+
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", binDir+":"+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	testutil.CreateDataDir(t, baseDir, true) // no postmaster.pid: nothing was ever running
+
+	poolerDir := baseDir
+	config, err := pgctld.NewPostgresCtlConfig(5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, 30, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir))
+	require.NoError(t, err)
+
+	logger := slog.New(slog.DiscardHandler)
+	svc := &PgCtldService{logger: logger, pgConfig: config}
+	result, err := svc.StopPostgreSQLWithResult(t.Context(), "fast")
+	require.NoError(t, err)
+	assert.False(t, result.WasRunning)
+	assert.Equal(t, "PostgreSQL is not running", result.Message)
 }
 
 func TestStopPostgreSQLWithResult_EmptyPoolerDir(t *testing.T) {
@@ -306,7 +349,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 
 			logger := slog.New(slog.DiscardHandler)
 			svc := &PgCtldService{logger: logger, pgConfig: config}
-			err = svc.StopPostgreSQLWithConfig(tt.mode)
+			err = svc.StopPostgreSQLWithConfig(t.Context(), tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)

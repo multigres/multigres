@@ -1,3 +1,8 @@
+# Known divergence (by design): multigateway rejects LOAD because loading a
+# shared library into a pooled backend leaks state onto every client that
+# later reuses it. The single rejection line is the only delta; the CREATE
+# FUNCTION checks that follow are unaffected.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -14,6 +14,7 @@

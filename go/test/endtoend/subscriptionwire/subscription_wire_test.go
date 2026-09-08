@@ -64,7 +64,8 @@ func TestCreateSubscriptionFailoverWireBehavior(t *testing.T) {
 	// Publisher: wal_level=logical for logical decoding, and
 	// log_replication_commands=on so every replication-protocol command it
 	// receives is written verbatim to the server log — our observation point.
-	publisher := startPostgres(t, ctx, "publisher",
+	publisher := startPostgres(
+		t, ctx, "publisher",
 		"wal_level = logical",
 		"log_replication_commands = on",
 		"max_wal_senders = 10",
@@ -72,7 +73,8 @@ func TestCreateSubscriptionFailoverWireBehavior(t *testing.T) {
 	)
 	// Subscriber is an ordinary primary; wal_level=logical is harmless and keeps
 	// the two configs uniform.
-	subscriber := startPostgres(t, ctx, "subscriber",
+	subscriber := startPostgres(
+		t, ctx, "subscriber",
 		"wal_level = logical",
 	)
 
@@ -92,7 +94,8 @@ func TestCreateSubscriptionFailoverWireBehavior(t *testing.T) {
 	conninfo := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres", publisher.port, pgSuperuser)
 	mustExec(t, ctx, subConn, fmt.Sprintf(
 		`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s WITH (failover = true, copy_data = true)`,
-		subscriptionName, conninfo, publicationName))
+		subscriptionName, conninfo, publicationName,
+	))
 
 	// The main slot exists on the publisher once CREATE SUBSCRIPTION returns;
 	// poll to be robust against any lag, then read its recorded state.
@@ -164,6 +167,85 @@ func TestTemporaryFailoverSlotRejected(t *testing.T) {
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	assert.Equal(t, "cannot enable failover for a temporary replication slot", pgErr.Message)
+}
+
+// TestAutoMarkedFailoverSlotSurvivesSubscriptionReconnect is the empirical
+// confirmation of the auto-marking correctness claim: a slot the
+// gateway made a failover slot without the subscriber asking keeps
+// failover=true even though the subscription's own subfailover=false, and that
+// mismatch survives a subscription reconnect.
+//
+// It reproduces the auto-marked end state directly against a real publisher —
+// pre-creating the subscription's main slot as a failover slot (what the
+// gateway's rewritten CREATE_REPLICATION_SLOT produces) and attaching a plain
+// CREATE SUBSCRIPTION (failover defaults to false, create_slot = false) to it —
+// so no gateway is needed to prove the PostgreSQL-side behavior the feature
+// relies on. The gateway rewrite itself is covered by the multigateway handler
+// unit tests.
+func TestAutoMarkedFailoverSlotSurvivesSubscriptionReconnect(t *testing.T) {
+	skipUnlessPostgres17(t)
+
+	ctx := utils.WithTimeout(t, 90*time.Second)
+
+	publisher := startPostgres(
+		t, ctx, "publisher",
+		"wal_level = logical",
+		"max_wal_senders = 10",
+		"max_replication_slots = 10",
+	)
+	subscriber := startPostgres(
+		t, ctx, "subscriber",
+		"wal_level = logical",
+	)
+
+	pubConn := connect(t, ctx, publisher.port)
+	defer pubConn.Close(ctx)
+	mustExec(t, ctx, pubConn, `CREATE TABLE orders (id int PRIMARY KEY, note text)`)
+	mustExec(t, ctx, pubConn, `CREATE PUBLICATION `+publicationName+` FOR TABLE orders`)
+
+	// Simulate the gateway's auto-marking: create the subscription's main slot
+	// as a failover slot up front, exactly the end state the rewritten
+	// CREATE_REPLICATION_SLOT ... (FAILOVER, ...) command yields.
+	mustExec(t, ctx, pubConn, fmt.Sprintf(
+		`SELECT pg_create_logical_replication_slot('%s', 'pgoutput', false, false, true)`, subscriptionName,
+	))
+
+	temporary, failover := waitForSlot(t, ctx, pubConn, subscriptionName)
+	require.False(t, temporary, "auto-marked slot must be persistent")
+	require.True(t, failover, "auto-marked slot must be a failover slot")
+
+	subConn := connect(t, ctx, subscriber.port)
+	defer subConn.Close(ctx)
+	mustExec(t, ctx, subConn, `CREATE TABLE orders (id int PRIMARY KEY, note text)`)
+
+	// A plain subscriber — no WITH (failover = true) — attached to the
+	// pre-created failover slot. subfailover is therefore false while the slot
+	// is failover=true: the deliberate mismatch the feature creates.
+	conninfo := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres", publisher.port, pgSuperuser)
+	mustExec(t, ctx, subConn, fmt.Sprintf(
+		`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s WITH (failover = false, create_slot = false, copy_data = true)`,
+		subscriptionName, conninfo, publicationName,
+	))
+
+	var subFailover bool
+	require.NoError(t, subConn.QueryRow(ctx,
+		`SELECT subfailover FROM pg_subscription WHERE subname = $1`, subscriptionName).Scan(&subFailover))
+	require.False(t, subFailover, "subscription must not have opted into failover (that is the point)")
+
+	// Force the apply worker to tear down and reconnect. Per PostgreSQL's
+	// design the only thing that resets a slot's failover is an explicit
+	// ALTER SUBSCRIPTION ... SET (failover = ...); a plain reconnect must not.
+	mustExec(t, ctx, subConn, fmt.Sprintf(`ALTER SUBSCRIPTION %s DISABLE`, subscriptionName))
+	mustExec(t, ctx, subConn, fmt.Sprintf(`ALTER SUBSCRIPTION %s ENABLE`, subscriptionName))
+
+	// The slot must still be a failover slot after the reconnect.
+	temporary, failover = waitForSlot(t, ctx, pubConn, subscriptionName)
+	assert.False(t, temporary, "slot must stay persistent across the subscription reconnect")
+	assert.True(t, failover, "auto-marked failover flag must survive the subscription reconnect despite subfailover=false")
+
+	// Clean up the subscription so its slot is released before the publisher is
+	// torn down (DROP SUBSCRIPTION drops the remote slot).
+	mustExec(t, ctx, subConn, `DROP SUBSCRIPTION `+subscriptionName)
 }
 
 // skipUnlessPostgres17 skips the test unless PostgreSQL 17+ binaries are on PATH.

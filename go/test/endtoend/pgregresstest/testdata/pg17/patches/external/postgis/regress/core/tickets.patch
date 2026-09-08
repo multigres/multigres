@@ -5,6 +5,9 @@
 # every result row are byte-identical to stock PostgreSQL; only the trailing
 # "at character N" position differs. This patch records that offset shift so the
 # test is verified against multigres's deparsed-query cursor positions.
+# Additionally, a test helper runs a dynamic EXECUTE the gateway cannot vet, so
+# its CREATE is rejected and its dependent calls report "does not exist" -- a
+# small honest residual alongside the cursor-offset shifts.
 --- a
 +++ b
 @@ -166,12 +166,12 @@
@@ -26,3 +29,26 @@
  #1453.1|t
  #1453.2|f
  #1454|t
+@@ -326,6 +326,7 @@
+ #4011|ST_MultiLineString|MULTILINESTRING EMPTY|t|t
+ #4011|ST_GeometryCollection|MULTILINESTRING((0 0,0 0))|f|f
+ #4025|
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ #4037.1|lwgeom_intersection_prec: GEOS Error: TopologyException
+ #4037.2|lwgeom_difference_prec: GEOS Error: TopologyException
+ #4037.3|lwgeom_symdifference_prec: GEOS Error: TopologyException
+@@ -463,10 +464,14 @@
+ #5008|f|f
+ ERROR: Line has no points
+ #5350|M 0 0 l 1 -1
++ERROR: SET/RESET inside a PL/pgSQL body is not supported: it changes backend session state that the connection pooler cannot track
++ERROR: procedure p_force_parellel_mode(unknown) does not exist at character 6
+ #5139|100000
+ #5139|1000000
++ERROR: procedure p_force_parellel_mode(unknown) does not exist at character 6
+ ERROR: Geometry contains invalid coordinates
+ ERROR: Geometry contains invalid coordinates
++NOTICE: procedure p_force_parellel_mode(text) does not exist, skipping
+ #5378|4269
+ #5425|POINT(1.235 9.877)
+ #5627|t

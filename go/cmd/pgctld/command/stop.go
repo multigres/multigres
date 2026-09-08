@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -109,7 +110,7 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 	// it's not strictly necessary and adds complexity (requires password, can
 	// fail if PostgreSQL is already in a bad state, etc.)
 	svc := &PgCtldService{logger: s.pgCtlCmd.lg.GetLogger(), pgConfig: config}
-	result, err := svc.StopPostgreSQLWithResult(s.mode.Get())
+	result, err := svc.StopPostgreSQLWithResult(cmd.Context(), s.mode.Get())
 	if err != nil {
 		return err
 	}
@@ -124,9 +125,18 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// StopPostgreSQLWithResult stops PostgreSQL with the given configuration and returns detailed result information
-func (s *PgCtldService) StopPostgreSQLWithResult(mode string) (*StopResult, error) {
-	result := &StopResult{}
+// StopPostgreSQLWithResult stops PostgreSQL with the given configuration and
+// returns detailed result information.
+//
+// Deliberately does not pre-check checkPostgreSQLRunning before attempting
+// the stop: that check's stale-lock removal is meant for callers about to
+// start postgres back up, and running it here first could delete the lock
+// file out from under a postmaster that is, in fact, still running (a
+// slow/timed-out probe misreading it as stale) — orphaning it with nothing
+// left to signal. Instead this attempts the stop directly, and only on
+// failure falls back to the side-effect-free probe to tell an already-down
+// postgres (an idempotent success) from a genuine stop failure.
+func (s *PgCtldService) StopPostgreSQLWithResult(ctx context.Context, mode string) (*StopResult, error) {
 	config := s.pgConfig
 	logger := s.logger
 
@@ -135,37 +145,36 @@ func (s *PgCtldService) StopPostgreSQLWithResult(mode string) (*StopResult, erro
 		mode = "fast"
 	}
 
-	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("Postgres is not running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		result.WasRunning = false
-		result.Message = "PostgreSQL is not running"
-		return result, nil
-	}
-
-	result.WasRunning = true
-	logger.Info("stopping Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
+	logger.InfoContext(ctx, "stopping Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
 
 	if err := s.stopPostgreSQLWithConfig(mode); err != nil {
-		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
+		running, _, probeErr := probePostgreSQLRunningAndReady(ctx, config)
+		if probeErr != nil {
+			return nil, fmt.Errorf("failed to stop PostgreSQL: %w (and could not confirm whether it was already stopped: %w)", err, probeErr)
+		}
+		if running {
+			return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
+		}
+
+		logger.Info("Postgres is not running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		return &StopResult{WasRunning: false, Message: "PostgreSQL is not running"}, nil
 	}
 
-	result.Message = "PostgreSQL server stopped successfully\n"
 	logger.Info("Postgres server stopped successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-	return result, nil
+	return &StopResult{WasRunning: true, Message: "PostgreSQL server stopped successfully\n"}, nil
 }
 
 // StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
-func (s *PgCtldService) StopPostgreSQLWithConfig(mode string) error {
+func (s *PgCtldService) StopPostgreSQLWithConfig(ctx context.Context, mode string) error {
 	logger := s.logger
-	result, err := s.StopPostgreSQLWithResult(mode)
+	result, err := s.StopPostgreSQLWithResult(ctx, mode)
 	if err != nil {
 		return err
 	}
 
 	// For backward compatibility, log the message if PostgreSQL was actually stopped
 	if result.WasRunning && result.Message != "" {
-		logger.Info(result.Message)
+		logger.InfoContext(ctx, result.Message)
 	}
 
 	return nil

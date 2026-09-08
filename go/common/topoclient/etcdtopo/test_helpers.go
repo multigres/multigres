@@ -33,6 +33,16 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
+// SetLeaseTTLForTest overrides the lease TTL normally configured via
+// --topo-etcd-lease-ttl and returns a function restoring the previous value.
+// Test-only: lets lease-expiry tests run in seconds instead of the
+// production default.
+func SetLeaseTTLForTest(ttl int) (restore func()) {
+	old := leaseTTL
+	leaseTTL = ttl
+	return func() { leaseTTL = old }
+}
+
 // checkPortAvailable checks if a port is available for binding
 func checkPortAvailable(port int) error {
 	ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))

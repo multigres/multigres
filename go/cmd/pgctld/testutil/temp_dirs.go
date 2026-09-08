@@ -111,7 +111,7 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	content := []string{
 		strconv.Itoa(realPID),
 		dataDir,
-		"1234567890",
+		strconv.FormatInt(time.Now().Unix(), 10),
 		"5432",
 		"/tmp",
 		"localhost",

@@ -326,7 +326,12 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(common/parser|common/pgprotocol|tools/ruleguard)
+        # Anchored on a path *segment* boundary rather than "^go/" -- in a git
+        # worktree whose directory name differs from the main checkout,
+        # golangci-lint reports paths relative to the main checkout instead
+        # of the worktree root (e.g. "../../multigres/go/..."), which a "^go/"
+        # anchor would miss.
+        path: (^|/)go/(common/parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec

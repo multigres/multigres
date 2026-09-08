@@ -23,6 +23,10 @@ ignore:
   # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated sqllogictest
   # workflow, never by the coverage-collecting CI.
   - "go/test/endtoend/queryserving/sqllogictest/**"
+  # PostgREST hspec + io differential suites — same story: gated behind
+  # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated test-postgrest /
+  # test-postgrest-io workflows, never by the coverage-collecting CI.
+  - "go/test/endtoend/queryserving/postgresttests/**"
   # Shared harness helpers (patch verify/generate, corpus discovery, the
   # differential report core, schema-reset and run-loop scaffolding). The
   # pure-logic subset has unit tests, but the bulk only runs from the gated

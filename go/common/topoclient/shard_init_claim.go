@@ -33,8 +33,12 @@ func shardInitClaimPath(shardKey *clustermetadatapb.ShardKey) string {
 // ClaimShardInitialization atomically claims the right to initialize a shard
 // using a create-if-not-exists write to the global topology.
 //
-// The claim persists both the claimer's identity and the proposed cohort so that
-// a crash-retry reuses the same cohort for idempotency.
+// A later call for the same shard always returns the original committed
+// cohort, never a fresh proposal — not just idempotency, but preventing two
+// coordinators from each committing a different, non-overlapping initial
+// cohort (the same reason etcd et al. require a static initial member list).
+// If the committed cohort itself isn't viable, fix it via an
+// externally-certified rule change (multiadmin), not a new call here.
 //
 // Returns won=true and the committed cohort if this caller created the claim or
 // is resuming its own prior claim. Returns won=false if a different coordinator

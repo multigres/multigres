@@ -17,6 +17,7 @@ package manager
 import (
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,4 +156,183 @@ func TestRecordRewindExecutionDuration_NilSafe(t *testing.T) {
 	nilM.recordRewindExecutionDuration(t.Context(), rewindPhaseRewind, time.Second)
 
 	(&managerMetrics{}).recordRewindExecutionDuration(t.Context(), rewindPhaseDryRun, time.Second)
+}
+
+// TestRecordLogicalFailover verifies the logical-replication slot-management
+// span's duration and count are recorded per outcome.
+func TestRecordLogicalFailover(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	m.recordLogicalFailover(t.Context(), logicalFailoverStatusSuccess, 1500*time.Millisecond)
+	m.recordLogicalFailover(t.Context(), logicalFailoverStatusFailure, 500*time.Millisecond)
+
+	hist := findMetric(t, setup.MetricReader, "mg.pooler.logical_failover.duration")
+	h, ok := hist.Data.(metricdata.Histogram[float64])
+	require.True(t, ok)
+	require.Len(t, h.DataPoints, 2, "one data point per status")
+	byStatus := map[string]float64{}
+	for _, dp := range h.DataPoints {
+		byStatus[attrValue(t, dp.Attributes, "status")] = dp.Sum
+	}
+	assert.InDelta(t, 1.5, byStatus[string(logicalFailoverStatusSuccess)], 1e-9)
+	assert.InDelta(t, 0.5, byStatus[string(logicalFailoverStatusFailure)], 1e-9)
+
+	count := findMetric(t, setup.MetricReader, "mg.pooler.logical_failover.count")
+	sum, ok := count.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 2, "one data point per status")
+	for _, dp := range sum.DataPoints {
+		assert.Equal(t, int64(1), dp.Value)
+	}
+}
+
+// TestRecordLogicalFailover_NilSafe covers the guards: a nil receiver and a
+// zero-value managerMetrics (nil instruments) must both be no-ops.
+func TestRecordLogicalFailover_NilSafe(t *testing.T) {
+	var nilM *managerMetrics
+	nilM.recordLogicalFailover(t.Context(), logicalFailoverStatusSuccess, time.Second)
+
+	(&managerMetrics{}).recordLogicalFailover(t.Context(), logicalFailoverStatusFailure, time.Second)
+}
+
+// TestRecordSlotsDropped verifies slots-dropped counts are recorded per reason
+// and that a zero count is a no-op (no empty data point emitted).
+func TestRecordSlotsDropped(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	m.recordSlotsDropped(t.Context(), slotsDroppedReasonOrphaned, 2)
+	m.recordSlotsDropped(t.Context(), slotsDroppedReasonDepartedFollower, 1)
+	m.recordSlotsDropped(t.Context(), slotsDroppedReasonDepartedFollower, 0) // no-op
+
+	sum, ok := findMetric(t, setup.MetricReader, "mg.pooler.logical_failover.slots_dropped").Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 2, "one data point per reason; the zero-count call adds none")
+
+	byReason := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		byReason[attrValue(t, dp.Attributes, "reason")] = dp.Value
+	}
+	assert.Equal(t, int64(2), byReason[string(slotsDroppedReasonOrphaned)])
+	assert.Equal(t, int64(1), byReason[string(slotsDroppedReasonDepartedFollower)])
+}
+
+// TestRecordSlotsDropped_NilSafe covers the guards: a nil receiver and a
+// zero-value managerMetrics (nil counter) must both be no-ops.
+func TestRecordSlotsDropped_NilSafe(t *testing.T) {
+	var nilM *managerMetrics
+	nilM.recordSlotsDropped(t.Context(), slotsDroppedReasonOrphaned, 1)
+
+	(&managerMetrics{}).recordSlotsDropped(t.Context(), slotsDroppedReasonOrphaned, 1)
+}
+
+// TestFailoverSlotReadinessGauge verifies the observable gauge samples the
+// readiness atomics set via setFailoverSlotReadiness, split by status label.
+func TestFailoverSlotReadinessGauge(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	m.setFailoverSlotReadiness(2, 3)
+
+	g := findMetric(t, setup.MetricReader, "mg.pooler.logical_failover.slots")
+	gauge, ok := g.Data.(metricdata.Gauge[int64])
+	require.True(t, ok)
+	require.Len(t, gauge.DataPoints, 2, "one data point per status")
+
+	byStatus := map[string]int64{}
+	for _, dp := range gauge.DataPoints {
+		byStatus[attrValue(t, dp.Attributes, "status")] = dp.Value
+	}
+	assert.Equal(t, int64(2), byStatus["ready"])
+	assert.Equal(t, int64(1), byStatus["unready"])
+}
+
+// TestFailoverSlotReadinessGauge_NilSafe covers the guard: a nil receiver must
+// be a no-op.
+func TestFailoverSlotReadinessGauge_NilSafe(t *testing.T) {
+	var nilM *managerMetrics
+	nilM.setFailoverSlotReadiness(2, 3)
+}
+
+// TestFailoverSlotReadinessGauge_NotYetMeasured verifies the gauge reports no
+// data points before setFailoverSlotReadiness has ever been called, rather
+// than a misleading ready=0/unready=0 (which would look identical to "no
+// failover slots exist").
+func TestFailoverSlotReadinessGauge_NotYetMeasured(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	_, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, setup.MetricReader.Collect(t.Context(), &rm))
+	for _, sm := range rm.ScopeMetrics {
+		for _, mm := range sm.Metrics {
+			assert.NotEqual(t, "mg.pooler.logical_failover.slots", mm.Name,
+				"gauge must report nothing until setFailoverSlotReadiness has run once")
+		}
+	}
+}
+
+// TestFailoverSlotReadinessGauge_ConcurrentUpdates exercises
+// setFailoverSlotReadiness and the gauge callback from concurrent goroutines.
+// ready and total are published as a single atomic pointer swap, so a
+// concurrent reader must only ever see one of the stored (ready, total)
+// pairs — never a torn combination (e.g. a newer ready with an older total)
+// that would make total-ready negative. Run with -race to also catch any
+// unsynchronized access.
+func TestFailoverSlotReadinessGauge_ConcurrentUpdates(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+
+	pairs := [][2]int{{0, 0}, {2, 3}, {5, 5}, {0, 7}, {1, 1}}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := range 200 {
+			p := pairs[i%len(pairs)]
+			m.setFailoverSlotReadiness(p[0], p[1])
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			var rm metricdata.ResourceMetrics
+			if !assert.NoError(t, setup.MetricReader.Collect(t.Context(), &rm)) {
+				return
+			}
+			for _, sm := range rm.ScopeMetrics {
+				for _, mm := range sm.Metrics {
+					if mm.Name != "mg.pooler.logical_failover.slots" {
+						continue
+					}
+					gauge, ok := mm.Data.(metricdata.Gauge[int64])
+					if !assert.True(t, ok) {
+						continue
+					}
+					for _, dp := range gauge.DataPoints {
+						assert.GreaterOrEqual(t, dp.Value, int64(0),
+							"a status data point must never go negative from a torn ready/total read")
+					}
+				}
+			}
+		}
+	}()
+	wg.Wait()
 }
