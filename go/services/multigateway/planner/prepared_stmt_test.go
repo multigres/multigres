@@ -41,9 +41,12 @@ import (
 type mockIExecute struct {
 	portalStreamExecuteCalled bool
 	// streamExecuteCalls records the observable arguments of every StreamExecute
-	// call so tests can assert on the SQL EXECUTE template and the attached
+	// call so tests can assert on the substituted SQL and the attached eager-parse
 	// prepared statement metadata for wrapped EXECUTE cases.
 	streamExecuteCalls []streamExecuteCall
+	// describeErr, when set, is returned by Describe — used to exercise the
+	// eager-Describe-at-PREPARE error path.
+	describeErr error
 }
 
 // streamExecuteCall records the observable arguments of a StreamExecute call.
@@ -64,6 +67,9 @@ func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *
 }
 
 func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+	if m.describeErr != nil {
+		return nil, m.describeErr
+	}
 	return nil, nil
 }
 
@@ -200,6 +206,24 @@ func TestPlanPrepareStmt(t *testing.T) {
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
 	assert.Equal(t, "SELECT 1", psi.Query)
+}
+
+// TestPlanPrepareStmtSurfacesDescribeErrorEagerly verifies that a PREPARE whose
+// eager Describe fails (e.g. the body references a missing relation or column)
+// surfaces the error at PREPARE time — matching PostgreSQL, which analyzes at
+// PREPARE rather than deferring to the first EXECUTE — and leaves no statement
+// registered on failure.
+func TestPlanPrepareStmtSurfacesDescribeErrorEagerly(t *testing.T) {
+	s := newTestSetup(t)
+	s.exec.describeErr = mterrors.NewFeatureNotSupported("describe failed: relation does not exist")
+
+	_, err := planAndExecute(t, s, "PREPARE p AS SELECT * FROM missing")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "describe failed")
+
+	// PostgreSQL leaves nothing registered when PREPARE fails analysis.
+	assert.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p"),
+		"a PREPARE that fails its eager Describe must not leave the statement registered")
 }
 
 func TestPlanPrepareStmtDuplicateName(t *testing.T) {
