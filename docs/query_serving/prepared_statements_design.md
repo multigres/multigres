@@ -75,6 +75,12 @@ map at the Multigateway handler level:
 
 ## Optimization 2: Pooler-Level Statement Management
 
+> **Scope:** This pooler-level `ppstmt*` consolidation serves the **wire-protocol**
+> extended-query path (client `Parse`/`Bind`/`Execute` messages), which reuses a
+> backend prepared statement across binds. **SQL-level** `PREPARE`/`EXECUTE`
+> commands no longer use it — they are materialized entirely at the gateway by
+> argument substitution (see "SQL-level PREPARE / EXECUTE" below).
+
 ### Single-Shard Scenario
 
 For the common case where a prepared statement targets a single shard, we can
@@ -188,80 +194,78 @@ consolidator at the pooler level with a shared `connId=0` caused name
 collisions when multiple gateway replicas sent the same canonical name
 for different queries.
 
-## Wrapped EXECUTE Forms
+## SQL-level PREPARE / EXECUTE: argument substitution
+
+SQL-level `PREPARE p AS <body>` / `EXECUTE p(args)` are **not** run as backend
+prepared statements. The gateway substitutes the EXECUTE arguments into the
+prepared body and runs the result as an ordinary query:
+
+`PREPARE p AS SELECT $1, $2, $1` + `EXECUTE p(5, 10)` →
+`SELECT CAST(5 AS int4), CAST(10 AS int4), CAST(5 AS int4)`
+
+Each `$N` is replaced by its argument cast to the parameter's resolved type
+(`RewritePreparedBody` in `execute_rewrite.go`), then deparsed and routed as a
+plain query — no pooler-side `ppstmt*`, no name resolution, no backend
+PREPARE/EXECUTE pair. This mirrors what PostgreSQL's EXECUTE does internally
+(coerce each argument to the parameter's resolved type, then evaluate the body),
+but as an AST rewrite. Extended-protocol bound arguments (`EXECUTE p($1)` with an
+outer Bind) are resolved to literals first; see the `resolveExecuteArgs` doc
+comment for that two-scope `$N` model.
+
+### Parameter type resolution
+
+The cast targets are the parameters' **resolved** type OIDs, obtained by an eager
+backend `Describe` at PREPARE time (`SetResolvedParamTypes`). Resolved, not
+declared, because a client may declare parameter types partially or not at all
+(`PREPARE p AS SELECT $1`); PostgreSQL infers the concrete types by analyzing the
+query against the catalog at PREPARE, and only the backend Describe reports the
+result. Casting to the resolved base type (typmod −1) matches PostgreSQL's own
+EXECUTE coercion (`prepare.c:EvaluateParams`).
+
+Storage (`resolved` field on `PreparedStatementInfo`):
+
+- **Last-writer-wins refresh.** Every PREPARE re-Describes and overwrites the
+  shared resolution. A client PREPARE means "give me current info", so a PREPARE
+  issued after DDL re-Describes and heals the entry for every connection that
+  dedups onto it — the same principle as re-Parsing a stale wire-protocol
+  statement. (A lone PREPARE, then DDL, then EXECUTE needs no heal: like
+  PostgreSQL, parameter types are frozen at PREPARE, and the substituted body is
+  re-planned fresh by PostgreSQL on every EXECUTE.)
+- **Parameter types only, not the result shape.** PostgreSQL freezes parameter
+  types at PREPARE, so a frozen copy stays faithful. It does **not** freeze the
+  result shape — a Describe re-derives it against the current catalog (and raises
+  `0A000` rather than serve a stale shape) — so a stored copy would diverge after
+  DDL. Describe of a statement/portal is therefore answered by a live backend
+  round-trip, never from stored fields.
+- **Lock-free reads.** An `atomic.Pointer[[]uint32]`: EXECUTE-path reads are
+  lock-free and each refresh is visible across the connections sharing the
+  statement.
+
+### In-transaction PREPARE
+
+Inside an explicit transaction the eager Describe must observe transaction-local
+state and take transaction-scoped locks, so it routes to the reserved backend via
+`ExecuteOptions.eager_parse_prepared_statement` (an unnamed backend `Parse`),
+preserving PostgreSQL's transaction-time validation and lock-acquisition timing.
+
+## Wrapped EXECUTE forms
 
 PostgreSQL grammar allows an `ExecuteStmt` in three places: as a top-level
-statement, inside `EXPLAIN`, and as the body of `CREATE TABLE ... AS EXECUTE`.
-The top-level case is handled by `ExecutePrimitive` routing through
-`PortalStreamExecute`, which calls `ensurePrepared()` on the chosen backend
-connection and then runs a protocol-level Bind+Execute.
+statement, inside `EXPLAIN`, and as the body of `CREATE TABLE ... AS EXECUTE`
+(plus the nested `EXPLAIN CREATE TABLE ... AS EXECUTE`). The wrapped forms use the
+same substitution: `MaterializeWrappedExecute` splices the substituted body into a
+clone of the wrapper, which is then routed as plain SQL:
 
-The wrapped forms — `EXPLAIN EXECUTE p`, `CREATE TABLE t AS EXECUTE p`, and
-the nested `EXPLAIN CREATE TABLE t AS EXECUTE p` — cannot use the same path:
-they are not "execute a prepared statement" operations, they are raw SQL
-statements that happen to reference a prepared statement by name. The backend
-session must therefore have a prepared statement under exactly that name when
-the raw SQL runs.
+`EXPLAIN EXECUTE p(5)` → `EXPLAIN SELECT CAST(5 AS int4)`;
+`CREATE TABLE t AS EXECUTE p(5)` → `CREATE TABLE t AS SELECT CAST(5 AS int4)`
 
-### Planner-Side AST Rewrite
-
-When the planner sees a wrapped EXECUTE, it:
-
-1. Looks up the inner `ExecuteStmt.Name` (e.g. `p`) in the gateway
-   consolidator, obtaining the canonical name (e.g. `stmt42`), the inner
-   query body, and the param type OIDs.
-2. **Mutates `ExecuteStmt.Name` in place** from the user name to the
-   canonical name. The AST is freshly parsed per query in `HandleQuery`,
-   so in-place mutation is safe.
-3. Regenerates the wrapper SQL via `SqlString()`. The result references the
-   canonical name, e.g. `EXPLAIN (COSTS OFF) EXECUTE stmt42`.
-4. Builds a `Route` (or `TempTableRoute` for `CREATE TEMP TABLE ... AS
-EXECUTE`) that carries the `PreparedStatement` metadata (the
-   **gateway-assigned** canonical name, plus the query body and param types).
-
-### Multipooler-Side ensurePreparedWithName
-
-The multipooler's `StreamExecute` RPC reads `options.PreparedStatement`
-(an optional field on `ExecuteOptions`). When set, it calls
-`ensurePreparedWithName()` on the chosen backend connection before running
-the query. Unlike `ensurePrepared()`, this variant uses the caller-supplied
-name directly rather than deriving a pooler-canonical name: the rewritten
-SQL references a specific name, and the backend must have a prepared
-statement under exactly that name.
-
-This works because the gateway consolidator assigns globally unique
-monotonic names (`stmt0`, `stmt1`, ...) deduplicated by `(query, paramTypes)`,
-so using them as backend-session prepared statement names is safe across
-multiple gateway client sessions sharing a pool connection. On a given
-backend connection it is possible to end up with **both** a pooler-canonical
-entry (from top-level EXECUTE via `PortalStreamExecute`) **and** a
-gateway-canonical entry (from wrapped EXECUTE via `StreamExecute`) for the
-same query body. They are different names on the same connection, which
-PostgreSQL allows; the cost is one extra `Parse` the first time each path
-is exercised for a given query.
-
-### Connection Stickiness
-
-Because reconnection on a regular pool connection wipes per-connection
-prepared statement state, the wrapped-EXECUTE path on the regular pool
-cannot use the retry-on-connection-error variant of `QueryStreaming`: a
-silent reconnect would leave the backend without the statement the
-rewritten SQL references. The regular path uses plain `QueryStreaming`
-instead and surfaces connection errors to the caller, who can reissue
-the query at the application level.
-
-The reserved-pool wrapped-EXECUTE path (`reserveAndStreamExecute` in
-`executor.go` and the `portalExecuteWithReserved` new-conn branch) does
-recover from stale sockets transparently: it wires `ensurePreparedWithName`
-/ `ensurePrepared` through `reserved.WithValidate`, so a connection-class
-error on the Parse triggers a retry on a fresh socket and re-runs the
-Parse there before the conn is registered. Both the empty-settings and
-non-empty-settings cases benefit. See `connection_pooling.md` for the
-underlying primitive.
+Because the output is ordinary SQL with no backend prepared statement to keep
+alive, the wrapped path has no connection-stickiness constraint: a silent
+reconnect cannot lose statement state that no longer exists.
 
 ### Scope and Known Limitation
 
-This rewrite handles **SQL-level** wrapped EXECUTE reachable via the
+This handles **SQL-level** wrapped EXECUTE reachable via the
 PostgreSQL grammar:
 
 - `EXPLAIN [options] EXECUTE p [(params)]`
