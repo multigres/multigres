@@ -46,14 +46,14 @@ func Never(t TestingT, condition func() bool, waitFor, tick time.Duration, msgAn
 
 	deadline := time.Now().Add(waitFor)
 	for {
+		if time.Now().After(deadline) {
+			return
+		}
 		// condition must return reasonably quickly: nothing here runs
 		// concurrently to enforce waitFor as a hard ceiling.
 		if condition() {
 			t.Errorf("Condition satisfied%s", formatMsg(msgAndArgs))
 			t.FailNow()
-		}
-		if time.Now().After(deadline) {
-			return
 		}
 		time.Sleep(tick)
 	}
@@ -66,6 +66,11 @@ func Never(t TestingT, condition func() bool, waitFor, tick time.Duration, msgAn
 // condition to call a require.* assertion or t.Fatalf directly to fail even
 // earlier, e.g. on detecting the condition can never become true (a
 // supervised process died).
+//
+// Not a general replacement for assert/require.Eventually — prefer Eventually
+// when it already works. Reach for WaitFor when condition needs to fail the
+// test early, or when Eventually's per-tick goroutine could race
+// timing-sensitive state like test teardown (the motivating case for [Never]).
 func WaitFor(t TestingT, condition func(ctx context.Context) bool, waitFor, tick time.Duration, msgAndArgs ...any) {
 	t.Helper()
 
@@ -76,12 +81,14 @@ func WaitFor(t TestingT, condition func(ctx context.Context) bool, waitFor, tick
 	defer cancel()
 
 	for {
-		if condition(ctx) {
-			return
-		}
+		// Checked before condition, not after: otherwise a tick landing past
+		// the deadline would let condition pass one extra time past waitFor.
 		if ctx.Err() != nil {
 			t.Errorf("Condition never satisfied within %s%s", waitFor, formatMsg(msgAndArgs))
 			t.FailNow()
+		}
+		if condition(ctx) {
+			return
 		}
 		time.Sleep(tick)
 	}
