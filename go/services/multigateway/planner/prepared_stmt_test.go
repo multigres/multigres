@@ -49,12 +49,12 @@ type mockIExecute struct {
 // streamExecuteCall records the observable arguments of a StreamExecute call.
 type streamExecuteCall struct {
 	sql                         string
-	executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+	eagerParsePreparedStatement *query.PreparedStatement
 	info                        engine.PlanExecInfo
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
-	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps, info: info})
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, eagerParsePreparedStatement: ps, info: info})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
@@ -245,11 +245,9 @@ func TestPlanExecuteStmt(t *testing.T) {
 	assert.False(t, s.exec.portalStreamExecuteCalled, "top-level SQL EXECUTE should route as SQL, not bind a portal")
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Equal(t, "EXECUTE myplan", call.sql)
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
+	// EXECUTE now runs the substituted prepared body as an ordinary query.
+	assert.Equal(t, "SELECT 1", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement, "SQL EXECUTE no longer ships a prepared-statement template")
 }
 
 func TestPlanExecuteStmtWithParams(t *testing.T) {
@@ -265,11 +263,9 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Equal(t, "EXECUTE myplan ( 42 )", call.sql)
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Equal(t, " ( 42 )", call.executeSQLPreparedStatement.SqlSuffix)
+	// The argument is substituted for $1 and cast to the resolved parameter type.
+	assert.Equal(t, "SELECT CAST(42 AS INT)", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 func TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock(t *testing.T) {
@@ -312,9 +308,7 @@ func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, s.exec.streamExecuteCalls)
 		last := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-		require.NotNil(t, last.executeSQLPreparedStatement)
-		require.NotNil(t, last.executeSQLPreparedStatement.GetPreparedStatement())
-		return strings.ToLower(last.executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+		return strings.ToLower(last.sql)
 	}
 
 	// Unpinned session (no transaction, no reserved conn): the persisting
@@ -363,12 +357,10 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Contains(t, call.sql, "EXECUTE myplan")
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "SMALLINT")
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "ARRAY")
+	// Argument expressions are preserved inside the per-parameter casts to the
+	// resolved parameter types (int, int[]).
+	assert.Equal(t, "SELECT CAST(CAST(5 AS SMALLINT) AS INT), CAST(ARRAY[1,2,3] AS _int4)", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 func TestPlanExecuteStmtNonExistent(t *testing.T) {

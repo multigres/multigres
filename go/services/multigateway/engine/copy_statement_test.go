@@ -90,7 +90,7 @@ func (m *mockIExecute) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *query.ExecuteSqlPreparedStatement,
+	preparedStatement *query.PreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
 	keepStructured bool,

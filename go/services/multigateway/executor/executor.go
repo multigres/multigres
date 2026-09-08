@@ -382,9 +382,9 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 }
 
 // EagerParseInTransaction forces a backend Parse for SQL PREPARE / protocol
-// Parse inside an explicit transaction. The actual carrier is the existing
-// StreamExecute reservation path with force_unnamed_parse set; the multipooler
-// runs unnamed Parse after replaying any deferred BEGIN.
+// Parse inside an explicit transaction. The carrier is the StreamExecute
+// reservation path with eager_parse_prepared_statement set; the multipooler
+// runs an unnamed Parse after replaying any deferred BEGIN.
 func (e *Executor) EagerParseInTransaction(
 	ctx context.Context,
 	conn *server.Conn,
@@ -392,12 +392,9 @@ func (e *Executor) EagerParseInTransaction(
 	queryStr string,
 	paramTypes []uint32,
 ) error {
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{
-			Query:      queryStr,
-			ParamTypes: paramTypes,
-		},
-		ForceUnnamedParse: true,
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
+		Query:      queryStr,
+		ParamTypes: paramTypes,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 

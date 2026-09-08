@@ -20,7 +20,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -59,7 +58,7 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *server.Conn, state *handler.MultigatewayConnectionState) (*engine.Plan, error) {
 	var execInfo engine.PlanExecInfo
 	var setConfigs []engine.SQLPreparedSetConfig
-	var bodyOverride *query.PreparedStatement
+	var bodyOverride ast.Stmt
 	unsafeConnection := conn != nil && conn.UnsafeConnection()
 	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
 		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), unsafeConnection)
@@ -72,20 +71,15 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 
 		// If the session is unpinned and the body carries a persisting ordinary
-		// set_config, rewrite it to revert on the pooled backend. A pinned session
-		// (or a body with nothing to flip) runs the registered body verbatim. A
-		// body that reserves its own backend (temp table, advisory lock, ...)
-		// counts as pinned too: it must persist on the backend it just pinned.
+		// set_config, substitute into a clone with its is_local flipped to true so
+		// the pooled backend reverts it. A pinned session (or a body with nothing
+		// to flip) uses the registered body verbatim. A body that reserves its own
+		// backend (temp table, advisory lock, ...) counts as pinned too: it must
+		// persist on the backend it just pinned.
 		pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard) ||
 			engine.StatementReservesBackend(execInfo)
 		if !pinned {
-			if reverted := rewriteSetConfigToRevert(psi.AstStmt()); reverted != nil {
-				bodyOverride = &query.PreparedStatement{
-					Name:       psi.Name,
-					Query:      reverted.SqlString(),
-					ParamTypes: psi.ParamTypes,
-				}
-			}
+			bodyOverride = rewriteSetConfigToRevert(psi.AstStmt())
 		}
 	}
 

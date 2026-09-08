@@ -48,7 +48,7 @@ type mockExec struct {
 	streamExecuteCalls              atomic.Int32
 	portalStreamExecuteCalls        atomic.Int32
 	lastStreamExecuteSQL            atomic.Value // string
-	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
+	lastEagerParsePreparedStatement atomic.Pointer[querypb.PreparedStatement]
 	lastPortalStreamExecuteQS       atomic.Value // string
 
 	// StreamReplication tracking
@@ -61,7 +61,7 @@ type mockExec struct {
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	preparedStatement *querypb.ExecuteSqlPreparedStatement,
+	preparedStatement *querypb.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	_ bool,
@@ -69,7 +69,7 @@ func (m *mockExec) StreamExecute(
 ) error {
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
-	m.lastExecuteSQLPreparedStatement.Store(preparedStatement)
+	m.lastEagerParsePreparedStatement.Store(preparedStatement)
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
@@ -182,7 +182,10 @@ func TestEagerParseInTransaction(t *testing.T) {
 	require.NoError(t, exec.EagerParseInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
 	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
 	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
-	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetForceUnnamedParse())
+	ps := mock.lastEagerParsePreparedStatement.Load()
+	require.NotNil(t, ps)
+	assert.Equal(t, "SELECT $1", ps.GetQuery())
+	assert.Equal(t, []uint32{23}, ps.GetParamTypes())
 }
 
 // ---------- StreamExecute plan cache tests ----------
