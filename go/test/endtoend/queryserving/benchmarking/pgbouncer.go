@@ -101,6 +101,9 @@ unix_socket_dir = %s
 		f.Close()
 		return nil, fmt.Errorf("failed to start pgbouncer: %w", err)
 	}
+	// Reap in the background so a later IsRunningOrZombie() reports exit
+	// promptly. Safe to reap: stdout/stderr are a plain file above.
+	go func() { _ = process.Wait() }()
 
 	inst := &PgBouncerInstance{
 		process:   process,
@@ -150,7 +153,7 @@ func waitForPort(t *testing.T, host string, port int, timeout time.Duration, pro
 
 	for time.Now().Before(deadline) {
 		// Fail fast if the process already died, instead of polling a dead target.
-		if !proc.IsRunning() {
+		if !proc.IsRunningOrZombie() {
 			return fmt.Errorf("process exited before listening on port %s", addr)
 		}
 

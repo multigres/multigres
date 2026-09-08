@@ -19,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -575,5 +576,72 @@ func TestCommand_WithProcessGroup_NoEffectWithoutFlag(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "hello") {
 		t.Errorf("unexpected output: %q", output)
+	}
+}
+
+func TestCmd_IsRunningOrZombie_TrueWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	cmd := Command(ctx, "sleep", "5")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	if !cmd.IsRunningOrZombie() {
+		t.Error("expected IsRunningOrZombie() to be true while the process is running")
+	}
+}
+
+func TestCmd_IsRunningOrZombie_FalseAfterWait(t *testing.T) {
+	ctx := context.Background()
+	cmd := Command(ctx, "true")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("cmd.Wait() failed: %v", err)
+	}
+
+	if cmd.IsRunningOrZombie() {
+		t.Error("expected IsRunningOrZombie() to be false once the process has been reaped")
+	}
+}
+
+// TestCmd_IsRunningOrZombie_TrueForUnreapedZombie locks in IsRunningOrZombie's
+// documented limitation: without an explicit Wait() (from anywhere), an
+// exited-but-unreaped process still reports as running. This is a
+// deliberate tripwire — if it starts failing, IsRunningOrZombie's contract
+// changed and its name/docs need to be revisited too.
+func TestCmd_IsRunningOrZombie_TrueForUnreapedZombie(t *testing.T) {
+	ctx := context.Background()
+	cmd := Command(ctx, "true")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() { _ = cmd.Wait() })
+
+	// Poll via `ps` (not cmd.Wait()) until the OS confirms the process
+	// actually exited and became a zombie — reaping it ourselves here would
+	// defeat the point of the test.
+	deadline := time.Now().Add(2 * time.Second)
+	var lastState string
+	for {
+		out, psErr := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+		lastState = string(out)
+		if psErr == nil && strings.Contains(lastState, "Z") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("process %d never became a zombie (last ps state: %q)", pid, lastState)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !cmd.IsRunningOrZombie() {
+		t.Error("expected IsRunningOrZombie() to report true for an exited-but-unreaped zombie process")
 	}
 }

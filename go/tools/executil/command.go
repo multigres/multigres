@@ -426,15 +426,26 @@ func (c *Cmd) Resume() error {
 	return c.Process.Signal(syscall.SIGCONT)
 }
 
-// IsRunning reports whether the process is still running. Returns false if
-// the process was never started or has already exited.
-func (c *Cmd) IsRunning() bool {
+// IsRunningOrZombie reports whether the process is still running. Returns
+// false if the process was never started or has already exited.
+//
+// Named to flag its own limitation: against a process that has exited but
+// not yet been reaped (a zombie), this still returns true — signal 0
+// succeeds against a zombie's PID, and ProcessState/waitDone only become
+// accurate once something calls Wait(). If you need this to report exit
+// promptly, spawn `go func() { _ = cmd.Wait() }()` yourself once — Wait()
+// dedupes concurrent/repeated calls, so it's safe alongside any other
+// caller of cmd.Wait(). Only safe when Stdout/Stderr are not StdoutPipe/
+// StderrPipe with reads still pending: exec.Cmd.Wait() closes those pipes
+// once it sees the process exit, racing a concurrent reader.
+func (c *Cmd) IsRunningOrZombie() bool {
 	if c == nil || c.Process == nil {
 		return false
 	}
-	// ProcessState is set once Wait() returns, meaning the process has exited.
-	if c.ProcessState != nil {
+	select {
+	case <-c.waitDone:
 		return false
+	default:
 	}
 	// Signal 0 checks whether the process exists without actually sending one.
 	return c.Process.Signal(syscall.Signal(0)) == nil

@@ -110,7 +110,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 	managerStartTimeout := utils.ScaleTimeout(testconst.ManagerStartTimeout)
 	testpoll.WaitFor(t, func(ctx context.Context) bool {
 		// Fail fast if the process already died, instead of polling a dead target.
-		require.True(t, manager.IsRunning(), "manager %s process exited before becoming ready", manager.Name)
+		require.True(t, manager.IsRunningOrZombie(), "manager %s process exited before becoming ready", manager.Name)
 
 		// Matches utils.WithShortDeadline.
 		attemptCtx, attemptCancel := context.WithTimeout(ctx, utils.ScaleTimeout(2*time.Second))

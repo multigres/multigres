@@ -41,15 +41,16 @@ import (
 // ProcessInstance represents a process instance for testing (pgctld, multipooler, or multiorch).
 // This struct is extracted from multipooler/setup_test.go and extended for multiorch support.
 type ProcessInstance struct {
-	Name        string
-	PoolerDir   string // Used by pgctld, multipooler
-	ConfigFile  string // Used by pgctld
-	LogFile     string
-	GrpcPort    int
-	PgPort      int    // Used by pgctld
-	PgctldAddr  string // Used by multipooler
-	EtcdAddr    string // Used by multipooler for topology
-	GlobalRoot  string // Topology global root path (used by multipooler, multiorch, multigateway)
+	Name       string
+	PoolerDir  string // Used by pgctld, multipooler
+	ConfigFile string // Used by pgctld
+	LogFile    string
+	GrpcPort   int
+	PgPort     int    // Used by pgctld
+	PgctldAddr string // Used by multipooler
+	EtcdAddr   string // Used by multipooler for topology
+	GlobalRoot string // Topology global root path (used by multipooler, multiorch, multigateway)
+	// Process: don't attach StdoutPipe/StderrPipe here — see IsRunningOrZombie below.
 	Process     *executil.Cmd
 	Binary      string
 	Environment []string
@@ -128,6 +129,19 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
+}
+
+// startAndReap starts cmd and reaps it in the background so a later
+// IsRunningOrZombie() reports exit promptly instead of a zombie window. Only
+// safe when Stdout/Stderr are a plain file or nil — never StdoutPipe/
+// StderrPipe with reads still pending, since Wait() closes those pipes once
+// it sees the process exit, racing a concurrent reader.
+func startAndReap(cmd *executil.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -365,8 +379,9 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 		p.Process.SetStderr(logF)
 	}
 
-	// Start the process with trace context propagation
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation. Safe to reap:
+	// Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multiorch: %w", err)
 	}
 	t.Logf("Started multiorch (pid: %d, grpc: %d, http: %d, log: %s)",
@@ -432,8 +447,9 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		p.Process.SetStderr(logF)
 	}
 
-	// Start the process with trace context propagation
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation. Safe to reap:
+	// Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multigateway: %w", err)
 	}
 	t.Logf("Started multigateway (pid: %d, pg: %d, grpc: %d, http: %d, log: %s)",
@@ -482,7 +498,8 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 		p.Process.SetStderr(logF)
 	}
 
-	if err := p.Process.Start(); err != nil {
+	// Safe to reap: Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 	t.Logf("Started multiadmin (pid: %d, http: %d, grpc: %d, log: %s)",
@@ -500,9 +517,11 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, timeout time.Duration, logInterval int) error {
 	t.Helper()
 
-	// Start the process in background with trace context propagation
+	// Start the process in background with trace context propagation. Safe
+	// to reap here: neither caller of waitForStartup (pgctld, multipooler)
+	// sets Stdout/Stderr to a pipe.
 	start := time.Now()
-	err := p.Process.Start()
+	err := startAndReap(p.Process)
 	if err != nil {
 		return fmt.Errorf("failed to start %s: %w", p.Name, err)
 	}
@@ -576,13 +595,13 @@ func (p *ProcessInstance) LogRecentOutput(t *testing.T, context string) {
 	t.Logf("%s %s - Recent log output from %s:\n%s", p.Name, context, p.LogFile, logContent)
 }
 
-// IsRunning checks if the process is still running.
-// Returns false if the process has exited or was never started.
-func (p *ProcessInstance) IsRunning() bool {
-	if p == nil {
+// IsRunningOrZombie delegates to Process.IsRunningOrZombie — see its docs
+// for the zombie-window limitation this name discloses.
+func (p *ProcessInstance) IsRunningOrZombie() bool {
+	if p == nil || p.Process == nil {
 		return false
 	}
-	return p.Process.IsRunning()
+	return p.Process.IsRunningOrZombie()
 }
 
 // StopPostgres stops PostgreSQL via pgctld gRPC (best effort, no error handling).
@@ -672,7 +691,7 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
 		// Fail fast if the process already died, instead of polling a dead target.
-		if !proc.IsRunning() {
+		if !proc.IsRunningOrZombie() {
 			return fmt.Errorf("%s process exited before becoming ready on port %d", name, grpcPort)
 		}
 
