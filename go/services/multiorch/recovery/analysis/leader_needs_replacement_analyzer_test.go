@@ -155,6 +155,17 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		sa.HighestPosition.Decision.CreationTime = timestamppb.New(sa.Now)
 	}
 
+	// setRuleUndecided gives HighestPosition an outstanding proposal, so
+	// commonconsensus.IsRuleDecided(sa.HighestPosition) is false -- simulating
+	// a leader whose promotion hasn't yet demonstrated a quorum-acked commit
+	// (the finalize/decide commit itself is quorum-gated, so it can't complete
+	// while a required standby is still catching up).
+	setRuleUndecided := func(sa *ShardAnalysis) {
+		sa.HighestPosition.Proposal = &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		}
+	}
+
 	// setLeaderPGRunning / setLeaderLastReady / setLeaderPromoting drive the
 	// leader's postgres state on its rider, replacing the removed shard-level
 	// verdict fields (now derived inside LeaderNeedsReplacementAnalyzer).
@@ -220,6 +231,36 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{}
 				}
 				h.Status.ReplicationStatus.QuorumCommitTs = timestamppb.New(at)
+			})
+		}
+	}
+
+	// setLeaderQuorumCommitTs stamps the leader's own PrimaryStatus with a
+	// quorum_commit_ts, as if its heartbeat writer had observed one directly
+	// (the first-hand signal, vs. setQuorumCommitTs's cohort-observed one).
+	setLeaderQuorumCommitTs := func(sa *ShardAnalysis, at time.Time) {
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			if h.Status.PrimaryStatus == nil {
+				h.Status.PrimaryStatus = &multipoolermanagerdatapb.PrimaryStatus{}
+			}
+			h.Status.PrimaryStatus.QuorumCommitTs = timestamppb.New(at)
+		})
+	}
+
+	// setLastReceiveLsnAdvance stamps a follower's replication status with a
+	// last_receive_lsn_advance_time, as if its heartbeat reader had observed
+	// raw WAL streaming progress (distinct from setQuorumCommitTs's
+	// quorum-proven signal).
+	setLastReceiveLsnAdvance := func(sa *ShardAnalysis, id *clustermetadatapb.ID, at time.Time) {
+		for _, pa := range sa.Analyses {
+			if poolerID(pa).Name != id.Name {
+				continue
+			}
+			pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				if h.Status.ReplicationStatus == nil {
+					h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{}
+				}
+				h.Status.ReplicationStatus.LastReceiveLsnAdvanceTime = timestamppb.New(at)
 			})
 		}
 	}
@@ -439,6 +480,51 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
+	})
+
+	t.Run("prefers the leader's own first-hand quorum-commit report when reachable", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setLeaderQuorumCommitTs(sa, sa.Now)                                                           // fresh, first-hand
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second)) // stale, cohort-observed
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems, "leader's own fresh first-hand report takes precedence over a stale cohort-observed one")
+	})
+
+	t.Run("LSN still advancing on a quorum-sufficient set suppresses LeaderStuck for an undecided rule", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setRuleUndecided(sa)
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+			setLastReceiveLsnAdvance(sa, follower1ID, sa.Now)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems, "a quorum-sufficient set actively receiving fresh WAL means an undecided promotion is likely still catching up, not stuck")
+	})
+
+	t.Run("LeaderStuck fires despite LSN still advancing once the rule is decided", func(t *testing.T) {
+		// A DECIDED rule is itself proof a quorum-acked commit already
+		// succeeded under this leadership (the finalize commit is quorum-gated
+		// like any other write), so the backlog-draining excuse no longer
+		// applies -- unlike the undecided case above, this must convict.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+			setLastReceiveLsnAdvance(sa, follower1ID, sa.Now)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code)
 	})
 
 	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {

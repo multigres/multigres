@@ -53,9 +53,12 @@ type Writer struct {
 	runner *timer.PeriodicRunner
 
 	// lastProven is the (LSN, ts) pair captured pre-commit by the most recent
-	// successful write. Only ever touched from writeHeartbeat's own goroutine
-	// (the PeriodicRunner never overlaps ticks), so it needs no lock.
-	lastProven *provenWatermark
+	// successful write. Written only from writeHeartbeat's own goroutine (the
+	// PeriodicRunner never overlaps ticks), but read from other goroutines via
+	// LastProven() (e.g. an RPC handler reporting the leader's own view). Each
+	// write replaces the whole pointer rather than mutating fields in place,
+	// so a plain atomic pointer swap covers it -- no mutex needed.
+	lastProven atomic.Pointer[provenWatermark]
 
 	writes      atomic.Int64
 	writeErrors atomic.Int64
@@ -131,9 +134,9 @@ func (w *Writer) write(ctx context.Context) error {
 	tsNano := w.now().UnixNano()
 
 	var lsnArg, provenTsArg any
-	if w.lastProven != nil {
-		lsnArg = w.lastProven.lsn.String()
-		provenTsArg = w.lastProven.tsNano
+	if lastProven := w.lastProven.Load(); lastProven != nil {
+		lsnArg = lastProven.lsn.String()
+		provenTsArg = lastProven.tsNano
 	}
 
 	result, err := w.queryService.QueryAdminArgs(ctx, `
@@ -156,7 +159,7 @@ func (w *Writer) write(ctx context.Context) error {
 	if result != nil && len(result.StructuredRows()) > 0 {
 		if raw, rawErr := executor.GetString(result.StructuredRows()[0], 0); rawErr == nil && raw != "" {
 			if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr == nil {
-				w.lastProven = &provenWatermark{lsn: lsn, tsNano: tsNano}
+				w.lastProven.Store(&provenWatermark{lsn: lsn, tsNano: tsNano})
 			} else {
 				w.logger.DebugContext(ctx, "failed to parse pg_current_wal_lsn", "value", raw, "error", lsnErr)
 			}
@@ -164,6 +167,18 @@ func (w *Writer) write(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// LastProven returns the (LSN, ts) pair captured pre-commit by the most
+// recent successful write, and whether one has been observed yet. This is
+// the leader's own first-hand view -- available even when no follower is
+// reachable to relay the replicated row.
+func (w *Writer) LastProven() (lsn pgutil.LSN, tsNano int64, have bool) {
+	lastProven := w.lastProven.Load()
+	if lastProven == nil {
+		return 0, 0, false
+	}
+	return lastProven.lsn, lastProven.tsNano, true
 }
 
 // Writes returns the number of successful heartbeat writes.

@@ -387,7 +387,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// Healthy and serving as a postgres primary — but still check the
 	// quorum-commit backstop before calling it healthy.
 	if leaderLive && leaderPostgresReady(sa) {
-		return a.quorumCommitStuckCause(sa)
+		return a.quorumCommitStuckCause(sa, cohort, leaderID, policy)
 	}
 
 	if leaderLive {
@@ -425,7 +425,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// to the same quorum-commit backstop as the first-hand healthy branch above. One
 	// streaming follower plus the leader itself can be the quorum.
 	if policy.SatisfiedBy(vouching) == nil {
-		return a.quorumCommitStuckCause(sa)
+		return a.quorumCommitStuckCause(sa, cohort, leaderID, policy)
 	}
 
 	// NEITHER — inconclusive, NOT healthy: we may simply not have looked long enough
@@ -498,16 +498,17 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 	return relationCutOff
 }
 
-// freshestQuorumCommitTs returns the most recent quorum_commit_ts observed
-// across ALL known members of this shard (sa.Analyses — the full population,
-// deliberately NOT narrowed to the current cohort), and whether any of them
-// has reported one yet. quorum_commit_ts is a single leader-authored fact,
-// not an independent per-member value, so any pooler that has replicated a
-// fresh copy of it is valid proof quorum is not stuck — including an
-// observer that isn't (or isn't yet) a durability-required cohort member.
-// The leader's own rider never contributes: GetReplicationStatus() is nil
-// for a primary (it's the writer, not a reader).
+// freshestQuorumCommitTs returns the most recent quorum_commit_ts known for
+// this shard. quorum_commit_ts names one leader-authored fact, not
+// independent per-member values, so any source that has a fresh copy is
+// valid proof — including the leader's own (always >= any follower's replica,
+// since replication only adds delay) and a non-cohort observer's.
 func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
+	if sa.Leader != nil {
+		if ts := sa.Leader.Health().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
+			freshest, have = ts.AsTime(), true
+		}
+	}
 	for _, pa := range sa.Analyses {
 		if pa == nil {
 			continue
@@ -523,16 +524,58 @@ func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
 	return freshest, have
 }
 
+// receiveLsnStillAdvancing reports whether a durability-sufficient set of the
+// cohort has a recent last_receive_lsn_advance_time — evidence, during an
+// undecided promotion (see quorumCommitStuckCause), that a quorum-commit
+// stall is backlog-draining rather than a genuine halt. Unlike raw LSN,
+// last_receive_lsn_advance_time only moves via live streaming (never
+// restore_command replay), so it can't be spoofed by archive replay.
+func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
+	leaderKey := topoclient.ComponentIDString(leaderID)
+	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses))
+	for _, pa := range sa.Analyses {
+		if pa != nil {
+			byID[topoclient.ComponentIDString(poolerID(pa))] = pa
+		}
+	}
+	var vouching []*clustermetadatapb.ID
+	for _, member := range cohort {
+		if topoclient.ComponentIDString(member) == leaderKey {
+			continue
+		}
+		pa, ok := byID[topoclient.ComponentIDString(member)]
+		if !ok {
+			continue
+		}
+		ts := pa.Health().GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
+		if ts != nil && sa.Now.Sub(ts.AsTime()) <= sa.Policy.FollowerStreamFreshness {
+			vouching = append(vouching, member)
+		}
+	}
+	if len(vouching) == 0 {
+		return false
+	}
+	// A quorum-sufficient set actively receiving fresh WAL proves the leader
+	// itself is generating and streaming it right now, so it vouches too —
+	// same self-vouching inference as classifyCohortReachability.
+	vouching = append(vouching, leaderID)
+	return policy.SatisfiedBy(vouching) == nil
+}
+
 // quorumCommitStuckCause checks the LeaderStuck backstop: the leader looks
-// healthy (directly or via cohort corroboration) but the freshest
-// shard-wide observed quorum_commit_ts is stale, meaning quorum commits have
-// stopped even though replicas can still show raw receive/replay LSN
-// progress (they replay WAL ahead of the primary's own synchronous-quorum
-// ack). Returns healthy (cause=="") when no pooler has reported a value
-// yet — absence of evidence must not convict.
-func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysis) (types.ProblemCode, string, bool) {
+// healthy but quorum commits have stalled even though replicas can still
+// show raw LSN progress (they replay WAL ahead of the primary's own
+// synchronous-quorum ack). Absence of evidence must not convict, so this is
+// healthy (cause=="") when no pooler has reported a quorum_commit_ts yet.
+func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) (types.ProblemCode, string, bool) {
 	freshest, have := freshestQuorumCommitTs(sa)
 	if !have || sa.Now.Sub(freshest) <= sa.Policy.QuorumCommitStaleAfter {
+		return "", "", false
+	}
+	// A DECIDED rule already proves a quorum-acked commit succeeded under this
+	// leadership (the finalize commit is itself quorum-gated), so the
+	// backlog-draining excuse only applies while still undecided.
+	if !commonconsensus.IsRuleDecided(sa.HighestPosition) && a.receiveLsnStillAdvancing(sa, cohort, leaderID, policy) {
 		return "", "", false
 	}
 	return types.ProblemLeaderStuck,

@@ -189,6 +189,14 @@ message PrimaryStatus {
   // wal-sender capacity exhaustion visible: once connected_followers reaches
   // max_wal_senders, additional standbys cannot stream.
   int32 max_wal_senders = 5;
+
+  // The leader's own first-hand view of quorum_commit_ts/quorum_commit_lsn
+  // (its heartbeat writer's last proven-quorum-acked write), mirroring the
+  // same-named fields on StandbyReplicationStatus. Available even when no
+  // follower is reachable to relay the replicated heartbeat row. Null/empty
+  // if the writer hasn't observed a value yet.
+  google.protobuf.Timestamp quorum_commit_ts = 6;
+  string quorum_commit_lsn = 7;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
