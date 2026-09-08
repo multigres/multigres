@@ -530,6 +530,23 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
    */
   lastReceiveLsnAdvanceTime?: Timestamp;
 
+  /**
+   * Leader-stamped time of the last heartbeat write proven quorum-acked. A
+   * stale value while last_receive_lsn keeps advancing means quorum commits
+   * have stalled even though WAL is still streaming. Null if unobserved.
+   *
+   * @generated from field: google.protobuf.Timestamp quorum_commit_ts = 13;
+   */
+  quorumCommitTs?: Timestamp;
+
+  /**
+   * The heartbeat table's quorum_commit_lsn, paired with quorum_commit_ts.
+   * Empty if unobserved.
+   *
+   * @generated from field: string quorum_commit_lsn = 14;
+   */
+  quorumCommitLsn = "";
+
   constructor(data?: PartialMessage<StandbyReplicationStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -550,6 +567,8 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
     { no: 10, name: "wal_receiver_status_interval", kind: "message", T: Duration },
     { no: 11, name: "wal_receiver_timeout", kind: "message", T: Duration },
     { no: 12, name: "last_receive_lsn_advance_time", kind: "message", T: Timestamp },
+    { no: 13, name: "quorum_commit_ts", kind: "message", T: Timestamp },
+    { no: 14, name: "quorum_commit_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StandbyReplicationStatus {
@@ -922,6 +941,22 @@ export class PrimaryStatus extends Message<PrimaryStatus> {
    */
   maxWalSenders = 0;
 
+  /**
+   * The leader's own first-hand view of quorum_commit_ts/quorum_commit_lsn
+   * (its heartbeat writer's last proven-quorum-acked write), mirroring the
+   * same-named fields on StandbyReplicationStatus. Available even when no
+   * follower is reachable to relay the replicated heartbeat row. Null/empty
+   * if the writer hasn't observed a value yet.
+   *
+   * @generated from field: google.protobuf.Timestamp quorum_commit_ts = 6;
+   */
+  quorumCommitTs?: Timestamp;
+
+  /**
+   * @generated from field: string quorum_commit_lsn = 7;
+   */
+  quorumCommitLsn = "";
+
   constructor(data?: PartialMessage<PrimaryStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -935,6 +970,8 @@ export class PrimaryStatus extends Message<PrimaryStatus> {
     { no: 3, name: "connected_followers", kind: "message", T: ID, repeated: true },
     { no: 4, name: "sync_replication_config", kind: "message", T: SynchronousReplicationConfiguration },
     { no: 5, name: "max_wal_senders", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 6, name: "quorum_commit_ts", kind: "message", T: Timestamp },
+    { no: 7, name: "quorum_commit_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrimaryStatus {
