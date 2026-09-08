@@ -36,7 +36,11 @@ group can mix functions over the same shards: a table sharded by
 routes lookups against it, both on the same shards and pooler cohorts.
 
 **Shard** — one key-range slice of a table group, served by a pooler cohort
-forming one HA/consensus domain. Identified by `(database, table_group,
+forming one HA/consensus domain. The shard is the logical slice — a unit of
+ownership and routing that lives in the catalog; the **pooler cohort** is the
+physical processes (postgres + its multipoolers) that serve it. They map
+one-to-one, but the shard is metadata while the cohort is the running deployment.
+Identified by `(database, table_group,
 key_range)`; its name is derived from the range as `hex(start)-hex(end)` — so
 `[-, 0x80)` is `"-80"`, `[0x80, -)` is `"80-"`, and the full range is `"-"`.
 
@@ -49,7 +53,9 @@ key_range)`; its name is derived from the range as `hex(start)-hex(end)` — so
 - **lookup** — resolves the keyrange-id through a lookup-index table, which
   can itself be a member of the same table group.
 - **reference** — owns no shards; the table is replicated onto every shard in the
-  database, so it joins locally from anywhere.
+  database, so it joins locally from anywhere. Distinct from unsharded (below): an
+  unsharded table has one physical copy on its group's single full-range shard,
+  whereas a reference table is copied onto every shard of every group.
 
 Unset function ⇒ unsharded: the group has one full-range shard.
 
@@ -57,10 +63,30 @@ Unset function ⇒ unsharded: the group has one full-range shard.
 
 Two composable steps map a query to a shard:
 
-| Step                  | Owned by                                           | Answers                                                   |
-| --------------------- | -------------------------------------------------- | --------------------------------------------------------- |
-| `value → keyrange-id` | the **table's** function + the **table's** columns | how a row's shard-key value becomes a point in `[00, FF]` |
-| `keyrange-id → shard` | the **table group's** shard key ranges             | which shard owns that point                               |
+| Step                  | Owned by                                           | Answers                                                              |
+| --------------------- | -------------------------------------------------- | -------------------------------------------------------------------- |
+| `value → keyrange-id` | the **table's** function + the **table's** columns | how a row's shard-key value becomes a point in the keyrange-id space |
+| `keyrange-id → shard` | the **table group's** shard key ranges             | which shard owns that point                                          |
+
+A keyrange-id is a variable-length, **most-significant-byte-first** byte string,
+not a fixed-width integer. Read it as a base-256 fraction in `[0, 1)`: the byte
+string `b₁ b₂ … bₙ` denotes `0.b₁ b₂ … bₙ` in hex. A bound is therefore a
+position on the number line, and trailing zero bytes don't change it:
+
+| bound    | reads as | value   |
+| -------- | -------- | ------- |
+| `0x80`   | `0.80`   | ½       |
+| `0x8000` | `0.8000` | ½       |
+| `0x01`   | `0.01`   | 1/256   |
+| `0x0001` | `0.0001` | 1/65536 |
+
+Because this space is dense, there is no 256-shard cap: between any two bounds
+you can always insert another by appending bytes — `[0x00, 0x01)` subdivides
+into `[0x00, 0x0001)`, `[0x0001, 0x0002)`, … — so a group can hold arbitrarily
+many shards, independent of how many distinct key values exist. `hash`
+distributes values uniformly across this space; `range` maps them
+order-preservingly, so a day-of-year key (say) lands at an ordered position
+regardless of how finely the range is split.
 
 ## Proto
 
