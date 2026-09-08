@@ -116,16 +116,20 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 			"error", err)
 	}
 
-	// Advertise cohort ineligibility before stopping postgres just in case
-	// stopping is slow. We're favoring speed of failover rather than grace.
+	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
+		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
+	}
+
+	// Advertise cohort ineligibility only after postgres has stopped (or we've
+	// given up trying), so the leader's WAL is already frozen before multiorch
+	// starts recruiting followers. Recruiting a follower stops its replication;
+	// if the leader were still producing WAL when that happens, the leader
+	// could end up with WAL no follower ever received, forcing pg_rewind when
+	// it later rejoins.
 	if err := pm.consensusMgr.SetCohortEligibility(lockCtx, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE); err != nil {
 		pm.logger.WarnContext(lockCtx, "failed to set cohort ineligibility during shutdown", "error", err)
 	} else {
-		pm.logger.InfoContext(lockCtx, "advertised cohort ineligibility before stopping postgres")
-	}
-
-	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
-		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
+		pm.logger.InfoContext(lockCtx, "advertised cohort ineligibility after stopping postgres")
 	}
 
 	// Fully close leader-only periodic components now that DISABLED has been
