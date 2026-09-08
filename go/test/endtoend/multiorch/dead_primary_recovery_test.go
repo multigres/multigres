@@ -21,6 +21,7 @@ package multiorch
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -39,8 +40,10 @@ import (
 	"github.com/multigres/multigres/go/tools/testtiming"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -790,6 +793,145 @@ func TestPoolerDownNoFailover(t *testing.T) {
 		}
 		t.Logf("All standbys are still queryable")
 	})
+}
+
+// startDirectWrites opens a connection straight to postgres (bypassing
+// multipooler/multigateway entirely) and writes to a scratch table every
+// 200ms until stopped. Used to keep genuine WAL flowing to standbys
+// independent of whichever multipooler process a test kills, so the
+// pre-existing "is this follower still streaming" freshness check (which the
+// multigres heartbeat writer's own ~1s WAL activity normally keeps
+// comfortably satisfied) doesn't confound a test that means to isolate a
+// different signal. Errors are tolerated and logged, not asserted on, since
+// writes are expected to start failing once postgres is later fenced/stopped.
+func startDirectWrites(t *testing.T, primary *shardsetup.MultipoolerInstance) (stop func()) {
+	t.Helper()
+
+	socketDir := filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets")
+	db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS direct_write_probe (id SERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL)")
+	require.NoError(t, err, "failed to create scratch table for direct writes")
+
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.Context().Done():
+				return
+			case <-ticker.C:
+				// Bounded so a hung connection (e.g. postgres mid-shutdown)
+				// can't block this goroutine, and thus stop(), forever.
+				writeCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+				if _, err := db.ExecContext(writeCtx, "INSERT INTO direct_write_probe (ts) VALUES (now())"); err != nil {
+					t.Logf("direct write failed (expected once postgres is stopped): %v", err)
+				}
+				cancel()
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+		db.Close()
+	}
+}
+
+// TestPoolerDownEventuallyFailsOver verifies that a dead multipooler
+// (postgres left running) eventually triggers failover via LeaderStuck.
+// Standbys keep streaming fine from the still-alive postgres primary, so
+// streaming-freshness alone never flags it; quorum_commit_ts (tied to the
+// heartbeat writer, which died with the multipooler) is what catches this.
+// Companion to TestPoolerDownNoFailover, which asserts the short-term
+// behavior. Direct writes to postgres keep streaming-freshness satisfied
+// throughout, isolating quorum_commit_ts as the signal doing the work.
+func TestPoolerDownEventuallyFailsOver(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end pooler down test (short mode)")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end pooler down test (short mode or no postgres binaries)")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiorchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
+
+	setup.StartMultiorchs(t.Context(), t)
+
+	primary := setup.GetPrimary(t)
+	require.NotNil(t, primary, "primary instance should exist")
+	oldPrimaryName := setup.PrimaryName
+	t.Logf("Initial primary: %s", oldPrimaryName)
+
+	stopWrites := startDirectWrites(t, primary)
+	defer stopWrites()
+
+	// quorum_commit_ts is NULL until the writer's 2nd heartbeat -- wait for a
+	// real value, or LeaderStuck's staleness check has nothing to go stale.
+	primaryClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		resp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		return err == nil && resp.Status.GetPrimaryStatus().GetQuorumCommitTs() != nil
+	}, 10*time.Second, 200*time.Millisecond, "quorum_commit_ts should be established before killing the writer")
+	primaryClient.Close()
+	establishedAt := time.Now()
+
+	// The above only confirms quorum_commit_ts via our OWN direct RPC -- orch
+	// refreshes its cached view independently via its health-stream ticker.
+	// Wait for orch to report a snapshot from after establishedAt, or it
+	// might never observe the value before we kill the writer.
+	var orchInst *shardsetup.ProcessInstance
+	for _, inst := range setup.MultiorchInstances {
+		orchInst = inst
+		break
+	}
+	require.NotNil(t, orchInst, "expected exactly one multiorch instance")
+	orchClient, err := shardsetup.NewMultiorchClient(orchInst.GrpcPort)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		resp, err := orchClient.GetShardStatus(utils.WithShortDeadline(t), &multiorchpb.ShardStatusRequest{
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "postgres",
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		})
+		if err != nil {
+			return false
+		}
+		for _, ph := range resp.PoolerHealths {
+			if ph.PoolerType == "PRIMARY" && ph.LastSeen.AsTime().After(establishedAt) {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 200*time.Millisecond, "orch should observe a health snapshot taken after quorum_commit_ts was established")
+	orchClient.Close()
+
+	t.Logf("Killing multipooler on primary %s (postgres stays running)", oldPrimaryName)
+	killMultipooler(t, primary)
+
+	// The leader's heartbeat writer died with it, so quorum_commit_ts on the
+	// heartbeat row freezes at its last value. LeaderStuck only fires once
+	// that's been stale for longer than QuorumCommitStaleAfter (20s default),
+	// plus the usual failover grace/recruit/promote time on top -- give this
+	// generous room rather than the 3s in TestPoolerDownNoFailover.
+	t.Log("Waiting for multiorch to detect LeaderStuck and fail over...")
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 90*time.Second)
+	require.NotEmpty(t, newPrimaryName, "a new primary should eventually be elected once quorum commits are seen to have stalled")
+	require.NotEqual(t, oldPrimaryName, newPrimaryName)
+	t.Logf("New primary elected: %s", newPrimaryName)
 }
 
 // verifyStandbyIsQueryable checks that a standby postgres is queryable.
