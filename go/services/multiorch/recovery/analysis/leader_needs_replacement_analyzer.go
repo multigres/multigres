@@ -80,6 +80,9 @@ func replicaConfiguredForLeader(replica *store.Pooler, primaryHost string, prima
 	return connInfo.GetHost() != "" && connInfo.GetHost() == primaryHost && connInfo.GetPort() == primaryPort
 }
 
+// TODO: followerStreamingFromLeader/classifyFollowerToLeader should be named
+// "replica" instead of "follower", since they also work for observers (non-cohort members).
+
 // followerStreamingFromLeader reports whether a single follower is actively streaming
 // from the leader's postgres: configured for this leader, has received WAL, the WAL
 // receiver is in streaming state, and keepalives are fresh (within
