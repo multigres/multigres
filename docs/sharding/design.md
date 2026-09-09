@@ -52,6 +52,9 @@ key_range)`; its name is derived from the range as `hex(start)-hex(end)` — so
   shards.
 - **lookup** — resolves the keyrange-id through a lookup-index table, which
   can itself be a member of the same table group.
+- **multicol** — composite key over several columns; each column is mapped by its
+  own sub-function and contributes a fixed number of leading bytes to the
+  keyrange-id, so a leading-prefix predicate narrows to a subrange (see Examples).
 - **reference** — owns no shards; the table is replicated onto every shard in the
   database, so it joins locally from anywhere. Distinct from unsharded (below): an
   unsharded table has one physical copy on its group's single full-range shard,
@@ -130,13 +133,15 @@ message Shard {
 }
 
 // A table's placement kind. hash/range/lookup map a shard-key value to a
-// keyrange-id; reference replicates the table onto every group's shards.
+// keyrange-id; multicol composes several columns into one; reference replicates
+// the table onto every group's shards.
 message ShardingFunction {
   oneof kind {
     HashFunction      hash      = 1;
     RangeFunction     range     = 2;
     LookupFunction    lookup    = 3;
     ReferenceFunction reference = 4;
+    MultiColFunction  multicol  = 5;
   }
 }
 message HashFunction {}
@@ -147,6 +152,19 @@ message LookupFunction {
   string table  = 2;   // lookup-index table in this database (often a group member)
   string from_column = 3;
   string to_column   = 4;
+}
+
+// Composite key: each part maps one column (positionally aligned with
+// Table.columns) and contributes `bytes` leading bytes to the keyrange-id, the
+// parts concatenated in order, most-significant first. A predicate binding a
+// leading prefix of the columns yields a keyrange-id prefix — a contiguous
+// subrange — rather than a full scatter.
+message MultiColFunction {
+  repeated ColumnPart parts = 1;
+}
+message ColumnPart {
+  ShardingFunction function = 1;   // per-column mapping (hash/range)
+  uint32 bytes = 2;                // leading bytes this column contributes to the keyrange-id
 }
 ```
 
@@ -183,6 +201,30 @@ TableGroup{ name: "by_user",
 
 `WHERE user_id = 42` → `hash(42)` → one shard. No `user_id` predicate → scatter
 to both shards, gather.
+
+### Multi-column shard key
+
+A composite key is its own function (`multicol`).
+Each column is mapped independently by its own sub-function, and the first few
+bytes of each result are concatenated in column order, most-significant first,
+to form the keyrange-id. Each column declares how many bytes it contributes.
+Here `orders` keys on `(tenant_id, order_id)`, giving two bytes to each:
+
+```text
+TableGroup{ name: "by_tenant_order",
+  tables: [ {schema:"sc1", name:"orders",
+             function:{multicol:{parts:[{function:{hash:{}}, bytes:2},
+                                         {function:{hash:{}}, bytes:2}]}},
+             columns:["tenant_id","order_id"]} ],
+  shards: [ {key_range:-80}, {key_range:80-} ] }
+```
+
+`WHERE tenant_id = 7 AND order_id = 42` fills all four bytes → one shard. Because
+`tenant_id` owns the high-order bytes, `WHERE tenant_id = 7` alone resolves a
+keyrange-id **prefix** — a contiguous subrange — so it narrows to just the shards
+overlapping that prefix rather than scattering to all of them. A predicate on a
+non-leading column only (`WHERE order_id = 42`, no `tenant_id`) can't form a
+prefix, so it scatters.
 
 ### Co-located tables
 
