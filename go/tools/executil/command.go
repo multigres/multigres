@@ -451,6 +451,32 @@ func (c *Cmd) IsRunningOrZombie() bool {
 	return c.Process.Signal(syscall.Signal(0)) == nil
 }
 
+// ExitCode returns the process's exit code and true once something has
+// reaped it (via Wait, from anywhere, including a background reaper like
+// startAndReap); false if it hasn't exited yet or was never started.
+//
+// Deliberately not the same shape as the embedded exec.Cmd's
+// ProcessState.ExitCode() (a single int, -1 both when the process hasn't
+// exited and when it was killed by a signal): callers here need to tell
+// "still running" apart from "gone for any reason, including a crash" to
+// fail fast correctly, which a single overloaded -1 can't express.
+//
+// Reading ProcessState directly (as ProcessState.ExitCode() does) races a
+// concurrent Wait() — it's written without synchronization from the
+// caller's perspective. This checks waitDone first, whose close() provides
+// the happens-before edge that makes reading ProcessState safe afterward.
+func (c *Cmd) ExitCode() (code int, exited bool) {
+	if c == nil || c.Process == nil {
+		return 0, false
+	}
+	select {
+	case <-c.waitDone:
+		return c.ProcessState.ExitCode(), true
+	default:
+		return 0, false
+	}
+}
+
 // Stop gracefully stops the process: SIGTERM first, then SIGKILL if needed.
 //
 // The context controls how long to wait for graceful shutdown (SIGTERM phase).

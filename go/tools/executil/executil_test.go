@@ -645,3 +645,36 @@ func TestCmd_IsRunningOrZombie_TrueForUnreapedZombie(t *testing.T) {
 		t.Error("expected IsRunningOrZombie() to report true for an exited-but-unreaped zombie process")
 	}
 }
+
+func TestCmd_ExitCode_NotExitedYet(t *testing.T) {
+	ctx := context.Background()
+	cmd := Command(ctx, "sleep", "5")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	if code, exited := cmd.ExitCode(); exited {
+		t.Errorf("expected exited=false while running, got exited=true code=%d", code)
+	}
+}
+
+func TestCmd_ExitCode_AfterWait(t *testing.T) {
+	ctx := context.Background()
+	cmd := Command(ctx, "sh", "-c", "exit 3")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+	_ = cmd.Wait()
+
+	code, exited := cmd.ExitCode()
+	if !exited {
+		t.Fatal("expected exited=true after Wait()")
+	}
+	if code != 3 {
+		t.Errorf("expected exit code 3, got %d", code)
+	}
+}

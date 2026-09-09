@@ -531,10 +531,10 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	time.Sleep(500 * time.Millisecond)
 
 	// Check if process died immediately
-	if p.Process.ProcessState != nil {
-		t.Logf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+	if code, exited := p.Process.ExitCode(); exited {
+		t.Logf("%s process died immediately: exit code %d", p.Name, code)
 		p.LogRecentOutput(t, "Process died immediately")
-		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, code)
 	}
 
 	// Wait for server to be ready
@@ -542,10 +542,10 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
 		// Check if process died during startup
-		if p.Process.ProcessState != nil {
-			t.Logf("%s process died during startup: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+		if code, exited := p.Process.ExitCode(); exited {
+			t.Logf("%s process died during startup: exit code %d", p.Name, code)
 			p.LogRecentOutput(t, "Process died during startup")
-			return fmt.Errorf("%s process died: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+			return fmt.Errorf("%s process died: exit code %d", p.Name, code)
 		}
 
 		connectAttempts++
@@ -563,7 +563,7 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	}
 
 	// If we timed out, try to get process status
-	if p.Process.ProcessState == nil {
+	if p.Process.IsRunningOrZombie() {
 		t.Logf("%s process is still running but not responding on gRPC port %d", p.Name, p.GrpcPort)
 	}
 
