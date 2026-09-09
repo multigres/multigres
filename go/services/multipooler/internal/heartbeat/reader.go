@@ -70,21 +70,13 @@ type Reader struct {
 	lastReceiveLSNAdvanceTime time.Time
 	haveReceiveLSN            bool
 
-	// lastQuorumCommitLSN / lastQuorumCommitLSNAdvanceTime track the primary's
-	// quorum_commit_lsn (the LSN of the last heartbeat write whose synchronous
-	// commit was quorum-acked). Unlike lastReceiveLSN, an advance here proves
-	// durable quorum progress, not just WAL streaming — a stale advance time
-	// while receive LSN keeps climbing means commits are stalled even though
-	// WAL is still flowing (replicas replay ahead of the primary's own quorum ack).
-	lastQuorumCommitLSN            pgutil.LSN
-	lastQuorumCommitLSNAdvanceTime time.Time
-	haveQuorumCommitLSN            bool
+	// lastQuorumCommitLSN is the primary's most recently observed
+	// quorum_commit_lsn -- see QuorumCommitLSN.
+	lastQuorumCommitLSN pgutil.LSN
+	haveQuorumCommitLSN bool
 
-	// quorumCommitTs is the leader-stamped wall-clock time paired with
-	// quorum_commit_lsn (captured pre-commit on the same tick, on the leader's
-	// own clock). Unlike lastQuorumCommitLSNAdvanceTime, this needs no read
-	// history -- a single snapshot is enough -- but comparing it to our own
-	// clock means trusting leader/reader clock sync.
+	// quorumCommitTs is the leader-stamped time paired with quorum_commit_lsn
+	// -- see QuorumCommitTs.
 	quorumCommitTs     time.Time
 	haveQuorumCommitTs bool
 
@@ -181,15 +173,13 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 		r.lastReceiveLSNAdvanceTime = now
 		r.haveReceiveLSN = true
 	}
-	// Same idea for the quorum-commit watermark: only a genuine increase counts
-	// as progress.
-	if haveQuorumCommitLSN && (!r.haveQuorumCommitLSN || quorumCommitLSN > r.lastQuorumCommitLSN) {
+	// quorum_commit_lsn/quorum_commit_ts are just the latest observed values,
+	// not advance-tracked like receive_lsn above -- quorum_commit_ts is
+	// already a leader-stamped instant, not something we'd time ourselves.
+	if haveQuorumCommitLSN {
 		r.lastQuorumCommitLSN = quorumCommitLSN
-		r.lastQuorumCommitLSNAdvanceTime = now
 		r.haveQuorumCommitLSN = true
 	}
-	// quorumCommitTs is just the latest observed value, not an advance-tracked
-	// one -- it's already a leader-stamped instant, not something we time ourselves.
 	if haveQuorumCommitTs {
 		r.quorumCommitTs = time.Unix(0, quorumCommitTsNano)
 		r.haveQuorumCommitTs = true
@@ -269,16 +259,6 @@ func (r *Reader) LastReceiveLSNAdvance() (time.Time, bool) {
 	return r.lastReceiveLSNAdvanceTime, r.haveReceiveLSN
 }
 
-// LastQuorumCommitLSNAdvance returns when the primary's quorum_commit_lsn was
-// last observed to increase, and whether any value has been observed yet. A
-// stale advance time here, even while LastReceiveLSNAdvance keeps ticking,
-// means WAL is still streaming but quorum commits have stalled.
-func (r *Reader) LastQuorumCommitLSNAdvance() (time.Time, bool) {
-	r.lagMu.Lock()
-	defer r.lagMu.Unlock()
-	return r.lastQuorumCommitLSNAdvanceTime, r.haveQuorumCommitLSN
-}
-
 // QuorumCommitLSN returns the most recently observed quorum_commit_lsn, and
 // whether any value has been observed yet. Diagnostic only, e.g. for
 // reporting backlog size against last_receive_lsn.
@@ -290,9 +270,8 @@ func (r *Reader) QuorumCommitLSN() (pgutil.LSN, bool) {
 
 // QuorumCommitTs returns the leader-stamped time paired with the most
 // recently observed quorum_commit_lsn, and whether any value has been
-// observed yet. Unlike LastQuorumCommitLSNAdvance, this needs no read
-// history -- a single snapshot is enough -- at the cost of comparing a
-// leader clock to the caller's own.
+// observed yet -- a single snapshot, at the cost of comparing a leader
+// clock to the caller's own.
 func (r *Reader) QuorumCommitTs() (time.Time, bool) {
 	r.lagMu.Lock()
 	defer r.lagMu.Unlock()

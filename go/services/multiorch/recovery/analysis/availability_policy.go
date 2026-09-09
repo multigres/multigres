@@ -78,12 +78,11 @@ type AvailabilityPolicy struct {
 
 	// QuorumCommitStaleAfter bounds how old the freshest cohort-observed
 	// quorum_commit_ts may be before LeaderStuck considers commits stalled.
-	// Longer than LeaderLivenessFreshness despite being the backstop check: unlike
-	// a directly-observed health snapshot, this signal is multi-hop (heartbeat
-	// interval, one-tick defer, replica's own reader poll, then health-snapshot
-	// propagation to orch), so those delays stack even when nothing is wrong. A
-	// false positive here drives a real failover attempt against a leader that's
-	// probably fine, so this threshold should stay generous.
+	// Kept generous and longer than LeaderLivenessFreshness: this signal is
+	// multi-hop (heartbeat interval, one-tick defer, reader poll, then
+	// health-snapshot propagation), so delays stack even when nothing is
+	// wrong -- a false positive here drives a real failover against a
+	// healthy leader.
 	QuorumCommitStaleAfter time.Duration
 }
 

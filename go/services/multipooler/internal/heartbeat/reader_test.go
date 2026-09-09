@@ -54,13 +54,11 @@ func TestReaderReadHeartbeat(t *testing.T) {
 	require.True(t, ok, "should have observed a receive LSN")
 	assert.Equal(t, now, advanceAt, "advance time should be the read time")
 
-	// ...and likewise for the quorum-commit watermark.
-	quorumAdvanceAt, ok := tr.LastQuorumCommitLSNAdvance()
+	// quorum_commit_lsn/quorum_commit_ts are reported as-is, not advance-tracked.
+	quorumLSN, ok := tr.QuorumCommitLSN()
 	require.True(t, ok, "should have observed a quorum commit LSN")
-	assert.Equal(t, now, quorumAdvanceAt, "advance time should be the read time")
+	assert.Equal(t, "0/16E5D00", quorumLSN.String())
 
-	// quorum_commit_ts is the leader's own stamp, reported as-is (not tracked
-	// on advance, unlike the LSN above).
 	commitTs, ok := tr.QuorumCommitTs()
 	require.True(t, ok, "should have observed a quorum commit ts")
 	assert.Equal(t, time.Unix(0, quorumCommitTsNano), commitTs)
@@ -111,10 +109,9 @@ func TestReaderTracksReceiveLSNAdvance(t *testing.T) {
 	assert.Equal(t, at2, at3, "advance time must not move when receive_lsn is unchanged")
 }
 
-// TestReaderTracksQuorumCommitLSNAdvance mirrors TestReaderTracksReceiveLSNAdvance
-// for the quorum-commit watermark: the first observation stamps the advance
-// time, a genuine LSN increase bumps it, and an unchanged LSN leaves it in place.
-func TestReaderTracksQuorumCommitLSNAdvance(t *testing.T) {
+// TestReaderTracksQuorumCommitLSN verifies quorum_commit_lsn is reported
+// as-is on each read, not advance-tracked like receive_lsn above.
+func TestReaderTracksQuorumCommitLSN(t *testing.T) {
 	queryService := mock.NewQueryService()
 	tr := newTestReader(t, queryService, nil)
 	defer tr.Close()
@@ -130,69 +127,21 @@ func TestReaderTracksQuorumCommitLSNAdvance(t *testing.T) {
 		))
 	}
 
-	// First observation stamps the advance time.
 	addRead("0/100")
 	tr.readHeartbeat(t.Context())
-	at1, ok := tr.LastQuorumCommitLSNAdvance()
+	lsn, ok := tr.QuorumCommitLSN()
 	require.True(t, ok)
-	assert.Equal(t, clock, at1)
+	assert.Equal(t, "0/100", lsn.String())
 
-	// A genuine increase bumps the advance time.
+	// A later read's value replaces the previous one, even if it were to
+	// decrease -- quorum_commit_lsn is trusted as leader-authored, not
+	// advance-guarded like receive_lsn.
 	clock = clock.Add(1 * time.Second)
 	addRead("0/200")
 	tr.readHeartbeat(t.Context())
-	at2, ok := tr.LastQuorumCommitLSNAdvance()
+	lsn, ok = tr.QuorumCommitLSN()
 	require.True(t, ok)
-	assert.Equal(t, clock, at2)
-	assert.True(t, at2.After(at1), "advance time should move forward on an LSN increase")
-
-	// No increase leaves the advance time unchanged — this is the "quorum commits
-	// stalled" case even while WAL keeps streaming (receive_lsn is fixed at "0/100"
-	// throughout this test, so both signals happen to be flat here, but the point
-	// is quorum_commit_lsn is tracked independently of receive_lsn).
-	clock = clock.Add(1 * time.Second)
-	addRead("0/200")
-	tr.readHeartbeat(t.Context())
-	at3, ok := tr.LastQuorumCommitLSNAdvance()
-	require.True(t, ok)
-	assert.Equal(t, at2, at3, "advance time must not move when quorum_commit_lsn is unchanged")
-}
-
-// TestReaderQuorumCommitFlatWhileReceiveLSNAdvances covers the divergence this
-// signal exists to detect: WAL keeps streaming to this standby (receive_lsn
-// climbing) while the primary's quorum-commit watermark stays flat, meaning
-// quorum commits have stalled even though replicas are still receiving WAL.
-func TestReaderQuorumCommitFlatWhileReceiveLSNAdvances(t *testing.T) {
-	queryService := mock.NewQueryService()
-	tr := newTestReader(t, queryService, nil)
-	defer tr.Close()
-
-	clock := time.Now()
-	tr.now = func() time.Time { return clock }
-
-	const pattern = "SELECT ts, pg_last_wal_receive_lsn.*FROM multigres\\.heartbeat WHERE shard_id.*"
-	addRead := func(receiveLSN string) {
-		queryService.AddQueryPatternOnce(pattern, mock.MakeQueryResult(
-			[]string{"ts", "receive_lsn", "quorum_commit_lsn"},
-			[][]any{{clock.UnixNano(), receiveLSN, "0/100"}},
-		))
-	}
-
-	addRead("0/100")
-	tr.readHeartbeat(t.Context())
-	quorumAt1, ok := tr.LastQuorumCommitLSNAdvance()
-	require.True(t, ok)
-
-	clock = clock.Add(1 * time.Second)
-	addRead("0/200")
-	tr.readHeartbeat(t.Context())
-	receiveAt2, ok := tr.LastReceiveLSNAdvance()
-	require.True(t, ok)
-	assert.Equal(t, clock, receiveAt2, "receive_lsn advance should track the increase")
-
-	quorumAt2, ok := tr.LastQuorumCommitLSNAdvance()
-	require.True(t, ok)
-	assert.Equal(t, quorumAt1, quorumAt2, "quorum_commit_lsn advance must not move while quorum_commit_lsn itself is unchanged")
+	assert.Equal(t, "0/200", lsn.String())
 }
 
 // TestReaderReadHeartbeatBadTimestamp covers the "failed to parse heartbeat
@@ -265,8 +214,8 @@ func TestReaderUnparsableQuorumCommitLSN(t *testing.T) {
 	assert.EqualValues(t, 1, tr.Reads())
 	assert.EqualValues(t, 0, tr.ReadErrors())
 
-	_, ok := tr.LastQuorumCommitLSNAdvance()
-	assert.False(t, ok, "an unparsable quorum_commit_lsn records no advance")
+	_, ok := tr.QuorumCommitLSN()
+	assert.False(t, ok, "an unparsable quorum_commit_lsn records no observation")
 }
 
 // TestReaderQuorumCommitTsNullUntilSecondWrite covers the NULL quorum_commit_ts

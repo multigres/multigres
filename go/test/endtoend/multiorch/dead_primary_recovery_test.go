@@ -795,15 +795,12 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	})
 }
 
-// startDirectWrites opens a connection straight to postgres (bypassing
-// multipooler/multigateway entirely) and writes to a scratch table every
-// 200ms until stopped. Used to keep genuine WAL flowing to standbys
-// independent of whichever multipooler process a test kills, so the
-// pre-existing "is this follower still streaming" freshness check (which the
-// multigres heartbeat writer's own ~1s WAL activity normally keeps
-// comfortably satisfied) doesn't confound a test that means to isolate a
-// different signal. Errors are tolerated and logged, not asserted on, since
-// writes are expected to start failing once postgres is later fenced/stopped.
+// startDirectWrites keeps genuine WAL flowing to standbys independent of
+// whichever multipooler process a test kills, so the pre-existing "is this
+// follower still streaming" freshness check (normally kept satisfied by the
+// heartbeat writer's own WAL activity) doesn't confound a test that means to
+// isolate a different signal. Errors are tolerated and logged, not asserted
+// on, since writes are expected to fail once postgres is later fenced/stopped.
 func startDirectWrites(t *testing.T, primary *shardsetup.MultipoolerInstance) (stop func()) {
 	t.Helper()
 
