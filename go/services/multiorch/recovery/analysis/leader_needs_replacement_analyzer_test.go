@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -57,6 +58,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	follower1ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}
 	follower2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-2"}
 	observerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "observer-1"}
+	priorLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "prior-leader-1"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
@@ -161,15 +163,26 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		sa.HighestPosition.Decision.CreationTime = timestamppb.New(sa.Now)
 	}
 
-	// setRuleUndecided gives HighestPosition an outstanding proposal, so
-	// commonconsensus.IsRuleDecided(sa.HighestPosition) is false -- simulating
-	// a leader whose promotion hasn't yet demonstrated a quorum-acked commit
-	// (the finalize/decide commit itself is quorum-gated, so it can't complete
-	// while a required standby is still catching up).
+	// setRuleUndecided models a genuine leadership transition still in
+	// flight: the proposal names leaderID as the new candidate (a bumped
+	// RuleNumber, fresh CreationTime), while the decision -- the last
+	// locally-confirmed rule -- still names a distinct prior leader. A
+	// promotion to leaderID that's genuinely undecided can't already be
+	// reflected in the decision; if it were, it would BE decided.
+	// commonconsensus.IsRuleDecided(sa.HighestPosition) is false throughout,
+	// simulating a leader whose promotion hasn't yet demonstrated a
+	// quorum-acked commit (the finalize/decide commit itself is
+	// quorum-gated, so it can't complete while a required standby is still
+	// catching up).
 	setRuleUndecided := func(sa *ShardAnalysis) {
-		sa.HighestPosition.Proposal = &clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-		}
+		decision := sa.HighestPosition.Decision
+		proposal := proto.Clone(decision).(*clustermetadatapb.ShardRule) // still names leaderID here
+		proposal.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+		proposal.CreationTime = timestamppb.New(sa.Now)
+		sa.HighestPosition.Proposal = proposal
+
+		decision.LeaderId = priorLeaderID
+		decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}
 	}
 
 	// setLeaderPGRunning / setLeaderLastReady / setLeaderPromoting drive the
@@ -272,6 +285,23 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{}
 				}
 				h.Status.ReplicationStatus.LastReceiveLsnAdvanceTime = timestamppb.New(at)
+			})
+		}
+	}
+
+	// setPrimaryConnInfo stamps a follower's replication status with the
+	// host:port it is configured to stream from -- may or may not be the
+	// candidate leader's.
+	setPrimaryConnInfo := func(sa *ShardAnalysis, id *clustermetadatapb.ID, host string, port int32) {
+		for _, pa := range sa.Analyses {
+			if poolerID(pa).Name != id.Name {
+				continue
+			}
+			pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				if h.Status.ReplicationStatus == nil {
+					h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{}
+				}
+				h.Status.ReplicationStatus.PrimaryConnInfo = &multipoolermanagerdatapb.PrimaryConnInfo{Host: host, Port: port}
 			})
 		}
 	}
@@ -514,12 +544,37 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 			setLeaderPGReady(sa, true)
 			setRuleUndecided(sa)
 			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+			setPrimaryConnInfo(sa, follower1ID, "leader-host", 5432)
 			setLastReceiveLsnAdvance(sa, follower1ID, sa.Now)
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Empty(t, problems, "a quorum-sufficient set actively receiving fresh WAL means an undecided promotion is likely still catching up, not stuck")
+		require.Empty(t, problems, "a quorum-sufficient set actively receiving fresh WAL from the candidate leader means an undecided promotion is likely still catching up, not stuck")
+	})
+
+	t.Run("does not let a cascading standby's WAL advance excuse an undecided promotion", func(t *testing.T) {
+		// follower1 streams directly from the candidate leader (correctly
+		// configured) but has gone quiet -- no LastReceiveLsnAdvanceTime of
+		// its own. follower2 streams from follower1 (cascading), not from
+		// the leader, and IS fresh. A cascading standby's ack never reaches
+		// the leader's synchronous-commit quorum, so follower2's fresh WAL
+		// receipt cannot stand in for follower1's -- the only report that
+		// would actually speak to the candidate leader's health.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setRuleUndecided(sa)
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+			setPrimaryConnInfo(sa, follower1ID, "leader-host", 5432)
+			setPrimaryConnInfo(sa, follower2ID, "follower1-host", 5433)
+			setLastReceiveLsnAdvance(sa, follower2ID, sa.Now)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code, "a cascading standby's WAL advance must not excuse the candidate leader")
 	})
 
 	t.Run("LeaderStuck fires despite LSN still advancing once the rule is decided", func(t *testing.T) {

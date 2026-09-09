@@ -69,13 +69,14 @@ func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
-// followerConfiguredForLeader reports whether the follower's primary_conninfo targets
-// this leader's postgres (host:port) — the shared "this follower is trying to follow
-// THIS leader" test. A follower pointed at a different primary (or none) indicates a
-// deeper problem (misconfig/split-brain) and is neither streaming from nor cut off
-// from this leader.
-func followerConfiguredForLeader(follower *store.Pooler, primaryHost string, primaryPort int32) bool {
-	connInfo := follower.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
+// replicaConfiguredForLeader reports whether the replica's primary_conninfo targets
+// this leader's postgres (host:port) — the shared "this replica is trying to follow
+// THIS leader" test. Not restricted to cohort followers — any replica, including a
+// non-cohort observer, can be checked. A replica pointed at a different primary (or
+// none) indicates a deeper problem (misconfig/split-brain) and is neither streaming
+// from nor cut off from this leader.
+func replicaConfiguredForLeader(replica *store.Pooler, primaryHost string, primaryPort int32) bool {
+	connInfo := replica.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
 	return connInfo.GetHost() != "" && connInfo.GetHost() == primaryHost && connInfo.GetPort() == primaryPort
 }
 
@@ -85,7 +86,7 @@ func followerConfiguredForLeader(follower *store.Pooler, primaryHost string, pri
 // wal_receiver_status_interval × multiplier, falling back to the default threshold,
 // and never older than wal_receiver_timeout).
 func followerStreamingFromLeader(sa *ShardAnalysis, replica *store.Pooler, primaryHost string, primaryPort int32) bool {
-	if !followerConfiguredForLeader(replica, primaryHost, primaryPort) {
+	if !replicaConfiguredForLeader(replica, primaryHost, primaryPort) {
 		return false
 	}
 	rs := replica.Health().GetStatus().GetReplicationStatus()
@@ -492,7 +493,7 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 	if created := rule.GetCreationTime(); created == nil || sa.Now.Sub(created.AsTime()) <= sa.Policy.ConnectReplicasToNewLeaderGrace {
 		return relationAdapting
 	}
-	if !followerConfiguredForLeader(pa, primaryHost, primaryPort) {
+	if !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
 		return relationUnaware // knows the leader, had time, but isn't pointed at it
 	}
 	return relationCutOff
@@ -525,12 +526,22 @@ func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
 }
 
 // receiveLsnStillAdvancing reports whether a durability-sufficient set of the
-// cohort has a recent last_receive_lsn_advance_time — evidence, during an
-// undecided promotion (see quorumCommitStuckCause), that a quorum-commit
-// stall is backlog-draining rather than a genuine halt. Unlike raw LSN,
-// last_receive_lsn_advance_time only moves via live streaming (never
-// restore_command replay), so it can't be spoofed by archive replay.
+// cohort has a recent last_receive_lsn_advance_time from the candidate leader
+// specifically — evidence, during an undecided promotion (see
+// quorumCommitStuckCause), that a quorum-commit stall is backlog-draining
+// rather than a genuine halt. Unlike raw LSN, last_receive_lsn_advance_time
+// only moves via live streaming (never restore_command replay), so it can't
+// be spoofed by archive replay. Gated on replicaConfiguredForLeader so WAL
+// advance from an unrelated primary (e.g. a follower not yet reconfigured
+// onto this leader, or a cascading standby behind another cohort member)
+// can't stand in as evidence of this leader's health.
 func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+
 	leaderKey := topoclient.ComponentIDString(leaderID)
 	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses))
 	for _, pa := range sa.Analyses {
@@ -544,7 +555,7 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 			continue
 		}
 		pa, ok := byID[topoclient.ComponentIDString(member)]
-		if !ok {
+		if !ok || !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
 			continue
 		}
 		ts := pa.Health().GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
