@@ -55,13 +55,14 @@ type Multiadmin struct {
 	enableAuth viperutil.Value[bool]
 
 	// enableHTTPMTLSAuth requires a client certificate on the HTTP listener,
-	// matched against --http-auth-mtls-allowed-substrings. Independent of
+	// matched against --http-auth-mtls-allowed-subjects. Independent of
 	// enableAuth: one HTTP auth mechanism at a time, so operators pick one.
 	//
 	// A verified chain alone doesn't prove tenant isolation when certs come
 	// from shared infrastructure: the allow-list must name every caller that
-	// fronts this deployment, and must be anchored against a neighbouring
-	// tenant's subject extending it.
+	// fronts this deployment. Subjects are compared attribute-by-attribute for
+	// exact equality, so a neighbouring tenant's cert from the same CA is
+	// rejected even if its subject embeds an allow-listed one.
 	enableHTTPMTLSAuth viperutil.Value[bool]
 }
 
@@ -122,7 +123,7 @@ func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.topoConfig.RegisterFlags(fs)
 
 	fs.Bool("enable-auth", ma.enableAuth.Default(), "Require JWT bearer-token authentication on multiadmin's HTTP/Connect/REST/pprof surface. gRPC is unaffected and stays unauthenticated. Requires --grpc-auth-jwt-issuer and --grpc-auth-jwt-jwks-uri.")
-	fs.Bool("enable-http-mtls-auth", ma.enableHTTPMTLSAuth.Default(), "Require a verified TLS client certificate on multiadmin's HTTP listener, matched against --http-auth-mtls-allowed-substrings. gRPC's own auth mode is unaffected. Requires --http-cert, --http-key, --http-ca and --http-auth-mtls-allowed-substrings; kubelet probe paths stay exempt.")
+	fs.Bool("enable-http-mtls-auth", ma.enableHTTPMTLSAuth.Default(), "Require a verified TLS client certificate on multiadmin's HTTP listener, matched against --http-auth-mtls-allowed-subjects. gRPC's own auth mode is unaffected. Requires --http-cert, --http-key, --http-ca and --http-auth-mtls-allowed-subjects; kubelet probe paths stay exempt.")
 	viperutil.BindFlags(fs, ma.enableAuth, ma.enableHTTPMTLSAuth)
 }
 

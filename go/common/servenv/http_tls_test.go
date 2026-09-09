@@ -98,7 +98,7 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
 		se.httpCert.Set(cert)
 		se.httpKey.Set(key)
-		se.httpAuthMtlsAllowedSubstrings.Set("CN=gateway,")
+		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway"})
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
@@ -110,11 +110,12 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se.httpCert.Set(cert)
 		se.httpKey.Set(key)
 		se.httpCA.Set(cert)
-		se.httpAuthMtlsAllowedSubstrings.Set("CN=gateway,")
+		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway"})
 		se.RequireHTTPClientCert()
 		require.NoError(t, se.validateHTTPTLS())
-		assert.Equal(t, []string{"CN=gateway,"}, se.httpClientCertSubstrings,
+		require.Len(t, se.httpClientCertSubjects, 1,
 			"validateHTTPTLS parses the allow-list once at startup")
+		assert.Equal(t, map[string][]string{"CN": {"gateway"}}, se.httpClientCertSubjects[0].attrs)
 	})
 
 	// The allow-list is its own flag, not gRPC's: an operator who set only
@@ -128,7 +129,7 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-substrings")
+		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-subjects")
 	})
 
 	t.Run("client-cert auth with a malformed allow-list is rejected", func(t *testing.T) {
@@ -136,11 +137,11 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se.httpCert.Set(cert)
 		se.httpKey.Set(key)
 		se.httpCA.Set(cert)
-		se.httpAuthMtlsAllowedSubstrings.Set("CN=gateway,::CN=other,")
+		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway", ""})
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-substrings")
+		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-subjects")
 	})
 
 	// The gRPC allow-list must not leak into the HTTP listener.
@@ -156,6 +157,6 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-substrings")
+		assert.Contains(t, err.Error(), "--http-auth-mtls-allowed-subjects")
 	})
 }

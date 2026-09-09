@@ -98,12 +98,12 @@ func RequireBearerAuth(authPlugin func() Authenticator, next http.HandlerFunc) h
 }
 
 // clientCertAuthorized reports whether r presents a verified client
-// certificate whose leaf matches one of substrings. Leaf only - deliberately
-// stricter than the gRPC path, which matches the whole chain.
+// certificate whose leaf subject exactly matches one of allowed. Leaf only -
+// deliberately stricter than the gRPC path, which matches the whole chain.
 //
 // Reads VerifiedChains, not PeerCertificates: the latter can be populated
 // without CA verification under tls.RequestClientCert.
-func clientCertAuthorized(r *http.Request, substrings []string) bool {
+func clientCertAuthorized(r *http.Request, allowed []certSubject) bool {
 	if r.TLS == nil {
 		return false
 	}
@@ -113,22 +113,40 @@ func clientCertAuthorized(r *http.Request, substrings []string) bool {
 			leaves = append(leaves, chain[0])
 		}
 	}
-	return certSubjectMatches(leaves, substrings)
+	return certSubjectEquals(leaves, allowed)
 }
 
 // requireClientCert gates every route behind a verified client certificate
-// matching one of substrings, except unauthenticatedHTTPPaths.
-func requireClientCert(substrings []string, next http.Handler) http.Handler {
+// whose subject matches one of allowed, except unauthenticatedHTTPPaths.
+func requireClientCert(allowed []certSubject, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if unauthenticatedHTTPPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !clientCertAuthorized(r, substrings) {
-			slog.WarnContext(r.Context(), "client-cert auth: rejected request", "path", r.URL.Path)
+		if !clientCertAuthorized(r, allowed) {
+			slog.WarnContext(r.Context(), "client-cert auth: rejected request",
+				"path", r.URL.Path, "subject", clientCertSubject(r))
 			http.Error(w, authFailedMessage, http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// clientCertSubject renders the leaf subjects a request presented, for the
+// rejection log. An operator reads it against the configured allow-list entry
+// to see which attribute differs; a subject is not a secret. Empty when the
+// caller offered no verified certificate.
+func clientCertSubject(r *http.Request) string {
+	if r.TLS == nil {
+		return ""
+	}
+	subjects := make([]string, 0, len(r.TLS.VerifiedChains))
+	for _, chain := range r.TLS.VerifiedChains {
+		if len(chain) > 0 {
+			subjects = append(subjects, chain[0].Subject.String())
+		}
+	}
+	return strings.Join(subjects, "; ")
 }

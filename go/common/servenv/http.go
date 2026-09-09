@@ -67,7 +67,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
 	handler := corsMiddleware(sv.mux)
 	if sv.httpClientCertRequired {
-		handler = requireClientCert(sv.httpClientCertSubstrings, handler)
+		handler = requireClientCert(sv.httpClientCertSubjects, handler)
 	}
 	handler = otelhttp.NewHandler(handler, "http-server")
 

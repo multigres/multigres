@@ -19,6 +19,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"math/big"
 	"testing"
 	"time"
@@ -147,5 +148,250 @@ func TestCertSubjectMatches_Anchoring(t *testing.T) {
 
 		assert.False(t, certSubjectMatches([]*x509.Certificate{tenant}, allow),
 			"no trailing delimiter exists to anchor against, so the legitimate holder is rejected too")
+	})
+}
+
+// mustParseSubjects parses an allow-list that the test asserts is well-formed.
+func mustParseSubjects(t *testing.T, entries ...string) []certSubject {
+	t.Helper()
+	subjects, err := parseCertSubjects(entries)
+	require.NoError(t, err)
+	return subjects
+}
+
+// TestCertSubjectEquals_RejectsEmbeddedEntry covers a subject that carries an
+// allow-list entry verbatim inside its own CN. pkix escapes commas inside
+// attribute values but not "=", so such a subject satisfies a substring test
+// against the rendered DN and must not satisfy an exact one.
+func TestCertSubjectEquals_RejectsEmbeddedEntry(t *testing.T) {
+	victim := generateTestPeerCertWithOrg(t, "ns-team-a", "acme")
+	attacker := generateTestPeerCertWithOrg(t, "evilCN=ns-team-a", "acme")
+	allowed := mustParseSubjects(t, "CN=ns-team-a,O=acme")
+
+	// The rendered DNs are why the substring test cannot tell these apart.
+	require.Equal(t, "CN=ns-team-a,O=acme", victim.Subject.String())
+	require.Equal(t, "CN=evilCN=ns-team-a,O=acme", attacker.Subject.String())
+	require.True(t, certSubjectMatches([]*x509.Certificate{attacker}, []string{"CN=ns-team-a,O=acme"}),
+		"documents why gRPC's substring match is unsafe as a trust boundary")
+
+	assert.True(t, certSubjectEquals([]*x509.Certificate{victim}, allowed))
+	assert.False(t, certSubjectEquals([]*x509.Certificate{attacker}, allowed),
+		"a subject embedding the entry inside its own CN must be rejected")
+}
+
+// TestCertSubjectEquals_RejectsOtherTenant covers a neighbouring tenant holding
+// a perfectly valid certificate from the same CA.
+func TestCertSubjectEquals_RejectsOtherTenant(t *testing.T) {
+	allowed := mustParseSubjects(t, "CN=ns-team-a,O=acme")
+
+	for _, cn := range []string{"ns-team-b", "ns-team-a-evil", "ns-team", ""} {
+		other := generateTestPeerCertWithOrg(t, cn, "acme")
+		assert.False(t, certSubjectEquals([]*x509.Certificate{other}, allowed),
+			"CN %q from the same CA must not be authorized", cn)
+	}
+
+	// Same CN, different org.
+	assert.False(t, certSubjectEquals(
+		[]*x509.Certificate{generateTestPeerCertWithOrg(t, "ns-team-a", "other-org")}, allowed))
+}
+
+func TestCertSubjectEquals_Matching(t *testing.T) {
+	cert := generateTestPeerCertWithOrg(t, "ns-team-a", "acme")
+
+	t.Run("CN-only entry ignores unlisted attributes", func(t *testing.T) {
+		assert.True(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "CN=ns-team-a")))
+	})
+	t.Run("any entry in the list may match", func(t *testing.T) {
+		assert.True(t, certSubjectEquals([]*x509.Certificate{cert},
+			mustParseSubjects(t, "CN=someone-else", "CN=ns-team-a,O=acme")))
+	})
+	t.Run("value containing = is compared literally", func(t *testing.T) {
+		odd := generateTestPeerCert(t, "a=b")
+		assert.True(t, certSubjectEquals([]*x509.Certificate{odd}, mustParseSubjects(t, "CN=a=b")))
+		assert.False(t, certSubjectEquals([]*x509.Certificate{odd}, mustParseSubjects(t, "CN=a")))
+	})
+}
+
+func TestParseCertSubjects(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []string
+		wantErr string
+	}{
+		{name: "no entries", entries: nil, wantErr: "at least one subject"},
+		{name: "empty entry", entries: []string{"CN=a", ""}, wantErr: "empty entries"},
+		{name: "whitespace entry", entries: []string{"  "}, wantErr: "empty entries"},
+		{name: "attribute without value", entries: []string{"CN="}, wantErr: "empty value"},
+		{name: "bare attribute", entries: []string{"CN"}, wantErr: "incomplete type"},
+		{name: "separator only", entries: []string{","}, wantErr: "incomplete type"},
+		{name: "attribute repeating a value", entries: []string{"OU=a,OU=a"}, wantErr: "repeats the value"},
+		{name: "valid repeated attribute", entries: []string{"OU=eng,OU=platform"}},
+		{name: "valid single", entries: []string{"CN=a"}},
+		{name: "valid multi-attribute", entries: []string{"CN=a,O=b,OU=c"}},
+		{name: "valid multi-entry", entries: []string{"CN=a", "CN=b,O=c"}},
+		// Any attribute name a subject can carry is legal in an entry,
+		// including OID form for ones with no short name.
+		{name: "valid oid attribute", entries: []string{"1.2.3.4=custom"}},
+		{name: "valid uncommon attribute", entries: []string{"STREET=1 Main St"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseCertSubjects(tt.entries)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotEmpty(t, got)
+		})
+	}
+
+	t.Run("attribute names are case-insensitive", func(t *testing.T) {
+		got, err := parseCertSubjects([]string{"cn=a,o=b"})
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{"CN": {"a"}, "O": {"b"}}, got[0].attrs)
+	})
+}
+
+// TestParseCertSubjects_RoundTripsRenderedDNs pins the contract between
+// rendering and parsing: whatever pkix.Name.String() emits for a certificate
+// must parse back into attributes matching that same certificate. Values
+// carrying the separators pkix escapes are where that is easiest to get
+// wrong.
+func TestParseCertSubjects_RoundTripsRenderedDNs(t *testing.T) {
+	for _, cn := range []string{
+		"ns-team-a",
+		"Doe, John",   // comma, escaped by pkix as \,
+		"a+b",         // RDN separator
+		"weird=value", // "=" inside a value
+		`back\slash`,  // escaped backslash
+		"  padded  ",  // leading/trailing spaces, escaped by pkix
+	} {
+		t.Run(cn, func(t *testing.T) {
+			cert := generateTestPeerCertWithOrg(t, cn, "acme")
+			rendered := cert.Subject.String()
+
+			subjects, err := parseCertSubjects([]string{rendered})
+			require.NoError(t, err, "rendered DN %q must parse back", rendered)
+			assert.Equal(t, []string{cn}, subjects[0].attrs["CN"],
+				"CN must survive render -> parse unchanged (rendered as %q)", rendered)
+			assert.True(t, certSubjectEquals([]*x509.Certificate{cert}, subjects),
+				"a certificate must match an allow-list entry built from its own rendered subject")
+
+			// And it still refuses a different tenant.
+			other := generateTestPeerCertWithOrg(t, cn+"-evil", "acme")
+			assert.False(t, certSubjectEquals([]*x509.Certificate{other}, subjects))
+		})
+	}
+}
+
+// TestCertSubjectEquals_AnyAttribute covers attributes pkix has no typed field
+// for. They render in OID form and must be nameable in an allow-list like any
+// other, so a certificate is not unallowlistable because of what it carries.
+func TestCertSubjectEquals_AnyAttribute(t *testing.T) {
+	cert := generateTestPeerCertFull(t, pkix.Name{
+		CommonName:    "ns-a",
+		Organization:  []string{"acme"},
+		StreetAddress: []string{"1 Main St"},
+		PostalCode:    []string{"94107"},
+		ExtraNames: []pkix.AttributeTypeAndValue{
+			{Type: asn1.ObjectIdentifier{1, 2, 3, 4}, Value: "custom"},
+		},
+	})
+
+	for _, entry := range []string{
+		"CN=ns-a",
+		"STREET=1 Main St",
+		"POSTALCODE=94107",
+		"1.2.3.4=custom",
+		"CN=ns-a,STREET=1 Main St,1.2.3.4=custom",
+	} {
+		t.Run(entry, func(t *testing.T) {
+			assert.True(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, entry)))
+		})
+	}
+
+	t.Run("an attribute the subject lacks never matches", func(t *testing.T) {
+		assert.False(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "CN=ns-a,OU=absent")))
+	})
+	t.Run("a wrong value never matches", func(t *testing.T) {
+		assert.False(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "1.2.3.4=other")))
+	})
+}
+
+// TestCertSubjectEquals_RepeatedAttribute covers a subject carrying the same
+// attribute more than once; naming any one of its values is enough.
+func TestCertSubjectEquals_RepeatedAttribute(t *testing.T) {
+	cert := generateTestPeerCertFull(t, pkix.Name{
+		CommonName:   "ns-a",
+		Organization: []string{"acme", "other"},
+	})
+	assert.True(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "O=acme")))
+	assert.True(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "O=other")))
+	assert.False(t, certSubjectEquals([]*x509.Certificate{cert}, mustParseSubjects(t, "O=third")))
+}
+
+// generateTestPeerCertFull builds a self-signed certificate with an arbitrary
+// subject, for cases the CN/org helpers cannot express.
+func generateTestPeerCertFull(t *testing.T, subject pkix.Name) *x509.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      subject,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert
+}
+
+// TestCertSubjectEquals_RepeatedInEntry covers an entry naming an attribute
+// more than once, which is how an identity spanning several values of one
+// attribute is written out in full.
+func TestCertSubjectEquals_RepeatedInEntry(t *testing.T) {
+	cert := generateTestPeerCertFull(t, pkix.Name{
+		CommonName:         "svc",
+		OrganizationalUnit: []string{"eng", "platform"},
+	})
+
+	t.Run("all named values must be present", func(t *testing.T) {
+		assert.True(t, certSubjectEquals([]*x509.Certificate{cert},
+			mustParseSubjects(t, "CN=svc,OU=eng,OU=platform")))
+	})
+
+	t.Run("a value the subject lacks fails the entry", func(t *testing.T) {
+		assert.False(t, certSubjectEquals([]*x509.Certificate{cert},
+			mustParseSubjects(t, "CN=svc,OU=eng,OU=absent")))
+	})
+
+	// Naming more values narrows what qualifies, but matching stays a subset
+	// test: a subject carrying every named value and another besides still
+	// matches. Excluding it would need an exact-set comparison.
+	t.Run("values the entry does not name are unconstrained", func(t *testing.T) {
+		lacksOne := generateTestPeerCertFull(t, pkix.Name{
+			CommonName:         "svc",
+			OrganizationalUnit: []string{"eng", "extra"},
+		})
+		carriesMore := generateTestPeerCertFull(t, pkix.Name{
+			CommonName:         "svc",
+			OrganizationalUnit: []string{"eng", "platform", "extra"},
+		})
+		full := mustParseSubjects(t, "CN=svc,OU=eng,OU=platform")
+
+		assert.False(t, certSubjectEquals([]*x509.Certificate{lacksOne}, full),
+			"a named value the subject lacks fails the entry")
+		assert.True(t, certSubjectEquals([]*x509.Certificate{carriesMore}, full),
+			"an unnamed extra value does not fail the entry")
+	})
+
+	t.Run("order within the entry does not matter", func(t *testing.T) {
+		assert.True(t, certSubjectEquals([]*x509.Certificate{cert},
+			mustParseSubjects(t, "OU=platform,OU=eng,CN=svc")))
 	})
 }

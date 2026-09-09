@@ -135,20 +135,22 @@ type ServEnv struct {
 	httpKey  viperutil.Value[string]
 	httpCA   viperutil.Value[string]
 
-	// httpAuthMtlsAllowedSubstrings is the HTTP listener's allow-list,
-	// deliberately separate from gRPC's. The two transports are typically
+	// httpAuthMtlsAllowedSubjects is the HTTP listener's allow-list, one
+	// subject per flag occurrence rather than a delimited string - subject
+	// entries always contain commas, so any single-delimiter encoding would
+	// collide with them. Deliberately separate from gRPC's. The two transports are typically
 	// reached by different callers that merely share a CA, so one shared list
 	// would make enabling --grpc-auth-mode=mtls silently grant every HTTP-side
 	// identity access to the gRPC admin RPCs. Drift between two lists fails
 	// closed instead.
-	httpAuthMtlsAllowedSubstrings viperutil.Value[string]
+	httpAuthMtlsAllowedSubjects viperutil.Value[[]string]
 
-	// httpClientCertRequired and httpClientCertSubstrings gate every route
+	// httpClientCertRequired and httpClientCertSubjects gate every route
 	// except unauthenticatedHTTPPaths. Zero unless a service opts in via
-	// RequireHTTPClientCert; validateHTTPTLS fills in the substrings, so a bad
-	// allow-list fails at startup rather than per-request.
-	httpClientCertRequired   bool
-	httpClientCertSubstrings []string
+	// RequireHTTPClientCert; validateHTTPTLS parses the allow-list, so a bad
+	// one fails at startup rather than per-request.
+	httpClientCertRequired bool
+	httpClientCertSubjects []certSubject
 }
 
 // RequireHTTPClientCert requires a verified client certificate on every route
@@ -184,11 +186,11 @@ func (sv *ServEnv) validateHTTPTLS() error {
 	if tlsConfig.ClientCAs == nil {
 		return errors.New("HTTP client-certificate authentication requires --http-ca to verify client certificates against")
 	}
-	substrings, err := parseCertSubstrings(sv.httpAuthMtlsAllowedSubstrings.Get())
+	subjects, err := parseCertSubjects(sv.httpAuthMtlsAllowedSubjects.Get())
 	if err != nil {
-		return fmt.Errorf("--http-auth-mtls-allowed-substrings: %w", err)
+		return fmt.Errorf("--http-auth-mtls-allowed-subjects: %w", err)
 	}
-	sv.httpClientCertSubstrings = substrings
+	sv.httpClientCertSubjects = subjects
 	return nil
 }
 
@@ -292,9 +294,9 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			FlagName: "http-ca",
 			Dynamic:  false,
 		}),
-		httpAuthMtlsAllowedSubstrings: viperutil.Configure(reg, "http-auth-mtls-allowed-substrings", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "http-auth-mtls-allowed-substrings",
+		httpAuthMtlsAllowedSubjects: viperutil.Configure(reg, "http-auth-mtls-allowed-subjects", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "http-auth-mtls-allowed-subjects",
 			Dynamic:  false,
 		}),
 		vc:           vc,
@@ -542,7 +544,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.String("http-cert", se.httpCert.Default(), "server certificate to use for the HTTP listener, requires http-key, enables TLS")
 	fs.String("http-key", se.httpKey.Default(), "server private key to use for the HTTP listener, requires http-cert, enables TLS")
 	fs.String("http-ca", se.httpCA.Default(), "CA to use for verifying client certificates on the HTTP listener, for services that opt into requiring them")
-	fs.String("http-auth-mtls-allowed-substrings", se.httpAuthMtlsAllowedSubstrings.Default(), "List of substrings of at least one of the client certificate names (separated by colon), authorized on the HTTP listener. Required by services that opt into HTTP client-certificate auth (e.g. multiadmin's --enable-http-mtls-auth); must not contain empty entries. Separate from --grpc-auth-mtls-allowed-substrings: the two transports authorize different callers.")
+	fs.StringArray("http-auth-mtls-allowed-subjects", se.httpAuthMtlsAllowedSubjects.Default(), "Client certificate subject authorized on the HTTP listener, as a comma-separated list of ATTR=value pairs compared for exact equality (e.g. 'CN=ns-a,O=acme'). Specify multiple times for multiple subjects. Recognized attributes: CN, O, OU, C, L, ST, SERIALNUMBER. Required by services that opt into HTTP client-certificate auth. Separate from --grpc-auth-mtls-allowed-substrings, which is a substring match.")
 
 	// Timeout flags
 	fs.Duration("lameduck-period", se.lameduckPeriod.Default(), "keep running at least this long after SIGTERM before stopping")
@@ -550,7 +552,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
 	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
-	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.httpCert, se.httpKey, se.httpCA, se.httpAuthMtlsAllowedSubstrings)
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.httpCert, se.httpKey, se.httpCA, se.httpAuthMtlsAllowedSubjects)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {

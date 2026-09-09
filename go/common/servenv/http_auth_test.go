@@ -139,36 +139,36 @@ func TestClientCertAuthorized(t *testing.T) {
 	certB := generateTestPeerCert(t, "client-b")
 
 	tests := []struct {
-		name       string
-		tlsState   *tls.ConnectionState
-		substrings []string
-		want       bool
+		name     string
+		tlsState *tls.ConnectionState
+		allowed  []certSubject
+		want     bool
 	}{
-		{name: "no TLS at all", tlsState: nil, substrings: []string{"client-a"}, want: false},
+		{name: "no TLS at all", tlsState: nil, allowed: mustParseSubjects(t, "CN=client-a"), want: false},
 		{
-			name:       "leaf matches",
-			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certA}}},
-			substrings: []string{"client-a"},
-			want:       true,
+			name:     "leaf matches",
+			tlsState: &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certA}}},
+			allowed:  mustParseSubjects(t, "CN=client-a"),
+			want:     true,
 		},
 		{
-			name:       "leaf does not match",
-			tlsState:   &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certB}}},
-			substrings: []string{"client-a"},
-			want:       false,
+			name:     "leaf does not match",
+			tlsState: &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certB}}},
+			allowed:  mustParseSubjects(t, "CN=client-a"),
+			want:     false,
 		},
 		{
-			name:       "TLS present but no verified chains (e.g. RequestClientCert, no cert offered)",
-			tlsState:   &tls.ConnectionState{VerifiedChains: nil},
-			substrings: []string{"client-a"},
-			want:       false,
+			name:     "TLS present but no verified chains (e.g. RequestClientCert, no cert offered)",
+			tlsState: &tls.ConnectionState{VerifiedChains: nil},
+			allowed:  mustParseSubjects(t, "CN=client-a"),
+			want:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.TLS = tt.tlsState
-			assert.Equal(t, tt.want, clientCertAuthorized(req, tt.substrings))
+			assert.Equal(t, tt.want, clientCertAuthorized(req, tt.allowed))
 		})
 	}
 }
@@ -228,7 +228,7 @@ func TestRequireClientCert(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			called = false
-			handler := requireClientCert([]string{"client-a"}, next)
+			handler := requireClientCert(mustParseSubjects(t, "CN=client-a"), next)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, request(tt.path, tt.tlsState))
 
