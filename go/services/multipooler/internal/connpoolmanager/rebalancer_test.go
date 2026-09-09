@@ -17,6 +17,7 @@ package connpoolmanager
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -518,4 +519,98 @@ func TestManager_GarbageCollectSkipsCycleWhenCreateMuHeld(t *testing.T) {
 
 	manager.garbageCollectInactivePools(ctx)
 	assert.False(t, manager.HasUserPool("stale"), "next cycle collects normally")
+}
+
+// holdReservedConns acquires n reserved conns for user concurrently and
+// returns them. Acquisitions that block count as demand, so the rebalancer
+// can grow the pool to satisfy them.
+func holdReservedConns(t *testing.T, ctx context.Context, manager *Manager, user string, n int) []*reserved.Conn {
+	t.Helper()
+	var mu sync.Mutex
+	var held []*reserved.Conn
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			rc, err := manager.NewReservedConn(ctx, nil, user, nil, nil)
+			if err != nil {
+				return
+			}
+			rc.SetInactivityTimeout(0)
+			mu.Lock()
+			held = append(held, rc)
+			mu.Unlock()
+		})
+	}
+	wg.Wait()
+	return held
+}
+
+// With elastic quotas, reserved demand beyond its nominal 20% share borrows
+// the regular class's unused capacity: 30 concurrent transactions fit in a
+// 40-slot budget whose fixed split would allow only 8.
+func TestManager_ElasticQuotas_ReservedBorrowsFromRegular(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
+		GlobalCapacity:    40,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond,
+	})
+	defer manager.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	held := holdReservedConns(t, ctx, manager, "txuser", 30)
+	require.Len(t, held, 30, "all 30 reserved conns should be acquired by borrowing regular capacity")
+	assert.GreaterOrEqual(t, manager.reservedAllocator.Capacity(), int64(30))
+	assert.LessOrEqual(t, manager.regularAllocator.Capacity()+manager.reservedAllocator.Capacity(), int64(40))
+
+	for _, rc := range held {
+		rc.Release(reserved.ReleaseRollback, nil)
+	}
+
+	// Once reserved demand ages out, capacity drifts back toward the ratio.
+	require.Eventually(t, func() bool {
+		return manager.reservedAllocator.Capacity() == 8 && manager.regularAllocator.Capacity() == 32
+	}, 5*time.Second, 20*time.Millisecond, "split should return to nominal 32/8 once idle")
+}
+
+// With elastic quotas disabled the reserved ratio is a hard ceiling.
+func TestManager_FixedQuotas_ReservedCappedAtShare(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	config.globalCapacity.Set(40)
+	config.reservedRatio.Set(0.2)
+	config.elasticQuotas.Set(false)
+	config.rebalanceInterval.Set(50 * time.Millisecond)
+	config.demandWindow.Set(150 * time.Millisecond)
+	resolveTestPgPassword(t, config)
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Host:       server.ClientConfig().Host,
+		Port:       server.ClientConfig().Port,
+		Database:   server.ClientConfig().Database,
+	})
+	defer manager.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	held := holdReservedConns(t, ctx, manager, "txuser", 30)
+	assert.Len(t, held, 8, "fixed split must not lend regular capacity to reserved")
+	assert.Equal(t, int64(8), manager.reservedAllocator.Capacity())
+	assert.Equal(t, int64(32), manager.regularAllocator.Capacity())
+
+	for _, rc := range held {
+		rc.Release(reserved.ReleaseRollback, nil)
+	}
 }

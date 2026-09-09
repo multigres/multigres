@@ -14,6 +14,8 @@
 
 package connpoolmanager
 
+import "sync/atomic"
+
 // FairShareAllocator distributes connection capacity among users using max-min fairness.
 // It is agnostic of resource type - create separate instances for regular and reserved pools.
 //
@@ -23,7 +25,7 @@ package connpoolmanager
 //   - Total allocation does not exceed capacity
 //   - Remaining capacity is distributed fairly among unsatisfied users
 type FairShareAllocator struct {
-	capacity   int64
+	capacity   atomic.Int64 // adjusted each rebalance by the class split
 	minPerUser int64
 }
 
@@ -35,15 +37,19 @@ func NewFairShareAllocator(capacity int64, minPerUser int64) *FairShareAllocator
 	if minPerUser < 1 {
 		minPerUser = 1
 	}
-	return &FairShareAllocator{
-		capacity:   capacity,
-		minPerUser: minPerUser,
-	}
+	a := &FairShareAllocator{minPerUser: minPerUser}
+	a.capacity.Store(capacity)
+	return a
 }
 
 // Capacity returns the total capacity this allocator manages.
 func (a *FairShareAllocator) Capacity() int64 {
-	return a.capacity
+	return a.capacity.Load()
+}
+
+// SetCapacity changes the capacity budget for subsequent Allocate calls.
+func (a *FairShareAllocator) SetCapacity(capacity int64) {
+	a.capacity.Store(capacity)
 }
 
 // Allocate distributes capacity among users based on their demands using max-min fairness.
@@ -73,7 +79,7 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 		unsatisfied[user] = true
 	}
 
-	remaining := a.capacity
+	remaining := a.capacity.Load()
 
 	// Progressive filling: keep distributing until no capacity or all satisfied
 	for remaining > 0 && len(unsatisfied) > 0 {
@@ -140,4 +146,62 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 	}
 
 	return allocs
+}
+
+// splitClassCapacity divides one shared budget between the regular and
+// reserved pool classes according to demand. reservedRatio only fixes each
+// class's nominal target; a class whose demand exceeds its target borrows
+// whatever the other class is not using, so either class can reach almost the
+// whole budget when the other is idle:
+//
+//  1. Each class gets min(demand, target).
+//  2. Unused capacity is lent to demand above target.
+//  3. Capacity nobody demands is split by reservedRatio as burst headroom.
+//
+// Each class then keeps a floor of min(minCap, its target) slots, where
+// minCap is the number of user pools, so the per-user allocator can give
+// every user a non-zero allocation in both classes (a zero-capacity pool
+// refuses acquisitions instead of waiting). Capping the floor at the nominal
+// target means borrowing never leaves a class worse off than the fixed split.
+// The result sums to total for any budget >= 2; a budget of 1 overshoots by
+// one rather than starve a class.
+func splitClassCapacity(total int64, reservedRatio float64, regularDemand, reservedDemand, minCap int64) (regularCap, reservedCap int64) {
+	regularTarget := max(int64(float64(total)*(1-reservedRatio)), 1)
+	reservedTarget := max(total-regularTarget, 1)
+
+	regularCap = min(max(regularDemand, 0), regularTarget)
+	reservedCap = min(max(reservedDemand, 0), reservedTarget)
+	spare := total - regularCap - reservedCap
+
+	// Lend spare capacity to whichever class wants more than its target.
+	// At most one class can be above target when spare > 0.
+	if lend := min(regularDemand-regularCap, spare); lend > 0 {
+		regularCap += lend
+		spare -= lend
+	}
+	if lend := min(reservedDemand-reservedCap, spare); lend > 0 {
+		reservedCap += lend
+		spare -= lend
+	}
+
+	// Undemanded capacity is headroom, shared by the configured ratio.
+	if spare > 0 {
+		extraRegular := int64(float64(spare) * (1 - reservedRatio))
+		regularCap += extraRegular
+		reservedCap += spare - extraRegular
+	}
+
+	// Floor each class, taking the slots from the other class. Floors never
+	// exceed targets, and targets sum to total, so this cannot overshoot.
+	regularFloor := max(min(minCap, regularTarget), 1)
+	reservedFloor := max(min(minCap, reservedTarget), 1)
+	if regularCap < regularFloor {
+		reservedCap = max(reservedCap-(regularFloor-regularCap), reservedFloor)
+		regularCap = regularFloor
+	}
+	if reservedCap < reservedFloor {
+		regularCap = max(regularCap-(reservedFloor-reservedCap), regularFloor)
+		reservedCap = reservedFloor
+	}
+	return regularCap, reservedCap
 }
