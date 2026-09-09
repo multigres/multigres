@@ -524,11 +524,21 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// A client Parse means "give me a freshly-planned statement" — PostgreSQL
 	// always re-plans on Parse. The multipooler shares one backend statement per
 	// (query, param types) across connections and never re-Parses it after a
-	// schema change, so mark this statement pending: the first backend
-	// Describe/Execute forces a re-Parse instead of reusing a stale plan. Keyed by
-	// the consolidator's canonical name (psi.Name), which is what portals and
-	// Describe carry downstream — the client-provided name is not visible there.
-	h.getConnectionState(conn).MarkReparsePending(psi.Name)
+	// schema change, so it may hand this client a plan built before the change.
+	//
+	// Only force a proactive re-Parse for a Parse issued inside an explicit
+	// transaction. There the reactive cachedPlanRetry heal cannot recover — the
+	// first stale Bind/Execute aborts the transaction, so its retry would run in a
+	// failed block — and the transaction is pinned to a single backend, so
+	// re-Parsing it up front is both necessary and sufficient. In autocommit we
+	// deliberately do NOT force it: the heal transparently re-Parses on the actual
+	// stale-plan error, which only costs a round trip when a schema really changed,
+	// whereas forcing here would re-Parse on every Parse even when nothing changed.
+	// Keyed by the consolidator's canonical name (psi.Name), which is what portals
+	// and Describe carry downstream — the client-provided name is not visible there.
+	if conn.TxnStatus() == protocol.TxnStatusInBlock {
+		h.getConnectionState(conn).MarkReparsePending(psi.Name)
+	}
 	return nil
 }
 
