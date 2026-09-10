@@ -81,23 +81,20 @@ func (c *PlanCache) Get(ctx context.Context, normalizedSQL string) (*engine.Plan
 	return plan, ok
 }
 
-// Put inserts or updates a cache entry, stamped with the current epoch.
-func (c *PlanCache) Put(normalizedSQL string, plan *engine.Plan) {
-	c.PutAtEpoch(normalizedSQL, plan, c.epoch.Load())
-}
-
-// PutAtEpoch inserts or updates a cache entry stamped with the given epoch,
-// rather than whatever epoch is current when Put runs.
+// Put inserts or updates a cache entry, stamped with the given epoch.
 //
-// A caller that plans a statement based on some live, mutable state (e.g. a
-// dynamic feature flag) and only wants to cache the result while that state
-// hasn't changed since planning started should capture Epoch() before
-// planning and pass it here instead of calling Put. If Invalidate() runs
-// while planning was in flight, the entry is stamped with the
-// now-superseded epoch and is immediately treated as stale on the next Get
-// — rather than Put silently caching, under the current (bumped) epoch, a
-// decision made under a policy that no longer holds.
-func (c *PlanCache) PutAtEpoch(normalizedSQL string, plan *engine.Plan, epoch uint32) {
+// Capture Epoch() before planning starts and pass that value here, rather
+// than whatever epoch is current by the time the entry is inserted. Planning
+// reads live, mutable state (a dynamic feature flag, say), so if Invalidate()
+// runs while planning was in flight, stamping with the captured epoch leaves
+// the entry immediately stale on the next Get. Stamping with the current
+// epoch instead would cache, as though it were fresh, a decision made under
+// a policy that no longer holds.
+//
+// The epoch is a required argument for that reason: every plan is built from
+// some snapshot of planning state, so there is no correct way to insert one
+// without saying which snapshot it came from.
+func (c *PlanCache) Put(normalizedSQL string, plan *engine.Plan, epoch uint32) {
 	if c.store == nil {
 		return
 	}
@@ -107,7 +104,7 @@ func (c *PlanCache) PutAtEpoch(normalizedSQL string, plan *engine.Plan, epoch ui
 
 // Epoch returns the cache's current epoch. A caller planning a statement
 // based on live, mutable state should snapshot this before planning starts
-// and pass it to PutAtEpoch afterward — see PutAtEpoch.
+// and pass it to Put afterward — see Put.
 func (c *PlanCache) Epoch() uint32 {
 	return c.epoch.Load()
 }

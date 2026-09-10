@@ -700,7 +700,9 @@ func (mg *Multigateway) RunDefault() error {
 // allowed it stays valid in the cache — served on later cache hits without
 // re-running analysis — until something invalidates it, so a reload that
 // changes such a flag must invalidate the cache or a stale accept/reject
-// decision keeps being served.
+// decision keeps being served. This subscription is the whole mechanism, so
+// it depends on the notification covering every way a dynamic value changes,
+// which NotifyConfigReload's contract guarantees.
 //
 // The subscription is registered here because NotifyConfigReload must run
 // before senv's LoadConfig starts watching (it panics otherwise), but

@@ -159,3 +159,55 @@ func TestWatchConfig(t *testing.T) {
 func jitter(min, max int) int {
 	return min + rand.IntN(max-min+1)
 }
+
+// TestSetNotifiesSubscribers covers the second way a dynamic value changes.
+// A subscriber registered via Notify is asking to be told whenever the live
+// config changed, and Set changes it just as a config-file reload does: every
+// getter for the key returns the new value afterwards. A consumer that reacts
+// to a change (invalidating a cache keyed on the old value, say) would
+// otherwise never run for a Set, with nothing later to make it run.
+func TestSetNotifiesSubscribers(t *testing.T) {
+	v := vipersync.New()
+	get := vipersync.AdaptGetter("flag", func(v *viper.Viper) func(key string) bool {
+		return v.GetBool
+	}, v)
+
+	ch := make(chan struct{}, 1)
+	v.Notify(ch)
+
+	require.False(t, get("flag"), "precondition: unset key reads false")
+
+	v.Set("flag", true)
+
+	require.True(t, get("flag"), "Set must be visible to the key's getter")
+	select {
+	case <-ch:
+	default:
+		t.Fatal("Set changed the live config but never notified subscribers")
+	}
+}
+
+// TestNotifySubscribersNeverBlocks proves the fan-out cannot stall the
+// mutation that triggered it: a subscriber that never drains its channel (or
+// has gone away entirely) must not wedge Set for every other caller.
+func TestNotifySubscribersNeverBlocks(t *testing.T) {
+	v := vipersync.New()
+	vipersync.AdaptGetter("flag", func(v *viper.Viper) func(key string) bool {
+		return v.GetBool
+	}, v)
+
+	// Unbuffered and never read: a blocking send here would hang forever.
+	v.Notify(make(chan struct{}))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		v.Set("flag", true)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Set blocked on a subscriber that never drains its channel")
+	}
+}
