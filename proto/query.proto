@@ -320,10 +320,12 @@ message ExecuteSqlPreparedStatement {
   // EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
   string sql_suffix = 3;
 
-  // force_unnamed_parse asks the multipooler to Parse the prepared statement as
-  // the unnamed statement without executing SQL. This preserves PostgreSQL's
-  // transaction-time validation and lock acquisition semantics.
-  bool force_unnamed_parse = 4;
+  // prepare_only prepares the named, consolidated backend statement without
+  // executing SQL. Inside a transaction this runs after any deferred BEGIN,
+  // preserving prepare-time validation and locks. Later Describe/Execute can
+  // reuse the same statement. prepared_statement.force_reparse requests a fresh
+  // preparation even if this connection already has a cached statement.
+  bool prepare_only = 4;
 }
 
 // Portal represents a bound prepared statement with parameters.

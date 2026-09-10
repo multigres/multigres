@@ -19,6 +19,9 @@ Browse the design and reference docs by area:
 - **[Query serving](./query_serving/)** — connection pooling, prepared
   statements, transactions, session settings, plan caching, query
   cancellation, failover buffering, replica reads, listen/notify, etc.
+- **[Prepared-statement design](./query_serving/prepared_statements_design.md)**
+  and **[single-parse review](./reviews/pr-1452-single-parse.md)** — backend
+  preparation, query identity, DDL recovery, and validation for PR #1452.
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
@@ -42,7 +45,10 @@ Browse the design and reference docs by area:
 
 multigres runs the official PostgreSQL regression test suite to track compatibility.
 
-- **Results:** See the [latest workflow run](https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml) for the detailed compatibility report in the Job Summary.
+- **Results:** See the [latest workflow run][pgregress-ci] for the detailed
+  compatibility report in the Job Summary.
 - **PostgreSQL compatibility artifacts:** Each run uploads
   `postgres-compatibility-results`, which includes the compatibility report and
   PostgreSQL regression diffs when results are produced.
+
+[pgregress-ci]: https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml

@@ -207,8 +207,11 @@ This is the reserved-pool analog of the regular pool's
 `retryOnConnectionError`. It is wired by every executor call site that
 allocates a fresh reserved conn:
 
-- `reserveAndStreamExecute` — `ensurePreparedWithName` runs in validate when
-  the request carries a wrapped EXECUTE prepared statement.
+- `reserveAndStreamExecute` — SQL EXECUTE materialization uses
+  `ensurePrepared` in validation when the request carries an EXECUTE wrapper.
+  A transaction's `prepare_only` request instead replays BEGIN in validation
+  and prepares the named statement after acquiring the reservation, inside
+  that transaction. This preserves Parse-time locks and error handling.
 - `portalExecuteWithReserved` (new-conn branch) — `ensurePrepared` runs in
   validate; the post-acquire `ensurePrepared` becomes a no-op (deduped by
   per-connection state).

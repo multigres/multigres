@@ -79,9 +79,9 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
-	// EagerParseInTransaction sends a backend Parse for PREPARE/Parse issued inside
+	// PrepareInTransaction sends a backend Parse for PREPARE/Parse issued inside
 	// an explicit transaction, so PostgreSQL acquires relation locks at prepare time.
-	EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
+	PrepareInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
 
 	// ReleaseAll releases all reserved connections, regardless of reservation reason.
 	// For transaction-reserved connections, a ROLLBACK is sent first.
@@ -502,7 +502,7 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// relation/semantic errors at prepare time. Preserve the lazy path outside a
 	// transaction, where those locks would be released before the next statement.
 	if conn.TxnStatus() == protocol.TxnStatusInBlock {
-		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
+		if err := h.executor.PrepareInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
 			// A gateway policy rejection never reached the backend, so with
 			// keep-transaction-on-gateway-rejection enabled we leave the session
 			// in-block instead of aborting.
@@ -521,21 +521,9 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 		return err
 	}
 
-	// A client Parse means "give me a freshly-planned statement" — PostgreSQL
-	// always re-plans on Parse. The multipooler shares one backend statement per
-	// (query, param types) across connections and never re-Parses it after a
-	// schema change, so it may hand this client a plan built before the change.
-	//
-	// Only force a proactive re-Parse for a Parse issued inside an explicit
-	// transaction. There the reactive cachedPlanRetry heal cannot recover — the
-	// first stale Bind/Execute aborts the transaction, so its retry would run in a
-	// failed block — and the transaction is pinned to a single backend, so
-	// re-Parsing it up front is both necessary and sufficient. In autocommit we
-	// deliberately do NOT force it: the heal transparently re-Parses on the actual
-	// stale-plan error, which only costs a round trip when a schema really changed,
-	// whereas forcing here would re-Parse on every Parse even when nothing changed.
-	// Keyed by the consolidator's canonical name (psi.Name), which is what portals
-	// and Describe carry downstream — the client-provided name is not visible there.
+	// The original SQL is already prepared on the transaction's backend.
+	// Only an execution-time semantic rewrite needs a separate materialization;
+	// keep its fresh-Parse signal until Route actually sends that variant.
 	if conn.TxnStatus() == protocol.TxnStatusInBlock {
 		h.getConnectionState(conn).MarkReparsePending(psi.Name)
 	}

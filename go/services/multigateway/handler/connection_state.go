@@ -68,13 +68,10 @@ type MultigatewayConnectionState struct {
 	// Map is keyed by the name of the portal.
 	Portals map[string]*preparedstatement.PortalInfo
 
-	// reparsePending holds the client statement names whose most recent Parse has
-	// not yet been materialized on the backend. A client Parse means "give me a
-	// freshly-planned statement" (PostgreSQL always re-plans on Parse), so the
-	// first backend Describe/Execute after it must force the multipooler to
-	// re-Parse the consolidated backend statement rather than reuse a plan built
-	// before a schema change. Keyed by the client-provided statement name; the
-	// entry is consumed (once) at that first materialization. Guarded by mu.
+	// reparsePending holds canonical gateway statement names freshly Parsed
+	// inside a transaction. The original SQL is prepared immediately; this flag
+	// refreshes an execution-time semantic rewrite on its first materialization.
+	// Describe of the original SQL must not consume it. Guarded by mu.
 	reparsePending map[string]struct{}
 
 	// ShardStates is the information per shard that needs to be maintained.
@@ -224,10 +221,7 @@ func NewMultigatewayConnectionState() *MultigatewayConnectionState {
 	}
 }
 
-// MarkReparsePending records that the client just (re-)Parsed the named
-// statement, so the next backend materialization must force a re-Parse of the
-// consolidated backend statement instead of reusing a possibly-stale plan. See
-// the reparsePending field for the rationale.
+// MarkReparsePending records a fresh Parse for a possible execution-time rewrite.
 func (m *MultigatewayConnectionState) MarkReparsePending(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -237,10 +231,7 @@ func (m *MultigatewayConnectionState) MarkReparsePending(name string) {
 	m.reparsePending[name] = struct{}{}
 }
 
-// ConsumeReparsePending reports whether the named statement has a pending
-// client Parse that has not yet been materialized on the backend, clearing the
-// flag so only the first Describe/Execute after a Parse forces a re-Parse and
-// subsequent reuse stays on the steady-state (no-op) path.
+// ConsumeReparsePending consumes the fresh-Parse signal for a rewritten statement.
 func (m *MultigatewayConnectionState) ConsumeReparsePending(name string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -784,6 +775,7 @@ func (m *MultigatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.markNotificationTransactionEndedLocked()
+	clear(m.reparsePending)
 	m.savepoints = nil
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
 		gmv.ClearSnapshots()
@@ -799,6 +791,7 @@ func (m *MultigatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.markNotificationTransactionEndedLocked()
+	clear(m.reparsePending)
 	if len(m.savepoints) == 0 {
 		for _, gmv := range m.gatewayManagedVariablesLocked() {
 			gmv.ResetLocal()

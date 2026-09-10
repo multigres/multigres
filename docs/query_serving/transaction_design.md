@@ -12,8 +12,8 @@ Key capabilities:
 
 - Implicit-to-explicit transaction transformation for multi-statement
   batches
-- Deferred `BEGIN` execution (no backend call until the first real
-  query)
+- Deferred `BEGIN` execution (replayed when an operation first needs a
+  backend, including an in-transaction Parse or SQL PREPARE)
 - Transaction state tracking via the PostgreSQL wire protocol's
   `ReadyForQuery` status byte
 - Reserved connection management with multi-reason bitmask tracking
@@ -126,6 +126,33 @@ State transitions:
                        ▼
                  TxnStatusIdle
 ```
+
+## Prepared Statements Inside a Transaction
+
+When `HandleParse` receives protocol Parse or SQL PREPARE while the connection
+is `TxnStatusInBlock`, `PrepareInTransaction` sends a prepare-only request
+through `StreamExecute`. The multipooler reserves or reuses the backend,
+replays deferred BEGIN if needed, and prepares a fresh named `ppstmt` with
+`force_reparse=true`. Preparation runs inside the transaction, so relation
+locks last until transaction end and semantic errors surface before Parse or
+PREPARE is acknowledged.
+
+A successful preparation is recorded in the backend connection's statement
+cache. Describe and Execute reuse it when they address the same SQL and
+parameter types; there is no separate unnamed validation Parse. Failed backend
+preparation follows the existing transaction-error path, and the handler does
+not register the statement in its consolidator.
+
+A semantic execution-time rewrite can require a separate prepared statement.
+The gateway's `reparsePending` signal applies only to that variant; Describe of
+the original leaves it intact. Commit and rollback clear unused signals. This
+cleanup does not deallocate the backend's session-level prepared statements.
+
+Autocommit Parse remains lazy. Reactive stale-statement recovery cannot retry
+inside an already-failed transaction, so it cannot replace receipt-time
+preparation. See [prepared statements](prepared_statements_design.md) for
+query identity, DDL recovery, and the distinction between original and
+rewritten SQL.
 
 ## Implicit Transaction Transformation
 

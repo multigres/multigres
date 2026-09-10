@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -717,4 +718,62 @@ func TestMultigateway_MigrationPattern(t *testing.T) {
 		"SELECT version FROM "+schemaVersionTable).Scan(&version)
 	require.NoError(t, err)
 	assert.Equal(t, "1", version)
+}
+
+// TestTransactionParseMaterializesOnce checks the backend's actual prepared
+// statement identity and creation time across Parse, Describe and Execute.
+func TestTransactionParseMaterializesOnce(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping end-to-end test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+	conn := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+	_, err := conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	defer func() { _, _ = conn.Query(ctx, "ROLLBACK") }()
+
+	// Whitespace differs from the cached route's normalized SQL. Multiple
+	// client Parses before execution also rule out reuse of the unnamed slot.
+	const sql = "SELECT  $1::int + 7 AS single_parse_value"
+	require.NoError(t, conn.Parse(ctx, "single_parse", sql, nil))
+	lookup := "SELECT name, prepare_time::text FROM pg_prepared_statements WHERE statement = '" + sql + "'"
+	before, err := conn.Query(ctx, lookup)
+	require.NoError(t, err)
+	require.Len(t, before, 1)
+	require.Len(t, before[0].Rows, 1, "Parse must immediately create a named backend statement")
+	name := string(before[0].Rows[0].Values[0])
+	preparedAt := string(before[0].Rows[0].Values[1])
+	require.NotEmpty(t, name)
+	require.NoError(t, conn.Parse(ctx, "another_parse", "SELECT 42", nil))
+	_, err = conn.DescribePrepared(ctx, "single_parse")
+	require.NoError(t, err)
+	for range 2 {
+		var value string
+		_, err = conn.BindAndExecute(ctx, "", "single_parse", [][]byte{[]byte("5")}, nil, nil, 0,
+			func(_ context.Context, result *sqltypes.Result) error {
+				if len(result.Rows) > 0 {
+					value = string(result.Rows[0].Values[0])
+				}
+				return nil
+			})
+		require.NoError(t, err)
+		require.Equal(t, "12", value)
+	}
+	after, err := conn.Query(ctx, lookup)
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+	require.Len(t, after[0].Rows, 1)
+	require.Equal(t, name, string(after[0].Rows[0].Values[0]))
+	require.Equal(t, preparedAt, string(after[0].Rows[0].Values[1]), "Describe and Execute must not re-Parse")
+	// Execution must not materialize a second, whitespace-normalized variant.
+	variants, err := conn.Query(ctx, "SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE 'SELECT%AS single_parse_value'")
+	require.NoError(t, err)
+	require.Len(t, variants, 1)
+	require.Len(t, variants[0].Rows, 1)
+	require.Equal(t, "1", string(variants[0].Rows[0].Values[0]))
 }

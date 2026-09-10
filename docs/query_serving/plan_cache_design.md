@@ -87,11 +87,22 @@ extended-protocol execution of the same query shape and vice versa.
 
 ### SQL Reconstruction
 
-At execution time, the route primitive needs the final SQL to send to the
-backend. The normalized AST is stored in the `Plan` (as `NormalizedAST`) and
-at execution time `ReconstructSQL(normalizedAST, bindVars)` substitutes the
-current bind values back in. This avoids re-parsing the query on every
-execution.
+For simple-protocol execution, the route's `NormalizedAST` holds the normalized
+AST, and `ReconstructSQL(normalizedAST, bindVars)` substitutes the current
+literal values back in before sending SQL to the backend.
+
+For ordinary extended-protocol execution, the route forwards the prepared
+statement and the portal's separate Bind values. When the route SQL differs
+only by AST normalization, `Route.PortalStreamExecute` preserves the stored
+query text. This keeps Parse, Describe, and Execute on the same exact-text
+pooler cache key, even though the gateway routing plan uses a normalized key.
+An in-transaction Parse has already prepared that named backend statement.
+
+A semantic rewrite still uses the route's rewritten SQL and can need a distinct
+backend preparation. The gateway routing cache and the pooler's per-connection
+prepared-statement cache have different keys and lifetimes. See
+[prepared statements](prepared_statements_design.md#query-identity-and-execution-time-rewrites)
+for the rewrite refresh rules.
 
 ## Cache Implementation
 
