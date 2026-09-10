@@ -169,8 +169,8 @@ func (c *Coordinator) StartMigration(ctx context.Context, id string) (*Projectio
 
 // runSetup runs VALIDATING -> SCHEMA_COPY -> CREATE_PUBLICATION -> COPYING.
 func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
-	// One source connection drives the whole setup (validate, publication);
-	// DumpSchema still shells out to pg_dump separately.
+	// One source connection drives the whole setup (validate, publication, DDL
+	// capture); DumpSchema still shells out to pg_dump separately.
 	src, err := newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
@@ -199,10 +199,28 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		return err
 	}
 
+	// EXPERIMENTAL: table-scoped DDL replication (see ddlrepl.go). IMPORT: the
+	// target is the subscriber (apply) and the source is the publisher (capture).
+	// Register this migration's tables for capture and set up apply before the
+	// publication; the publication carries a row-filtered multigres.ddl_log so
+	// captured DDL rides the same stream; arm the shared source event trigger last
+	// (after the log/function exist and just before CreateSubscription) so little
+	// DDL accumulates in ddl_log before the subscription's initial snapshot.
+	// (CREATE PUBLICATION is never captured regardless — wrong command tag.)
+	if err := setupDDLApply(ctx, c.target.ddlConn(), m.ID); err != nil {
+		return err
+	}
+	if err := setupDDLCapture(ctx, src.ddlConn(), m.ID, m.Tables); err != nil {
+		return err
+	}
+
 	if err := c.setPhase(ctx, m, PhaseCreatePublication); err != nil {
 		return err
 	}
-	if err := src.CreatePublication(m.PublicationName(), m.Tables); err != nil {
+	if err := src.CreatePublication(m.PublicationName(), m.Tables, m.ID); err != nil {
+		return err
+	}
+	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
 		return err
 	}
 
@@ -575,7 +593,26 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		if err := src.DropPublication(pub); err != nil {
 			return err
 		}
-		if err := c.target.CreatePublication(ctx, pub, m.Tables); err != nil {
+		// Flip DDL replication to match: capture moves from the source to the
+		// target, apply from the target to the source (see ddlrepl.go). Tear down
+		// the old-direction roles, then set up the new ones before recreating the
+		// link.
+		if err := teardownDDLCapture(ctx, src.ddlConn(), m.ID); err != nil {
+			return err
+		}
+		if err := teardownDDLApply(ctx, c.target.ddlConn(), m.ID); err != nil {
+			return err
+		}
+		if err := setupDDLApply(ctx, src.ddlConn(), m.ID); err != nil {
+			return err
+		}
+		if err := setupDDLCapture(ctx, c.target.ddlConn(), m.ID, m.Tables); err != nil {
+			return err
+		}
+		if err := c.target.CreatePublication(ctx, pub, m.Tables, m.ID); err != nil {
+			return err
+		}
+		if err := armDDLCapture(ctx, c.target.ddlConn()); err != nil {
 			return err
 		}
 		conninfo, err := c.targetConnInfo(m.TargetDatabase)
@@ -595,7 +632,24 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if err := c.target.DropPublication(ctx, pub); err != nil {
 		return err
 	}
-	if err := src.CreatePublication(pub, m.Tables); err != nil {
+	// Flip DDL replication back: capture moves from the target to the source,
+	// apply from the source to the target.
+	if err := teardownDDLCapture(ctx, c.target.ddlConn(), m.ID); err != nil {
+		return err
+	}
+	if err := teardownDDLApply(ctx, src.ddlConn(), m.ID); err != nil {
+		return err
+	}
+	if err := setupDDLApply(ctx, c.target.ddlConn(), m.ID); err != nil {
+		return err
+	}
+	if err := setupDDLCapture(ctx, src.ddlConn(), m.ID, m.Tables); err != nil {
+		return err
+	}
+	if err := src.CreatePublication(pub, m.Tables, m.ID); err != nil {
+		return err
+	}
+	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
 		return err
 	}
 	return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
@@ -619,17 +673,24 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, _ bool) {
 		defer src.close()
 	}
 	if m.ActiveDirection == DirectionImport {
+		// IMPORT: subscription (apply) on the target, publication (capture) on the source.
 		logErr("drop target subscription", c.target.DropSubscription(ctx, m.SubscriptionName()))
+		// EXPERIMENTAL: tear down DDL replication (see ddlrepl.go), refcounted so
+		// other migrations on this server keep working.
+		logErr("drop target DDL apply", teardownDDLApply(ctx, c.target.ddlConn(), m.ID))
 		if src != nil {
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
+			logErr("drop source DDL capture", teardownDDLCapture(ctx, src.ddlConn(), m.ID))
 		}
 		return
 	}
-	// EXPORT: subscription on the source, publication on the target.
+	// EXPORT: subscription (apply) on the source, publication (capture) on the target.
 	if src != nil {
 		logErr("drop source subscription", src.DropSubscription(m.SubscriptionName()))
+		logErr("drop source DDL apply", teardownDDLApply(ctx, src.ddlConn(), m.ID))
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
+	logErr("drop target DDL capture", teardownDDLCapture(ctx, c.target.ddlConn(), m.ID))
 }
 
 // Reconcile refreshes every in-flight migration: it advances COPYING to
