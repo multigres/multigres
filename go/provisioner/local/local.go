@@ -553,6 +553,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	if err := multigatewayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
+	// TODO: multigatewayCmd is never Wait()'d, so can become a zombie that
+	// appears to be running when it's not. Spawning a background Wait() here would help
+	// (should be safe, no Stdout/Stderr pipes).
 
 	// Validate process is running
 	if err := p.validateProcessRunning(multigatewayCmd.Process.Pid); err != nil {
