@@ -493,9 +493,7 @@ func logSuiteResults(t *testing.T, suiteName string, results *TestResults) {
 			t.Logf("  ❌ %s - %s", failure.TestName, failure.Error)
 		}
 		t.Logf("")
-		t.Logf("⚠️  WARNING: %d %s test(s) failed.", results.FailedTests, suiteName)
-		t.Logf("   This is logged for investigation but won't fail the Go test.")
-		t.Logf("   Review the test output above for details.")
+		t.Errorf("%d %s test(s) failed. See failed tests above for details.", results.FailedTests, suiteName)
 	} else if results.PassedTests > 0 {
 		t.Logf("")
 		t.Logf("✅ All %d %s tests passed!", results.PassedTests, suiteName)

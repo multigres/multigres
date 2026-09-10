@@ -98,6 +98,10 @@ type Config struct {
 	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
 	// tests that exercise only the env-var or file paths).
 	flagSet *pflag.FlagSet
+	// reg is the registry the values below were configured against, saved so
+	// explicitness checks can ask whether a key was present in the loaded
+	// config file (Registry.InStaticConfig).
+	reg *viperutil.Registry
 
 	// --- PostgreSQL TLS (multipooler → postgres leg) ---
 	// libpq-style server verification. Mode + optional CA bundle. Client cert
@@ -137,11 +141,18 @@ type Config struct {
 
 	// Global capacity is the total number of PostgreSQL connections to manage.
 	// This is divided between regular and reserved pools based on reservedRatio.
+	// When not explicitly configured (see GlobalCapacityExplicit), the manager
+	// derives it from the server's max_connections at admin-pool open.
 	globalCapacity viperutil.Value[int64]
 
 	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
 	// Regular pools get (1 - reservedRatio) of the global capacity.
 	reservedRatio viperutil.Value[float64]
+
+	// Elastic quotas lets each pool class borrow the other class's unused
+	// share of the global capacity. When false, the reserved ratio is a fixed
+	// ceiling for both classes.
+	elasticQuotas viperutil.Value[bool]
 
 	// --- Rebalancer configuration ---
 
@@ -218,6 +229,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
+		reg: reg,
 		// PostgreSQL superuser credentials (also used for internal system queries)
 		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
@@ -301,6 +313,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  reservedRatio,
 			FlagName: "connpool-reserved-ratio",
 		}),
+		elasticQuotas: viperutil.Configure(reg, "connpool.elastic-quotas", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "connpool-elastic-quotas",
+			EnvVars:  []string{"CONNPOOL_ELASTIC_QUOTAS"},
+		}),
 
 		// Rebalancer
 		rebalanceInterval: viperutil.Configure(reg, "connpool.rebalance-interval", viperutil.Options[time.Duration]{
@@ -358,14 +375,15 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
 
 	// Session-state scrub flag
-	fs.Duration("connpool-session-scrub-interval", c.sessionScrubInterval.Default(), "How often each user pool probes one idle connection for divergence between tracked and real session GUC state, replacing divergent connections (0 = disabled)")
+	fs.Duration("connpool-session-scrub-interval", c.sessionScrubInterval.Default(), "How often each user pool probes one idle connection for divergence between tracked and real backend state (session GUCs, prepared statements, advisory locks, holdable cursors, temp objects), replacing divergent connections (0 = disabled)")
 
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
 	// Fair share allocation flags
-	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools) (env: CONNPOOL_GLOBAL_CAPACITY)")
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools). When not set, derived from the server's max_connections at pool open (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
+	fs.Bool("connpool-elastic-quotas", c.elasticQuotas.Default(), "Let regular and reserved pools borrow each other's unused share of global capacity; the reserved ratio is then a target under contention, not a ceiling (env: CONNPOOL_ELASTIC_QUOTAS)")
 
 	// Rebalancer flags
 	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
@@ -392,6 +410,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
+		c.elasticQuotas,
 		c.rebalanceInterval,
 		c.demandWindow,
 		c.inactiveTimeout,
@@ -603,16 +622,42 @@ func (c *Config) SettingsCacheSize() int {
 	return int(c.settingsCacheSize.Get())
 }
 
-// GlobalCapacity returns the total PostgreSQL connections to manage.
+// GlobalCapacity returns the configured total PostgreSQL connections to manage.
 // This is divided between regular and reserved pools based on ReservedRatio.
+// Manager.GlobalCapacity returns the value actually in effect, which is derived
+// from the server when this one was not explicitly configured.
 func (c *Config) GlobalCapacity() int64 {
 	return c.globalCapacity.Get()
+}
+
+// GlobalCapacityExplicit reports whether the operator explicitly configured
+// the global capacity (flag, env var, or config file). When false, the manager
+// derives the capacity from the server's max_connections at admin-pool open.
+func (c *Config) GlobalCapacityExplicit() bool {
+	if c.flagSet != nil {
+		if flag := c.flagSet.Lookup("connpool-global-capacity"); flag != nil && flag.Changed {
+			return true
+		}
+	}
+	if _, ok := os.LookupEnv("CONNPOOL_GLOBAL_CAPACITY"); ok {
+		return true
+	}
+	// Config-file values set neither Flag.Changed nor the env var; ask the
+	// registry whether the key was present in the loaded config file, so a
+	// config file pinning the capacity to exactly the default value still
+	// counts as explicit.
+	return c.reg.InStaticConfig(c.globalCapacity.Key())
 }
 
 // ReservedRatio returns the fraction of global capacity allocated to reserved pools (0.0-1.0).
 // Regular pools get (1 - reservedRatio) of the global capacity.
 func (c *Config) ReservedRatio() float64 {
 	return c.reservedRatio.Get()
+}
+
+// ElasticQuotas reports whether pool classes may borrow each other's unused capacity.
+func (c *Config) ElasticQuotas() bool {
+	return c.elasticQuotas.Get()
 }
 
 // RebalanceInterval returns how often the rebalancer runs to adjust pool capacities.
