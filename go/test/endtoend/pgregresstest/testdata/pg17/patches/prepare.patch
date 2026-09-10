@@ -1,18 +1,26 @@
-# SQL PREPARE remains gateway/consolidator-managed. pg_prepared_statements
-# result tables are normalized because they expose scheduling-dependent internal
-# ppstmt caches; execution results and diagnostics below remain patch-verified.
+# SQL-level EXECUTE is materialized at the gateway by substituting the arguments
+# into the prepared body as CAST(arg AS type) and running plain SQL. So a bad
+# argument fails as an explicit-cast error ("cannot cast type X to Y") rather than
+# PostgreSQL's assignment-context "parameter $N ... cannot be coerced to the
+# expected type". pg_prepared_statements is also normalized (<pooler internal
+# prepared statements>) because names come from gateway/pooler consolidation, not
+# the session's own backend.
 --- a
 +++ b
-@@ -93 +93 @@
--ERROR: wrong number of parameters for prepared statement "q3"
-+ERROR: wrong number of parameters for prepared statement "ppstmt<ID>"
-@@ -97 +97 @@
--ERROR: wrong number of parameters for prepared statement "q3"
-+ERROR: wrong number of parameters for prepared statement "ppstmt<ID>"
-@@ -102 +102 @@
+@@ -98,15 +98,9 @@
+ DETAIL: Expected 5 parameters but got 6.
+ -- wrong param types
+ EXECUTE q3(5::smallint, 10.5::float, false, 4::bigint, 'bytea');
+-ERROR: parameter $3 of type boolean cannot be coerced to the expected type double precision
 -LINE 1: EXECUTE q3(5::smallint, 10.5::float, false, 4::bigint, 'byte...
-+LINE 1: ...UTE q3(5::smallint, 10.5::float, false, 4::bigint, 'bytea');
-@@ -107,3 +106,0 @@
+-^
+-HINT: You will need to rewrite or cast the expression.
++ERROR: cannot cast type boolean to double precision
+ -- invalid type
+ PREPARE q4(nonexistenttype) AS SELECT $1;
 -ERROR: type "nonexistenttype" does not exist
 -LINE 1: PREPARE q4(nonexistenttype) AS SELECT $1;
 -^
+ -- create table as execute
+ PREPARE q5(int, text) AS
+ SELECT * FROM tenk1 WHERE unique1 = $1 OR stringu1 = $2

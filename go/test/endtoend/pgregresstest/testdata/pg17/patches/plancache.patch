@@ -1,8 +1,10 @@
-# Known divergence: SQL PREPARE/EXECUTE uses gateway/multipooler consolidation.
-# PostgreSQL's per-session pg_prepared_statements plan counters and generic-vs-
-# custom plan transition are backend-local; Multigres may execute through a
-# canonical cached backend statement, so these observability/plan-shape outputs
-# differ while preserving query results.
+# Known divergence: SQL-level EXECUTE substitutes its arguments into the prepared
+# body and runs plain SQL that PostgreSQL re-plans on every execution — there is
+# no backend prepared statement or cached plan. So plancache observability
+# diverges: EXECUTE after a result-shape DDL returns the new rows instead of
+# "cached plan must not change result type", and plan_cache_mode /
+# force_generic_plan is not observable because the arguments are inlined literals
+# (a custom plan) rather than $N parameters. Query results are preserved.
 --- a
 +++ b
 @@ -27,8 +27,12 @@
@@ -18,7 +20,32 @@
  -- recreate the temp table (this demonstrates that the raw plan is
  -- purely textual and doesn't depend on OIDs, for instance)
  CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY 2;
-@@ -287,9 +291,8 @@
+@@ -53,9 +57,22 @@
+ -- since clients probably aren't expecting that to change on the fly
+ ALTER TABLE pcachetest ADD COLUMN q3 bigint;
+ EXECUTE prepstmt;
+-ERROR: cached plan must not change result type
++q1 | q2 | q3
++------------------+-------------------+----
++4567890123456789 | -4567890123456789 |
++4567890123456789 | 123 |
++123 | 456 |
++123 | 4567890123456789 |
++4567890123456789 | 4567890123456789 |
++(5 rows)
++
+ EXECUTE prepstmt2(123);
+-ERROR: cached plan must not change result type
++q1 | q2 | q3
++-----+------------------+----
++123 | 456 |
++123 | 4567890123456789 |
++(2 rows)
++
+ -- but we're nice guys and will let you undo your mistake
+ ALTER TABLE pcachetest DROP COLUMN q3;
+ EXECUTE prepstmt;
+@@ -287,9 +304,8 @@
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
@@ -30,7 +57,7 @@
  
  -- up to 5 executions, custom plan is used
  set plan_cache_mode to auto;
-@@ -304,9 +307,8 @@
+@@ -304,26 +320,24 @@
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
@@ -42,7 +69,17 @@
  
  -- force generic plan
  set plan_cache_mode to force_generic_plan;
-@@ -321,9 +323,8 @@
+ explain (costs off) execute test_mode_pp(2);
+ QUERY PLAN
+------------------------------
++----------------------------------------------------------
+ Aggregate
+--> Seq Scan on test_mode
+-Filter: (a = $1)
++-> Index Only Scan using test_mode_a_idx on test_mode
++Index Cond: (a = 2)
+ (3 rows)
+ 
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
@@ -54,7 +91,7 @@
  
  -- get to generic plan by 5 executions
  set plan_cache_mode to auto;
-@@ -354,9 +355,8 @@
+@@ -354,9 +368,8 @@
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
@@ -66,7 +103,7 @@
  
  execute test_mode_pp(1); -- 5x
  count
-@@ -367,9 +367,8 @@
+@@ -367,17 +380,16 @@
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
@@ -78,7 +115,18 @@
  
  -- we should now get a really bad plan
  explain (costs off) execute test_mode_pp(2);
-@@ -393,8 +392,7 @@
+ QUERY PLAN
+------------------------------
++----------------------------------------------------------
+ Aggregate
+--> Seq Scan on test_mode
+-Filter: (a = $1)
++-> Index Only Scan using test_mode_a_idx on test_mode
++Index Cond: (a = 2)
+ (3 rows)
+ 
+ -- but we can force a custom plan
+@@ -393,8 +405,7 @@
  select name, generic_plans, custom_plans from pg_prepared_statements
  where name = 'test_mode_pp';
  name | generic_plans | custom_plans
