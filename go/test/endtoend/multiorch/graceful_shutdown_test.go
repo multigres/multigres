@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 // terminateMultipoolerGracefully sends SIGTERM to the multipooler binary (NOT
@@ -221,7 +221,7 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	// throughout a window long enough for several multiorch snapshot ticks;
 	// the assertion fails the instant the primary changes, not just at the
 	// end.
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		current, ok := setup.TryFindPrimary(t)
 		// A transient miss (e.g. Status RPC timeout while multiorch
 		// reconciles sync_standby_names) is not a spurious failover —
@@ -310,7 +310,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 
 	// Primary must stay the same throughout the window — fails immediately
 	// if a spurious failover occurs.
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		current, ok := setup.TryFindPrimary(t)
 		// A transient miss (e.g. Status RPC timeout while multiorch
 		// reconciles sync_standby_names) is not a spurious failover —
@@ -506,7 +506,7 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	terminateMultipoolerGracefully(t, setup.Multipoolers[firstStandby], 90*time.Second)
 
 	// Primary must not flip after the standby is terminated.
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		current, ok := setup.TryFindPrimary(t)
 		// A transient miss (e.g. Status RPC timeout while multiorch
 		// reconciles sync_standby_names) is not a spurious failover —

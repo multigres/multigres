@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -42,15 +41,16 @@ import (
 // ProcessInstance represents a process instance for testing (pgctld, multipooler, or multiorch).
 // This struct is extracted from multipooler/setup_test.go and extended for multiorch support.
 type ProcessInstance struct {
-	Name        string
-	PoolerDir   string // Used by pgctld, multipooler
-	ConfigFile  string // Used by pgctld
-	LogFile     string
-	GrpcPort    int
-	PgPort      int    // Used by pgctld
-	PgctldAddr  string // Used by multipooler
-	EtcdAddr    string // Used by multipooler for topology
-	GlobalRoot  string // Topology global root path (used by multipooler, multiorch, multigateway)
+	Name       string
+	PoolerDir  string // Used by pgctld, multipooler
+	ConfigFile string // Used by pgctld
+	LogFile    string
+	GrpcPort   int
+	PgPort     int    // Used by pgctld
+	PgctldAddr string // Used by multipooler
+	EtcdAddr   string // Used by multipooler for topology
+	GlobalRoot string // Topology global root path (used by multipooler, multiorch, multigateway)
+	// Process: don't attach StdoutPipe/StderrPipe here — see IsRunningOrZombie below.
 	Process     *executil.Cmd
 	Binary      string
 	Environment []string
@@ -129,6 +129,19 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
+}
+
+// startAndReap starts cmd and reaps it in the background so a later
+// IsRunningOrZombie() reports exit promptly instead of a zombie window. Only
+// safe when Stdout/Stderr are a plain file or nil — never StdoutPipe/
+// StderrPipe with reads still pending, since Wait() closes those pipes once
+// it sees the process exit, racing a concurrent reader.
+func startAndReap(cmd *executil.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -366,15 +379,16 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 		p.Process.SetStderr(logF)
 	}
 
-	// Start the process with trace context propagation
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation. Safe to reap:
+	// Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multiorch: %w", err)
 	}
 	t.Logf("Started multiorch (pid: %d, grpc: %d, http: %d, log: %s)",
 		p.Process.Process.Pid, p.GrpcPort, p.HttpPort, p.LogFile)
 
 	// Wait for multiorch to be ready (using TCP port check like multiorch_helpers.go)
-	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second, p); err != nil {
 		return err
 	}
 	return nil
@@ -433,15 +447,16 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		p.Process.SetStderr(logF)
 	}
 
-	// Start the process with trace context propagation
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation. Safe to reap:
+	// Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multigateway: %w", err)
 	}
 	t.Logf("Started multigateway (pid: %d, pg: %d, grpc: %d, http: %d, log: %s)",
 		p.Process.Process.Pid, p.PgPort, p.GrpcPort, p.HttpPort, p.LogFile)
 
 	// Wait for multigateway to be ready (Status RPC check)
-	if err := WaitForPortReady(t, "multigateway", p.GrpcPort, 3*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multigateway", p.GrpcPort, 3*time.Second, p); err != nil {
 		return err
 	}
 	t.Logf("Multigateway is ready")
@@ -483,13 +498,14 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 		p.Process.SetStderr(logF)
 	}
 
-	if err := p.Process.Start(); err != nil {
+	// Safe to reap: Stdout/Stderr are set to a plain file above.
+	if err := startAndReap(p.Process); err != nil {
 		return fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 	t.Logf("Started multiadmin (pid: %d, http: %d, grpc: %d, log: %s)",
 		p.Process.Process.Pid, p.HttpPort, p.GrpcPort, p.LogFile)
 
-	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second); err != nil {
+	if err := WaitForPortReady(t, "multiadmin", p.GrpcPort, 15*time.Second, p); err != nil {
 		return err
 	}
 	t.Logf("Multiadmin is ready")
@@ -501,9 +517,11 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, timeout time.Duration, logInterval int) error {
 	t.Helper()
 
-	// Start the process in background with trace context propagation
+	// Start the process in background with trace context propagation. Safe
+	// to reap here: neither caller of waitForStartup (pgctld, multipooler)
+	// sets Stdout/Stderr to a pipe.
 	start := time.Now()
-	err := p.Process.Start()
+	err := startAndReap(p.Process)
 	if err != nil {
 		return fmt.Errorf("failed to start %s: %w", p.Name, err)
 	}
@@ -513,10 +531,10 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	time.Sleep(500 * time.Millisecond)
 
 	// Check if process died immediately
-	if p.Process.ProcessState != nil {
-		t.Logf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+	if code, exited := p.Process.ExitCode(); exited {
+		t.Logf("%s process died immediately: exit code %d", p.Name, code)
 		p.LogRecentOutput(t, "Process died immediately")
-		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, code)
 	}
 
 	// Wait for server to be ready
@@ -524,10 +542,10 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
 		// Check if process died during startup
-		if p.Process.ProcessState != nil {
-			t.Logf("%s process died during startup: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+		if code, exited := p.Process.ExitCode(); exited {
+			t.Logf("%s process died during startup: exit code %d", p.Name, code)
 			p.LogRecentOutput(t, "Process died during startup")
-			return fmt.Errorf("%s process died: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+			return fmt.Errorf("%s process died: exit code %d", p.Name, code)
 		}
 
 		connectAttempts++
@@ -545,7 +563,7 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	}
 
 	// If we timed out, try to get process status
-	if p.Process.ProcessState == nil {
+	if p.Process.IsRunningOrZombie() {
 		t.Logf("%s process is still running but not responding on gRPC port %d", p.Name, p.GrpcPort)
 	}
 
@@ -577,20 +595,13 @@ func (p *ProcessInstance) LogRecentOutput(t *testing.T, context string) {
 	t.Logf("%s %s - Recent log output from %s:\n%s", p.Name, context, p.LogFile, logContent)
 }
 
-// IsRunning checks if the process is still running.
-// Returns false if the process has exited or was never started.
-// Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) IsRunning() bool {
-	if p == nil || p.Process == nil || p.Process.Process == nil {
+// IsRunningOrZombie delegates to Process.IsRunningOrZombie — see its docs
+// for the zombie-window limitation this name discloses.
+func (p *ProcessInstance) IsRunningOrZombie() bool {
+	if p == nil || p.Process == nil {
 		return false
 	}
-	// ProcessState is set after Wait() returns, meaning process has exited
-	if p.Process.ProcessState != nil {
-		return false
-	}
-	// Signal 0 checks if process exists without actually sending a signal
-	err := p.Process.Process.Signal(syscall.Signal(0))
-	return err == nil
+	return p.Process.IsRunningOrZombie()
 }
 
 // StopPostgres stops PostgreSQL via pgctld gRPC (best effort, no error handling).
@@ -666,9 +677,9 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 	return func() { p.TerminateGracefully(logf, 5*time.Second) }
 }
 
-// WaitForPortReady waits for a process to be ready by checking its gRPC port.
+// WaitForPortReady waits for proc to be ready by checking its gRPC port.
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
-func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
+func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration, proc *ProcessInstance) error {
 	t.Helper()
 
 	// Process startup is slower under coverage instrumentation; widen the wait
@@ -679,6 +690,11 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 	deadline := start.Add(timeout)
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
+		// Fail fast if the process already died, instead of polling a dead target.
+		if !proc.IsRunningOrZombie() {
+			return fmt.Errorf("%s process exited before becoming ready on port %d", name, grpcPort)
+		}
+
 		connectAttempts++
 		// Test gRPC connectivity
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)

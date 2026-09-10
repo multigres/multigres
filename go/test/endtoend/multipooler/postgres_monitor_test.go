@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -101,7 +102,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 		setup.KillPostgres(t, setup.PrimaryName)
 
 		// The monitor runs every 5s; verify postgres does not restart over ~3 cycles.
-		require.Never(t, func() bool {
+		testpoll.Never(t, func() bool {
 			ctx := utils.WithShortDeadline(t)
 			status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			if err != nil {
