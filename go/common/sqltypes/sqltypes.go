@@ -34,7 +34,7 @@
 //
 //	PostgreSQL ErrorResponse/NoticeResponse
 //	        ↓
-//	*PgDiagnostic (parse all 14 fields, implements error)
+//	*PgDiagnostic (parse wire fields including F/L/R, implements error)
 //	        ↓
 //	mterrors.PgError (wraps PgDiagnostic for system-level handling)
 //	        ↓
@@ -42,7 +42,7 @@
 //	        ↓
 //	mterrors.PgError (reconstructed from gRPC)
 //	        ↓
-//	server.writePgDiagnosticResponse (write all 14 fields)
+//	server.writePgDiagnosticResponse (write wire fields including F/L/R)
 //	        ↓
 //	Client sees native PostgreSQL error format
 //
@@ -64,7 +64,7 @@
 //
 // # PostgreSQL Protocol Fields
 //
-// PgDiagnostic captures all 14 PostgreSQL diagnostic fields:
+// PgDiagnostic captures the PostgreSQL diagnostic fields:
 //
 //	Field             Code  Description
 //	─────────────────────────────────────────────────────────
@@ -82,6 +82,9 @@
 //	Column            c     Column name (constraint errors)
 //	DataType          d     Data type name
 //	Constraint        n     Constraint name
+//	File              F     PostgreSQL source file
+//	Line              L     Source line number
+//	Routine           R     Source routine name
 //
 // See: https://www.postgresql.org/docs/current/protocol-error-fields.html
 package sqltypes

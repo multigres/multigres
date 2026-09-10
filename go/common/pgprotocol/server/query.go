@@ -302,7 +302,8 @@ func (c *Conn) WriteNotice(diag *mterrors.PgDiagnostic) error {
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
 // The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
-// This unified function handles all 14 PostgreSQL diagnostic fields.
+// This unified function handles the PostgreSQL diagnostic fields, including
+// source location (file, line, routine).
 func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *mterrors.PgDiagnostic) error {
 	fields := make(map[byte]string)
 	fields[protocol.FieldSeverity] = diag.Severity
@@ -341,6 +342,15 @@ func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *mterrors.PgDiagnost
 	}
 	if diag.Constraint != "" {
 		fields[protocol.FieldConstraint] = diag.Constraint
+	}
+	if diag.File != "" {
+		fields[protocol.FieldFile] = diag.File
+	}
+	if diag.Line != 0 {
+		fields[protocol.FieldLine] = strconv.Itoa(int(diag.Line))
+	}
+	if diag.Routine != "" {
+		fields[protocol.FieldRoutine] = diag.Routine
 	}
 
 	return c.writeErrorOrNotice(msgType, fields)
