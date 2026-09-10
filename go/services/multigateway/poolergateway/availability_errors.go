@@ -16,6 +16,7 @@ package poolergateway
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -43,6 +44,33 @@ func newNoWritablePrimaryError(internalFormat string, args ...any) error {
 		internalFormat,
 		args...,
 	)}
+}
+
+// newUnknownDatabaseError rejects a database that discovery has never seen —
+// no pooler is registered for it anywhere in the cache. PostgreSQL and
+// pgbouncer both answer 3D000 (invalid_catalog_name) here, and the
+// distinction matters: 57P03 is conventionally retryable, so a client asking
+// for a database that will never exist would otherwise retry forever.
+//
+// The RPC code is INVALID_ARGUMENT by elimination. UNAVAILABLE would be
+// swallowed by isCredentialSourceUnavailable and reported as a transient
+// credential-source failure, and NOT_FOUND is how the credential provider
+// recognises "this role does not exist" (scram.ErrUserNotFound).
+//
+// On the connect path this answers before authentication and therefore
+// reveals whether a database exists. That matches pgbouncer and is
+// intentional for compatibility.
+func newUnknownDatabaseError(database string) error {
+	diagnostic := mterrors.NewPgError(
+		"ERROR",
+		mterrors.PgSSInvalidCatalogName,
+		fmt.Sprintf("database %q does not exist", database),
+		"",
+	)
+	return mterrors.WithCode(
+		mterrors.Wrapf(diagnostic, "no pooler is registered for database %q", database),
+		mtrpcpb.Code_INVALID_ARGUMENT,
+	)
 }
 
 func isNoWritablePrimaryError(err error) bool {
