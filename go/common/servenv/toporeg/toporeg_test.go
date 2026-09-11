@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 func TestRegister_SuccessOnFirstTry(t *testing.T) {
@@ -142,7 +143,7 @@ func TestRegister_ContinuousFailure(t *testing.T) {
 
 	finalCallCount := registerCallCount.Load()
 
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		return registerCallCount.Load() > finalCallCount
 	}, 100*time.Millisecond, 50*time.Millisecond, "register should stop being called after Unregister")
 }
@@ -196,7 +197,7 @@ func TestReassert_DisabledByDefault(t *testing.T) {
 	require.NotNil(t, tr)
 	defer tr.Unregister()
 
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		return registerCallCount.Load() > 1
 	}, 200*time.Millisecond, 10*time.Millisecond, "registration must not be rewritten without WithReassert")
 }
@@ -232,7 +233,7 @@ func TestReassert_StopsBeforeUnregisterDeletes(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 	tr.Unregister()
 
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		return reassertedAfterUnregister.Load()
 	}, 200*time.Millisecond, 10*time.Millisecond, "re-assertion must stop before the record is deleted")
 }

@@ -190,6 +190,23 @@ func (s *ConnectionState) GetPreparedStatement(name string) *query.PreparedState
 	return s.PreparedStatements[name]
 }
 
+// PreparedStatementNames returns the names of all tracked prepared
+// statements, in no particular order.
+func (s *ConnectionState) PreparedStatementNames() []string {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	names := make([]string, 0, len(s.PreparedStatements))
+	for name := range s.PreparedStatements {
+		names = append(names, name)
+	}
+	return names
+}
+
 // DeletePreparedStatement removes a prepared statement by name.
 func (s *ConnectionState) DeletePreparedStatement(name string) {
 	if s == nil {

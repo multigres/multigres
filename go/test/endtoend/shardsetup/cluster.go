@@ -657,21 +657,21 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 	var dead []string
 
 	// Check multigateway
-	if s.Multigateway != nil && !s.Multigateway.IsRunning() {
+	if s.Multigateway != nil && !s.Multigateway.IsRunningOrZombie() {
 		dead = append(dead, "multigateway")
 	}
 
 	// Check multiadmin
-	if s.Multiadmin != nil && !s.Multiadmin.IsRunning() {
+	if s.Multiadmin != nil && !s.Multiadmin.IsRunningOrZombie() {
 		dead = append(dead, "multiadmin")
 	}
 
 	// Check multipooler instances
 	for name, inst := range s.Multipoolers {
-		if inst.Pgctld != nil && !inst.Pgctld.IsRunning() {
+		if inst.Pgctld != nil && !inst.Pgctld.IsRunningOrZombie() {
 			dead = append(dead, name+"-pgctld")
 		}
-		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
+		if inst.Multipooler != nil && !inst.Multipooler.IsRunningOrZombie() {
 			dead = append(dead, name+"-multipooler")
 		}
 	}

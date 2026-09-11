@@ -32,8 +32,10 @@ import (
 // It is a sampler: it narrows the leak window and raises an alarm, but the
 // tracking gates remain the correctness boundary.
 
-// scrubProbeTimeout bounds one verification probe. Pool close cancels
-// pool.scrubCtx before draining, so an in-flight probe never stalls
+// scrubProbeTimeout bounds one checker's probe; each checker gets its own
+// budget, so a slow early probe cannot starve later checkers into a timeout
+// that the fail-closed error path would turn into needless churn. Pool close
+// cancels pool.scrubCtx before draining, so in-flight probes never stall
 // shutdown; this timeout only bounds probes against a hung backend.
 const scrubProbeTimeout = 5 * time.Second
 
@@ -105,9 +107,10 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 	var findings []finding
 	var checkErr error
 	var errChecker string
-	ctx, cancel := context.WithTimeout(pool.scrubCtx, scrubProbeTimeout)
 	for _, checker := range pool.checkers {
+		ctx, cancel := context.WithTimeout(pool.scrubCtx, scrubProbeTimeout)
 		div, err := checker.Check(ctx, conn.Conn)
+		cancel()
 		if err != nil {
 			checkErr, errChecker = err, checker.Name()
 			break
@@ -119,7 +122,6 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 			break
 		}
 	}
-	cancel()
 
 	pool.Metrics.scrubChecked.Add(1)
 	pool.scrubMetrics.RecordCheck(pool.ctx, pool.poolType)

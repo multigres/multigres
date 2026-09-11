@@ -330,3 +330,15 @@ func TestPoolStatsLogicalReplicationActive(t *testing.T) {
 	c2.Release(ReleaseError, nil)
 	plain.Release(ReleaseCommit, nil)
 }
+
+func TestNewLogicalReplicationConnAfterCloseReturnsErrPoolClosed(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetCredentialProvider(fakeReplicationCredentialProvider{})
+
+	pool := newTestPool(t, server)
+	pool.Close()
+
+	_, err := pool.NewLogicalReplicationConn(context.Background())
+	require.ErrorIs(t, err, connpool.ErrPoolClosed, "must be retryable by the manager's closed-pool path")
+}

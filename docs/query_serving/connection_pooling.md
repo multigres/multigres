@@ -333,6 +333,23 @@ Derived:
   globalReservedCapacity = 500 * 0.2 = 100
 ```
 
+With **elastic quotas** (`--connpool-elastic-quotas`, on by default) these are
+targets under contention, not ceilings. Each rebalance cycle re-splits the
+global capacity from the summed demand of both classes:
+
+1. Each class gets `min(demand, target)`.
+2. Unused capacity is lent to whichever class demands more than its target.
+3. Capacity nobody demands is split by the ratio as burst headroom.
+4. Each class keeps a floor of `min(userPools, target)` slots so every user
+   pool stays usable in both classes.
+
+So a single user running only transactions can hold 499 of 500 slots on the
+reserved side, and when regular demand returns the split drifts back toward
+80/20 as reserved connections are released (nothing is preempted; the shrink
+is applied as connections are recycled, exactly like a per-user shrink).
+Borrowing lags demand by up to one rebalance interval plus the demand window.
+Set `--connpool-elastic-quotas=false` to pin the ratio as a hard split.
+
 A `FairShareAllocator` instance manages each resource type independently. This
 mirrors the `DemandTracker` design (also resource-agnostic, one per pool type).
 
@@ -472,16 +489,19 @@ Rebalancing runs as a **periodic background goroutine**:
 │     └─ regularTracker.GetPeakAndRotate() for each user          │
 │     └─ reservedTracker.GetPeakAndRotate() for each user         │
 │                                                                  │
-│  2. Run fair share algorithm (two allocators, one per resource)  │
+│  2. Split global capacity between classes by summed demand       │
+│     └─ splitClassCapacity() (elastic quotas; else fixed ratio)  │
+│                                                                  │
+│  3. Run fair share algorithm (two allocators, one per resource)  │
 │     └─ regularAlloc.Allocate(regularDemands)                    │
 │     └─ reservedAlloc.Allocate(reservedDemands)                  │
 │                                                                  │
-│  3. Apply new capacities                                         │
+│  4. Apply new capacities                                         │
 │     └─ pool.SetCapacity(ctx, newRegularCap, newReservedCap)     │
 │        (non-blocking - excess borrowed connections closed on     │
 │         recycle)                                                 │
 │                                                                  │
-│  4. Garbage collect inactive pools                               │
+│  5. Garbage collect inactive pools                               │
 │     └─ Remove pools with no activity for > inactive timeout     │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -614,9 +634,52 @@ statement-local `set_config(..., is_local := true)` probe so `'65536'` vs
 `'64MB'` never counts as divergence. Findings carry GUC names only, never
 values. One blind spot remains: an _untracked_ custom GUC set behind
 tracking's back is unenumerable from SQL; the creation-time rejection gates
-are the defense for that class. Future checkers (prepared statements vs
-`pg_prepared_statements`, residual advisory locks, temp-schema leftovers)
-register the same way.
+are the defense for that class.
+
+Four more checkers cover the rest of the backend state the pool trusts:
+
+- `prepared_statements` diffs the connection's tracked prepared statements
+  against `pg_prepared_statements`, names and bodies. Idle connections
+  legitimately keep prepared statements across borrowers, so this is a
+  two-sided comparison: a backend statement tracking does not know is
+  untracked, a tracked statement the backend lost is phantom, and a tracked
+  statement whose backend body differs from the tracked query is mismatched
+  — a hidden `DEALLOCATE` plus re-`PREPARE` keeps the name, and the pool
+  would otherwise hand the redefined statement to the next borrower's
+  `EXECUTE`. Tracked names are consolidator identifiers and are reported
+  verbatim; every untracked name is redacted to `foreign_name`, one entry
+  per statement, since a name that arrived on a backend by another route
+  may embed client data and the consolidator's `ppstmt<N>` shape is
+  reachable from any session.
+- `holdable_cursors` reports one `holdable_cursor` finding per cursor still
+  open on the idle backend. Outside a transaction only `WITH HOLD` cursors
+  remain, and portals pin a reserved connection, so an open cursor here was
+  declared behind tracking (an `EXECUTE 'DECLARE ... WITH HOLD'` inside a
+  routine body). Cursor names are never reported.
+- `advisory_locks` reports a single `session_advisory_lock` finding when the
+  idle backend holds any advisory lock. Acquiring functions route to a
+  reserved connection whose release runs `pg_advisory_unlock_all`, so a lock
+  on an idle pooled backend means the acquisition escaped tracking. Lock keys
+  are never reported.
+- `temp_objects` reports one finding per kind of object (`table`, `index`,
+  `sequence`, `function`, `domain`, `enum`, `range`, `operator`,
+  `collation`, `statistics`, ...) in the backend's temporary schema. It
+  scans every namespace-scoped catalog the gateway's pg_temp CREATE
+  rejection covers: `pg_class`, `pg_proc` (aggregates included), standalone
+  `pg_type` entries, `pg_operator`, `pg_collation`, `pg_statistic_ext`,
+  `pg_opclass`, `pg_opfamily`, `pg_conversion`, and the four text-search
+  catalogs. Temp statements pin a reserved connection that is closed at
+  release and pg_temp-qualified CREATE is rejected, so any object on an
+  idle backend escaped tracking. Relations and types are the dangerous
+  classes: pg_temp is searched before `pg_catalog` for unqualified relation
+  and type names (a pg_temp domain named `text` captures an unqualified
+  `::text`), so a leftover shadows the catalog for the next borrower.
+  Operators, collations, and the other classes are never resolved through
+  pg_temp, even with it listed in `search_path`, and are reported as stale
+  state for completeness. Object names are never reported.
+
+All five checkers run against the same idle connection each tick; the
+divergence log line and the `checker` metric attribute name which one fired.
 
 The untracked rule imposes a bootstrap invariant: connection setup must not
 create session-source GUC state outside the settings label — bootstrap
@@ -809,6 +872,7 @@ These flags control how pool capacities are distributed across users:
 | ---------------------------------- | ------- | ---------------------------------------------- |
 | `--connpool-global-capacity`       | 100     | Total PostgreSQL connections to manage         |
 | `--connpool-reserved-ratio`        | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-elastic-quotas`        | true    | Let classes borrow each other's unused share   |
 | `--connpool-rebalance-interval`    | 10s     | How often to run rebalancing                   |
 | `--connpool-demand-window`         | 30s     | Sliding window for peak demand tracking        |
 | `--connpool-inactive-timeout`      | 5m      | Remove user pools after this inactivity        |
