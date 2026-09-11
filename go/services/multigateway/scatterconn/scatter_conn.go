@@ -625,7 +625,6 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"portal", portalInfo.Portal.Name,
 		"mode", target.GetMode().String())
 
-	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
 		// PostgreSQL-level portal errors can leave an existing reserved backend

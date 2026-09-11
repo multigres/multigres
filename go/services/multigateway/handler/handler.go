@@ -79,9 +79,9 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
-	// EagerParseInTransaction sends a backend Parse for PREPARE/Parse issued inside
+	// PrepareInTransaction sends a backend Parse for PREPARE/Parse issued inside
 	// an explicit transaction, so PostgreSQL acquires relation locks at prepare time.
-	EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
+	PrepareInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
 
 	// ReleaseAll releases all reserved connections, regardless of reservation reason.
 	// For transaction-reserved connections, a ROLLBACK is sent first.
@@ -502,7 +502,7 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// relation/semantic errors at prepare time. Preserve the lazy path outside a
 	// transaction, where those locks would be released before the next statement.
 	if conn.TxnStatus() == protocol.TxnStatusInBlock {
-		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
+		if err := h.executor.PrepareInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
 			// A gateway policy rejection never reached the backend, so with
 			// keep-transaction-on-gateway-rejection enabled we leave the session
 			// in-block instead of aborting.
@@ -516,8 +516,18 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// An empty or comment-only query string parses to zero statements;
 	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
 	// the gateway answers with EmptyQueryResponse — matching PostgreSQL.
-	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
-	return err
+	psi, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
+	if err != nil {
+		return err
+	}
+
+	// The original SQL is already prepared on the transaction's backend.
+	// Only an execution-time semantic rewrite needs a separate materialization;
+	// keep its fresh-Parse signal until Route actually sends that variant.
+	if conn.TxnStatus() == protocol.TxnStatusInBlock {
+		h.getConnectionState(conn).MarkReparsePending(psi.Name)
+	}
+	return nil
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.

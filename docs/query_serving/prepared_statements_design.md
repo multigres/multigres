@@ -2,9 +2,13 @@
 
 ## Overview
 
-This document outlines the design for implementing prepared statements and
-portals in Multigres, leveraging PostgreSQL's Extended Query Protocol to
-optimize query execution performance.
+Multigres manages client prepared-statement names at the gateway and caches
+named PostgreSQL statements on each pooler backend. Inside a transaction, a
+client Parse prepares the named backend statement immediately; ordinary
+Describe and Execute operations reuse that same statement.
+
+See [prepared-statement testing](testing_strategy.md#prepared-statement-preparation-and-ddl)
+for regression coverage and validation commands.
 
 ## Background: Extended Query Protocol
 
@@ -17,8 +21,10 @@ execution into three distinct phases:
 3. **EXECUTE**: Run the bound query
 
 This separation allows the same query pattern to be executed multiple times
-with different parameters, avoiding the overhead of parsing and planning on
-each iteration.
+with different parameters, avoiding repeated preparation. PostgreSQL may
+still choose or build an execution plan at Bind time; a backend Parse, the
+gateway's SQL-to-AST parser, and the gateway's routing plan cache are separate
+operations.
 
 ### Example
 
@@ -36,22 +42,29 @@ EXECUTE fooplan(2, 'Mountain Valley', 'f', 100.00);
 
 ### Statement Ownership
 
-Multigateway will own and manage prepared statements and portals at the
-connection level. This approach involves:
+Multigateway owns prepared statements and portals at the client connection
+level. This involves:
 
 - **Connection-scoped storage**: Each client connection maintains its own
   namespace for prepared statements and portals
-- **Parse phase**: Query parsing occurs when the PREPARE command is received
+- **Parse phase**: Protocol Parse and SQL PREPARE reach `HandleParse`.
+  Gateway function folding runs before preparation and registration. When
+  `conn.TxnStatus()` is `TxnStatusInBlock`, the handler also prepares the
+  named statement on the transaction's backend before acknowledging success
 - **Bind phase**: Parameters are bound to create a portal
 - **Execute phase**: The portal is planned and executed using the standard
   query execution path
 
 ### Design Benefits
 
-- **Sharding agnostic**: This design works seamlessly across both single-shard
-  and multi-shard scenarios
-- **Consistent semantics**: Prepared statements behave as clients expect,
-  regardless of the underlying data distribution
+- **Client namespaces**: Clients retain their own statement and portal names
+  while backend statements can be shared across clients
+- **Transaction semantics**: Backend preparation at Parse time preserves
+  relation locking and semantic error timing inside a transaction
+
+The current prepare and Describe paths target the default table group and
+shard. This document describes that implementation; preparing across multiple
+shards would require corresponding routing and per-backend tracking.
 
 ## Optimization 1: Cross-Connection Consolidation
 
@@ -75,35 +88,120 @@ map at the Multigateway handler level:
 
 ## Optimization 2: Pooler-Level Statement Management
 
-### Single-Shard Scenario
+### Backend Selection and Reuse
 
-For the common case where a prepared statement targets a single shard, we can
-push statement management down to the Multipooler level.
+The multipooler first selects the connection using normal pool acquisition or
+an existing reservation. `ensurePrepared` then checks the prepared-statement
+cache on **that connection**; it does not search the pool for a connection
+already holding the statement.
 
-### How It Works
+1. Resolve `(query text, parameter types)` to a pooler name such as `ppstmt0`.
+2. Reuse the per-connection cache entry when present and `force_reparse` is false.
+3. If `force_reparse` is true, close the existing statement and remove its
+   cache entry before preparing it again.
+4. Parse the named statement when needed, storing the cache entry only after
+   PostgreSQL accepts the Parse.
 
-When a Multigateway executes a prepared statement that targets a single shard:
+Autocommit statements can use regular pooled connections. Transactions use a
+reserved backend, so preparation and subsequent operations on the same target
+share the same PostgreSQL session. A statement cached on one backend says
+nothing about whether another backend has prepared it.
 
-1. **Connection lookup**: The Multipooler checks if any connection in the pool
-   already has this prepared statement
-2. **Reuse or create**:
-   - If found: Use the existing connection with the prepared statement
-   - If not found: Prepare the statement on a new connection from the pool
-3. **Execution**: Run the query using the prepared connection
+### One Named Preparation Inside a Transaction
 
-### Pooler Optimization Benefits
+The receipt-time flow is:
 
-- **No reserved connections**: Prepared statements work with connection pooling
-  without requiring dedicated connections
-- **Efficient reuse**: Statements are reused across multiple client requests
-- **Transparent optimization**: This optimization is invisible to clients
+```text
+Client Parse / SQL PREPARE
+  -> HandleParse: fold gateway functions
+  -> PrepareInTransaction
+  -> StreamExecute with prepare_only=true and force_reparse=true
+  -> reserve/reuse backend and replay deferred BEGIN if needed
+  -> ensurePrepared: Close existing ppstmt if present, then Parse ppstmt
+  -> register statement in gateway consolidator; acknowledge success
 
-### Connection Pool Tracking
+Later Describe / Execute on the same backend and SQL
+  -> ensurePrepared: cache hit
+  -> Describe / Bind+Execute without another Parse
+```
 
-Each connection in the Multipooler's pool must track:
+`prepare_only` is carried on `ExecuteSqlPreparedStatement`, but the pooler
+executes no SQL wrapper for such a request. The preparation happens after any
+deferred `BEGIN`, including when an existing non-transaction reservation is
+promoted into a transaction. This keeps relation locks in the transaction and
+surfaces missing-relation or other semantic errors at prepare time. A backend
+Parse failure does not register the statement in the gateway and follows the
+existing transaction-error handling.
 
-- Which prepared statements exist on that connection
-- The mapping between logical statement names and physical statement names
+The previous path used an unnamed backend Parse for validation and locks, then
+separately prepared a named statement at Describe/Execute. The named cache now
+retains the result of the receipt-time preparation, eliminating that duplicate
+Parse for ordinary statements. Autocommit Parse remains lazy; preparing early
+there would not guarantee that later operations use the same pooled backend.
+
+This removes a duplicate backend Parse, not the required Describe or Execute
+RPCs. Refreshing an existing named statement still requires Close followed by
+Parse. The reduction in preparation work is covered by regression tests; it
+does not establish an end-to-end latency improvement of any particular size.
+
+### Prepare-Only Protocol Compatibility
+
+`ExecuteSqlPreparedStatement.prepare_only` uses boolean field number 4,
+previously named `force_unnamed_parse`. Retaining the field number permits
+binary decoding, but the operation's semantics have changed: the gateway now
+expects the pooler to prepare and cache the named statement before returning.
+An older pooler only performs unnamed validation and does not satisfy that
+expectation, even though it can decode the request.
+
+The single-preparation contract requires both peers to implement the named
+preparation behavior. Mixed-version operation needs separate compatibility
+validation; it is not established by the same-version regression suites.
+
+### Query Identity and Execution-Time Rewrites
+
+The pooler's key uses exact SQL text and parameter type hints. A normalized
+routing-cache key must not accidentally select a different backend statement.
+`Route.PortalStreamExecute` preserves the stored SQL when the route SQL equals
+either that SQL or its AST's `SqlString()` representation. For example, extra
+spaces in `SELECT  *  FROM t WHERE id = $1` do not cause Execute to prepare a
+second, normalized variant after Describe used the original.
+
+If the route SQL differs semantically, the rewrite must still run. Examples
+include changing a tracked `set_config` call to use `is_local=true` or replacing
+a gateway-managed setting call with a constant. Such a route creates a new
+`PreparedStatementInfo` with the rewritten SQL and the original name and
+parameter types, and forwards the original portal's Bind values.
+
+`reparsePending` records a fresh in-transaction Parse by the gateway's canonical
+statement name. The original statement is already prepared; only a semantic
+rewrite consumes this signal and sets `ForceReparse` on its newly allocated
+metadata. Describe of the original never consumes it, and shared consolidator
+metadata is never mutated. Subsequent use of that rewritten route reuses its
+cache entry. Commit and rollback clear unused signals.
+
+Thus the single-Parse optimization applies to an unchanged backend query on
+the same reserved connection. A semantic rewrite is a distinct backend
+statement and can require its own preparation.
+
+### Schema Changes and Recovery
+
+Backend statements are consolidated across clients. After DDL, a fresh client
+Parse must not inherit the old parameter types or result shape from another
+client's cached statement. In a transaction, `force_reparse` refreshes the
+original immediately and, when applicable, the rewritten variant at its first
+execution.
+
+For portal execution and Describe, `cachedPlanRetry` also provides reactive
+recovery. It closes and evicts a statement after a recognized stale-statement
+error, then prepares and retries once if the backend transaction is not failed.
+The recognized errors are `0A000` with the cached-plan result-type message,
+`22P02`, and `42883`. The latter two can also be ordinary input/type errors;
+retrying does not guarantee success.
+
+If PostgreSQL has already aborted the transaction, the retry helper returns
+the original error without re-Parse/retry. This is why proactive preparation
+is needed for a fresh Parse inside a transaction. Autocommit recovery remains
+reactive because later operations can land on different pooled backends.
 
 ## Prepared Statement Consolidation
 
@@ -190,55 +288,31 @@ for different queries.
 
 ## Wrapped EXECUTE Forms
 
-PostgreSQL grammar allows an `ExecuteStmt` in three places: as a top-level
-statement, inside `EXPLAIN`, and as the body of `CREATE TABLE ... AS EXECUTE`.
-The top-level case is handled by `ExecutePrimitive` routing through
-`PortalStreamExecute`, which calls `ensurePrepared()` on the chosen backend
-connection and then runs a protocol-level Bind+Execute.
+SQL `EXECUTE p(...)` and wrapped forms such as `EXPLAIN EXECUTE p` and
+`CREATE TABLE t AS EXECUTE p` must reference a statement name that exists on
+the selected backend. Client and gateway names are not backend names.
 
-The wrapped forms — `EXPLAIN EXECUTE p`, `CREATE TABLE t AS EXECUTE p`, and
-the nested `EXPLAIN CREATE TABLE t AS EXECUTE p` — cannot use the same path:
-they are not "execute a prepared statement" operations, they are raw SQL
-statements that happen to reference a prepared statement by name. The backend
-session must therefore have a prepared statement under exactly that name when
-the raw SQL runs.
+### Gateway SQL Template
 
-### Planner-Side AST Rewrite
+For these SQL-level operations, the gateway resolves `p` to its prepared query
+and parameter types, then sends `ExecuteSqlPreparedStatement` containing:
 
-When the planner sees a wrapped EXECUTE, it:
+- `prepared_statement`: the underlying query and parameter type hints
+- `sql_prefix`: the wrapper before the statement name, such as `EXPLAIN EXECUTE` followed by a space
+- `sql_suffix`: argument expressions and any wrapper tail
 
-1. Looks up the inner `ExecuteStmt.Name` (e.g. `p`) in the gateway
-   consolidator, obtaining the canonical name (e.g. `stmt42`), the inner
-   query body, and the param type OIDs.
-2. **Mutates `ExecuteStmt.Name` in place** from the user name to the
-   canonical name. The AST is freshly parsed per query in `HandleQuery`,
-   so in-place mutation is safe.
-3. Regenerates the wrapper SQL via `SqlString()`. The result references the
-   canonical name, e.g. `EXPLAIN (COSTS OFF) EXECUTE stmt42`.
-4. Builds a `Route` (or `TempTableRoute` for `CREATE TEMP TABLE ... AS
-EXECUTE`) that carries the `PreparedStatement` metadata (the
-   **gateway-assigned** canonical name, plus the query body and param types).
+The pooler calls `materializeExecuteSQLPreparedStatement`, which uses the same
+`ensurePrepared` and `PoolerConsolidator` as protocol execution. It constructs:
 
-### Multipooler-Side ensurePreparedWithName
+```text
+sql_prefix + quote_identifier(pooler_canonical_name) + sql_suffix
+```
 
-The multipooler's `StreamExecute` RPC reads `options.PreparedStatement`
-(an optional field on `ExecuteOptions`). When set, it calls
-`ensurePreparedWithName()` on the chosen backend connection before running
-the query. Unlike `ensurePrepared()`, this variant uses the caller-supplied
-name directly rather than deriving a pooler-canonical name: the rewritten
-SQL references a specific name, and the backend must have a prepared
-statement under exactly that name.
-
-This works because the gateway consolidator assigns globally unique
-monotonic names (`stmt0`, `stmt1`, ...) deduplicated by `(query, paramTypes)`,
-so using them as backend-session prepared statement names is safe across
-multiple gateway client sessions sharing a pool connection. On a given
-backend connection it is possible to end up with **both** a pooler-canonical
-entry (from top-level EXECUTE via `PortalStreamExecute`) **and** a
-gateway-canonical entry (from wrapped EXECUTE via `StreamExecute`) for the
-same query body. They are different names on the same connection, which
-PostgreSQL allows; the cost is one extra `Parse` the first time each path
-is exercised for a given query.
+PostgreSQL then evaluates the SQL wrapper and its argument expressions. This
+path does not create a separate gateway-named backend statement. In particular,
+it can reuse the `ppstmt` prepared when an in-transaction SQL PREPARE arrived.
+The separate `prepare_only=true` mode uses the same carrier solely to prepare;
+ordinary SQL EXECUTE requests leave that flag false.
 
 ### Connection Stickiness
 
@@ -250,14 +324,12 @@ rewritten SQL references. The regular path uses plain `QueryStreaming`
 instead and surfaces connection errors to the caller, who can reissue
 the query at the application level.
 
-The reserved-pool wrapped-EXECUTE path (`reserveAndStreamExecute` in
-`executor.go` and the `portalExecuteWithReserved` new-conn branch) does
-recover from stale sockets transparently: it wires `ensurePreparedWithName`
-/ `ensurePrepared` through `reserved.WithValidate`, so a connection-class
-error on the Parse triggers a retry on a fresh socket and re-runs the
-Parse there before the conn is registered. Both the empty-settings and
-non-empty-settings cases benefit. See `connection_pooling.md` for the
-underlying primitive.
+New reservations use `reserved.WithValidate` to detect stale sockets before
+registering the connection. Wrapped SQL EXECUTE materialization and ordinary
+portal preparation can run in that callback. For a transaction's prepare-only
+request, deferred BEGIN runs in validation and the named Parse follows after
+reservation, inside the transaction. See
+[connection pooling](connection_pooling.md) for the acquisition and error paths.
 
 ### Scope and Known Limitation
 
@@ -275,6 +347,6 @@ run entirely on the backend session, which only sees the outer `SELECT`
 that invokes the function — the gateway never parses the wrapped EXECUTE
 and therefore cannot rewrite it. PostgreSQL's own `pg_regress` suite
 exercises this pattern heavily (e.g. `explain.sql`, `partition_prune.sql`
-parallel-append tests); those tests continue to fail until multigres
-supports pushing SQL-level PREPARE down to a backend session, which is a
-separate architectural change.
+parallel-append tests). Preparing a pooler-named `ppstmt` at receipt time does
+not make the client's name available inside a backend function. Supporting
+that namespace remains a separate architectural change.
