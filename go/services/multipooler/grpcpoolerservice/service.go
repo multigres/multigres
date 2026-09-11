@@ -137,9 +137,44 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		return mterrors.ToGRPC(err)
 	}
 
+	return s.streamExecuteTo(stream, executor, req)
+}
+
+// streamExecuteTo runs the query on exec and writes the response sequence to
+// stream. Split from StreamExecute so the wire sequence can be tested without a
+// live pooler.
+//
+// The most recent data message is held back until the next callback or the
+// end of execution so the reservation state can ride on it instead of a
+// separate trailing message. For a typical single-chunk result this turns two
+// DATA frames (result, then reserved state) into one on the gateway<->pooler
+// hop; each frame otherwise costs a loopy-writer wakeup, a flush and a socket
+// write on both sides. Notices are still sent ahead of the data they belong
+// to. The gateway already accepts result and reserved state in the same
+// message.
+func (s *poolerService) streamExecuteTo(
+	stream multipoolerpb.MultipoolerService_StreamExecuteServer,
+	exec queryservice.QueryService,
+	req *multipoolerpb.StreamExecuteRequest,
+) error {
+	var pending *multipoolerpb.StreamExecuteResponse
+	flushPending := func() error {
+		if pending == nil {
+			return nil
+		}
+		resp := pending
+		pending = nil
+		return stream.Send(resp)
+	}
+
 	// Execute the query and stream results
-	reservedState, err := executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, req.GetReservationOptions(), func(ctx context.Context, result *sqltypes.Result) error {
+	reservedState, err := exec.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, req.GetReservationOptions(), func(ctx context.Context, result *sqltypes.Result) error {
 		// Send notices first (if any) as separate diagnostic messages
+		if len(result.Notices) > 0 {
+			if err := flushPending(); err != nil {
+				return err
+			}
+		}
 		for _, notice := range result.Notices {
 			noticePayload := &query.QueryResultPayload{
 				Payload: &query.QueryResultPayload_Diagnostic{
@@ -154,10 +189,13 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 			}
 		}
 
-		// Send row data (if any). Notices are streamed above as separate
+		// Queue row data (if any). Notices are streamed above as separate
 		// diagnostics, so keep the result payload notice-free to avoid duplicate
 		// NoticeResponse frames on the gateway.
 		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
+			if err := flushPending(); err != nil {
+				return err
+			}
 			protoResult := result.ToProto()
 			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
@@ -165,25 +203,30 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 					Result: protoResult,
 				},
 			}
-			resp := &multipoolerpb.StreamExecuteResponse{
+			pending = &multipoolerpb.StreamExecuteResponse{
 				Result: rowPayload,
 			}
-			return stream.Send(resp)
 		}
 		return nil
 	})
 
-	// Send final message with reserved state if on a reserved connection.
-	// The send error is intentionally discarded: if the stream is already broken
-	// the gateway will clean up via ReleaseReservedConnection on client disconnect.
+	// Attach the reserved state to the last data message when on a reserved
+	// connection; if nothing is pending it goes out on its own as before.
 	if reservedState.GetReservedConnectionId() > 0 {
-		_ = stream.Send(&multipoolerpb.StreamExecuteResponse{
-			ReservedState: reservedState,
-		})
+		if pending == nil {
+			pending = &multipoolerpb.StreamExecuteResponse{}
+		}
+		pending.ReservedState = reservedState
 	}
-
-	// Convert errors to gRPC format, preserving PostgreSQL error details
-	return mterrors.ToGRPC(err)
+	if err != nil {
+		// The send error is intentionally discarded: if the stream is already
+		// broken the gateway will clean up via ReleaseReservedConnection on
+		// client disconnect. The execution error is what the gateway needs.
+		_ = flushPending()
+		// Convert errors to gRPC format, preserving PostgreSQL error details
+		return mterrors.ToGRPC(err)
+	}
+	return mterrors.ToGRPC(flushPending())
 }
 
 // ExecuteQuery executes a SQL query and returns the result
@@ -376,8 +419,30 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		return mterrors.ToGRPC(err)
 	}
 
+	return s.portalStreamExecuteTo(stream, executor, req)
+}
+
+// portalStreamExecuteTo runs the portal on exec and writes the response
+// sequence to stream. Split from PortalStreamExecute so the wire sequence can
+// be tested without a live pooler. See streamExecuteTo for why the last data
+// message is held back and the reservation state attached to it.
+func (s *poolerService) portalStreamExecuteTo(
+	stream multipoolerpb.MultipoolerService_PortalStreamExecuteServer,
+	exec queryservice.QueryService,
+	req *multipoolerpb.PortalStreamExecuteRequest,
+) error {
+	var pending *multipoolerpb.PortalStreamExecuteResponse
+	flushPending := func() error {
+		if pending == nil {
+			return nil
+		}
+		resp := pending
+		pending = nil
+		return stream.Send(resp)
+	}
+
 	// Execute the portal and stream results
-	reservedState, err := executor.PortalStreamExecute(
+	reservedState, err := exec.PortalStreamExecute(
 		stream.Context(),
 		req.Target,
 		req.PreparedStatement,
@@ -387,6 +452,11 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.GetReservationOptions(),
 		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send notices first (if any) as separate diagnostic messages
+			if len(result.Notices) > 0 {
+				if err := flushPending(); err != nil {
+					return err
+				}
+			}
 			for _, notice := range result.Notices {
 				noticePayload := &query.QueryResultPayload{
 					Payload: &query.QueryResultPayload_Diagnostic{
@@ -401,10 +471,13 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 				}
 			}
 
-			// Send row data (if any). Notices are streamed above as separate
+			// Queue row data (if any). Notices are streamed above as separate
 			// diagnostics, so keep the result payload notice-free to avoid duplicate
 			// NoticeResponse frames on the gateway.
 			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
+				if err := flushPending(); err != nil {
+					return err
+				}
 				protoResult := result.ToProto()
 				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
@@ -412,37 +485,34 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 						Result: protoResult,
 					},
 				}
-				response := &multipoolerpb.PortalStreamExecuteResponse{
+				pending = &multipoolerpb.PortalStreamExecuteResponse{
 					Result: rowPayload,
 				}
-				return stream.Send(response)
 			}
 			return nil
 		},
 	)
+
+	// Attach the reserved state to the last data message when a reserved
+	// connection is in play; if nothing is pending it goes out on its own as
+	// before. This is also the authoritative state the gateway must see when the
+	// portal failed: a PostgreSQL-level error can leave the reserved backend
+	// alive (typically in an aborted transaction, awaiting ROLLBACK), and without
+	// it the gateway could route follow-up cleanup to a different backend.
+	if reservedState.GetReservedConnectionId() > 0 {
+		if pending == nil {
+			pending = &multipoolerpb.PortalStreamExecuteResponse{}
+		}
+		pending.ReservedState = reservedState
+	}
 	if err != nil {
-		// A PostgreSQL-level portal error can leave the reserved backend alive
-		// (typically in an aborted transaction, awaiting ROLLBACK). Send the
-		// authoritative state before returning the gRPC error so the gateway doesn't
-		// drift from the multipooler and accidentally route follow-up cleanup to a
-		// different backend.
-		if reservedState.GetReservedConnectionId() > 0 {
-			if sendErr := stream.Send(&multipoolerpb.PortalStreamExecuteResponse{ReservedState: reservedState}); sendErr != nil {
-				return mterrors.ToGRPC(sendErr)
-			}
+		if sendErr := flushPending(); sendErr != nil {
+			return mterrors.ToGRPC(sendErr)
 		}
 		// Convert errors to gRPC format, preserving PostgreSQL error details.
 		return mterrors.ToGRPC(err)
 	}
-
-	// Send final response with reserved connection ID if one was created
-	if reservedState.GetReservedConnectionId() > 0 {
-		return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
-			ReservedState: reservedState,
-		})
-	}
-
-	return nil
+	return flushPending()
 }
 
 // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
