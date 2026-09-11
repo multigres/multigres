@@ -297,6 +297,43 @@ func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
 	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
 }
 
+// TestPlanExecuteStmtCarriesPreparedBodyLogicalReplicationSlot proves EXECUTE
+// reserves a connection for a prepared body that creates a temporary logical
+// replication slot, mirroring the direct (non-prepared) statement path (see
+// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo). The slot only exists
+// on the backend that runs this EXECUTE; without the reservation the
+// connection returns to the pool and a later operation on the slot lands on
+// a different backend where it does not exist.
+func TestPlanExecuteStmtCarriesPreparedBodyLogicalReplicationSlot(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.LogicalReplicationSlot)
+}
+
+// TestPlanExecuteStmtCarriesPreparedBodySetSeed proves EXECUTE reserves a
+// connection for a prepared body that calls setseed(...), mirroring the
+// direct (non-prepared) statement path (see TestPlan_SetSeed_SetsExecInfo).
+// The seed is backend-local state with no reset command; without the
+// reservation a later random() call could land on a different, unseeded
+// backend.
+func TestPlanExecuteStmtCarriesPreparedBodySetSeed(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT setseed(0.5)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.SetSeed)
+}
+
 // TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig pins the unpinned
 // EXECUTE handling that replaces the old capture reservation: a prepared body
 // carrying a session-persisting set_config(..., false) runs on the pooled
@@ -330,6 +367,51 @@ func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 	require.NoError(t, err)
 	body = routedBody("EXECUTE localplan('x')")
 	assert.Contains(t, body, "true", "the transaction-scoped body runs verbatim (is_local := true)")
+}
+
+// TestPlanExecuteStmtRevalidatesFailoverSlotAdmission proves EXECUTE
+// re-derives admission from the live flag rather than inheriting whatever
+// held when PREPARE registered the body: the same prepared statement is
+// admitted while the feature is on and rejected once it is off, without the
+// client re-preparing anything.
+func TestPlanExecuteStmtRevalidatesFailoverSlotAdmission(t *testing.T) {
+	s := newTestSetup(t)
+	enabled := true
+	s.p.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', failover => true)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+
+	enabled = false
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.ErrorContains(t, err, "requires temporary=true")
+}
+
+// TestPlanExecuteStmtRevertsPersistingSetConfigAlongsideFailoverSlot proves an
+// admitted failover-slot creation doesn't suppress the unpinned set_config
+// revert: a persistent slot needs no backend reservation (it is visible from
+// any backend), so the session stays unpinned and the body's persisting
+// set_config must still be flipped to transaction-scoped before running on a
+// pooled backend.
+func TestPlanExecuteStmtRevertsPersistingSetConfigAlongsideFailoverSlot(t *testing.T) {
+	s := newTestSetup(t)
+	s.p.SetSlotBasedReplicationEnabled(func() bool { return true })
+
+	_, err := planAndExecute(t, s,
+		"PREPARE myplan AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', failover => true), set_config('application_name', 'x', false)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	body := strings.ToLower(s.exec.streamExecuteCalls[0].executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+	assert.Contains(t, body, "failover => true", "the admitted call is routed exactly as written")
+	assert.Contains(t, body, "application_name", "the set_config revert must still apply")
+	assert.NotContains(t, body, "'x', false", "the persisting is_local := false must be rewritten out")
 }
 
 func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {

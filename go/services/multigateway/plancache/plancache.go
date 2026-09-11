@@ -81,14 +81,32 @@ func (c *PlanCache) Get(ctx context.Context, normalizedSQL string) (*engine.Plan
 	return plan, ok
 }
 
-// Put inserts or updates a cache entry.
-// The entry is stamped with the current epoch.
-func (c *PlanCache) Put(normalizedSQL string, plan *engine.Plan) {
+// Put inserts or updates a cache entry, stamped with the given epoch.
+//
+// Capture Epoch() before planning starts and pass that value here, rather
+// than whatever epoch is current by the time the entry is inserted. Planning
+// reads live, mutable state (a dynamic feature flag, say), so if Invalidate()
+// runs while planning was in flight, stamping with the captured epoch leaves
+// the entry immediately stale on the next Get. Stamping with the current
+// epoch instead would cache, as though it were fresh, a decision made under
+// a policy that no longer holds.
+//
+// The epoch is a required argument for that reason: every plan is built from
+// some snapshot of planning state, so there is no correct way to insert one
+// without saying which snapshot it came from.
+func (c *PlanCache) Put(normalizedSQL string, plan *engine.Plan, epoch uint32) {
 	if c.store == nil {
 		return
 	}
 	// cost=0 tells theine to call plan.CachedSize() to determine the entry's memory cost.
-	c.store.Set(theine.StringKey(normalizedSQL), plan, 0, c.epoch.Load())
+	c.store.Set(theine.StringKey(normalizedSQL), plan, 0, epoch)
+}
+
+// Epoch returns the cache's current epoch. A caller planning a statement
+// based on live, mutable state should snapshot this before planning starts
+// and pass it to Put afterward — see Put.
+func (c *PlanCache) Epoch() uint32 {
+	return c.epoch.Load()
 }
 
 // Invalidate invalidates all cached plans by incrementing the epoch.

@@ -274,6 +274,12 @@ func TestNonTemporaryReplicationSlotSQLFuncError_Failover(t *testing.T) {
 		{"physical rejected when enabled", "SELECT pg_create_physical_replication_slot('s')", true, true},
 		{"physical temporary accepted when enabled", "SELECT pg_create_physical_replication_slot('s', false, true)", true, false},
 		{"non-slot SQL passes through", "SELECT 1", true, false},
+		// Named-argument forms must resolve identically to the planner's own
+		// check (go/services/multigateway/planner/unsafe_funccall.go), since
+		// both delegate to the shared ast.FuncCallArg.
+		{"logical named failover => true admitted when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', failover => true)", true, false},
+		{"logical named failover => false rejected when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', failover => false)", true, true},
+		{"logical named temporary => true accepted when enabled", "SELECT pg_create_logical_replication_slot('s', 'pgoutput', temporary => true)", true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

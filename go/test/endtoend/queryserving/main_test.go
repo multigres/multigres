@@ -57,6 +57,17 @@ var requireSSLSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T)
 	)
 })
 
+// slotBasedReplicationSetupManager manages a shared setup with
+// --enable-slot-based-replication on for both multigateway and multipooler.
+// Needs its own cluster because the flag changes what the gateway admits.
+var slotBasedReplicationSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultigatewayExtraArgs("--enable-slot-based-replication=true"),
+		shardsetup.WithMultipoolerExtraArgs("--enable-slot-based-replication=true"),
+	)
+})
+
 // TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
 	exitCode := shardsetup.RunTestMain(m)
@@ -65,11 +76,13 @@ func TestMain(m *testing.M) {
 		replicaSetupManager.DumpLogs()
 		tlsSetupManager.DumpLogs()
 		requireSSLSetupManager.DumpLogs()
+		slotBasedReplicationSetupManager.DumpLogs()
 	}
 	setupManager.Cleanup()
 	replicaSetupManager.Cleanup()
 	tlsSetupManager.Cleanup()
 	requireSSLSetupManager.Cleanup()
+	slotBasedReplicationSetupManager.Cleanup()
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
@@ -89,4 +102,11 @@ func getTLSSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 func getRequireSSLSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
 	return requireSSLSetupManager.Get(t)
+}
+
+// getSlotBasedReplicationSharedSetup returns the shared setup with
+// --enable-slot-based-replication=true on multigateway and multipooler.
+func getSlotBasedReplicationSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+	t.Helper()
+	return slotBasedReplicationSetupManager.Get(t)
 }

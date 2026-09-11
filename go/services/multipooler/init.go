@@ -238,6 +238,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Default:  false,
 			FlagName: "enable-slot-based-replication",
 			Dynamic:  true,
+			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),

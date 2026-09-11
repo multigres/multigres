@@ -213,6 +213,84 @@ func TestStreamExecute_CacheHitOnRepeatedQuery(t *testing.T) {
 	assert.Equal(t, int32(2), mock.streamExecuteCalls.Load())
 }
 
+// TestSetSlotBasedReplicationEnabled_ReloadInvalidatesStaleAdmission proves
+// the staleness hazard a dynamic, plan-affecting flag creates, and that
+// InvalidatePlanCache (driven by config-reload notifications in Init) closes
+// it: a failover-slot-creation statement admitted while the flag is on gets
+// cached, keeps being served from that cache after the flag flips off (the
+// "before" state asserted here, which is why the invalidation has to exist at
+// all), and is re-planned under the current value and correctly rejected once
+// the reload handler invalidates.
+func TestSetSlotBasedReplicationEnabled_ReloadInvalidatesStaleAdmission(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := t.Context()
+	conn := testConn()
+
+	enabled := true
+	exec.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+
+	const sql = "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)"
+	stmt := parseOne(t, sql)
+
+	// Admitted while the flag is on, and cached.
+	res1, err := exec.StreamExecute(ctx, conn, nil, sql, stmt, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	time.Sleep(50 * time.Millisecond) // theine processes writes asynchronously
+
+	enabled = false
+
+	// The cached plan carries the admission decision, so it survives the flip
+	// until something invalidates it. This is the behavior InvalidatePlanCache
+	// exists to correct, not a bug being asserted as correct.
+	res2, err := exec.StreamExecute(ctx, conn, nil, sql, stmt, noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res2.CacheHit, "the admitting plan is still cached before invalidation")
+
+	// What the config-reload consumer in Init does on every live config change.
+	exec.InvalidatePlanCache()
+
+	_, err = exec.StreamExecute(ctx, conn, nil, sql, stmt, noopCallback)
+	require.Error(t, err, "after invalidation the statement must be re-planned under the current flag value")
+	assert.Contains(t, err.Error(), "requires temporary=true")
+}
+
+// TestInvalidatePlanCache_ForcesReplan confirms InvalidatePlanCache discards
+// previously cached plans: it exists so a caller (CobraPreRunE's config-reload
+// handler) can force every query to be re-analyzed after a dynamic,
+// plan-affecting flag changes value — otherwise a plan admitted under the old
+// value would keep being served from the cache after the flag flips (see
+// SetSlotBasedReplicationEnabled).
+func TestInvalidatePlanCache_ForcesReplan(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := t.Context()
+	conn := testConn()
+
+	res1, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 42", parseOne(t, "SELECT * FROM users WHERE id = 42"), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+
+	// theine processes writes asynchronously
+	time.Sleep(50 * time.Millisecond)
+
+	res2, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 99", parseOne(t, "SELECT * FROM users WHERE id = 99"), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res2.CacheHit, "same shape should hit cache before invalidation")
+
+	exec.InvalidatePlanCache()
+
+	res3, err := exec.StreamExecute(ctx, conn, nil,
+		"SELECT * FROM users WHERE id = 7", parseOne(t, "SELECT * FROM users WHERE id = 7"), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res3.CacheHit, "same shape must miss and be re-planned after invalidation")
+}
+
 func TestStreamExecute_DifferentShapesAreSeparateCacheEntries(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)

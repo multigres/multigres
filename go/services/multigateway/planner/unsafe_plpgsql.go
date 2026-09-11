@@ -1265,7 +1265,11 @@ func analyzeBodyFragment(stmt ast.Stmt) error {
 	if err := rejectBodySessionStateStmt(stmt); err != nil {
 		return err
 	}
-	analysis, err := analyzeFunctionCalls(stmt, true /* reject */)
+	// admitFailoverSlots is always false here: a replication slot created
+	// inside a PL/pgSQL body is out of scope for failover-slot admission,
+	// which only covers a directly-executed pg_create_logical_replication_slot
+	// call (see rejectNonTemporaryReplicationSlot).
+	analysis, err := analyzeFunctionCalls(stmt, true /* reject */, false /* admitFailoverSlots */)
 	if err != nil {
 		return err
 	}

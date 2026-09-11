@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // selectReplicationSlotFuncCall builds the AST for
@@ -109,5 +110,100 @@ func TestFindNonTemporaryReplicationSlotCall(t *testing.T) {
 		name, found := FindNonTemporaryReplicationSlotCall(nil)
 		assert.False(t, found)
 		assert.Empty(t, name)
+	})
+}
+
+// TestFindNonTemporaryNonFailoverReplicationSlotCall covers the
+// failover-aware variant used by the replication preamble once
+// slot-based-replication is on, including named-argument (failover =>
+// true) calls — the shape that must resolve identically here and in the
+// planner's own check, since both delegate to FuncCallArg.
+func TestFindNonTemporaryNonFailoverReplicationSlotCall(t *testing.T) {
+	lit := func(v Value) Expression { return NewA_Const(v, 0) }
+	named := func(name string, v Value) Node { return NewNamedArgExpr(lit(v), name, -1, 0) }
+
+	tests := []struct {
+		name      string
+		stmt      Stmt
+		wantFound bool
+	}{
+		{
+			name: "logical: positional failover=true admitted",
+			stmt: selectReplicationSlotFuncCall("pg_create_logical_replication_slot", false,
+				lit(NewString("s1")), lit(NewString("pgoutput")), lit(NewBoolean(false)), lit(NewBoolean(false)), lit(NewBoolean(true))),
+		},
+		{
+			name: "logical: named failover => true admitted, temporary/twophase omitted",
+			stmt: selectReplicationSlotFuncCall("pg_create_logical_replication_slot", false,
+				lit(NewString("s1")), lit(NewString("pgoutput")), named("failover", NewBoolean(true))),
+		},
+		{
+			name:      "logical: named failover => false still rejected",
+			wantFound: true,
+			stmt: selectReplicationSlotFuncCall("pg_create_logical_replication_slot", false,
+				lit(NewString("s1")), lit(NewString("pgoutput")), named("failover", NewBoolean(false))),
+		},
+		{
+			name: "logical: named temporary => true admitted",
+			stmt: selectReplicationSlotFuncCall("pg_create_logical_replication_slot", false,
+				lit(NewString("s1")), lit(NewString("pgoutput")), named("temporary", NewBoolean(true))),
+		},
+		{
+			name:      "physical: failover has no meaning, still rejected without temporary=true",
+			wantFound: true,
+			stmt: selectReplicationSlotFuncCall("pg_create_physical_replication_slot", false,
+				lit(NewString("s1")), lit(NewBoolean(false)), lit(NewBoolean(false))),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, found := FindNonTemporaryNonFailoverReplicationSlotCall(tt.stmt)
+			assert.Equal(t, tt.wantFound, found)
+		})
+	}
+}
+
+// TestFuncCallArg covers positional and named-argument resolution directly,
+// including the mixed and omitted-entirely shapes.
+func TestFuncCallArg(t *testing.T) {
+	lit := func(v Value) Expression { return NewA_Const(v, 0) }
+	named := func(name string, v Value) Node { return NewNamedArgExpr(lit(v), name, -1, 0) }
+	fc := func(args ...Node) *FuncCall {
+		return NewFuncCall(&NodeList{Items: []Node{NewString("f")}}, &NodeList{Items: args}, 0)
+	}
+
+	t.Run("positional hit", func(t *testing.T) {
+		arg, given := FuncCallArg(fc(lit(NewString("a")), lit(NewBoolean(true))), 1, "x")
+		require.True(t, given)
+		isTrue, ok := literalBoolArg(arg)
+		assert.True(t, ok)
+		assert.True(t, isTrue)
+	})
+
+	t.Run("named hit regardless of position", func(t *testing.T) {
+		arg, given := FuncCallArg(fc(lit(NewString("a")), named("x", NewBoolean(true))), 5, "x")
+		require.True(t, given)
+		isTrue, ok := literalBoolArg(arg)
+		assert.True(t, ok)
+		assert.True(t, isTrue)
+	})
+
+	t.Run("named arg for a different name doesn't consume a positional slot", func(t *testing.T) {
+		// index 1 ("x") is never reached positionally because the only other
+		// item is named "y" — a real bug this test guards against is treating
+		// named items as occupying a positional slot.
+		_, given := FuncCallArg(fc(lit(NewString("a")), named("y", NewBoolean(true))), 1, "x")
+		assert.False(t, given)
+	})
+
+	t.Run("omitted entirely", func(t *testing.T) {
+		_, given := FuncCallArg(fc(lit(NewString("a"))), 1, "x")
+		assert.False(t, given)
+	})
+
+	t.Run("nil Args", func(t *testing.T) {
+		_, given := FuncCallArg(&FuncCall{}, 0, "x")
+		assert.False(t, given)
 	})
 }
