@@ -40,6 +40,7 @@ func shellQuoteSingle(s string) string {
 // The manager orchestrates the surrounding PG lifecycle (archive config,
 // starting postgres, reopening the pooler).
 func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error {
+	defer e.listCache.Invalidate()
 	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return mterrors.Wrap(err, "pgbackrest config not found")

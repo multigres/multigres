@@ -33,6 +33,12 @@ const (
 	txnOutcomeAbort    = "abort"
 )
 
+var outcomeOptions = map[string]metric.MeasurementOption{
+	txnOutcomeCommit:   metric.WithAttributeSet(attribute.NewSet(attribute.String("outcome", txnOutcomeCommit))),
+	txnOutcomeRollback: metric.WithAttributeSet(attribute.NewSet(attribute.String("outcome", txnOutcomeRollback))),
+	txnOutcomeAbort:    metric.WithAttributeSet(attribute.NewSet(attribute.String("outcome", txnOutcomeAbort))),
+}
+
 // txnMetrics holds OTel metrics for reserved-connection transaction outcomes.
 // commit/rollback are recorded by Conn.Commit/Rollback (so intermediate
 // transactions on a long-lived reservation are counted); abort is recorded at
@@ -76,7 +82,10 @@ func (m *txnMetrics) record(ctx context.Context, outcome string, d time.Duration
 	if m == nil {
 		return
 	}
-	attrs := metric.WithAttributes(attribute.String("outcome", outcome))
+	attrs := outcomeOptions[outcome]
+	if attrs == nil {
+		attrs = metric.WithAttributes(attribute.String("outcome", outcome))
+	}
 	m.outcomes.Add(ctx, 1, attrs)
 	if d > 0 {
 		m.duration.Record(ctx, d.Seconds(), attrs)

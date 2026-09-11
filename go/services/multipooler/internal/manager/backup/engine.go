@@ -96,12 +96,13 @@ type PGSettingsFunc func(ctx context.Context) (PGSettings, error)
 
 // Engine owns all pgBackRest interaction for a single multipooler.
 type Engine struct {
-	logger   *slog.Logger
-	run      RunFunc
-	metrics  *Metrics
-	health   *HealthTracker
-	id       Identity
-	settings Settings
+	listCache listCache
+	logger    *slog.Logger
+	run       RunFunc
+	metrics   *Metrics
+	health    *HealthTracker
+	id        Identity
+	settings  Settings
 
 	// mu guards the config resolved at runtime: the pgbackrest.conf path and
 	// pgpass file (resolved when topology loads), the repo config (resolved
@@ -141,6 +142,7 @@ func (e *Engine) SetConfigPath(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.configPath = path
+	e.listCache.Invalidate()
 }
 
 // SetBackupConfig sets (or replaces) the resolved pgBackRest repo config. The
@@ -149,6 +151,7 @@ func (e *Engine) SetBackupConfig(cfg *commonbackup.Config) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.backupCfg = cfg
+	e.listCache.Invalidate()
 }
 
 // SetPgpassPath sets (or replaces) the path to the libpq password file exported
@@ -158,6 +161,7 @@ func (e *Engine) SetPgpassPath(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.pgpassPath = path
+	e.listCache.Invalidate()
 }
 
 // SetRoleProvider injects the function the health poller uses to learn the local
