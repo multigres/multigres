@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
+	"github.com/multigres/multigres/go/services/multipooler/grpcmigrationservice"
 	"github.com/multigres/multigres/go/services/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
@@ -87,7 +88,16 @@ type Multipooler struct {
 	// advertises to the gateway in its health stream (RecommendedStalenessTimeout).
 	// Zero keeps the built-in default (see health_provider.go). Lower values let
 	// tests detect a frozen pooler quickly instead of waiting the full window.
-	healthStreamStalenessTimeout   viperutil.Value[time.Duration]
+	healthStreamStalenessTimeout viperutil.Value[time.Duration]
+	// migrationTargetAdvertiseHost/Port is the gateway address advertised to an
+	// external source in the EXPORT-direction reverse subscription's CONNECTION
+	// (see manager.targetConnInfo). It must point at the multigateway — whose
+	// replication=database tunnel proxies the stream to the current primary and
+	// survives failover — not this pooler's cluster-internal topo Hostname, which
+	// an external/standalone source cannot resolve. Port 0 selects the gateway's
+	// default Postgres protocol port.
+	migrationTargetAdvertiseHost   viperutil.Value[string]
+	migrationTargetAdvertisePort   viperutil.Value[int]
 	replicationStatsPollIntervalMs viperutil.Value[int]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile               viperutil.Value[string]
@@ -188,6 +198,16 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "health-stream-staleness-timeout",
 			Dynamic:  false,
 		}),
+		migrationTargetAdvertiseHost: viperutil.Configure(reg, "migration-target-advertise-host", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "migration-target-advertise-host",
+			Dynamic:  false,
+		}),
+		migrationTargetAdvertisePort: viperutil.Configure(reg, "migration-target-advertise-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "migration-target-advertise-port",
+			Dynamic:  false,
+		}),
 		replicationStatsPollIntervalMs: viperutil.Configure(reg, "replication-stats-poll-interval-milliseconds", viperutil.Options[int]{
 			Default:  10000,
 			FlagName: "replication-stats-poll-interval-milliseconds",
@@ -256,6 +276,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
+	mp.senv.InitServiceMap("grpc", "migration")
 	return mp
 }
 
@@ -272,6 +293,8 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
 	flags.Duration("health-stream-staleness-timeout", mp.healthStreamStalenessTimeout.Default(), "staleness window advertised to the gateway health stream; 0 keeps the built-in default")
+	flags.String("migration-target-advertise-host", mp.migrationTargetAdvertiseHost.Default(), "gateway address advertised to an external source in the Migrator EXPORT-direction reverse subscription (must be a multigateway reachable from the source, not this pooler's cluster-internal hostname); required for EXPORT")
+	flags.Int("migration-target-advertise-port", mp.migrationTargetAdvertisePort.Default(), "Postgres-facing port paired with --migration-target-advertise-host; 0 selects the gateway's default Postgres protocol port")
 	flags.Int("replication-stats-poll-interval-milliseconds", mp.replicationStatsPollIntervalMs.Default(), "interval in milliseconds between logical-replication connection metrics polls")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
@@ -296,6 +319,8 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
 		mp.healthStreamStalenessTimeout,
+		mp.migrationTargetAdvertiseHost,
+		mp.migrationTargetAdvertisePort,
 		mp.replicationStatsPollIntervalMs,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
@@ -463,6 +488,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		TopoClient:                     mp.ts,
 		HeartbeatIntervalMs:            mp.heartbeatIntervalMs.Get(),
 		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
+		MigrationTargetAdvertiseHost:   mp.migrationTargetAdvertiseHost.Get(),
+		MigrationTargetAdvertisePort:   mp.migrationTargetAdvertisePort.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               mp.grpcServer.CheckServiceMap("consensus", mp.senv),
@@ -490,6 +517,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
+	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 
