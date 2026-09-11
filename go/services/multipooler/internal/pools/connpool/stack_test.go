@@ -68,6 +68,89 @@ func TestStackOperations(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestStackPopFirst tests that PopFirst unlinks the topmost matching
+// connection wherever it sits, reports its depth, and leaves the rest in
+// order; and that InsertAt puts a connection back at a given depth.
+func TestStackPopFirst(t *testing.T) {
+	var stack connStack[*mockConnection]
+	var pops, pushes int
+	stack.onPop = func() { pops++ }
+	stack.onPush = func() { pushes++ }
+
+	a := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	b := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	c := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	d := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	for _, conn := range []*Pooled[*mockConnection]{a, b, c, d} {
+		stack.Push(conn) // d, c, b, a
+	}
+	pushes = 0
+
+	is := func(want *Pooled[*mockConnection]) func(*Pooled[*mockConnection]) bool {
+		return func(conn *Pooled[*mockConnection]) bool { return conn == want }
+	}
+	order := func() (got []*Pooled[*mockConnection]) {
+		stack.ForEach(func(conn *Pooled[*mockConnection]) bool {
+			got = append(got, conn)
+			return true
+		})
+		return got
+	}
+
+	// Middle node, two above it.
+	got, depth, ok := stack.PopFirst(is(b))
+	assert.True(t, ok)
+	assert.Same(t, b, got)
+	assert.Equal(t, 2, depth)
+	assert.Nil(t, b.next, "unlinked node must not dangle into the stack")
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, a}, order())
+
+	// Put it back where it was.
+	stack.InsertAt(b, depth)
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, b, a}, order())
+	assert.Equal(t, 4, stack.Len())
+
+	// Tail node.
+	got, depth, ok = stack.PopFirst(is(a))
+	assert.True(t, ok)
+	assert.Same(t, a, got)
+	assert.Equal(t, 3, depth)
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, b}, order())
+
+	// InsertAt clamps a depth past the end to the bottom.
+	stack.InsertAt(a, 99)
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, b, a}, order())
+
+	// Head node.
+	got, depth, ok = stack.PopFirst(is(d))
+	assert.True(t, ok)
+	assert.Same(t, d, got)
+	assert.Equal(t, 0, depth)
+	assert.Equal(t, []*Pooled[*mockConnection]{c, b, a}, order())
+
+	// InsertAt depth 0 is Push.
+	stack.InsertAt(d, 0)
+	assert.Equal(t, []*Pooled[*mockConnection]{d, c, b, a}, order())
+	assert.Equal(t, 3, pops, "PopFirst must fire onPop once per removal")
+	assert.Equal(t, 3, pushes, "InsertAt must fire onPush once per insertion")
+
+	// No match leaves the stack untouched.
+	got, _, ok = stack.PopFirst(is(&Pooled[*mockConnection]{}))
+	assert.False(t, ok)
+	assert.Nil(t, got)
+	assert.Equal(t, 4, stack.Len())
+
+	// Empty stack: PopFirst finds nothing, InsertAt at any depth is Push.
+	for range 4 {
+		stack.Pop()
+	}
+	got, _, ok = stack.PopFirst(func(*Pooled[*mockConnection]) bool { return true })
+	assert.False(t, ok)
+	assert.Nil(t, got)
+	stack.InsertAt(a, 5)
+	assert.Equal(t, []*Pooled[*mockConnection]{a}, order())
+}
+
 // TestStackForEach tests iteration over stack elements.
 func TestStackForEach(t *testing.T) {
 	var stack connStack[*mockConnection]
