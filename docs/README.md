@@ -20,8 +20,9 @@ Browse the design and reference docs by area:
   statements, transactions, session settings, plan caching, query
   cancellation, failover buffering, replica reads, listen/notify, etc.
 - **[Prepared-statement design](./query_serving/prepared_statements_design.md)**
-  and **[single-parse review](./reviews/pr-1452-single-parse.md)** — backend
-  preparation, query identity, DDL recovery, and validation for PR #1452.
+  — backend preparation, query identity, and DDL recovery. See
+  [prepared-statement testing](./query_serving/testing_strategy.md#prepared-statement-preparation-and-ddl)
+  for regression coverage and validation commands.
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state

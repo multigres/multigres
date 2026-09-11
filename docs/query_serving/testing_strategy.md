@@ -624,18 +624,32 @@ The optimization also needs tests that measure preparation behavior directly:
 - `TestReprepareParamTypeAfterDDLInTransaction` covers UUID-to-bigint DDL for
   both formatting-only normalization and a semantic rewrite. Describe of the
   original precedes execution, so it must not consume the rewrite's refresh.
+- `TestDescribeStaleAcrossClients` and `TestReservedExecuteStaleAcrossClients`
+  check that a new client does not inherit stale result metadata from another
+  client's statement on a pooled backend, including inside a transaction.
 - `TestPostgRESTIO` includes `test_notify_reloading_catalog_cache`, the
   real-client regression that motivated stale parameter-type recovery.
 
-Run these from the repository root after building and starting the port pool:
+Unit tests cover the internal contract: `TestPrepareOnlyReusesNamedStatement`
+rejects a redundant backend Parse while checking that a fresh client Parse
+still refreshes the statement; `TestRoutePortalPreservesPreparedQuery` checks
+normalization, semantic rewrites, and shared metadata; and
+`TestReparsePendingEndsWithTransaction` checks commit/rollback cleanup.
+
+Run these from the repository root, building and starting the port pool before
+the end-to-end tests:
 
 ```bash
+go test -short -count=1 \
+  ./go/services/multigateway/... \
+  ./go/services/multipooler/internal/executor
+
 make build
 scripts/portpool.sh start
 export MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock
 
 go test -count=1 -timeout=20m \
-  -run 'Test(PreparedDDLMatrix|TransactionParseMaterializesOnce|SQLPrepareEagerParseInTransaction|ReprepareParamTypeAfterDDLInTransaction)$' \
+  -run 'Test(PreparedDDLMatrix|TransactionParseMaterializesOnce|SQLPrepareEagerParseInTransaction|ReprepareParamTypeAfterDDLInTransaction|DescribeStaleAcrossClients|ReservedExecuteStaleAcrossClients)$' \
   ./go/test/endtoend/queryserving
 
 RUN_POSTGREST=1 go test -count=1 -timeout=55m \
@@ -644,8 +658,12 @@ RUN_POSTGREST=1 go test -count=1 -timeout=55m \
 
 PostgREST I/O requires Docker and PostgreSQL 17. Its
 [runner documentation](../../go/test/endtoend/queryserving/postgresttests/io_tests.md)
-describes selection and environment overrides. For the recorded optimization
-validation, see the [review](../reviews/pr-1452-single-parse.md#validation).
+describes selection and environment overrides. The default run checks the
+curated I/O selection against the gateway; set `POSTGREST_FULL_BASELINE=1` to
+also recheck direct PostgreSQL. These correctness tests do not measure latency
+or validate mixed-version gateway/pooler deployments. See
+[protocol compatibility](prepared_statements_design.md#prepare-only-protocol-compatibility)
+for the prepare-only wire contract.
 
 ## Coverage tracking and reproducibility
 

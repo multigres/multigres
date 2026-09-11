@@ -7,8 +7,8 @@ named PostgreSQL statements on each pooler backend. Inside a transaction, a
 client Parse prepares the named backend statement immediately; ordinary
 Describe and Execute operations reuse that same statement.
 
-See the [single-parse review](../reviews/pr-1452-single-parse.md) for the
-implementation changes, tradeoffs, and recorded test results.
+See [prepared-statement testing](testing_strategy.md#prepared-statement-preparation-and-ddl)
+for regression coverage and validation commands.
 
 ## Background: Extended Query Protocol
 
@@ -138,6 +138,24 @@ separately prepared a named statement at Describe/Execute. The named cache now
 retains the result of the receipt-time preparation, eliminating that duplicate
 Parse for ordinary statements. Autocommit Parse remains lazy; preparing early
 there would not guarantee that later operations use the same pooled backend.
+
+This removes a duplicate backend Parse, not the required Describe or Execute
+RPCs. Refreshing an existing named statement still requires Close followed by
+Parse. The reduction in preparation work is covered by regression tests; it
+does not establish an end-to-end latency improvement of any particular size.
+
+### Prepare-Only Protocol Compatibility
+
+`ExecuteSqlPreparedStatement.prepare_only` uses boolean field number 4,
+previously named `force_unnamed_parse`. Retaining the field number permits
+binary decoding, but the operation's semantics have changed: the gateway now
+expects the pooler to prepare and cache the named statement before returning.
+An older pooler only performs unnamed validation and does not satisfy that
+expectation, even though it can decode the request.
+
+The single-preparation contract requires both peers to implement the named
+preparation behavior. Mixed-version operation needs separate compatibility
+validation; it is not established by the same-version regression suites.
 
 ### Query Identity and Execution-Time Rewrites
 
