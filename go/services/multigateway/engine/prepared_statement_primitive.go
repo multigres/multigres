@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -100,15 +99,16 @@ type PreparedStatementPrimitive struct {
 	setConfigs []SQLPreparedSetConfig
 
 	// bodyOverride, when set, replaces the prepared statement's registered body
-	// for the query sent to the backend. The planner sets it for an EXECUTE on an
-	// UNPINNED session whose body carries a session-persisting set_config(...,
-	// false): the override is the same body with each such call's is_local flipped
-	// to true, so the pooled backend reverts it instead of persisting it (the
-	// gateway map + pool-rotation replay carry the value, mirroring an unpinned
-	// SET). On a pinned session the override is nil and the body runs verbatim, so
-	// the reserved backend genuinely carries the change. setConfigs (tracking) is
-	// unaffected — the value is still recorded either way.
-	bodyOverride *query.PreparedStatement
+	// AST that arguments are substituted into. The planner sets it for an EXECUTE
+	// on an UNPINNED session whose body carries a session-persisting
+	// set_config(..., false): the override is a clone of the body with each such
+	// call's is_local flipped to true, so the pooled backend reverts it instead of
+	// persisting it (the gateway map + pool-rotation replay carry the value,
+	// mirroring an unpinned SET). On a pinned session the override is nil and the
+	// registered body is used verbatim, so the reserved backend genuinely carries
+	// the change. setConfigs (tracking) is unaffected — the value is still recorded
+	// either way.
+	bodyOverride ast.Stmt
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
@@ -124,8 +124,8 @@ func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []u
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
 // bodyOverride is nil for the verbatim (pinned) case; the planner passes a
-// rewritten body for the unpinned persisting-set_config case (see bodyOverride).
-func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig, bodyOverride *query.PreparedStatement) *PreparedStatementPrimitive {
+// rewritten body AST for the unpinned persisting-set_config case (see bodyOverride).
+func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig, bodyOverride ast.Stmt) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
 		kind:         preparedStmtExecute,
 		tableGroup:   tableGroup,
@@ -164,7 +164,7 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 ) error {
 	switch p.kind {
 	case preparedStmtPrepare:
-		return p.executePrepare(ctx, conn, callback)
+		return p.executePrepare(ctx, exec, conn, state, callback)
 	case preparedStmtExecute:
 		return p.executeExecute(ctx, exec, conn, state, nil, info, callback)
 	case preparedStmtDeallocate:
@@ -176,15 +176,27 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	}
 }
 
-// executePrepare delegates to HandleParse to register the statement in the consolidator.
+// executePrepare registers the statement in the consolidator and eagerly
+// resolves its concrete parameter types and result description via a backend
+// Describe.
 //
 // Unlike the extended Parse message, SQL-level PREPARE must reject a name that is
 // already in use on this session. HandleParse silently replaces existing entries
 // (to tolerate Parse retries after a failed Describe), so we check for the name
 // here before delegating.
+//
+// The eager Describe is what lets SQL EXECUTE later materialize the statement by
+// substituting typed arguments and running plain SQL (no backend PREPARE/EXECUTE
+// pair). Inside a transaction HandleParse has already reserved a backend
+// (replaying the deferred BEGIN), so the Describe routes to it and observes
+// transaction-local state; outside a transaction it runs on a pooled backend.
+// Either way it surfaces parse/semantic errors at PREPARE time, matching
+// PostgreSQL — on which failure no prepared statement is left registered.
 func (p *PreparedStatementPrimitive) executePrepare(
 	ctx context.Context,
+	exec IExecute,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName) != nil {
@@ -193,14 +205,34 @@ func (p *PreparedStatementPrimitive) executePrepare(
 	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, p.paramTypes); err != nil {
 		return err
 	}
+
+	// Resolve concrete parameter types (all undeclared parameters inferred) and
+	// the result-column description. Every PREPARE re-Describes, even when the
+	// consolidated statement was already resolved by an earlier PREPARE: a client
+	// PREPARE means "give me current info", so this refreshes the shared entry
+	// against the live catalog and heals a resolution captured before a schema
+	// change (mirroring PostgreSQL, where a fresh PREPARE re-analyzes). Skip only
+	// empty/comment-only statements, which have no body to describe.
+	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName)
+	if psi != nil && !psi.IsEmpty() {
+		desc, err := exec.Describe(ctx, p.tableGroup, constants.DefaultShard, conn, state, nil, psi)
+		if err != nil {
+			// PostgreSQL leaves no statement registered when PREPARE fails
+			// analysis. HandleClose 'S' silently removes the mapping we just added.
+			_ = conn.Handler().HandleClose(ctx, conn, 'S', p.stmtName)
+			return err
+		}
+		psi.SetResolvedParamTypes(desc)
+	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
 }
 
-// executeExecute sends the SQL-level EXECUTE wrapper as prefix/suffix plus the
-// prepared-statement metadata. The multipooler resolves the backend statement
-// name through its pooler-level consolidator (ppstmt*) and materializes the SQL
-// before sending it to PostgreSQL, which evaluates EXECUTE arguments verbatim,
-// including casts, arrays, functions, and other expressions.
+// executeExecute materializes the SQL-level EXECUTE into an ordinary query by
+// substituting each argument into the prepared body in place of its $N
+// parameter, cast to the parameter's resolved type, and running the result as a
+// plain query. PostgreSQL evaluates the substituted expressions itself — casts,
+// arrays, functions — so no backend PREPARE/EXECUTE pair or pooler-level name
+// resolution is involved.
 func (p *PreparedStatementPrimitive) executeExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -219,13 +251,14 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	}
 
 	// On an unpinned session with a persisting set_config in the body, the
-	// planner supplies a rewritten body (is_local flipped to true) so the pooled
-	// backend reverts it; otherwise the registered body runs verbatim.
-	body := psi.PreparedStatement
+	// planner supplies a rewritten body AST (is_local flipped to true) so the
+	// pooled backend reverts it; otherwise the registered body is used verbatim.
+	body := psi.AstStmt()
 	if p.bodyOverride != nil {
 		body = p.bodyOverride
 	}
-	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, body)
+
+	finalSQL, err := materializeExecute(p.stmtName, body, p.executeStmt.Params, psi.ResolvedParamTypeOids(), portalInfo)
 	if err != nil {
 		return err
 	}
@@ -234,7 +267,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, finalSQL, nil, state, callInfo, false, callback); err != nil {
 		return err
 	}
 	for _, action := range trackActions {

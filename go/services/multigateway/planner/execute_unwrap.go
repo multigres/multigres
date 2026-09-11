@@ -23,9 +23,8 @@ import (
 )
 
 // tryUnwrapWrappedExecute detects statements of the form `EXPLAIN EXECUTE p`
-// or `CREATE [TEMP] TABLE t AS EXECUTE p` and turns them into a plan that
-// carries a SQL EXECUTE prefix/suffix template plus the gateway-managed
-// prepared statement metadata.
+// or `CREATE [TEMP] TABLE t AS EXECUTE p` and turns them into a plan that runs
+// the substituted prepared body as an ordinary query.
 //
 // Background: multigateway stores SQL-level `PREPARE p AS ...` only in the
 // gateway's consolidator keyed by the user name `p`. The backend session never
@@ -34,17 +33,15 @@ import (
 // raw StreamExecute, and the backend would reject them with `prepared statement
 // "p" does not exist`.
 //
-// The fix: the gateway deparses the statement into SQL prefix/suffix around the
-// inner ExecuteStmt.Name and attaches the PreparedStatement metadata. The
-// multipooler's StreamExecute path resolves that metadata through its own
-// pooler-level consolidator (ppstmt*) and materializes the final SQL before
-// running it — so PostgreSQL evaluates the SQL EXECUTE wrapper normally while
-// preserving prepared-statement consolidation across gateways.
+// The fix: substitute the EXECUTE arguments into the prepared body (cast to the
+// resolved parameter types) and splice the result in place of the ExecuteStmt
+// node, so `EXPLAIN EXECUTE p(5)` becomes `EXPLAIN SELECT ...`. Unlike the old
+// prefix/suffix template approach this works identically on the simple and
+// extended protocols.
 //
 // PostgreSQL grammar guarantees at most one EXECUTE reference per parsed
-// statement (ExecuteStmt is a top-level production reachable only as the
-// statement itself, as ExplainStmt.Query, or in CreateTableAsStmt.Query),
-// so a single prefix/suffix pair covers every legal wrapped shape.
+// statement (ExecuteStmt is reachable only as the statement itself, as
+// ExplainStmt.Query, or in CreateTableAsStmt.Query).
 //
 // Returns:
 //   - (plan, nil) if the statement was a wrapped EXECUTE and was rewritten;
@@ -57,32 +54,28 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 	}
 
 	// Look up the user-visible prepared statement name via the Handler
-	// interface. The handler's consolidator maps the user name to a
-	// canonical name and the associated PreparedStatementInfo.
+	// interface. The handler's consolidator maps the user name to the
+	// associated PreparedStatementInfo (carrying the resolved parameter types).
 	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), execStmt.Name)
 	if psi == nil {
 		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
 	}
 
-	executeSQLPreparedStatement, err := engine.BuildExecuteSQLPreparedStatement(stmt, execStmt, psi.PreparedStatement)
+	substituted, err := engine.MaterializeWrappedExecute(stmt, execStmt, psi, nil)
 	if err != nil {
 		return nil, err
 	}
-	deparsedSQL := stmt.SqlString()
+	deparsedSQL := substituted.SqlString()
 	p.logger.Debug("unwrapped wrapped EXECUTE",
 		"user_name", execStmt.Name,
-		"gateway_canonical_name", psi.Name,
 		"original", sql,
-		"deparsed", deparsedSQL,
-		"sql_prefix", executeSQLPreparedStatement.SqlPrefix,
-		"sql_suffix", executeSQLPreparedStatement.SqlSuffix)
+		"deparsed", deparsedSQL)
 
-	// Build a Route carrying the SQL EXECUTE template. For
-	// `CREATE TEMP TABLE t AS EXECUTE p`, ExecInfo.TempTable makes the executor
-	// run it on a temp-table-reserved connection; otherwise it goes through the
-	// regular pool.
+	// For `CREATE TEMP TABLE t AS EXECUTE p`, ExecInfo.TempTable makes the
+	// executor run it on a temp-table-reserved connection; otherwise it goes
+	// through the regular pool.
 	plan := engine.NewPlan(deparsedSQL,
-		engine.NewRouteWithExecuteSQLPreparedStatement(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, executeSQLPreparedStatement))
+		engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, substituted))
 	if isTemp {
 		plan.ExecInfo.TempTable = true
 	}

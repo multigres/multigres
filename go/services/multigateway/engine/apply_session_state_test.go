@@ -933,7 +933,7 @@ func (e *silentRouteExec) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.ExecuteSqlPreparedStatement,
+	_ *query.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ PlanExecInfo,
 	_ bool,

@@ -297,6 +297,15 @@ func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
 		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
 }
 
+// NewWrongNumberOfParametersError creates a PgDiagnostic for an EXECUTE whose
+// argument count does not match the prepared statement's parameter count.
+// SQLSTATE 42601 (syntax_error), matching PostgreSQL's ExecuteQuery check.
+func NewWrongNumberOfParametersError(name string, expected, got int) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError,
+		fmt.Sprintf("wrong number of parameters for prepared statement \"%s\"", name),
+		fmt.Sprintf("Expected %d parameters but got %d.", expected, got))
+}
+
 // NewInvalidPortalError creates a PgDiagnostic for a reference to
 // a nonexistent portal. SQLSTATE 34000 (invalid_cursor_name).
 func NewInvalidPortalError(name string) *PgDiagnostic {
