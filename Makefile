@@ -105,6 +105,8 @@ pb: $(PROTO_SRCS)
 	--plugin=$(MTROOT)/bin/protoc-gen-grpc-gateway --grpc-gateway_out=. \
 	--grpc-gateway_opt=logtostderr=true \
 	--grpc-gateway_opt=generate_unbound_methods=true \
+	--plugin=$(MTROOT)/bin/protoc-gen-go-vtproto --go-vtproto_out=. \
+	--go-vtproto_opt=features=marshal+unmarshal+size \
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \

@@ -545,6 +545,8 @@ install_go_plugins() {
   GOBIN=$MTROOT/bin go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.27.4
   # Install protoc-gen-connect-go (keep in sync with the connectrpc.com/connect version in go.mod)
   GOBIN=$MTROOT/bin go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.2
+  # Install protoc-gen-go-vtproto (keep in sync with the planetscale/vtprotobuf version in go.mod)
+  GOBIN=$MTROOT/bin go install github.com/planetscale/vtprotobuf/cmd/protoc-gen-go-vtproto@v0.6.1-0.20240319094008-0393e58bdf10
 }
 
 install_go_tools() {
