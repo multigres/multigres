@@ -73,8 +73,8 @@ func TestHTTPTLSEnabled(t *testing.T) {
 	se := NewServEnv(viperutil.NewRegistry())
 	assert.False(t, se.HTTPTLSEnabled(), "plaintext by default")
 
-	se.httpCert.Set(cert)
-	se.httpKey.Set(key)
+	se.tlsCert.Set(cert)
+	se.tlsKey.Set(key)
 	assert.True(t, se.HTTPTLSEnabled())
 }
 
@@ -86,9 +86,9 @@ func TestHTTPSelfClientTLSConfig_RoundTrip(t *testing.T) {
 
 	newServEnv := func(enforce bool) *ServEnv {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
-		se.httpCA.Set(cert)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
+		se.tlsCA.Set(cert)
 		if enforce {
 			se.RequireHTTPClientCert()
 		}

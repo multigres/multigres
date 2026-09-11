@@ -24,7 +24,7 @@ import (
 // HTTPTLSEnabled reports whether this ServEnv's HTTP listener serves TLS, so
 // callers building a URL back to it pick the matching scheme.
 func (sv *ServEnv) HTTPTLSEnabled() bool {
-	return sv.httpCert.Get() != "" && sv.httpKey.Get() != ""
+	return sv.tlsCert.Get() != "" && sv.tlsKey.Get() != ""
 }
 
 // HTTPSelfClientTLSConfig returns the TLS config for dialing this process's own
@@ -43,7 +43,7 @@ func (sv *ServEnv) HTTPSelfClientTLSConfig() (*tls.Config, error) {
 		return nil, nil
 	}
 	roots := x509.NewCertPool()
-	for _, path := range []string{sv.httpCert.Get(), sv.httpCA.Get()} {
+	for _, path := range []string{sv.tlsCert.Get(), sv.tlsCA.Get()} {
 		if path == "" {
 			continue
 		}
@@ -55,7 +55,7 @@ func (sv *ServEnv) HTTPSelfClientTLSConfig() (*tls.Config, error) {
 	}
 	cfg := &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	if sv.httpClientCertRequired {
-		pair, err := tls.LoadX509KeyPair(sv.httpCert.Get(), sv.httpKey.Get())
+		pair, err := tls.LoadX509KeyPair(sv.tlsCert.Get(), sv.tlsKey.Get())
 		if err != nil {
 			return nil, fmt.Errorf("load client certificate: %w", err)
 		}

@@ -70,15 +70,15 @@ func TestValidateHTTPTLS(t *testing.T) {
 
 	t.Run("valid cert and key without client-cert auth", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
 		require.NoError(t, se.validateHTTPTLS())
 	})
 
 	t.Run("unloadable cert fails at Init rather than in the serving goroutine", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(filepath.Join(t.TempDir(), "does-not-exist.pem"))
-		se.httpKey.Set(key)
+		se.tlsCert.Set(filepath.Join(t.TempDir(), "does-not-exist.pem"))
+		se.tlsKey.Set(key)
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "http tls config")
@@ -89,27 +89,27 @@ func TestValidateHTTPTLS(t *testing.T) {
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--http-cert")
+		assert.Contains(t, err.Error(), "--tls-cert")
 	})
 
 	// Without --http-ca the handshake never requests a client certificate, so
 	// every non-exempt request would 401 while /live and /ready keep passing.
 	t.Run("client-cert auth without a client CA is rejected", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
 		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway"})
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--http-ca")
+		assert.Contains(t, err.Error(), "--tls-ca")
 	})
 
 	t.Run("client-cert auth with full TLS material is valid", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
-		se.httpCA.Set(cert)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
+		se.tlsCA.Set(cert)
 		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway"})
 		se.RequireHTTPClientCert()
 		require.NoError(t, se.validateHTTPTLS())
@@ -123,9 +123,9 @@ func TestValidateHTTPTLS(t *testing.T) {
 	// either an empty (rejects everyone) or a borrowed allow-list.
 	t.Run("client-cert auth without an allow-list is rejected", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
-		se.httpCA.Set(cert)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
+		se.tlsCA.Set(cert)
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)
@@ -134,9 +134,9 @@ func TestValidateHTTPTLS(t *testing.T) {
 
 	t.Run("client-cert auth with a malformed allow-list is rejected", func(t *testing.T) {
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
-		se.httpCA.Set(cert)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
+		se.tlsCA.Set(cert)
 		se.httpAuthMtlsAllowedSubjects.Set([]string{"CN=gateway", ""})
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
@@ -151,9 +151,9 @@ func TestValidateHTTPTLS(t *testing.T) {
 		t.Cleanup(func() { clientCertSubstrings = prev })
 
 		se := NewServEnv(viperutil.NewRegistry())
-		se.httpCert.Set(cert)
-		se.httpKey.Set(key)
-		se.httpCA.Set(cert)
+		se.tlsCert.Set(cert)
+		se.tlsKey.Set(key)
+		se.tlsCA.Set(cert)
 		se.RequireHTTPClientCert()
 		err := se.validateHTTPTLS()
 		require.Error(t, err)

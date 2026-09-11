@@ -80,7 +80,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	// share this port and present no certificate, so the handshake must
 	// succeed without one. requireClientCert enforces identity per-route.
 	tlsConfig, err := grpccommon.BuildServerTLSConfigWithClientAuth(
-		sv.httpCert.Get(), sv.httpKey.Get(), sv.httpCA.Get(), "", tls.VerifyClientCertIfGiven,
+		sv.tlsCert.Get(), sv.tlsKey.Get(), sv.tlsCA.Get(), "", tls.VerifyClientCertIfGiven,
 	)
 	if err != nil {
 		return fmt.Errorf("http tls config: %w", err)

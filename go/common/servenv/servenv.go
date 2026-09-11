@@ -126,14 +126,17 @@ type ServEnv struct {
 	// in behavior.
 	authPlugin func() Authenticator
 
-	// httpCert, httpKey and httpCA are the --http-cert, --http-key and
-	// --http-ca flags: TLS material for the HTTP listener, independent of
-	// gRPC's --grpc-cert/--grpc-key/--grpc-ca. All default to "", so an
-	// unconfigured deployment serves plain HTTP exactly as it does today -
-	// see HTTPServe (http.go).
-	httpCert viperutil.Value[string]
-	httpKey  viperutil.Value[string]
-	httpCA   viperutil.Value[string]
+	// tlsCert, tlsKey and tlsCA are the --tls-cert, --tls-key and --tls-ca
+	// flags: TLS material shared by the HTTP listener (HTTPServe, http.go)
+	// and the gRPC listener (GrpcServer.Create). One workload identity serves
+	// both. The deprecated --grpc-cert/--grpc-key/--grpc-ca are a separate,
+	// independently-bound set of flags on GrpcServer, not an alias of these -
+	// GrpcServer.Create falls back to them in code when these are unset. All
+	// default to "", so an unconfigured deployment serves plain HTTP exactly
+	// as it does today.
+	tlsCert viperutil.Value[string]
+	tlsKey  viperutil.Value[string]
+	tlsCA   viperutil.Value[string]
 
 	// httpAuthMtlsAllowedSubjects is the HTTP listener's allow-list, one
 	// subject per flag occurrence rather than a delimited string - subject
@@ -164,13 +167,13 @@ func (sv *ServEnv) RequireHTTPClientCert() {
 // up half-broken. It rejects: unloadable TLS material, which HTTPServe would
 // otherwise hit in the serving goroutine where the error is only logged and the
 // listener silently accepts nothing; client-cert auth without
-// --http-cert/--http-key/--http-ca, where the handshake never requests a
+// --tls-cert/--tls-key/--tls-ca, where the handshake never requests a
 // certificate so every non-exempt request 401s while /live and /ready keep
 // returning 200; and a missing or malformed allow-list, which would authorize
 // nobody or everybody.
 func (sv *ServEnv) validateHTTPTLS() error {
 	tlsConfig, err := grpccommon.BuildServerTLSConfigWithClientAuth(
-		sv.httpCert.Get(), sv.httpKey.Get(), sv.httpCA.Get(), "", tls.VerifyClientCertIfGiven,
+		sv.tlsCert.Get(), sv.tlsKey.Get(), sv.tlsCA.Get(), "", tls.VerifyClientCertIfGiven,
 	)
 	if err != nil {
 		return fmt.Errorf("http tls config: %w", err)
@@ -179,12 +182,12 @@ func (sv *ServEnv) validateHTTPTLS() error {
 		return nil
 	}
 	if tlsConfig == nil {
-		return errors.New("HTTP client-certificate authentication requires --http-cert and --http-key")
+		return errors.New("HTTP client-certificate authentication requires --tls-cert and --tls-key")
 	}
-	// ClientCAs is populated only when --http-ca is set, and it is what makes
+	// ClientCAs is populated only when --tls-ca is set, and it is what makes
 	// the server request and verify a client certificate.
 	if tlsConfig.ClientCAs == nil {
-		return errors.New("HTTP client-certificate authentication requires --http-ca to verify client certificates against")
+		return errors.New("HTTP client-certificate authentication requires --tls-ca to verify client certificates against")
 	}
 	subjects, err := parseCertSubjects(sv.httpAuthMtlsAllowedSubjects.Get())
 	if err != nil {
@@ -279,19 +282,19 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			FlagName: "service-map",
 			Dynamic:  false,
 		}),
-		httpCert: viperutil.Configure(reg, "http-cert", viperutil.Options[string]{
+		tlsCert: viperutil.Configure(reg, "tls-cert", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "http-cert",
+			FlagName: "tls-cert",
 			Dynamic:  false,
 		}),
-		httpKey: viperutil.Configure(reg, "http-key", viperutil.Options[string]{
+		tlsKey: viperutil.Configure(reg, "tls-key", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "http-key",
+			FlagName: "tls-key",
 			Dynamic:  false,
 		}),
-		httpCA: viperutil.Configure(reg, "http-ca", viperutil.Options[string]{
+		tlsCA: viperutil.Configure(reg, "tls-ca", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "http-ca",
+			FlagName: "tls-ca",
 			Dynamic:  false,
 		}),
 		httpAuthMtlsAllowedSubjects: viperutil.Configure(reg, "http-auth-mtls-allowed-subjects", viperutil.Options[[]string]{
@@ -325,11 +328,11 @@ func (se *ServEnv) SetListeningURL(u url.URL) {
 // The hostname should already be set by Init() before this is called.
 func (se *ServEnv) PopulateListeningURL(port int32) {
 	hostname := se.hostname.Get()
-	// --http-cert alone (without --http-key) is still a TLS-enabled config
+	// --tls-cert alone (without --tls-key) is still a TLS-enabled config
 	// from the advertised-scheme perspective: HTTPServe's own TLS config
 	// builder is the one place that treats a cert-without-key as an error.
 	scheme := "http"
-	if se.httpCert.Get() != "" {
+	if se.tlsCert.Get() != "" {
 		scheme = "https"
 	}
 	slog.Info("setting listening URL", "hostname", hostname, "port", port, "scheme", scheme)
@@ -541,9 +544,9 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Bool("pprof-http", se.httpPprof.Default(), "enable pprof http endpoints")
 	fs.StringSlice("pprof", se.pprofFlag.Default(), "enable profiling")
 	fs.StringSlice("service-map", se.serviceMapFlag.Default(), "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	fs.String("http-cert", se.httpCert.Default(), "server certificate to use for the HTTP listener, requires http-key, enables TLS")
-	fs.String("http-key", se.httpKey.Default(), "server private key to use for the HTTP listener, requires http-cert, enables TLS")
-	fs.String("http-ca", se.httpCA.Default(), "CA to use for verifying client certificates on the HTTP listener, for services that opt into requiring them")
+	fs.String("tls-cert", se.tlsCert.Default(), "server certificate for the gRPC and HTTP listeners, requires tls-key, enables TLS on both. Supersedes the deprecated --grpc-cert, which still configures gRPC alone (see GrpcServer.RegisterFlags)")
+	fs.String("tls-key", se.tlsKey.Default(), "server private key for the gRPC and HTTP listeners, requires tls-cert, enables TLS on both. Supersedes the deprecated --grpc-key, which still configures gRPC alone (see GrpcServer.RegisterFlags)")
+	fs.String("tls-ca", se.tlsCA.Default(), "CA used to verify client certificates on the gRPC and HTTP listeners. On gRPC, its presence alone requires a client certificate; on HTTP, requiring one is a separate opt-in per service. Supersedes the deprecated --grpc-ca, which still configures gRPC alone (see GrpcServer.RegisterFlags)")
 	fs.StringArray("http-auth-mtls-allowed-subjects", se.httpAuthMtlsAllowedSubjects.Default(), "Client certificate subject authorized on the HTTP listener, as a comma-separated list of ATTR=value pairs compared for exact equality (e.g. 'CN=ns-a,O=acme'). Specify multiple times for multiple subjects. Recognized attributes: CN, O, OU, C, L, ST, SERIALNUMBER. Required by services that opt into HTTP client-certificate auth. Separate from --grpc-auth-mtls-allowed-substrings, which is a substring match.")
 
 	// Timeout flags
@@ -552,7 +555,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
 	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
-	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.httpCert, se.httpKey, se.httpCA, se.httpAuthMtlsAllowedSubjects)
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.tlsCert, se.tlsKey, se.tlsCA, se.httpAuthMtlsAllowedSubjects)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {
