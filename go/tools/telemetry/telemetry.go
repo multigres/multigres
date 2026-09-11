@@ -65,6 +65,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -192,14 +193,15 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 	if t.testSpanExporter != nil {
 		traceExporter = t.testSpanExporter
 	} else {
-		// Default to "none" if OTEL_TRACES_EXPORTER is not explicitly set
-		// This prevents unwanted data export when telemetry is not explicitly configured
+		// With OTEL_TRACES_EXPORTER unset, fall back to a no-op exporter so nothing
+		// is exported unless explicitly configured. The fallback is passed to
+		// autoexport rather than written into the environment: this process's
+		// default must not become an explicit setting for a later initialization
+		// or for services it spawns with os.Environ() (see the sampler below).
 		exporterConfigured = os.Getenv("OTEL_TRACES_EXPORTER") != ""
-		if !exporterConfigured {
-			os.Setenv("OTEL_TRACES_EXPORTER", "none")
-		}
-
-		traceExporter, err = autoexport.NewSpanExporter(ctx)
+		traceExporter, err = autoexport.NewSpanExporter(ctx, autoexport.WithFallbackSpanExporter(
+			func(context.Context) (sdktrace.SpanExporter, error) { return tracetest.NewNoopExporter(), nil },
+		))
 		if err != nil {
 			return fmt.Errorf("failed to create trace exporter: %w", err)
 		}

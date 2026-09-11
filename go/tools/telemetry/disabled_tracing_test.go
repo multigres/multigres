@@ -16,6 +16,7 @@ package telemetry
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,10 @@ func TestDisabledExporterSamplingAndPropagation(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, telemetry.tracerProvider.Shutdown(context.Background())) })
 			tracer := telemetry.tracerProvider.Tracer("test")
 
+			// Initialization must not turn this process's default into an explicit
+			// setting for later initializations or for spawned services.
+			require.Equal(t, tc.exporter, os.Getenv("OTEL_TRACES_EXPORTER"))
+
 			ctx, parent := tracer.Start(t.Context(), "parent")
 			defer parent.End()
 			require.Equal(t, tc.localRecords, parent.IsRecording())
@@ -64,5 +69,25 @@ func TestDisabledExporterSamplingAndPropagation(t *testing.T) {
 			require.True(t, continued.IsRecording())
 			require.True(t, continued.SpanContext().IsSampled())
 		})
+	}
+}
+
+// TestUnsetExporterDoesNotPoisonLaterInit models `multigres cluster start`:
+// the CLI initializes telemetry with no exporter configured and then spawns
+// services with its environment. Those services must still see the exporter
+// as unset and keep recording locally rooted spans.
+func TestUnsetExporterDoesNotPoisonLaterInit(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "")
+	t.Setenv("OTEL_TRACES_SAMPLER", "")
+	old := otel.GetTracerProvider()
+	t.Cleanup(func() { otel.SetTracerProvider(old) })
+	for _, name := range []string{"cli", "spawned-service"} {
+		telemetry := NewTelemetry()
+		require.NoError(t, telemetry.initTracing(t.Context(), resource.Empty()))
+		t.Cleanup(func() { require.NoError(t, telemetry.tracerProvider.Shutdown(context.Background())) })
+		require.Empty(t, os.Getenv("OTEL_TRACES_EXPORTER"), name)
+		_, span := telemetry.tracerProvider.Tracer("test").Start(t.Context(), name)
+		require.True(t, span.IsRecording(), name)
+		span.End()
 	}
 }
