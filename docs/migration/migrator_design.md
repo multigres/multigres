@@ -659,6 +659,44 @@ incl. TLS via `go/services/multipooler/internal/connpoolmanager` (`ConnectionCon
 `NewLogicalReplicationConn` and LSN/wait helpers in `go/services/multipooler/internal/manager/pg_replication.go`;
 `topoclient.Store.LockShard`; `go/common/mterrors`; type OIDs in `go/common/parser/ast/oids.go`.
 
+## DDL replication (experimental)
+
+An experimental extension replicates table DDL from source to target over the **same logical-replication stream as the
+data**, so schema changes land on the target at the correct point relative to the rows that depend on them. It is a
+proof of concept wired into the IMPORT setup/teardown; the full rationale, mechanism, and limitations are in the
+[DDL-replication design note](./migrator_ddl_replication_issue.md).
+
+**Mechanism (stock Postgres only).**
+
+- _Capture:_ on the publisher, a `multigres.ddl_log` table plus a `ddl_command_end` event trigger
+  (`multigres.capture_ddl`) append each executing `CREATE TABLE`/`ALTER TABLE` statement (via `current_query()`) to the
+  log. The INSERT commits in the same transaction as the DDL, so the log row and the schema change are atomic.
+- _Stream:_ `ddl_log` is added to the migration's publication, so its rows decode and apply on the target's logical
+  apply worker in commit order — the single-stream property that guarantees a DDL lands before any later data change
+  that depends on it.
+- _Apply:_ a matching `multigres.ddl_log` on the subscriber carries an `ENABLE ALWAYS` `AFTER INSERT` trigger
+  (`multigres.apply_ddl`) that `EXECUTE`s each arriving statement inside the apply transaction, under the captured
+  schema's `search_path` and exception-guarded (a statement that still fails is skipped with a warning rather than
+  stalling the stream).
+
+**Scoping, concurrency, and direction.**
+
+- Capture is scoped to each migration's tables via a publisher-side `multigres.ddl_capture_tables` membership table:
+  `capture_ddl` fans one `ddl_log` row per owning migration, tagged with `migration_id`, and each publication carries a
+  row filter `WHERE migration_id = '<id>'`. The shared event trigger is refcounted, and a subscriber-side
+  `multigres.ddl_apply` guard keeps a server that is both an IMPORT subscriber and an EXPORT publisher correct.
+- Direction symmetry: capture runs on whichever side is the current publisher and apply on the current subscriber,
+  reconfigured across a `set-migration-direction` switch.
+
+**Constraints (proof of concept).**
+
+- Creating the event trigger requires a **superuser** DSN on the publisher.
+- Only `CREATE TABLE`/`ALTER TABLE` are captured; `CREATE INDEX` (incl. `CONCURRENTLY`), `DROP`, and non-table DDL are
+  not. The one non-transactional statement carrying an allowlisted tag — `ALTER TABLE … DETACH PARTITION … CONCURRENTLY`
+  — is excluded explicitly, since it cannot run inside the apply transaction.
+- A brand-new `CREATE TABLE` not in any migration's table set is not replicated, and `current_query()` captures the
+  whole submitted statement (a multi-statement batch replays in full).
+
 ## Alternatives considered
 
 - **Multigres Migrator per pooler / per Postgres pod (sidecar).** Pins the migration to one Postgres process: a primary
