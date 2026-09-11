@@ -735,6 +735,10 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 
 	dbconn.timeCreated.set(now)
 	dbconn.timeUsed.set(now)
+	// A new backend has not been probed by the scrubber, whatever the old one
+	// was marked with. The connection is borrowed here, so the scrubber cannot
+	// hold it, and the push that follows orders this write before any read.
+	dbconn.scrubPass = 0
 	return nil
 }
 

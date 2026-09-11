@@ -326,6 +326,44 @@ func TestScrubPassSpansStacks(t *testing.T) {
 	assert.Equal(t, 1, pool.states[settings.Bucket()&stackMask].Len())
 }
 
+func TestScrubReopenedConnIsProbedAgainInSamePass(t *testing.T) {
+	// connReopen swaps in a new backend behind the same Pooled. The pass
+	// mark belonged to the old backend, so the new one must be probed again
+	// in the current pass rather than skipped until the next. Two
+	// connections make the test discriminating: without the reset the
+	// second tick would move on to the other connection.
+	pool := newScrubTestPool(t, 2, nil)
+	pa, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	pb, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	pb.Recycle()
+	pa.Recycle() // stack: pa on top, pb beneath
+	other := pb.Conn
+
+	cursor := 0
+	assert.True(t, pool.scrubOne(&cursor))
+	require.EqualValues(t, 1, pa.Conn.verifyCalls.Load(), "first tick probes the top connection")
+	require.EqualValues(t, 0, other.verifyCalls.Load())
+
+	// Reopen pa in place, as put does at max lifetime.
+	again, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	require.Same(t, pa, again)
+	old := again.Conn
+	require.NoError(t, pool.connReopen(context.Background(), again, monotonicNow()))
+	require.NotSame(t, old, again.Conn, "reopen installs a new backend")
+	again.Recycle()
+
+	assert.True(t, pool.scrubOne(&cursor))
+	assert.EqualValues(t, 1, again.Conn.verifyCalls.Load(), "the new backend is probed in the same pass")
+	assert.EqualValues(t, 0, other.verifyCalls.Load(), "the other connection waits its turn")
+	assert.EqualValues(t, 1, old.verifyCalls.Load(), "the old backend is not touched again")
+
+	assert.True(t, pool.scrubOne(&cursor))
+	assert.EqualValues(t, 1, other.verifyCalls.Load(), "then the pass reaches the other connection")
+}
+
 func TestScrubKeepsHotConnClientFacingAndColdConnsExpire(t *testing.T) {
 	// Client traffic interleaved with scrub ticks: the hot connection must
 	// stay the one clients get, and the cold ones beneath it must still
