@@ -121,7 +121,7 @@ spec:
             - --pooler-dir=/data
             - --pgctld-addr=localhost:16200
             - --pg-port=5432
-            - --socket-file=/data/pg_sockets/.s.PGSQL.5432
+            # --socket-file is derived from --pooler-dir and --pg-port
             - --grpc-socket-file=/data/multipooler.sock
             - --connpool-global-capacity=50
             - --service-map=grpc-pooler
