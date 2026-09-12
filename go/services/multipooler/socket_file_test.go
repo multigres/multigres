@@ -15,11 +15,15 @@
 package multipooler
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestResolveSocketFilePath(t *testing.T) {
@@ -73,4 +77,30 @@ func TestFlagExplicitlySet(t *testing.T) {
 
 	require.NoError(t, fs.Set("socket-file", ""))
 	assert.True(t, mp.flagExplicitlySet("socket-file"), "explicitly set to empty is still explicit")
+}
+
+func TestFlagExplicitlySet_ConfigFile(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	mp := &Multipooler{reg: reg}
+	viperutil.Configure(reg, "socket-file", viperutil.Options[string]{Default: "", FlagName: "socket-file"})
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("socket-file", "", "")
+	mp.flagSet = fs
+
+	assert.False(t, mp.flagExplicitlySet("socket-file"), "no flag, no config file: not explicit")
+
+	// A config file pinning socket-file to empty is as deliberate as
+	// --socket-file='' and must equally count as explicit.
+	path := filepath.Join(t.TempDir(), "mtconfig.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("socket-file: \"\"\n"), 0o644))
+	vc := viperutil.NewViperConfig(reg)
+	vc.RegisterFlags(fs)
+	require.NoError(t, fs.Set("config-file", path))
+	cancel, err := vc.LoadConfig(reg)
+	require.NoError(t, err)
+	t.Cleanup(cancel)
+
+	assert.True(t, mp.flagExplicitlySet("socket-file"))
+	// Through the resolver: the TCP dial is preserved despite a pooler-dir.
+	assert.Equal(t, "", resolveSocketFilePath("", mp.flagExplicitlySet("socket-file"), "/data/pooler-1", 5432))
 }

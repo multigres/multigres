@@ -107,6 +107,11 @@ type Multipooler struct {
 	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
 	// which viperutil.Get cannot.
 	flagSet *pflag.FlagSet
+	// reg is the registry the values above were configured against, saved so
+	// explicitness checks can also see keys written in the loaded config file
+	// (Registry.InStaticConfig) — a config file sets neither Flag.Changed nor
+	// an env var.
+	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -130,6 +135,7 @@ func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
 func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 	reg := viperutil.NewRegistry()
 	mp := &Multipooler{
+		reg: reg,
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -559,16 +565,22 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	mp.ts.Close()
 }
 
-// flagExplicitlySet reports whether the named flag was set on the command
-// line, even to its default or an empty value (pflag.Flag.Changed) — a
-// distinction viperutil's Get cannot make. False when RegisterFlags has not
-// run (e.g. minimal test setups).
+// flagExplicitlySet reports whether the named flag was explicitly configured:
+// set on the command line, even to its default or an empty value
+// (pflag.Flag.Changed), or present as a key in the loaded config file
+// (Registry.InStaticConfig) — distinctions viperutil's Get cannot make. The
+// flag name must equal the value's viper key for the config-file check to
+// apply. False when RegisterFlags has not run (e.g. minimal test setups) and
+// no config file mentions the key.
 func (mp *Multipooler) flagExplicitlySet(name string) bool {
-	if mp.flagSet == nil {
-		return false
+	if mp.flagSet != nil {
+		if f := mp.flagSet.Lookup(name); f != nil && f.Changed {
+			return true
+		}
 	}
-	f := mp.flagSet.Lookup(name)
-	return f != nil && f.Changed
+	// A config file writing e.g. `socket-file: ""` is as deliberate as
+	// --socket-file='' and must equally force the TCP path.
+	return mp.reg != nil && mp.reg.InStaticConfig(name)
 }
 
 // resolveSocketFilePath returns the postgres socket path the pooler should
