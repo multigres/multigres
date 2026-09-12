@@ -51,6 +51,9 @@ func AddRestartCommand(clusterCmd *cobra.Command) {
 
 	// Add clean flag since down() expects it
 	restartCmd.Flags().Bool("clean", false, "Fully tear down all cluster resources before restarting")
+	// Add wait-for-bootstrap flag since start() expects it
+	restartCmd.Flags().Bool("wait-for-bootstrap", true,
+		"Wait for every multigateway to execute SELECT 1 successfully (using the postgres password from the loaded config) before returning; on timeout the command exits with an error")
 
 	clusterCmd.AddCommand(restartCmd)
 }
