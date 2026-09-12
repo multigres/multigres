@@ -32,10 +32,11 @@ import (
 // emits at most one shard-level problem per cycle. It reasons on two axes:
 //
 //   - Does the leader need replacing, and why? Either healthy (empty cause) or one
-//     of LeaderResigned / LeaderUnhealthy / LeaderUnreachableByCohort, chosen by
-//     the first-hand vs observer-derived evidence principle (see the leader problem
-//     docs in the types package). Observer-derived causes are quorum-gated; first-
-//     hand ones are not.
+//     of LeaderResigned / LeaderUnhealthy / LeaderUnreachableByCohort / LeaderStuck,
+//     chosen by the first-hand vs observer-derived evidence principle (see the
+//     leader problem docs in the types package). Observer-derived causes are
+//     quorum-gated; first-hand ones are not. LeaderStuck is the backstop, checked
+//     right before either healthy verdict is returned.
 //   - Could a failover succeed? Only if a durability-sufficient set of reachable,
 //     initialized poolers is available to recruit a replacement.
 //
@@ -50,10 +51,6 @@ import (
 // cohort reachable (unique rule number) with the remainder unable to satisfy the
 // policy (revocation). For ShardAtRisk we run it excluding the current leader — the
 // question is whether we could recover if the leader were lost.
-//
-// TODO(LeaderStuck): a "leader reachable but quorum-commit not advancing" cause is
-// not yet detected — it needs a quorum-commit signal (per-replica lag is not
-// quorum-safe).
 //
 // TODO(pooler-reported health): this analyzer reasons about postgres running/ready
 // directly (leaderPostgresReady/Running). Directionally it should trust a pooler's
@@ -72,15 +69,19 @@ func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
-// followerConfiguredForLeader reports whether the follower's primary_conninfo targets
-// this leader's postgres (host:port) — the shared "this follower is trying to follow
-// THIS leader" test. A follower pointed at a different primary (or none) indicates a
-// deeper problem (misconfig/split-brain) and is neither streaming from nor cut off
-// from this leader.
-func followerConfiguredForLeader(follower *store.Pooler, primaryHost string, primaryPort int32) bool {
-	connInfo := follower.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
+// replicaConfiguredForLeader reports whether the replica's primary_conninfo targets
+// this leader's postgres (host:port) — the shared "this replica is trying to follow
+// THIS leader" test. Not restricted to cohort followers — any replica, including a
+// non-cohort observer, can be checked. A replica pointed at a different primary (or
+// none) indicates a deeper problem (misconfig/split-brain) and is neither streaming
+// from nor cut off from this leader.
+func replicaConfiguredForLeader(replica *store.Pooler, primaryHost string, primaryPort int32) bool {
+	connInfo := replica.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
 	return connInfo.GetHost() != "" && connInfo.GetHost() == primaryHost && connInfo.GetPort() == primaryPort
 }
+
+// TODO: followerStreamingFromLeader/classifyFollowerToLeader should be named
+// "replica" instead of "follower", since they also work for observers (non-cohort members).
 
 // followerStreamingFromLeader reports whether a single follower is actively streaming
 // from the leader's postgres: configured for this leader, has received WAL, the WAL
@@ -88,7 +89,7 @@ func followerConfiguredForLeader(follower *store.Pooler, primaryHost string, pri
 // wal_receiver_status_interval × multiplier, falling back to the default threshold,
 // and never older than wal_receiver_timeout).
 func followerStreamingFromLeader(sa *ShardAnalysis, replica *store.Pooler, primaryHost string, primaryPort int32) bool {
-	if !followerConfiguredForLeader(replica, primaryHost, primaryPort) {
+	if !replicaConfiguredForLeader(replica, primaryHost, primaryPort) {
 		return false
 	}
 	rs := replica.Health().GetStatus().GetReplicationStatus()
@@ -387,15 +388,10 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
 	}
 
-	// Healthy and serving as a postgres primary — no replacement needed.
-	//
-	// TODO(LeaderStuck): a live, postgres-ready leader can still fail to make durable
-	// progress. Check the quorum-commit watermark (K-th-highest follower position from
-	// the receive-position advance signal): crossing the prior shard frontier ⇒
-	// healthy; rising only toward a known frontier ⇒ propagation (no failover); flat ⇒
-	// LeaderStuck.
+	// Healthy and serving as a postgres primary — but still check the
+	// quorum-commit backstop before calling it healthy.
 	if leaderLive && leaderPostgresReady(sa) {
-		return "", "", false
+		return a.quorumCommitStuckCause(sa, cohort, leaderID, policy)
 	}
 
 	if leaderLive {
@@ -429,11 +425,11 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	}
 
 	// POSITIVE — a durability-sufficient set streaming from the leader proves it alive
-	// (you cannot stream from a dead primary) and serving a quorum → healthy. One
-	// streaming follower plus the leader itself can be the quorum. A future LeaderStuck
-	// check strengthens this to require the commit watermark to advance.
+	// (you cannot stream from a dead primary) and serving a quorum → healthy, subject
+	// to the same quorum-commit backstop as the first-hand healthy branch above. One
+	// streaming follower plus the leader itself can be the quorum.
 	if policy.SatisfiedBy(vouching) == nil {
-		return "", "", false
+		return a.quorumCommitStuckCause(sa, cohort, leaderID, policy)
 	}
 
 	// NEITHER — inconclusive, NOT healthy: we may simply not have looked long enough
@@ -500,10 +496,104 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 	if created := rule.GetCreationTime(); created == nil || sa.Now.Sub(created.AsTime()) <= sa.Policy.ConnectReplicasToNewLeaderGrace {
 		return relationAdapting
 	}
-	if !followerConfiguredForLeader(pa, primaryHost, primaryPort) {
+	if !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
 		return relationUnaware // knows the leader, had time, but isn't pointed at it
 	}
 	return relationCutOff
+}
+
+// freshestQuorumCommitTs returns the most recent quorum_commit_ts known for
+// this shard. quorum_commit_ts names one leader-authored fact, not
+// independent per-member values, so any source that has a fresh copy is
+// valid proof — including the leader's own (always >= any follower's replica,
+// since replication only adds delay) and a non-cohort observer's.
+func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
+	if sa.Leader != nil {
+		if ts := sa.Leader.Health().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
+			freshest, have = ts.AsTime(), true
+		}
+	}
+	for _, pa := range sa.Analyses {
+		if pa == nil {
+			continue
+		}
+		ts := pa.Health().GetStatus().GetReplicationStatus().GetQuorumCommitTs()
+		if ts == nil {
+			continue
+		}
+		if t := ts.AsTime(); !have || t.After(freshest) {
+			freshest, have = t, true
+		}
+	}
+	return freshest, have
+}
+
+// receiveLsnStillAdvancing reports whether a durability-sufficient set of the
+// cohort has a recent last_receive_lsn_advance_time from the candidate leader
+// specifically — evidence, during an undecided promotion (see
+// quorumCommitStuckCause), that a quorum-commit stall is backlog-draining
+// rather than a genuine halt. Unlike raw LSN, last_receive_lsn_advance_time
+// only moves via live streaming (never restore_command replay), so it can't
+// be spoofed by archive replay. Gated on replicaConfiguredForLeader so WAL
+// advance from an unrelated primary (e.g. a follower not yet reconfigured
+// onto this leader, or a cascading standby behind another cohort member)
+// can't stand in as evidence of this leader's health.
+func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+
+	leaderKey := topoclient.ComponentIDString(leaderID)
+	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses))
+	for _, pa := range sa.Analyses {
+		if pa != nil {
+			byID[topoclient.ComponentIDString(poolerID(pa))] = pa
+		}
+	}
+	var vouching []*clustermetadatapb.ID
+	for _, member := range cohort {
+		if topoclient.ComponentIDString(member) == leaderKey {
+			continue
+		}
+		pa, ok := byID[topoclient.ComponentIDString(member)]
+		if !ok || !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
+			continue
+		}
+		ts := pa.Health().GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
+		if ts != nil && sa.Now.Sub(ts.AsTime()) <= sa.Policy.FollowerStreamFreshness {
+			vouching = append(vouching, member)
+		}
+	}
+	if len(vouching) == 0 {
+		return false
+	}
+	// A quorum-sufficient set actively receiving fresh WAL proves the leader
+	// itself is generating and streaming it right now, so it vouches too —
+	// same self-vouching inference as classifyCohortReachability.
+	vouching = append(vouching, leaderID)
+	return policy.SatisfiedBy(vouching) == nil
+}
+
+// quorumCommitStuckCause checks the LeaderStuck backstop: the leader looks
+// healthy but quorum commits have stalled even though replicas can still
+// show raw LSN progress (they replay WAL ahead of the primary's own
+// synchronous-quorum ack). Absence of evidence must not convict, so this is
+// healthy (cause=="") when no pooler has reported a quorum_commit_ts yet.
+func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) (types.ProblemCode, string, bool) {
+	freshest, have := freshestQuorumCommitTs(sa)
+	if !have || sa.Now.Sub(freshest) <= sa.Policy.QuorumCommitStaleAfter {
+		return "", "", false
+	}
+	// A DECIDED rule already proves a quorum-acked commit succeeded under this
+	// leadership (the finalize commit is itself quorum-gated), so the
+	// backlog-draining excuse only applies while still undecided.
+	if !commonconsensus.IsRuleDecided(sa.HighestPosition) && a.receiveLsnStillAdvancing(sa, cohort, leaderID, policy) {
+		return "", "", false
+	}
+	return types.ProblemLeaderStuck,
+		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardKey, sa.Policy.QuorumCommitStaleAfter), false
 }
 
 // classifyCohortReachability sorts cohort followers by their relation to the leader,

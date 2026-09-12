@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -651,6 +652,18 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.SyncReplicationConfig = syncConfig
 	status.MaxWalSenders = maxWalSenders
+
+	// The leader's own first-hand view of its heartbeat writer's last
+	// proven-quorum-acked write, available even when no follower is reachable
+	// to relay the replicated row.
+	if pm.replTracker != nil {
+		if writer := pm.replTracker.HeartbeatWriter(); writer != nil {
+			if lsn, tsNano, ok := writer.LastProven(); ok {
+				status.QuorumCommitLsn = lsn.String()
+				status.QuorumCommitTs = timestamppb.New(time.Unix(0, tsNano))
+			}
+		}
+	}
 
 	return status, nil
 }

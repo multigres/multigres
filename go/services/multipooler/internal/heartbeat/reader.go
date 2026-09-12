@@ -70,6 +70,16 @@ type Reader struct {
 	lastReceiveLSNAdvanceTime time.Time
 	haveReceiveLSN            bool
 
+	// lastQuorumCommitLSN is the primary's most recently observed
+	// quorum_commit_lsn -- see QuorumCommitLSN.
+	lastQuorumCommitLSN pgutil.LSN
+	haveQuorumCommitLSN bool
+
+	// quorumCommitTs is the leader-stamped time paired with quorum_commit_lsn
+	// -- see QuorumCommitTs.
+	quorumCommitTs     time.Time
+	haveQuorumCommitTs bool
+
 	reads      atomic.Int64
 	readErrors atomic.Int64
 }
@@ -141,12 +151,12 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	tsNano, receiveLSN, haveReceiveLSN, err := r.fetchMostRecentHeartbeat(readCtx)
+	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTsNano, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
 		r.recordError(err)
 		return
 	}
-	// Read the clock once so lag and the advance timestamp reflect the same instant.
+	// Read the clock once so lag and the advance timestamps reflect the same instant.
 	now := r.now()
 	lag := now.Sub(time.Unix(0, tsNano))
 	r.reads.Add(1)
@@ -163,6 +173,17 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 		r.lastReceiveLSNAdvanceTime = now
 		r.haveReceiveLSN = true
 	}
+	// quorum_commit_lsn/quorum_commit_ts are just the latest observed values,
+	// not advance-tracked like receive_lsn above -- quorum_commit_ts is
+	// already a leader-stamped instant, not something we'd time ourselves.
+	if haveQuorumCommitLSN {
+		r.lastQuorumCommitLSN = quorumCommitLSN
+		r.haveQuorumCommitLSN = true
+	}
+	if haveQuorumCommitTs {
+		r.quorumCommitTs = time.Unix(0, quorumCommitTsNano)
+		r.haveQuorumCommitTs = true
+	}
 	r.lagMu.Unlock()
 
 	r.logger.DebugContext(ctx, "heartbeat read",
@@ -172,28 +193,32 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 
 // fetchMostRecentHeartbeat fetches the heartbeat row plus the WAL receiver's
 // current streamed position in one query. It returns the heartbeat timestamp in
-// nanoseconds, the parsed pg_last_wal_receive_lsn(), and whether that LSN was
+// nanoseconds, the parsed pg_last_wal_receive_lsn() and whether that LSN was
 // present (haveReceiveLSN is false when NULL — streaming disabled/not yet
-// started). It returns a wrapped error on failure; a missing heartbeat row counts
-// as a failure (the writer always maintains it when multigres is healthy).
+// started), and likewise the row's quorum_commit_lsn and quorum_commit_ts. It
+// returns a wrapped error on failure; a missing heartbeat row counts as a
+// failure (the writer always maintains it when multigres is healthy).
 // receive_lsn advances ONLY via streaming replication from the primary (not
 // restore_command/archive replay), so its advancement is a "the primary is
-// streaming new WAL to this standby" signal.
-func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, err error) {
+// streaming new WAL to this standby" signal. quorum_commit_lsn/quorum_commit_ts
+// are written by the primary itself and ride that same replication, so their
+// advancement is a distinct "the primary is durably committing with quorum"
+// signal.
+func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTsNano int64, haveQuorumCommitTs bool, err error) {
 	result, err := r.queryService.QueryAdminArgs(ctx,
-		"SELECT ts, pg_last_wal_receive_lsn()::text FROM multigres.heartbeat WHERE shard_id = $1",
+		"SELECT ts, pg_last_wal_receive_lsn()::text, quorum_commit_lsn::text, quorum_commit_ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
-		return 0, 0, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
-		return 0, 0, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
 	}
 	row := result.StructuredRows()[0]
 
 	tsNano, err = executor.GetInt64(row, 0)
 	if err != nil {
-		return 0, 0, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
 	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
@@ -205,7 +230,25 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 			receiveLSN, haveReceiveLSN = lsn, true
 		}
 	}
-	return tsNano, receiveLSN, haveReceiveLSN, nil
+	// Same best-effort treatment for quorum_commit_lsn.
+	if raw, rawErr := executor.GetString(row, 2); rawErr == nil && raw != "" {
+		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
+			r.logger.DebugContext(ctx, "failed to parse quorum_commit_lsn", "value", raw, "error", lsnErr)
+		} else {
+			quorumCommitLSN, haveQuorumCommitLSN = lsn, true
+		}
+	}
+	// And for quorum_commit_ts: NULL until the second successful write. Read as
+	// text first so NULL (empty) is distinguishable from a genuine 0 -- GetInt64
+	// on a NULL column silently leaves the destination at its zero value.
+	if raw, rawErr := executor.GetString(row, 3); rawErr == nil && raw != "" {
+		if ts, tsErr := strconv.ParseInt(raw, 10, 64); tsErr != nil {
+			r.logger.DebugContext(ctx, "failed to parse quorum_commit_ts", "value", raw, "error", tsErr)
+		} else {
+			quorumCommitTsNano, haveQuorumCommitTs = ts, true
+		}
+	}
+	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTsNano, haveQuorumCommitTs, nil
 }
 
 // LastReceiveLSNAdvance returns when pg_last_wal_receive_lsn() was last observed
@@ -214,6 +257,25 @@ func (r *Reader) LastReceiveLSNAdvance() (time.Time, bool) {
 	r.lagMu.Lock()
 	defer r.lagMu.Unlock()
 	return r.lastReceiveLSNAdvanceTime, r.haveReceiveLSN
+}
+
+// QuorumCommitLSN returns the most recently observed quorum_commit_lsn, and
+// whether any value has been observed yet. Diagnostic only, e.g. for
+// reporting backlog size against last_receive_lsn.
+func (r *Reader) QuorumCommitLSN() (pgutil.LSN, bool) {
+	r.lagMu.Lock()
+	defer r.lagMu.Unlock()
+	return r.lastQuorumCommitLSN, r.haveQuorumCommitLSN
+}
+
+// QuorumCommitTs returns the leader-stamped time paired with the most
+// recently observed quorum_commit_lsn, and whether any value has been
+// observed yet -- a single snapshot, at the cost of comparing a leader
+// clock to the caller's own.
+func (r *Reader) QuorumCommitTs() (time.Time, bool) {
+	r.lagMu.Lock()
+	defer r.lagMu.Unlock()
+	return r.quorumCommitTs, r.haveQuorumCommitTs
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
