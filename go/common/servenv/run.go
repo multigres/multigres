@@ -76,7 +76,7 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 	// fine to wait on here: gRPC doesn't actually start Serve()ing until after
 	// FireRunHooks below regardless, so this has no tighter deadline than it
 	// already did.
-	if err := grpcServer.Create(); err != nil {
+	if err := grpcServer.Create(sv); err != nil {
 		return fmt.Errorf("grpc server create: %w", err)
 	}
 

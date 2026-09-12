@@ -16,14 +16,9 @@ package servenv
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"math/big"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,30 +48,13 @@ func TestMtlsAuthPluginInitializer(t *testing.T) {
 			auth, err := mtlsAuthPluginInitializer()
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "grpc-auth-mtls-allowed-substrings")
+				assert.Contains(t, err.Error(), "non-empty colon-separated list")
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, auth)
 			}
 		})
 	}
-}
-
-func generateTestPeerCert(t *testing.T, cn string) *x509.Certificate {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: cn},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return cert
 }
 
 func fakeGRPCContext(cert *x509.Certificate, bearerToken string) context.Context {

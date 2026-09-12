@@ -103,14 +103,14 @@ type GrpcServer struct {
 	// keepaliveTimeout is the wait time after keepalive ping before closing the connection
 	keepaliveTimeout viperutil.Value[time.Duration]
 
-	// cert is the certificate file path for TLS
+	// cert, key and ca are the deprecated --grpc-cert/-key/-ca flags, kept as
+	// real, independently viper-backed flags rather than aliases of
+	// --tls-cert/-key/-ca - see the alias-vs-fallback note on Create for why.
+	// They apply to the gRPC listener only: --tls-cert/-key/-ca are what is
+	// shared with HTTP, and these three predate that sharing.
 	cert viperutil.Value[string]
-
-	// key is the private key file path for TLS
-	key viperutil.Value[string]
-
-	// ca is the CA file path for TLS
-	ca viperutil.Value[string]
+	key  viperutil.Value[string]
+	ca   viperutil.Value[string]
 
 	// crl is the Certificate Revocation List file path
 	crl viperutil.Value[string]
@@ -134,6 +134,10 @@ type GrpcServer struct {
 
 	// socketFile is the named socket for RPCs
 	socketFile viperutil.Value[string]
+
+	// sv is the paired ServEnv, set by Create. It is where --tls-cert/-key/-ca
+	// now live, shared with the HTTP listener - see the field doc there.
+	sv *ServEnv
 }
 
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
@@ -243,15 +247,31 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("grpc-server-initial-window-size", g.initialWindowSize.Default(), "gRPC server initial window size")
 	fs.Duration("grpc-server-keepalive-enforcement-policy-min-time", g.keepAliveEnforcementPolicyMinTime.Default(), "gRPC server minimum keepalive time")
 	fs.Bool("grpc-server-keepalive-enforcement-policy-permit-without-stream", g.keepAliveEnforcementPolicyPermitWithoutStream.Default(), "gRPC server permit client keepalive pings even when there are no active streams (RPCs)")
-	fs.String("grpc-cert", g.cert.Default(), "server certificate to use for gRPC connections, requires grpc-key, enables TLS")
-	fs.String("grpc-key", g.key.Default(), "server private key to use for gRPC connections, requires grpc-cert, enables TLS")
-	fs.String("grpc-ca", g.ca.Default(), "server CA to use for gRPC connections, requires TLS, and enforces client certificate check")
 	fs.String("grpc-crl", g.crl.Default(), "path to a certificate revocation list in PEM format (not yet implemented; startup fails if set)")
 	fs.Bool("grpc-enable-optional-tls", g.enableOptionalTLS.Default(), "enable optional TLS mode for mixed TLS/plaintext on one port (not yet implemented; startup fails if enabled)")
 	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
 	fs.String("grpc-socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
+
+	// Deprecated: superseded by --tls-cert/-key/-ca, which also cover the
+	// HTTP listener. These configure gRPC alone and remain fully functional -
+	// Create falls back to them when --tls-cert/-key/-ca are unset - but are
+	// hidden from --help and warn on use.
+	fs.String("grpc-cert", g.cert.Default(), "deprecated: use --tls-cert")
+	fs.String("grpc-key", g.key.Default(), "deprecated: use --tls-key")
+	fs.String("grpc-ca", g.ca.Default(), "deprecated: use --tls-ca")
+	// MarkDeprecated only errors if the named flag was not registered above -
+	// a programmer error, not a runtime condition - so panic surfaces it
+	// immediately rather than silently leaving a flag undeprecated.
+	mustDeprecate := func(name, replacement string) {
+		if err := fs.MarkDeprecated(name, "use --"+replacement+" instead"); err != nil {
+			panic(err)
+		}
+	}
+	mustDeprecate("grpc-cert", "tls-cert")
+	mustDeprecate("grpc-key", "tls-key")
+	mustDeprecate("grpc-ca", "tls-ca")
 
 	viperutil.BindFlags(fs,
 		g.auth,
@@ -265,29 +285,43 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 		g.keepAliveEnforcementPolicyPermitWithoutStream,
 		g.keepaliveTime,
 		g.keepaliveTimeout,
-		g.cert,
-		g.key,
-		g.ca,
 		g.crl,
 		g.enableOptionalTLS,
 		g.serverCA,
 		g.socketFile,
+		g.cert,
+		g.key,
+		g.ca,
 	)
 }
 
-// Cert returns the certificate path
+// Cert returns the certificate path gRPC actually uses, once Create has run:
+// --tls-cert if set, else the deprecated --grpc-cert.
 func (g *GrpcServer) Cert() string {
-	return g.cert.Get()
+	return resolveTLSPath(g.sv.tlsCert.Get(), g.cert.Get())
 }
 
-// CA returns the CA path
+// CA returns the CA path gRPC actually uses, once Create has run: --tls-ca if
+// set, else the deprecated --grpc-ca.
 func (g *GrpcServer) CA() string {
-	return g.ca.Get()
+	return resolveTLSPath(g.sv.tlsCA.Get(), g.ca.Get())
 }
 
-// Key returns the key path
+// Key returns the key path gRPC actually uses, once Create has run: --tls-key
+// if set, else the deprecated --grpc-key.
 func (g *GrpcServer) Key() string {
-	return g.key.Get()
+	return resolveTLSPath(g.sv.tlsKey.Get(), g.key.Get())
+}
+
+// resolveTLSPath prefers the canonical --tls-* value and falls back to the
+// deprecated --grpc-* one only when the canonical flag is unset. Used only for
+// gRPC: HTTP TLS is new in this codebase, so it has no deprecated flag of its
+// own to fall back to - it reads --tls-cert/-key/-ca directly.
+func resolveTLSPath(canonical, deprecated string) string {
+	if canonical != "" {
+		return canonical
+	}
+	return deprecated
 }
 
 // Port returns the gRPC port
@@ -320,7 +354,9 @@ func (g *GrpcServer) IsEnabled() bool {
 
 // Create creates the gRPC server instance.
 // It has to be called after flags are parsed, but before services register themselves.
-func (g *GrpcServer) Create() error {
+func (g *GrpcServer) Create(sv *ServEnv) error {
+	g.sv = sv
+
 	// Resolve the configured auth plugin (if any) before the IsEnabled()
 	// gate below. Some deployments run with gRPC serving disabled
 	// (grpc-port=0, HTTP-only) but still want servenv's own HTTP endpoints
@@ -348,18 +384,30 @@ func (g *GrpcServer) Create() error {
 
 	var opts []grpc.ServerOption
 
-	// Build TLS config if cert and key files are provided.
-	// When --grpc-ca is also set, mutual TLS is enabled (client certs required).
+	// Build TLS config from --tls-cert/-key/-ca (shared with the HTTP
+	// listener, see ServEnv), falling back to the deprecated --grpc-cert/-key/-ca
+	// when the canonical flag is unset. A genuine alias (one flag under two
+	// names) cannot be made to work here: it would need either a pflag
+	// NormalizeFunc, which never sees a value that arrives only via a config
+	// file, or a viperutil alias, which viper resolves by migrating
+	// already-present values at registration time - too early, since
+	// registration always runs before the config file is read. Two
+	// independent, ordinarily-bound flags with this explicit fallback sidestep
+	// both failure modes: each name works from the CLI, an env var, or a
+	// config file exactly like any other flag, and the precedence between them
+	// is plain Go, not an artifact of load order.
+	// When --tls-ca is also set, mutual TLS is enabled (client certs required).
 	// BuildServerTLSConfig validates the cert/key/ca combinations.
-	tlsConfig, err := grpccommon.BuildServerTLSConfig(
-		g.cert.Get(), g.key.Get(), g.ca.Get(), g.serverCA.Get(),
-	)
+	cert := resolveTLSPath(sv.tlsCert.Get(), g.cert.Get())
+	key := resolveTLSPath(sv.tlsKey.Get(), g.key.Get())
+	ca := resolveTLSPath(sv.tlsCA.Get(), g.ca.Get())
+	tlsConfig, err := grpccommon.BuildServerTLSConfig(cert, key, ca, g.serverCA.Get())
 	if err != nil {
 		return fmt.Errorf("failed to configure gRPC TLS: %w", err)
 	}
 	if tlsConfig != nil {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
-		slog.Info("gRPC TLS enabled", "cert", g.cert.Get(), "mtls", g.ca.Get() != "")
+		slog.Info("gRPC TLS enabled", "cert", cert, "mtls", ca != "")
 	}
 
 	// Validate that mtls auth is not used without transport TLS. Without
@@ -367,7 +415,7 @@ func (g *GrpcServer) Create() error {
 	// certificate check can never succeed with no TLS handshake to inspect)
 	// instead of failing loudly at startup.
 	if g.auth.Get() == "mtls" && tlsConfig == nil {
-		return fmt.Errorf("--grpc-auth-mode=%s requires --grpc-cert and --grpc-key for transport TLS", g.auth.Get())
+		return fmt.Errorf("--grpc-auth-mode=%s requires --tls-cert and --tls-key (or the deprecated --grpc-cert/--grpc-key) for transport TLS", g.auth.Get())
 	}
 
 	// Override the default max message size for both send and receive
