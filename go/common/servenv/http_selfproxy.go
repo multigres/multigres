@@ -30,12 +30,12 @@ func (sv *ServEnv) HTTPTLSEnabled() bool {
 // HTTPSelfClientTLSConfig returns the TLS config for dialing this process's own
 // HTTP listener, or nil when that listener is plaintext.
 //
-// The trust root is this listener's own certificate plus --http-ca, which
+// The trust root is this listener's own certificate plus --tls-ca, which
 // covers both a self-signed server certificate and one issued by the internal
 // CA. It deliberately does not fall back to the system pool: the only intended
 // peer is this very process.
 //
-// When client-certificate enforcement is on, the same --http-cert/--http-key is
+// When client-certificate enforcement is on, the same --tls-cert/--tls-key is
 // presented as the client certificate, so its subject has to appear in
 // --http-auth-mtls-allowed-subjects for the hop to be authorized.
 func (sv *ServEnv) HTTPSelfClientTLSConfig() (*tls.Config, error) {

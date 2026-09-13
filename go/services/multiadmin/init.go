@@ -123,7 +123,7 @@ func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.topoConfig.RegisterFlags(fs)
 
 	fs.Bool("enable-auth", ma.enableAuth.Default(), "Require JWT bearer-token authentication on multiadmin's HTTP/Connect/REST/pprof surface. gRPC is unaffected and stays unauthenticated. Requires --grpc-auth-jwt-issuer and --grpc-auth-jwt-jwks-uri.")
-	fs.Bool("enable-http-mtls-auth", ma.enableHTTPMTLSAuth.Default(), "Require a verified TLS client certificate on multiadmin's HTTP listener, matched against --http-auth-mtls-allowed-subjects. gRPC's own auth mode is unaffected. Requires --http-cert, --http-key, --http-ca and --http-auth-mtls-allowed-subjects; kubelet probe paths stay exempt.")
+	fs.Bool("enable-http-mtls-auth", ma.enableHTTPMTLSAuth.Default(), "Require a verified TLS client certificate on multiadmin's HTTP listener, matched against --http-auth-mtls-allowed-subjects. gRPC's own auth mode is unaffected. Requires --tls-cert, --tls-key, --tls-ca and --http-auth-mtls-allowed-subjects; kubelet probe paths stay exempt.")
 	viperutil.BindFlags(fs, ma.enableAuth, ma.enableHTTPMTLSAuth)
 }
 
