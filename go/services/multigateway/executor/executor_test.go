@@ -372,6 +372,26 @@ func TestCrossProtocol_PortalCachesForSimpleProtocol(t *testing.T) {
 	assert.True(t, res2.CacheHit, "simple protocol should hit plan cached by portal")
 }
 
+func TestValuesClausesPreservedInBackendSQL(t *testing.T) {
+	for _, sql := range []string{
+		"VALUES (2), (1) ORDER BY 1 LIMIT 1 OFFSET 1",
+		"DELETE FROM orders WHERE id IN (VALUES (1), (2) LIMIT 1)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			mock := &mockExec{}
+			exec := newTestExecutor(mock)
+			defer exec.planCache.Close()
+			_, err := exec.StreamExecute(t.Context(), testConn(), nil, sql, parseOne(t, sql), noopCallback)
+			require.NoError(t, err)
+			require.Equal(t, sql, mock.lastStreamExecuteSQL.Load())
+			require.Eventually(t, func() bool {
+				result, err := exec.StreamExecute(t.Context(), testConn(), nil, sql, parseOne(t, sql), noopCallback)
+				return err == nil && result.CacheHit && mock.lastStreamExecuteSQL.Load() == sql
+			}, time.Second, time.Millisecond, "cached execution must preserve VALUES clauses")
+		})
+	}
+}
+
 func TestCrossProtocol_PortalCachedPlanReconstructsSQL(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
