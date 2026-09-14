@@ -107,6 +107,11 @@ type Multipooler struct {
 	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
 	// which viperutil.Get cannot.
 	flagSet *pflag.FlagSet
+	// reg is the registry the values above were configured against, saved so
+	// explicitness checks can also see keys written in the loaded config file
+	// (Registry.InStaticConfig) — a config file sets neither Flag.Changed nor
+	// an env var.
+	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -130,6 +135,7 @@ func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
 func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 	reg := viperutil.NewRegistry()
 	mp := &Multipooler{
+		reg: reg,
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -267,8 +273,8 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
 	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
-	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
-	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
+	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path. If unset, derived as <pooler-dir>/pg_sockets/.s.PGSQL.<pg-port> when --pooler-dir is set; set explicitly to empty (--socket-file='') to force a TCP connection")
+	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
 	flags.Duration("health-stream-staleness-timeout", mp.healthStreamStalenessTimeout.Default(), "staleness window advertised to the gateway health stream; 0 keeps the built-in default")
@@ -426,11 +432,19 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return errors.New("PGDATA environment variable is required")
 	}
 
+	// Resolve the postgres socket path: an unset --socket-file derives it from
+	// pooler-dir + pg-port (the same formula pgctld uses to configure
+	// unix_socket_directories), so co-located deployments need not repeat it.
+	socketFilePath := resolveSocketFilePath(mp.socketFilePath.Get(), mp.flagExplicitlySet("socket-file"), mp.poolerDir.Get(), mp.pgPort.Get())
+	if socketFilePath != mp.socketFilePath.Get() {
+		logger.InfoContext(startCtx, "derived postgres socket file from pooler-dir and pg-port", "socket_file", socketFilePath)
+	}
+
 	// Validate libpq-style sslmode + sslrootcert before any pool opens. A typo
 	// or missing CA bundle should fail startup rather than silently downgrading
 	// the multipooler → postgres dials to plaintext.
 	pgHost := ""
-	if mp.socketFilePath.Get() == "" {
+	if socketFilePath == "" {
 		pgHost = mp.senv.GetHostname()
 	}
 	if err := mp.connPoolConfig.ValidatePGSSL(pgHost); err != nil {
@@ -459,7 +473,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:                 mp.socketFilePath.Get(),
+		SocketFilePath:                 socketFilePath,
 		TopoClient:                     mp.ts,
 		HeartbeatIntervalMs:            mp.heartbeatIntervalMs.Get(),
 		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
@@ -549,4 +563,35 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 		mp.poolerManager.StopTopoRegistration(ctx)
 	}
 	mp.ts.Close()
+}
+
+// flagExplicitlySet reports whether the named flag was explicitly configured:
+// set on the command line, even to its default or an empty value
+// (pflag.Flag.Changed), or present as a key in the loaded config file
+// (Registry.InStaticConfig) — distinctions viperutil's Get cannot make. The
+// flag name must equal the value's viper key for the config-file check to
+// apply. False when RegisterFlags has not run (e.g. minimal test setups) and
+// no config file mentions the key.
+func (mp *Multipooler) flagExplicitlySet(name string) bool {
+	if mp.flagSet != nil {
+		if f := mp.flagSet.Lookup(name); f != nil && f.Changed {
+			return true
+		}
+	}
+	// A config file writing e.g. `socket-file: ""` is as deliberate as
+	// --socket-file='' and must equally force the TCP path.
+	return mp.reg != nil && mp.reg.InStaticConfig(name)
+}
+
+// resolveSocketFilePath returns the postgres socket path the pooler should
+// dial. An explicitly set --socket-file wins, including one explicitly set to
+// empty, which forces a TCP dial. When the flag is untouched and a pooler
+// directory is configured, the path is derived from pooler-dir + pg-port —
+// the same formula pgctld uses for unix_socket_directories, so the two can
+// never disagree. With neither, empty is returned and the pooler dials TCP.
+func resolveSocketFilePath(configured string, explicitlySet bool, poolerDir string, pgPort int) string {
+	if configured != "" || explicitlySet || poolerDir == "" {
+		return configured
+	}
+	return constants.PostgresSocketFilePath(poolerDir, pgPort)
 }

@@ -338,7 +338,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 
 	// Default to the standard Unix socket path under the pgctld data dir.
 	// Tests that need the TCP path (e.g. PG TLS) clear this after creation.
-	socketFile := filepath.Join(pgctldDataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
+	socketFile := constants.PostgresSocketFilePath(pgctldDataDir, pgPort)
 
 	inst := &ProcessInstance{
 		Name:        name,
