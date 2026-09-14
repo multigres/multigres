@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteHeartbeat(t *testing.T) {
@@ -77,6 +78,73 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestWriteQuorumCommitLSNDeferredByOneTick verifies the deferred-write
+// invariant: lastProven only ever advances to the value captured (via
+// RETURNING) by the write that just succeeded, never the write's own not-yet-
+// committed candidate. It also carries the tsNano captured on that same tick.
+func TestWriteQuorumCommitLSNDeferredByOneTick(t *testing.T) {
+	queryService := mock.NewQueryService()
+	clock := time.Now()
+	tw := newTestWriter(t, queryService, nil)
+	tw.now = func() time.Time { return clock }
+
+	_, _, have := tw.LastProven()
+	assert.False(t, have, "no proven value before the first write")
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/100"}},
+	))
+	require.NoError(t, tw.write(t.Context()))
+	lsn, tsNano, have := tw.LastProven()
+	require.True(t, have, "first write's RETURNING value becomes the candidate")
+	assert.Equal(t, "0/100", lsn.String())
+	assert.Equal(t, clock.UnixNano(), tsNano, "paired ts is this tick's own capture time")
+
+	clock = clock.Add(1 * time.Second)
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/200"}},
+	))
+	require.NoError(t, tw.write(t.Context()))
+	lsn, tsNano, have = tw.LastProven()
+	require.True(t, have)
+	assert.Equal(t, "0/200", lsn.String(), "second write's own RETURNING value replaces the candidate")
+	assert.Equal(t, clock.UnixNano(), tsNano, "paired ts advances to the second tick's capture time")
+}
+
+// TestWriteKeepsPreviousCandidateOnUnparsableReturning covers the best-effort
+// path: if RETURNING can't be parsed, the previous proven candidate must
+// survive untouched rather than being cleared or replaced by garbage.
+func TestWriteKeepsPreviousCandidateOnUnparsableReturning(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/100"}},
+	))
+	require.NoError(t, tw.write(t.Context()))
+	lsn, _, have := tw.LastProven()
+	require.True(t, have)
+	assert.Equal(t, "0/100", lsn.String())
+
+	// A write can still succeed (INSERT committed) even if RETURNING comes back
+	// garbage or empty -- that must not clobber the existing candidate.
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"garbage"}},
+	))
+	require.NoError(t, tw.write(t.Context()))
+	lsn, _, _ = tw.LastProven()
+	assert.Equal(t, "0/100", lsn.String(), "unparsable RETURNING keeps the previous candidate")
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	require.NoError(t, tw.write(t.Context()))
+	lsn, _, _ = tw.LastProven()
+	assert.Equal(t, "0/100", lsn.String(), "empty RETURNING result keeps the previous candidate")
 }
 
 // TestWriteHeartbeatError tests that write errors are logged but don't crash the writer.

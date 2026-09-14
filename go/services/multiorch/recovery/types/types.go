@@ -44,11 +44,11 @@ const (
 	// the outgoing decision, not the cause.
 	//
 	// Predictors vs backstop: the property we actually care about is whether the
-	// shard is making durable (quorum-commit) write progress. The eventual
-	// LeaderStuck (see TODO below) measures that directly and is the backstop that
-	// catches a stall from any cause. The codes here are faster, higher-confidence
-	// *predictors* of (imminent) stuckness — they let us act before, or explain
-	// why, progress stops — but they are not exhaustive.
+	// shard is making durable (quorum-commit) write progress. LeaderStuck measures
+	// that directly and is the backstop that catches a stall from any cause. The
+	// other codes here are faster, higher-confidence *predictors* of (imminent)
+	// stuckness — they let us act before, or explain why, progress stops — but
+	// they are not exhaustive.
 	//
 	// The dividing principle is first-hand vs observer-derived evidence:
 	//   - LeaderUnspecified: the rule has a cohort but names no leader (e.g. a leader
@@ -63,17 +63,18 @@ const (
 	//   - LeaderUnreachableByCohort: observer-derived — a durability-sufficient set
 	//     of the cohort no longer reaches the leader, so it cannot maintain quorum.
 	//     Quorum-gated precisely because we are inferring rather than being told.
-	//
-	// TODO(LeaderStuck): a further cause — leader reachable and claiming health but
-	// the quorum-commit position is not advancing — is not yet split out. Detecting
-	// it correctly needs a quorum-commit signal (per-replica replay lag is not
-	// quorum-safe: standbys replay WAL ahead of the synchronous-quorum ack). That
-	// waits on a quorum-commit watermark in the heartbeat row; see the failover
-	// detection redesign note.
+	//   - LeaderStuck: the leader is reachable and claims healthy, but the
+	//     heartbeat's quorum-commit watermark isn't advancing — replicas can be
+	//     ahead on raw receive/replay LSN despite this, since they replay WAL
+	//     ahead of the primary's own synchronous-quorum ack. Reuses
+	//     AppointLeaderAction's shared grace period for now; it arguably deserves
+	//     a longer, distinct grace since a commit stall can self-resolve, but that
+	//     needs per-cause grace plumbing this codebase doesn't have yet.
 	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
 	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
 	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
 	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
+	ProblemLeaderStuck               ProblemCode = "LeaderStuck"
 )
 
 // IsFailoverProblem reports whether this problem is resolved by
@@ -83,7 +84,8 @@ func (c ProblemCode) IsFailoverProblem() bool {
 	return c == ProblemLeaderUnspecified ||
 		c == ProblemLeaderUnreachableByCohort ||
 		c == ProblemLeaderUnhealthy ||
-		c == ProblemLeaderResigned
+		c == ProblemLeaderResigned ||
+		c == ProblemLeaderStuck
 }
 
 const (

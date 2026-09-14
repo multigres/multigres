@@ -350,6 +350,12 @@ func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 			if advanceTime, ok := reader.LastReceiveLSNAdvance(); ok {
 				status.LastReceiveLsnAdvanceTime = timestamppb.New(advanceTime)
 			}
+			if commitTs, ok := reader.QuorumCommitTs(); ok {
+				status.QuorumCommitTs = timestamppb.New(commitTs)
+			}
+			if lsn, ok := reader.QuorumCommitLSN(); ok {
+				status.QuorumCommitLsn = lsn.String()
+			}
 		}
 	}
 

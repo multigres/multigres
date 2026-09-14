@@ -160,7 +160,9 @@ func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.heartbeat (
 		shard_id BYTEA PRIMARY KEY,
 		leader_id TEXT NOT NULL,
-		ts BIGINT NOT NULL
+		ts BIGINT NOT NULL,
+		quorum_commit_lsn pg_lsn,
+		quorum_commit_ts BIGINT
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
