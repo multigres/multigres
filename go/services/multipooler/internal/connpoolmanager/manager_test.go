@@ -1081,3 +1081,46 @@ func TestManager_Open_TinyBudget_KeepsRegularPoolUsable(t *testing.T) {
 	require.NoError(t, err)
 	conn.Recycle()
 }
+
+func TestManager_Open_DeriveFails_SeedFallback(t *testing.T) {
+	// No registered query: the SQL derivation fails; a pgctld-reported seed
+	// beats the configured default, derived as seed − PG-default superuser
+	// reserved (3) − admin capacity (5), clamped at the configured value.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
+	config.SetSeedMaxConnections(60)
+
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Database:   server.ClientConfig().Database,
+	})
+	defer manager.Close()
+
+	assert.Equal(t, int64(52), manager.GlobalCapacity())
+}
+
+func TestManager_Open_DeriveFails_SeedClampedToConfigured(t *testing.T) {
+	// A large seed must never budget past the configured value: the seed's
+	// job is to shrink on small servers, not to grow speculatively.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
+	config.SetSeedMaxConnections(500)
+
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Database:   server.ClientConfig().Database,
+	})
+	defer manager.Close()
+
+	assert.Equal(t, int64(100), manager.GlobalCapacity())
+}

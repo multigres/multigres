@@ -192,6 +192,25 @@ message StatusResponse {
 
   // pgBackRest TLS server status
   PgBackRestStatus pgbackrest_status = 10;
+
+  // Pooler directory pgctld was started with. Colocated services (multipooler)
+  // adopt this instead of re-declaring their own --pooler-dir.
+  string pooler_dir = 11;
+
+  // Effective configured max_connections, resolved the way postgres itself
+  // resolves it (includes and postgresql.auto.conf), available while postgres
+  // is stopped. 0 means unknown (data directory not initialized, or the value
+  // could not be determined). Consumers must treat this as a seed/fallback
+  // only — a running server's live setting is authoritative.
+  int32 max_connections = 12;
+
+  // pgBackRest TLS server port pgctld serves. 0 when pgBackRest is not
+  // configured.
+  int32 pgbackrest_port = 13;
+
+  // Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
+  // pgbackrest.key). Empty when pgBackRest is not configured.
+  string pgbackrest_cert_dir = 14;
 }
 
 // pgBackRest TLS server status

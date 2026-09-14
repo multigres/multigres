@@ -131,6 +131,15 @@ if [[ "$*" == *"--help"* ]]; then
     echo "postgres is the PostgreSQL database server."
     exit 0
 fi
+# postgres -C <guc> prints the configured value and exits (used by pgctld's
+# Status to report the effective max_connections).
+if [[ "$1" == "-C" ]]; then
+    case "$2" in
+        max_connections) echo "100" ;;
+        *) echo "unknown GUC: $2" >&2; exit 1 ;;
+    esac
+    exit 0
+fi
 echo "Mock PostgreSQL server starting..."
 # For testing, create a fake PID file
 DATADIR=""
