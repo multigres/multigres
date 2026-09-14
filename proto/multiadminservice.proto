@@ -20,6 +20,7 @@ import "clustermetadata.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "migratorservice.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
 
@@ -167,6 +168,51 @@ service MultiadminService {
       post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
       body: "*"
     };
+  }
+  //
+  // Table migration (Multigres Migrator). These forward to the owning Multigres Migrator.
+  //
+
+  // CreateMigration records a migration's configuration (no database changes).
+  rpc CreateMigration(migrator.CreateMigrationRequest) returns (migrator.CreateMigrationResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/migrations"
+      body: "*"
+    };
+  }
+
+  // StartMigration runs the migration workflow.
+  rpc StartMigration(migrator.StartMigrationRequest) returns (migrator.StartMigrationResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/migrations/{id}/start"
+      body: "*"
+    };
+  }
+
+  // UpdateMigration changes mutable fields (field-masked), notably the source connection.
+  rpc UpdateMigration(migrator.UpdateMigrationRequest) returns (migrator.UpdateMigrationResponse) {
+    option (google.api.http) = {
+      patch: "/api/v1/migrations/{id}"
+      body: "*"
+    };
+  }
+
+  // GetMigrations returns status for one migration (id set) or all migrations.
+  rpc GetMigrations(migrator.GetMigrationsRequest) returns (migrator.GetMigrationsResponse) {
+    option (google.api.http) = {get: "/api/v1/migrations"};
+  }
+
+  // SetMigrationDirection sets the active direction (IMPORT or EXPORT).
+  rpc SetMigrationDirection(migrator.SetMigrationDirectionRequest) returns (migrator.SetMigrationDirectionResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/migrations/{id}/direction"
+      body: "*"
+    };
+  }
+
+  // DropMigration tears down and removes a migration.
+  rpc DropMigration(migrator.DropMigrationRequest) returns (migrator.DropMigrationResponse) {
+    option (google.api.http) = {delete: "/api/v1/migrations/{id}"};
   }
 }
 

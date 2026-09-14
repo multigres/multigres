@@ -19,6 +19,7 @@
 
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
+import { CreateMigrationRequest, CreateMigrationResponse, DropMigrationRequest, DropMigrationResponse, GetMigrationsRequest, GetMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse, StartMigrationRequest, StartMigrationResponse, UpdateMigrationRequest, UpdateMigrationResponse } from "./migratorservice_pb";
 
 /**
  * MultiadminService provides administrative gRPC APIs for querying cluster metadata
@@ -242,6 +243,72 @@ export const MultiadminService = {
       name: "SwitchPrimary",
       I: SwitchPrimaryRequest,
       O: SwitchPrimaryResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * CreateMigration records a migration's configuration (no database changes).
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateMigration
+     */
+    createMigration: {
+      name: "CreateMigration",
+      I: CreateMigrationRequest,
+      O: CreateMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * StartMigration runs the migration workflow.
+     *
+     * @generated from rpc multiadmin.MultiadminService.StartMigration
+     */
+    startMigration: {
+      name: "StartMigration",
+      I: StartMigrationRequest,
+      O: StartMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * UpdateMigration changes mutable fields (field-masked), notably the source connection.
+     *
+     * @generated from rpc multiadmin.MultiadminService.UpdateMigration
+     */
+    updateMigration: {
+      name: "UpdateMigration",
+      I: UpdateMigrationRequest,
+      O: UpdateMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetMigrations returns status for one migration (id set) or all migrations.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetMigrations
+     */
+    getMigrations: {
+      name: "GetMigrations",
+      I: GetMigrationsRequest,
+      O: GetMigrationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetMigrationDirection sets the active direction (IMPORT or EXPORT).
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetMigrationDirection
+     */
+    setMigrationDirection: {
+      name: "SetMigrationDirection",
+      I: SetMigrationDirectionRequest,
+      O: SetMigrationDirectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DropMigration tears down and removes a migration.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DropMigration
+     */
+    dropMigration: {
+      name: "DropMigration",
+      I: DropMigrationRequest,
+      O: DropMigrationResponse,
       kind: MethodKind.Unary,
     },
   }
