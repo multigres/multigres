@@ -148,6 +148,12 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		return fmt.Errorf("failed to determine hostname: %w", err)
 	}
 
+	// Likewise fail early on an unusable HTTP TLS setup, rather than in the
+	// HTTP-serving goroutine where the error is only logged.
+	if err := sv.validateHTTPTLS(); err != nil {
+		return err
+	}
+
 	sv.onInitHooks.Fire()
 	sv.registerPidFile()
 	sv.RegisterCommonHTTPEndpoints()
