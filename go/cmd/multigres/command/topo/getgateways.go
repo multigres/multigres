@@ -78,7 +78,7 @@ func AddGetGatewaysCommand() *cobra.Command {
 		RunE:  runGetGateways,
 	}
 
-	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 	cmd.Flags().String("cells", "", "Comma-separated list of cell names to query (optional)")
 
 	return cmd
