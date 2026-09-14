@@ -177,17 +177,17 @@ func (p *Planner) Plan(
 	}
 
 	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
-	// before normal dispatch. The wrapper's inner ExecuteStmt references a
-	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
-	// attach a SQL prefix/suffix template plus PreparedStatement metadata so the
-	// multipooler can resolve a pooler-consolidated backend name before running
-	// the query. See execute_unwrap.go.
+	// before normal dispatch. The inner ExecuteStmt names a gateway-managed
+	// prepared statement (e.g. "p") the backend session never sees;
+	// tryUnwrapWrappedExecute substitutes the EXECUTE arguments into the prepared
+	// body and splices the result in place of the ExecuteStmt, so `EXPLAIN EXECUTE
+	// p(5)` runs as `EXPLAIN SELECT ...` — an ordinary query. See execute_unwrap.go.
 	//
-	// Simple protocol only: the rewrite produces a Route carrying the SQL EXECUTE
-	// template, but Route.PortalStreamExecute forwards the portal as-is and
-	// ignores that metadata, so the unwrap is a no-op (or worse, an error if the
-	// statement is missing) over the extended protocol. In portal mode these
-	// wrapped forms fall through to normal dispatch and route like any query.
+	// Gated to the simple protocol: this call site passes no portal (nil), so an
+	// EXECUTE argument that is an outer bound parameter ($N from an extended-protocol
+	// Bind) cannot be resolved. Extended-protocol wrapped EXECUTE therefore falls
+	// through to normal dispatch. The substitution itself is protocol-agnostic;
+	// lifting this gate needs the portal threaded through so bound args resolve.
 	if !opts.IsPortal {
 		if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
 			return nil, err

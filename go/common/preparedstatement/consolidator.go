@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -76,11 +77,47 @@ type PortalInfo struct {
 type PreparedStatementInfo struct {
 	*querypb.PreparedStatement
 	astStruct ast.Stmt
+
+	// resolved holds the backend-resolved parameter type OIDs from the Describe
+	// done at PREPARE (nil = unresolved; ResolvedParamTypeOids then falls back to
+	// the declared types). Refreshed last-writer-wins by every PREPARE, and atomic
+	// for lock-free EXECUTE-path reads. Only param types are stored, not the result
+	// shape. See docs/query_serving/prepared_statements_design.md ("Parameter type
+	// resolution") for why.
+	resolved atomic.Pointer[[]uint32]
 }
 
 // AstStmt returns the parsed AST statement for this prepared statement.
 func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
 	return psi.astStruct
+}
+
+// SetResolvedParamTypes records the backend-resolved parameter types from the
+// Describe performed at SQL PREPARE time. Last writer wins: every PREPARE
+// re-Describes and overwrites, so a PREPARE issued after a schema change
+// refreshes the resolution against the current catalog for all connections
+// sharing this consolidated statement (mirroring PostgreSQL, where a fresh
+// PREPARE re-analyzes). A nil description is ignored.
+func (psi *PreparedStatementInfo) SetResolvedParamTypes(desc *querypb.StatementDescription) {
+	if desc == nil {
+		return
+	}
+	oids := make([]uint32, len(desc.GetParameters()))
+	for i, p := range desc.GetParameters() {
+		oids[i] = p.GetDataTypeOid()
+	}
+	psi.resolved.Store(&oids)
+}
+
+// ResolvedParamTypeOids returns the backend-resolved parameter type OIDs when a
+// Describe has populated them, otherwise the declared ParamTypes (which may be
+// empty or carry unspecified 0 entries for undeclared parameters).
+func (psi *PreparedStatementInfo) ResolvedParamTypeOids() []uint32 {
+	if r := psi.resolved.Load(); r != nil {
+		return *r
+	}
+	// GetParamTypes is nil-safe if the embedded proto is unset (degenerate psi).
+	return psi.GetParamTypes()
 }
 
 // IsEmpty reports whether this prepared statement was created from an empty or
