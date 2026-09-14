@@ -194,7 +194,7 @@ message StatusResponse {
   PgBackRestStatus pgbackrest_status = 10;
 
   // Pooler directory pgctld was started with. Colocated services (multipooler)
-  // adopt this instead of re-declaring their own --pooler-dir.
+  // adopt this instead of redeclaring their own --pooler-dir.
   string pooler_dir = 11;
 
   // Effective configured max_connections, resolved the way postgres itself

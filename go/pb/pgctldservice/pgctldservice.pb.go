@@ -640,7 +640,7 @@ type StatusResponse struct {
 	// pgBackRest TLS server status
 	PgbackrestStatus *PgBackRestStatus `protobuf:"bytes,10,opt,name=pgbackrest_status,json=pgbackrestStatus,proto3" json:"pgbackrest_status,omitempty"`
 	// Pooler directory pgctld was started with. Colocated services (multipooler)
-	// adopt this instead of re-declaring their own --pooler-dir.
+	// adopt this instead of redeclaring their own --pooler-dir.
 	PoolerDir string `protobuf:"bytes,11,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
 	// Effective configured max_connections, resolved the way postgres itself
 	// resolves it (includes and postgresql.auto.conf), available while postgres
