@@ -625,7 +625,7 @@ func resolveSocketFilePath(configured string, explicitlySet bool, poolerDir stri
 const pgctldAdoptTimeout = 30 * time.Second
 
 // adoptedPgctldValues are the settings pgctld owns that the multipooler
-// adopts from its Status RPC instead of re-declaring: the postgres port and
+// adopts from its Status RPC instead of redeclaring: the postgres port and
 // pooler directory (pgctld is the process that applies both), and the
 // pgBackRest port and TLS material paths (pgctld serves that endpoint).
 type adoptedPgctldValues struct {
