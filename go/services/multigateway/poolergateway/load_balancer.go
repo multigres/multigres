@@ -333,6 +333,30 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	lb.onLeaderServing(summary.shardKey)
 }
 
+// unknownDatabaseError returns a terminal 3D000 error when the target names a
+// database discovery has never seen, and nil when the database is known — or
+// when we cannot tell. Every routing failure otherwise looks alike from the
+// client's side ("no writable primary", conventionally retryable), which is
+// the wrong answer for a database that will never appear.
+//
+// An empty cache means discovery has not populated yet — startup, or a
+// topology outage — so every database is equally unseen and none can be
+// declared nonexistent. Those callers keep the retryable 57P03.
+//
+// HasDatabase scans shard keys, but only failed routing reaches here, and a
+// known database returns on the first key that matches it. A full scan
+// happens only for a database that really is absent, which is terminal: the
+// client stops retrying rather than coming back.
+func (lb *loadBalancer) unknownDatabaseError(sk *clustermetadatapb.ShardKey) error {
+	if lb.cache == nil || lb.cache.Len() == 0 {
+		return nil
+	}
+	if lb.cache.HasDatabase(sk.GetDatabase()) {
+		return nil
+	}
+	return newUnknownDatabaseError(sk.GetDatabase())
+}
+
 // getConnection returns a poolerConnection matching the target specification.
 // Returns an error immediately if no suitable connection is available.
 //
@@ -374,6 +398,9 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 	routesToLeader := mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT
 	if routesToLeader {
 		if !haveLeader {
+			if err := lb.unknownDatabaseError(sk); err != nil {
+				return nil, err
+			}
 			return nil, newNoWritablePrimaryError(
 				"no leader observed yet for database=%s, tablegroup=%s, shard=%s",
 				sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
@@ -420,6 +447,9 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 	}
 
 	if len(candidates) == 0 {
+		if err := lb.unknownDatabaseError(sk); err != nil {
+			return nil, err
+		}
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"no pooler found for target: database=%s, tablegroup=%s, shard=%s, mode=%s",
 			sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard(), mode.String())

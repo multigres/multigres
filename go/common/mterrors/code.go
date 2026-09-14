@@ -36,6 +36,7 @@ const (
 	PgSSAuthFailed              = "28P01" // invalid_password
 	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSInvalidCatalogName      = "3D000" // invalid_catalog_name
 	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
 	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
 	PgSSSyntaxError             = "42601" // syntax_error
