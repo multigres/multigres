@@ -343,6 +343,54 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 	}
 }
 
+// TestErrorFormat_SourceLocation tests that backend ErrorResponse fields
+// F (file), L (line), and R (routine) survive the gateway. These populate
+// psql's LOCATION line and the equivalent fields on libpq / pgx / pgJDBC.
+// Regression for GitHub issue #1387.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway so the
+// proxy must surface the same source location native PostgreSQL does.
+func TestErrorFormat_SourceLocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			_, err = conn.Exec(ctx, "SELECT 1/0")
+			require.Error(t, err)
+
+			var pgErr *pgconn.PgError
+			require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+			assert.Equal(t, "ERROR", pgErr.Severity)
+			assert.Equal(t, "22012", pgErr.Code)
+			assert.Contains(t, pgErr.Message, "division by zero")
+			// File/Line/Routine are the whole point of #1387. Direct
+			// PostgreSQL always populates them for 1/0; the gateway must
+			// not drop them. Line is version-dependent so only require it
+			// to be set.
+			assert.NotEmpty(t, pgErr.File, "File (F) should carry the PostgreSQL source file")
+			assert.Contains(t, pgErr.File, ".c")
+			assert.Greater(t, pgErr.Line, int32(0), "Line (L) should carry the PostgreSQL source line")
+			assert.NotEmpty(t, pgErr.Routine, "Routine (R) should carry the PostgreSQL source routine")
+			t.Logf("division by zero: File=%s Line=%d Routine=%s", pgErr.File, pgErr.Line, pgErr.Routine)
+		})
+	}
+}
+
 // TestErrorFormat_CopyFromStdinContext tests that errors raised during
 // COPY FROM STDIN preserve PostgreSQL's COPY context (the Where field, e.g.
 // "COPY t, line 1, column id: ...") instead of being wrapped into a flat

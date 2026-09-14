@@ -24,12 +24,13 @@
 package query
 
 import (
-	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -531,8 +532,9 @@ func (x *Row) GetValues() []byte {
 
 // PgDiagnostic represents a PostgreSQL diagnostic message (error or notice).
 // PostgreSQL uses the same wire format for both ErrorResponse ('E') and NoticeResponse ('N'),
-// differentiated by the message_type field. This unified structure captures all 14 fields
-// defined in the PostgreSQL protocol for diagnostic messages.
+// differentiated by the message_type field. This unified structure captures the
+// PostgreSQL protocol diagnostic fields, including source location (file, line,
+// routine) used by psql \errverbose and by libpq / pgx / pgJDBC.
 //
 // Error severities: ERROR, FATAL, PANIC
 // Notice severities: WARNING, NOTICE, DEBUG, INFO, LOG
@@ -572,8 +574,17 @@ type PgDiagnostic struct {
 	DataTypeName string `protobuf:"bytes,13,opt,name=data_type_name,json=dataTypeName,proto3" json:"data_type_name,omitempty"`
 	// constraint_name is the name of the constraint associated with the diagnostic (optional)
 	ConstraintName string `protobuf:"bytes,14,opt,name=constraint_name,json=constraintName,proto3" json:"constraint_name,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// file is the PostgreSQL source file that raised the diagnostic (optional).
+	// Wire field 'F'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_FILE.
+	File string `protobuf:"bytes,16,opt,name=file,proto3" json:"file,omitempty"`
+	// line is the source line number in file (1-indexed, 0 if not available).
+	// Wire field 'L'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_LINE.
+	Line int32 `protobuf:"varint,17,opt,name=line,proto3" json:"line,omitempty"`
+	// routine is the PostgreSQL source routine that raised the diagnostic (optional).
+	// Wire field 'R'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_FUNCTION.
+	Routine       string `protobuf:"bytes,18,opt,name=routine,proto3" json:"routine,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PgDiagnostic) Reset() {
@@ -707,6 +718,27 @@ func (x *PgDiagnostic) GetDataTypeName() string {
 func (x *PgDiagnostic) GetConstraintName() string {
 	if x != nil {
 		return x.ConstraintName
+	}
+	return ""
+}
+
+func (x *PgDiagnostic) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *PgDiagnostic) GetLine() int32 {
+	if x != nil {
+		return x.Line
+	}
+	return 0
+}
+
+func (x *PgDiagnostic) GetRoutine() string {
+	if x != nil {
+		return x.Routine
 	}
 	return ""
 }
@@ -1652,7 +1684,7 @@ const file_query_proto_rawDesc = "" +
 	"\x06format\x18\b \x01(\x05R\x06format\"7\n" +
 	"\x03Row\x12\x18\n" +
 	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
-	"\x06values\x18\x02 \x01(\fR\x06values\"\xdd\x03\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"\x9f\x04\n" +
 	"\fPgDiagnostic\x12!\n" +
 	"\fmessage_type\x18\x0f \x01(\x05R\vmessageType\x12\x1a\n" +
 	"\bseverity\x18\x01 \x01(\tR\bseverity\x12\x12\n" +
@@ -1672,7 +1704,10 @@ const file_query_proto_rawDesc = "" +
 	"\vcolumn_name\x18\f \x01(\tR\n" +
 	"columnName\x12$\n" +
 	"\x0edata_type_name\x18\r \x01(\tR\fdataTypeName\x12'\n" +
-	"\x0fconstraint_name\x18\x0e \x01(\tR\x0econstraintName\"V\n" +
+	"\x0fconstraint_name\x18\x0e \x01(\tR\x0econstraintName\x12\x12\n" +
+	"\x04file\x18\x10 \x01(\tR\x04file\x12\x12\n" +
+	"\x04line\x18\x11 \x01(\x05R\x04line\x12\x18\n" +
+	"\aroutine\x18\x12 \x01(\tR\aroutine\"V\n" +
 	"\x0ePgNotification\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\achannel\x18\x02 \x01(\tR\achannel\x12\x18\n" +
