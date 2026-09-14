@@ -5,6 +5,9 @@
 #
 # Teams must have at least Read access to this repository.
 
+# Default ownership for paths without a more specific rule
+* @multigres/Maintainers
+
 # Gateway service
 go/services/multigateway/ @multigres/owners-query-serving
 
