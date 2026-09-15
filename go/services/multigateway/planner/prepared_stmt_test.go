@@ -129,7 +129,7 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 	return nil, nil
 }
 
-func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
+func (m *mockHandlerExecutor) PrepareInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
 	return nil
 }
 

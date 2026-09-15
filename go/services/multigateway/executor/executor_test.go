@@ -174,15 +174,16 @@ func makePortalInfo(t *testing.T, sql string) *preparedstatement.PortalInfo {
 	return preparedstatement.NewPortalInfo(psi, &querypb.Portal{Name: ""})
 }
 
-func TestEagerParseInTransaction(t *testing.T) {
+func TestPrepareInTransaction(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
 	defer exec.planCache.Close()
 
-	require.NoError(t, exec.EagerParseInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
+	require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
 	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
 	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
-	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetForceUnnamedParse())
+	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetPrepareOnly())
+	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetPreparedStatement().GetForceReparse())
 }
 
 // ---------- StreamExecute plan cache tests ----------

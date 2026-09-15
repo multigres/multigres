@@ -285,7 +285,7 @@ func (e *Executor) StreamExecute(
 		"query", sql)
 
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
+	prepareOnly := executeSQLPreparedStmt.GetPrepareOnly()
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -299,8 +299,8 @@ func (e *Executor) StreamExecute(
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
-		if eagerParse {
-			return e.eagerParseOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
+		if prepareOnly {
+			return e.prepareOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
 		}
 
 		// If the query references a SQL-level prepared statement wrapper,
@@ -350,8 +350,8 @@ func (e *Executor) StreamExecute(
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
-	if eagerParse {
-		return nil, errors.New("eager unnamed Parse requires a reserved transaction")
+	if prepareOnly {
+		return nil, errors.New("prepare-only request requires a reserved transaction")
 	}
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
@@ -422,10 +422,10 @@ func (e *Executor) reserveAndStreamExecute(
 	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
-	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
+	prepareOnly := executeSQLPreparedStmt.GetPrepareOnly()
+	if (executeSQLPreparedStmt != nil && !prepareOnly) || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			if executeSQLPreparedStmt != nil && !eagerParse {
+			if executeSQLPreparedStmt != nil && !prepareOnly {
 				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt); err != nil {
 					return err
 				}
@@ -491,8 +491,8 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.ReserveForPortal(name)
 	}
 
-	if eagerParse {
-		if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
+	if prepareOnly {
+		if err := e.prepareOnly(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
 			if mterrors.IsConnectionDead(err) {
 				if beginTx {
 					_ = reservedConn.Rollback(ctx)
@@ -640,7 +640,7 @@ func (e *Executor) reserveAndStreamExecute(
 	return reservedState, nil
 }
 
-func (e *Executor) eagerParseOnReservedConn(
+func (e *Executor) prepareOnReservedConn(
 	ctx context.Context,
 	reservedConn *reserved.Conn,
 	stmt *query.PreparedStatement,
@@ -660,20 +660,18 @@ func (e *Executor) eagerParseOnReservedConn(
 		reservedConn.AddReservationReason(reasons)
 	}
 
-	if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), stmt); err != nil {
-		return e.reservedConnError(reservedConn, "failed to eager parse transaction PREPARE", err)
+	if err := e.prepareOnly(ctx, reservedConn.Conn(), stmt); err != nil {
+		return e.reservedConnError(reservedConn, "failed to prepare transaction statement", err)
 	}
 	return e.buildReservedState(reservedConn), nil
 }
 
-func (e *Executor) forceUnnamedParse(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+func (e *Executor) prepareOnly(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
 	if stmt == nil {
 		return errors.New("prepared statement is required")
 	}
-	if err := conn.Parse(ctx, "", stmt.Query, stmt.ParamTypes); err != nil {
-		return fmt.Errorf("failed to parse statement: %w", err)
-	}
-	return nil
+	_, err := e.ensurePrepared(ctx, conn, stmt)
+	return err
 }
 
 // streamExecuteOnReservedConn executes a query on an existing reserved
@@ -1284,7 +1282,7 @@ func cachedPlanRetry[T any](
 	op func(canonicalName string) (T, error),
 ) (T, error) {
 	result, err := op(canonicalName)
-	if err != nil && mterrors.IsCachedPlanError(err) {
+	if err != nil && mterrors.IsStalePreparedStatementError(err) {
 		_ = conn.CloseStatement(ctx, canonicalName)
 		conn.State().DeletePreparedStatement(canonicalName)
 
@@ -1562,8 +1560,21 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	connState := conn.State()
 	existing := connState.GetPreparedStatement(canonicalName)
 	if existing != nil && existing.Query == stmt.Query {
-		// Statement already prepared on this connection, reuse it
-		return canonicalName, nil
+		if !stmt.GetForceReparse() {
+			// Statement already prepared on this connection, reuse it
+			return canonicalName, nil
+		}
+		// The client issued a fresh Parse for this query (force_reparse), which in
+		// PostgreSQL always re-plans against the current catalog. The consolidated
+		// backend statement on THIS connection may have been Parsed before a schema
+		// change, so drop and re-Parse it rather than hand back a stale plan. This
+		// covers the in-transaction path (a transaction is pinned to one backend,
+		// so re-Parsing it here is sufficient); the reactive cachedPlanRetry heal
+		// backstops the autocommit case where a later Bind/Execute lands on a
+		// different pooled backend that still has the stale statement. Uses the
+		// same invalidation primitives as that heal.
+		_ = conn.CloseStatement(ctx, canonicalName)
+		connState.DeletePreparedStatement(canonicalName)
 	}
 
 	// Parse the statement on this connection
