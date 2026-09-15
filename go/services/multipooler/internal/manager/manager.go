@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1105,7 +1104,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// need to repeat the check here, since pgctld and multipooler are
 		// co-located and share the same pgbackrest binary.
 		pgPort := int(pm.record.Port("postgres"))
-		socketDir := filepath.Join(pm.record.PoolerDir(), "pg_sockets")
+		socketDir := constants.PostgresSocketDir(pm.record.PoolerDir())
 		pg1User := constants.DefaultPostgresUser
 		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
 		if pm.connPoolMgr != nil {

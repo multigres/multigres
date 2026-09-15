@@ -234,6 +234,11 @@ type Pool[C Connection] struct {
 	// scrubMetrics records session-state scrub outcomes. Provided via Config.
 	scrubMetrics ScrubMetrics
 
+	// scrubPass numbers the scrubber's passes over the idle connections; a
+	// pass ends when every idle connection has been probed once. Only the
+	// scrub worker reads or writes it. See scrub.go.
+	scrubPass uint64
+
 	// checkers verify idle connections' real backend state against tracked
 	// state; run by the scrub worker. Populated via RegisterChecker before
 	// Open, read-only afterwards.
@@ -601,6 +606,15 @@ func (pool *Pool[C]) put(conn *Pooled[C]) {
 }
 
 func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
+	return pool.returnConnAt(conn, 0)
+}
+
+// returnConnAt is tryReturnConn with a choice of depth for the idle stack:
+// 0 is the top, where a recycled connection belongs (LIFO keeps the hot
+// connection hot). The scrubber passes the depth it took a probed connection
+// from, so probing never promotes a cold connection into client traffic —
+// which would refresh its idle clock and keep the pool from shrinking.
+func (pool *Pool[C]) returnConnAt(conn *Pooled[C], depth int) bool {
 	// If we're over capacity, close the connection.
 	// This enables non-blocking SetCapacity - excess connections are closed on recycle.
 	if pool.closeOnOverCapacity(conn) {
@@ -614,13 +628,16 @@ func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
 		return false
 	}
 	// Connection goes to idle stack
-	connSettings := conn.Conn.Settings()
-	if connSettings == nil || connSettings.IsEmpty() {
-		pool.clean.Push(conn)
-	} else {
+	stack := &pool.clean
+	if connSettings := conn.Conn.Settings(); connSettings != nil && !connSettings.IsEmpty() {
 		bucket := connSettings.Bucket() & stackMask
-		pool.states[bucket].Push(conn)
+		stack = &pool.states[bucket]
 		pool.freshStatesStack.Store(int64(bucket))
+	}
+	if depth == 0 {
+		stack.Push(conn)
+	} else {
+		stack.InsertAt(conn, depth)
 	}
 	return false
 }
@@ -718,6 +735,10 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 
 	dbconn.timeCreated.set(now)
 	dbconn.timeUsed.set(now)
+	// A new backend has not been probed by the scrubber, whatever the old one
+	// was marked with. The connection is borrowed here, so the scrubber cannot
+	// hold it, and the push that follows orders this write before any read.
+	dbconn.scrubPass = 0
 	return nil
 }
 
