@@ -1,8 +1,7 @@
 # Multigres Migrator: table-migration coordinator via logical replication
 
-> **Name.** This tool/service is the **Multigres Migrator**. Its identifier form
-> is `migrator` — used for the binary, service, Docker image, proto package,
-> topo type, and service constant (`ServiceMigrator`).
+> **Name.** This tool/service is the **Multigres Migrator**. Its identifier form > is `migrator` — used for the binary,
+> service, Docker image, proto package, > topo type, and service constant (`ServiceMigrator`).
 
 ## Overview
 
@@ -119,8 +118,8 @@ In particular, there are a few things that you cannot do:
 
 - There is no API to construct a slot at a chosen position. You have to create the slot before any activity that you
   need to replicate.
-- There is no API to read the internal state of a slot, persist it elsewhere, and later recreate the slot at that
-  state. (But you can copy a slot locally.)
+- There is no API to read the internal state of a slot, persist it elsewhere, and later recreate the slot at that state.
+  (But you can copy a slot locally.)
 - `pg_replication_slot_advance` is **forward-only**, so you cannot create-then-rewind to a saved position either.
 
 There is a good reason for this. The values in `pg_replication_slots` are not the actual state; they are just _pointers
@@ -161,8 +160,8 @@ barrier, and never on saving and restoring slot state.
    failure-resume are deferred (Roadmap).
 6. **`copy_data` is optional** at subscription setup — create a subscription without the initial copy so data can be
    seeded by other means. Shipped with documentation on how to use it.
-7. **The source connection supports the full range of Postgres connection options, including TLS/encryption**
-   (`sslmode` up to `verify-full`, client certs, etc.).
+7. **The source connection supports the full range of Postgres connection options, including TLS/encryption** (`sslmode`
+   up to `verify-full`, client certs, etc.).
 8. **On-prem publication creation is optional**: Multigres Migrator creates it by default; `--source-publication` lets
    the source owner pre-create it.
 9. **Migration validation checks replica identity** at create/start time: reject tables with no usable replica identity
@@ -187,15 +186,15 @@ streaming phase in the IMPORT and EXPORT directions):
 
 ```mermaid
 stateDiagram-v2
-    state "CREATED<br/>NOT_SERVING" as Created
-    state "VALIDATING<br/>NOT_SERVING" as Validating
-    state "SCHEMA_COPY<br/>NOT_SERVING" as SchemaCopy
-    state "CREATE_PUBLICATION<br/>NOT_SERVING" as CreatePublication
-    state "COPYING<br/>NOT_SERVING" as Copying
-    state "IMPORTING<br/>NOT_SERVING" as Importing
-    state "EXPORTING<br/>SERVING" as Exporting
-    state "DROPPED<br/>SERVING (standalone)" as Dropped
-    state "FAILED<br/>NOT_SERVING" as Failed
+    state "Migration: CREATED<br/>Gateway: NOT_SERVING" as Created
+    state "Migration: VALIDATING<br/>Gateway: NOT_SERVING" as Validating
+    state "Migration: SCHEMA_COPY<br/>Gateway: NOT_SERVING" as SchemaCopy
+    state "Migration: CREATE_PUBLICATION<br/>Gateway: NOT_SERVING" as CreatePublication
+    state "Migration: COPYING<br/>Gateway: NOT_SERVING" as Copying
+    state "Migration: IMPORTING<br/>Gateway: NOT_SERVING" as Importing
+    state "Migration: EXPORTING<br/>Gateway: SERVING" as Exporting
+    state "Migration: DROPPED<br/>Gateway: SERVING (standalone)" as Dropped
+    state "Migration: FAILED<br/>Gateway: NOT_SERVING" as Failed
 
     [*] --> Created: CreateMigration
     Created --> Validating: StartMigration
@@ -231,41 +230,65 @@ stateDiagram-v2
   table has a usable replica identity — reject a table with no PK/unique index and no explicit replica identity; warn on
   `REPLICA IDENTITY FULL`. If a row filter (`--where`) is supplied, also reject when any filter column is not covered by
   the replica identity (a publication replicating `UPDATE`/`DELETE` can only filter on replica-identity columns).
-- **`SCHEMA_COPY`** — ensure target tables exist: `pg_dump --schema-only` of named tables from the source, applied on
-  the target (psql backslash meta-lines stripped). Skippable (`--skip-schema-copy`).
+- **`SCHEMA_COPY`** — ensure target tables exist: first **drop the migrated tables on the target** (`DROP TABLE IF
+EXISTS … CASCADE`) so a pre-existing table (a re-run after a partial migration, or a target that already had them)
+  does not fail the apply with "relation already exists"; then `pg_dump --schema-only` of the named tables from the
+  source, applied on the target (psql backslash meta-lines stripped). Skippable (`--skip-schema-copy`), which also skips
+  the drop — that path keeps a target seeded out-of-band.
 - **`CREATE_PUBLICATION`** — `CREATE PUBLICATION` on the source `FOR TABLE <tables>` (plus optional `WHERE`/column
   list). Skipped if publication pre-created.
 - **`COPYING`** — `CREATE SUBSCRIPTION` on the target. `copy_data` optional: `true` = stock tablesync initial `COPY`;
   `false` = no copy (seeded out-of-band). If copying, poll `pg_subscription_rel.srsubstate` until all `r`.
 - **`IMPORTING`** — the steady-state streaming phase in the IMPORT direction (`active_direction = IMPORT`); report lag
-  from the source's `pg_stat_replication`. **The target does not serve client queries in this state** (see
-  _[Serving gate](#serving-gate)_) even once caught up — going live is the explicit `activate-migration` step, not a side
-  effect of catching up.
+  from the source's `pg_stat_replication`. **The target does not serve client queries in this state** (see _[Serving
+  gate](#serving-gate)_) even once caught up — going live is the explicit `activate-migration` step, not a side effect
+  of catching up.
 - **`IMPORTING` ⇄ `EXPORTING`** (operator: `activate-migration` / `deactivate-migration`) — the switch flips the active
   direction and, with it, serving: 1) quiesce current source; 2) drain to lag zero; 3) journal a handoff entry
   (drained-to LSN, new-source LSN, direction, timestamp); 4) `setval` new-source sequences past max; 5) drop current sub
   (drops slot) plus publication; 6) establish reverse path (`CREATE PUBLICATION` on new source, `CREATE SUBSCRIPTION`
-  with `copy_data=false` on new target); 7) re-enable writes on new source; flip `active_direction`. `activate-migration`
-  (`IMPORTING`→`EXPORTING`) turns serving **on** only after the drain barrier (step 2) confirms the target has every
-  event; `deactivate-migration` (`EXPORTING`→`IMPORTING`) turns serving **off** first, then drains back.
+  with `copy_data=false` on new target); 7) re-enable writes on new source; flip `active_direction`.
+  `activate-migration` (`IMPORTING`→`EXPORTING`) turns serving **on** only after the drain barrier (step 2) confirms the
+  target has every event; `deactivate-migration` (`EXPORTING`→`IMPORTING`) turns serving **off** first, then drains
+  back.
 - **`DROPPED` / `FAILED`** — `drop-migration` drops sub/pub/slot idempotently on both sides and deletes the workflow;
   journal retained for audit. The default drop performs a **quiesce+drain barrier** so no in-flight change is lost: it
-  requires the migration to be caught up (`STREAMING`), sets the current source read-only, waits for the target to reach
-  the source's LSN, advances the new writer's sequences, and only then tears down — leaving the shard standalone and
-  write-safe. `--wait` first blocks until the migration catches up (bounding the read-only window), then runs the same
-  barrier. `--force` skips the whole barrier (no quiesce, no drain, no sequence advance) and removes the workflow from
-  any phase — the abandon path, which can leave an incompletely-copied or PK-unsafe target. A default drop is thus safe
-  from either `IMPORTING` (source frozen read-only, a one-way cutover) or `EXPORTING`; only a not-caught-up or
-  never-started migration needs `--wait` or `--force`.
+  requires the migration to be caught up (`IMPORTING`/`EXPORTING`), sets the current source read-only, waits for the
+  target to reach the source's LSN, advances the new writer's sequences, and only then tears down — leaving the shard
+  standalone and write-safe. `--wait` first blocks until the migration catches up (bounding the read-only window), then
+  runs the same barrier. `--force` skips the whole barrier (no quiesce, no drain, no sequence advance) and removes the
+  workflow from any phase — the abandon path, which can leave an incompletely-copied or PK-unsafe target. A default drop
+  is thus safe from either `IMPORTING` (source frozen read-only, a one-way cutover) or `EXPORTING`; only a not-caught-up
+  or never-started migration needs `--wait` or `--force`.
 
 Notes:
 
 - **Activate/deactivate are one symmetric primitive.** Both call the same direction flip with an explicit target;
-  `activate-migration` requires the current direction to be IMPORT and `deactivate-migration` requires EXPORT, so each is
-  self-guarding (you cannot activate an already-live migration). `deactivate` then `activate` returns to the live state,
-  and so on, appending a journal entry each time. Each flip relies on the quiesce+lag-zero barrier making both sides
-  identical, so `copy_data=false` is always safe. (`active_direction` stays IMPORT/EXPORT in the record and status views
-  — the monitoring vocabulary — while the operator verbs read as activate/deactivate.)
+  `activate-migration` requires the current direction to be IMPORT and `deactivate-migration` requires EXPORT, so each
+  is self-guarding (you cannot activate an already-live migration). `deactivate` then `activate` returns to the live
+  state, and so on, appending a journal entry each time. Each flip relies on the quiesce+lag-zero barrier making both
+  sides identical, so `copy_data=false` is always safe. (`active_direction` stays IMPORT/EXPORT in the record and status
+  views — the monitoring vocabulary — while the operator verbs read as activate/deactivate.)
+- **The source quiesce at activate is a hard barrier, not just read-only.** `default_transaction_read_only` alone is not
+  airtight: it only defaults _new_ transactions, an in-flight transaction still commits, and a client can override it
+  (`BEGIN … READ WRITE`, `SET … = off`). Because the source becomes a subscriber, any write it takes after the barrier
+  is captured by nothing and diverges (logical replication never reconciles a local write on a subscriber). So
+  `activate-migration` quiesces the source hard, in this order: (1) `REVOKE CONNECT` from the operator-named application
+  role(s) (the `quiesce_roles` create option) — losing CONNECT cannot be overridden the way the read-only GUC can, and
+  superusers (the migrator's own DSN) bypass the check so admin access is retained; (2) `default_transaction_read_only =
+on` cluster-wide to freeze anything still connected; (3) `pg_terminate_backend` every remaining `client backend`
+  (never walsenders/apply workers, never the migrator's connections, which carry a distinct `application_name`); only
+  then (4) capture the barrier LSN and wait for `confirmed_flush ≥ LSN`. Terminating (rather than only blocking) is what
+  makes the captured LSN final. `quiesce_roles` is opt-in: with none set, steps (2)+(3) still cut and freeze the live
+  writers, but a reconnecting client is defaulted read-only, so naming the app role(s) is what closes the last hole.
+  The source is un-quiesced (`default_transaction_read_only = off`) as part of the switch so it can accept writes
+  again — both from its own clients and from the new subscription's apply; the CONNECT fence, not the GUC, is what
+  keeps the app out for the rest of the EXPORT lifetime; `deactivate` and a drop `GRANT CONNECT` back. The symmetric
+  `deactivate` (EXPORT→IMPORT) needs no GUC on the target: the target's postgres is
+  reachable only through the pooler, so its hard guarantee is the serving gate — `deactivate` drains the pooler to
+  non-serving **synchronously** (the same `drainForImport` barrier `StartMigration` uses) before the target becomes a
+  subscriber, rather than waiting for the async monitor tick. A graceful drop keeps the source a standalone primary, so
+  it uses only the soft read-only drain (no terminate, no CONNECT fence).
 - **Why the reverse path is built at switch time, not pre-armed.** A tempting alternative is to create the subscriptions
   and publications for _both_ directions up front and just `ENABLE`/`DISABLE` them at the switch. This works for
   publications — they are stateless metadata (a table set plus optional filter), hold no slot or position, and drive no
@@ -277,13 +300,17 @@ Notes:
   subscription would pin every byte of WAL the target produces for the whole migration. It is also the
   [created-but-never-consumed failover slot](https://www.postgresql.org/docs/current/logical-replication-failover.html)
   hazard: an unconsumed slot's frozen `catalog_xmin` makes it look temporary and it is dropped on failover, so
-  pre-arming does not even survive the event it exists for. Creating the reverse subscription with `create_slot = false`
-  sidesteps the idle slot but then enabling it must create a fresh slot at the current LSN — exactly what the switch
-  does anyway — so it buys nothing. Hence the reverse slot is created at switch time, when it immediately starts being
-  consumed; `ENABLE`/`DISABLE` is reserved for short-lived pause/resume within the _active_ direction (Roadmap), where
-  the same "a long disable re-accumulates WAL" caveat applies. (Both directions _enabled at once_ — active-active via
-  PG16+ `origin = none` to break the loop — is a different model with concurrent-write conflict handling and is
-  deliberately out of scope: the migrator keeps a single writer via the quiesce barrier.)
+  pre-arming does not even survive the event it exists for. Hence the reverse slot is created at **switch time**, not
+  ahead of it — but it must exist a moment _before_ serving turns on, so it captures the writes the app makes to the
+  target the instant it can connect (`copy_data=false` can't backfill them). The subscription can't create the slot
+  then: its connection dials the target through the gateway, which refuses it until `EXPORTING`. So `switchTo` creates
+  the reverse slot explicitly on the target and `pg_replication_slot_advance`s it to the handoff LSN, and the reverse
+  subscription attaches with `create_slot = false` once serving is on. The idle window is only the few seconds between
+  slot creation and the subscription attaching after the `EXPORTING` commit, so the WAL-pinning cost is negligible.
+  `ENABLE`/`DISABLE` is reserved for short-lived pause/resume within the _active_ direction (Roadmap), where the same "a
+  long disable re-accumulates WAL" caveat applies. (Both directions _enabled at once_ — active-active via PG16+ `origin
+= none` to break the loop — is a different model with concurrent-write conflict handling and is deliberately out of
+  scope: the migrator keeps a single writer via the quiesce barrier.)
 - MVP = one source → one target, a set of whole tables, single subscription/slot (no chunking; large-table copy uses
   stock tablesync — resumable chunked copy is a Roadmap item).
 - **Reverse stream across a major version (rollback to an older source).** A common shape is onboarding an older source
@@ -297,7 +324,7 @@ Notes:
   Use the default **text** format, not `binary` — no built-in type's binary `send` format changes across majors, but
   binary demands an exact type match, fails outright for any type the older subscriber lacks a binary `recv` for, and is
   fragile for OID-embedding composite/`record` columns; text is version-robust. (3) Sequences and DDL still do not
-  replicate (see the switch's `setval` step and the DDL-replication follow-up) — on an actual failback, advance the old
+  replicate (see the switch's `setval` step) — on an actual failback, advance the old
   server's sequences past max first, and keep schema changes off the tested platform or apply them to both sides, or the
   old subscriber's apply worker stalls. (4) Do not leave both directions streaming at once across versions: the
   loop-breaker (`origin = none`) is PG16+, so a pre-PG16 subscriber cannot suppress echoed changes — keep a single
@@ -313,12 +340,13 @@ complete, caught-up copy. Serving is therefore gated on `active_direction`:
 
 - **IMPORT — not serving.** From `CREATED` through `IMPORTING` (the streaming phase in the IMPORT direction) the target
   is the subscriber being populated; its pooler advertises a non-serving state, so the shard is not treated as a live
-  server — even after it has caught up.
+  server — even after it has caught up. The hold starts as soon as a migration **exists** on the shard (`CREATED`), not
+  only once it is started, so clients cannot change the database while a migration is staged against it.
 - **EXPORT — serving.** `activate-migration` flips `active_direction` to EXPORT only after the drain barrier, and the
   shard goes live. Going live is the operator's explicit act; catching up alone does not start serving.
 
-The application owns the traffic cutover: it stops writing to the source and points at Multigres once the shard is active.
-Multigres does not move client traffic itself (that is gateway routing, out of scope).
+The application owns the traffic cutover: it stops writing to the source and points at Multigres once the shard is
+active. Multigres does not move client traffic itself (that is gateway routing, out of scope).
 
 **What "not serving" means at the gateway.** The gateway picks the routing primary from liveness plus routing role
 (consensus/recovery), not from serving status, so a non-serving target still _is_ the routing primary. Marking it
@@ -330,14 +358,284 @@ stray client from reading a half-copied shard.
 **Mechanism (pooler).** The effective serving state is `DRAINING` while an IMPORT migration is active on the shard and
 reconciles to `SERVING` when it flips to EXPORT — the same monitor-reconciled path the divergence hold uses, driven by
 `active_direction` in the migration record (so it survives a pooler restart and a target failover). `DRAINING`
-(transient, monitor-reconcilable) is used rather than `DISABLED` (sticky, reserved for shutdown/demote). The gate applies
-to every pooler in the target shard (primary and standbys read the replicated migration record), so a standby will not
-serve reads of a half-copied shard either.
+(transient, monitor-reconcilable) is used rather than `DISABLED` (sticky, reserved for shutdown/demote). The gate
+applies to every pooler in the target shard (primary and standbys read the replicated migration record), so a standby
+will not serve reads of a half-copied shard either. `start-migration` does not wait for that monitor tick: it drives the
+pooler to non-serving **synchronously** (a drain barrier) before it drops the target tables or creates the subscription,
+so there is no window in which a client can write to a shard that is about to be overwritten by the initial copy; the
+monitor then keeps the hold on every subsequent tick.
+
+## Migrator operation sequences
+
+These sequences trace the **current implementation**: the migrator coordinator, the manager (postgres monitor + serving
+gate + reconcile poller), and the query pooler run as services inside a single **multipooler**, with migration state in
+the replicated `multigres.migration` table and `multiadmin` forwarding the operator RPCs. There is one diagram per
+operator action. A `Note over POOL` on the pooler lifeline marks whether it is SERVING client queries or NOT-serving;
+migrator SQL runs on the local Postgres over the admin pool, and the source is reached over its DSN.
+
+### CreateMigration
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant GW as Gateway
+    box transparent multipooler
+        participant MIG as migrator
+        participant MGR as manager
+        participant POOL as pooler
+    end
+    participant TGT as Target PG
+    Note over POOL: pooler SERVING
+    OP->>GW: CREATE MIGRATION accounts ...
+    GW->>MIG: forward to migrator (MODE_WRITABLE)
+    MIG->>TGT: INSERT multigres.migration (phase=CREATED)
+    MIG-->>OP: phase=CREATED
+    Note over MGR,POOL: serving hold — postgres-monitor tick (~5s), async
+    MGR->>TGT: read multigres.migration (a non-EXPORTING migration exists)
+    MGR->>POOL: set serving hold → NOT-serving
+    Note over POOL: pooler NOT-serving (a migration exists)
+```
+
+Creating a migration takes the shard **non-serving**: as soon as the `CREATED` row exists, the ~5s postgres-monitor sees
+a non-EXPORTING migration and holds serving, so clients cannot change the database while a migration is staged against
+it. The flip is monitor-driven (within one tick); `StartMigration` still runs a synchronous drain barrier before its
+destructive setup, and if create is followed immediately by start that barrier guarantees non-serving before any table
+is dropped. `CREATE MIGRATION` is also drivable via `mg` / multiadmin (the RPC front door, which works at every phase).
+
+### StartMigration
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant APP as App
+    participant GW as Gateway
+    box transparent multipooler
+        participant MIG as migrator
+        participant MGR as manager
+        participant POOL as pooler
+    end
+    participant TGT as Target PG
+    participant SRC as Source PG
+    Note over MGR: postgres-monitor (~5s) and reconcile poller (~10s) run from pooler registration
+    Note over POOL: pooler SERVING
+    APP->>SRC: app still writing to source (direct)
+    OP->>MIG: StartMigration (via multiadmin)
+    MIG->>TGT: UPDATE multigres.migration (phase=VALIDATING)
+    MIG->>SRC: validate source (replica identity, wal_level)
+    Note over MIG,POOL: serving barrier, synchronous, before any destructive step
+    MIG->>MGR: drainForImport()
+    MGR->>POOL: force hold, drain to non-serving (blocks)
+    Note over POOL: pooler NOT-serving
+    MIG->>TGT: DROP TABLE target tables
+    MIG->>SRC: pg_dump --schema-only
+    MIG->>TGT: apply schema DDL
+    MIG->>SRC: CREATE PUBLICATION
+    MIG->>TGT: CREATE SUBSCRIPTION (copy_data=true)
+    TGT->>SRC: START_REPLICATION SLOT ... LOGICAL (target apply worker)
+    SRC-->>TGT: initial COPY plus change stream
+    MIG->>TGT: UPDATE multigres.migration (phase=COPYING) then return
+    Note over MGR,MIG: reconcile poller tick (~10s)
+    MGR->>MIG: reconcile
+    MIG->>TGT: read pg_subscription_rel then UPDATE phase=IMPORTING when caught up
+```
+
+The serving flip is synchronous: `StartMigration` calls the drain barrier before `DROP TABLE` / `CREATE SUBSCRIPTION`.
+The pooler is drained and non-serving before streaming begins — there is no window in which a client can write to the
+target. The ~5s postgres-monitor only keeps the hold afterward; the ~10s reconcile poller advances `COPYING` →
+`IMPORTING` once the copy catches up. Streaming is Postgres-to-Postgres: `CREATE SUBSCRIPTION` starts the target's apply
+worker, which issues `START_REPLICATION` to the source walsender — the migrator does not carry the stream.
+
+### ActivateMigration
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant APP as App
+    participant GW as Gateway
+    box transparent multipooler
+        participant MIG as migrator
+        participant MGR as manager
+        participant POOL as pooler
+    end
+    participant TGT as Target PG
+    participant SRC as Source PG
+    Note over POOL: pooler NOT-serving (IMPORTING)
+    Note over OP,APP: before activate, operator repoints the app to the target
+    OP->>APP: change app DSN to target (gateway)
+    APP-xGW: connect or write, blocked 57P03 (still IMPORTING)
+    OP->>MIG: ActivateMigration (via multiadmin)
+    MIG->>TGT: UPDATE phase=SWITCHING_TO_EXPORT (write-ahead intent)
+    Note over MIG,SRC: drain barrier, make both sides identical (lag-0)
+    MIG->>SRC: quiesce source, SET read-only
+    MIG->>TGT: wait target consumed to source LSN (lag-0)
+    Note over MIG,TGT: reverse the link
+    MIG->>SRC: un-quiesce source, SET read_write
+    MIG->>TGT: setval sequences past max
+    MIG->>TGT: DROP SUBSCRIPTION (forward)
+    MIG->>SRC: DROP PUBLICATION (forward)
+    MIG->>TGT: CREATE PUBLICATION (reverse)
+    MIG->>TGT: create reverse slot and advance to handoff LSN (before serving)
+    MIG->>TGT: UPDATE phase=EXPORTING (commit)
+    MIG->>SRC: CREATE SUBSCRIPTION (reverse, create_slot=false)
+    SRC-xGW: START_REPLICATION rejected 57P03, retried until serving
+    Note over MGR,POOL: serving flip, postgres-monitor tick (~5s), async
+    MGR->>POOL: phase EXPORTING, release hold, SERVING
+    Note over POOL: pooler SERVING
+    SRC->>GW: START_REPLICATION (retry succeeds)
+    GW->>TGT: gateway proxies to target primary walsender
+    TGT-->>GW: reverse changes
+    GW-->>SRC: reverse changes
+    Note over OP,APP: app resumes, shard now serving
+    APP->>GW: retry succeeds, app writes
+    GW->>TGT: route via primary pooler
+```
+
+Crash-safe: `SWITCHING_TO_EXPORT` is the write-ahead intent, so a crash resumes the switch via reconcile. The drain
+barrier makes both sides identical; the reverse slot is pre-created and advanced to the handoff LSN before serving turns
+on, so it captures every post-switch target write and the reverse subscription attaches with `create_slot=false` —
+nothing is lost. The reverse subscription's `CONNECTION` is the gateway advertise host, so the source's
+`START_REPLICATION` terminates at the gateway and is rejected with `57P03` until the pooler flips to serving (the retry
+window); then the gateway proxies to the target primary walsender and the reverse stream flows back through the tunnel.
+
+#### Cutover readiness gate and gateway buffering
+
+The cutover has a brief window — quiesce the source, drain the residual lag to zero under the read-only barrier, flip
+the direction, turn serving on — during which the target pooler is not yet serving. Rather than refuse client queries
+with `57P03` in that window, the gateway **buffers** them (its planned-failover buffer, `buffer-enabled`,
+`buffer-window` ~10s, `buffer-max-failover-duration` ~20s) and replays them once the target serves, so an application
+already pointed at the gateway sees no error and loses no write. Two mechanisms make that safe:
+
+1. **Readiness gate before the barrier.** `ActivateMigration` takes `max_lag_bytes` and `wait_timeout_seconds`. Before
+   it quiesces the source it polls the live replication lag — `pg_wal_lsn_diff(pg_current_wal_lsn(),
+confirmed_flush_lsn)` on the source slot — and proceeds only once the lag is at or below `max_lag_bytes`. If the lag
+   does not fall in `wait_timeout_seconds` it fails with a precondition error (`ErrNotReady` → gRPC
+   `FAILED_PRECONDITION`) and leaves the migration in the IMPORT direction — no cutover, no serving change. Bounding the
+   residual before the source goes read-only keeps the subsequent drain-to-zero short, so the whole cutover fits the
+   buffer window.
+
+2. **Synchronous serving flip.** The moment `applySwitch` commits `EXPORTING`, the coordinator flips this pooler to
+   `SERVING` inline (`releaseForMigrationExport` → `StateManager.ReconcileMigrationHold`), rather than waiting for the
+   asynchronous ~5s postgres-monitor tick. Prompt serving-on is what lets the gateway's buffer drain (it releases when
+   the elected leader self-attests PRIMARY + SERVING) inside its window; a slow flip risks the buffer timing out
+   (`MTB02`) and refusing the held queries. The same flip unblocks the reverse subscription, which the source can only
+   attach once the target serves.
+
+**The buffer-window / threshold relationship.** The cutover wall-clock is `T_drain + T_flip + T_serve`.
+`T_flip + T_serve` are a handful of catalog operations plus the synchronous flip (a fixed budget). `T_drain` scales with
+the residual lag at quiesce time, which the readiness gate bounds. So `max_lag_bytes` must be small enough that
+`T_drain` plus that fixed budget stays under `buffer-window`; otherwise the buffer overflows and queries are refused
+mid-cutover. The coordinator documents a recommended ceiling (`MaxActivateMaxLagBytes`, in step with the gateway buffer
+window) but does **not** enforce it: whether a threshold is too large depends on the gateway buffer window, which the
+coordinator cannot observe across services, and the CLI / multiadmin path bypasses the gateway entirely — so a hard
+refuse would be guessing. Keeping `max_lag_bytes` at or below the recommended ceiling is the operator's responsibility.
+The default (`DefaultActivateMaxLagBytes`) is well under the ceiling, so a caught-up `IMPORTING` stream (lag ~0) cuts
+over immediately. A zero-error cutover also requires the gateway to have buffering enabled (`buffer-enabled`); with it
+off, queries in the window fall back to the current `57P03` refuse behavior.
+
+**SQL surface.** `ALTER MIGRATION <name> ACTIVATE WITH (max_lag_bytes = 8388608, wait_timeout = '30s')` threads the same
+two parameters through the gateway; `wait_timeout` accepts a duration string or bare integer seconds. The `mg` /
+multiadmin path exposes them as `--max-lag-bytes` / `--wait-timeout`.
+
+**Observing lag.** So an operator can pick a threshold, migration status surfaces the live lag: `SHOW MIGRATION <name>`
+(and `get-migration` / the API `Migration` message) reports `lag_bytes` and `lag_seconds`, measured on the current
+publisher — the source in IMPORT, the target in EXPORT. `lag_bytes` is the same `pg_current_wal_lsn() -
+confirmed_flush_lsn` measure the readiness gate compares against `max_lag_bytes`, and `lag_seconds` is the walsender's
+`replay_lag`. Both read live on each status call (best-effort: 0 when not streaming or the publisher is unreachable).
+
+### DeactivateMigration
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant APP as App
+    participant GW as Gateway
+    box transparent multipooler
+        participant MIG as migrator
+        participant MGR as manager
+        participant POOL as pooler
+    end
+    participant TGT as Target PG
+    participant SRC as Source PG
+    Note over POOL: pooler SERVING (EXPORTING)
+    APP->>GW: app writes to target
+    TGT-->>SRC: reverse stream (via tunnel)
+    Note over OP,APP: operator quiesces the app (stop writes) before deactivate
+    OP->>APP: stop writes, quiesce
+    OP->>MIG: DeactivateMigration (via multiadmin)
+    MIG->>TGT: UPDATE phase=SWITCHING_TO_IMPORT (write-ahead intent)
+    Note over MGR,POOL: serving flip, postgres-monitor tick (~5s), async
+    MGR->>POOL: phase not EXPORTING, hold, DRAINING
+    Note over POOL: pooler NOT-serving
+    Note over MIG,TGT: drain barrier, reverse stream to lag-0
+    MIG->>TGT: wait reverse slot confirmed to target LSN (lag-0)
+    Note over MIG,SRC: reverse the link
+    MIG->>SRC: setval sequences past max
+    MIG->>SRC: DROP SUBSCRIPTION (reverse)
+    MIG->>TGT: DROP PUBLICATION (reverse)
+    MIG->>TGT: DROP reverse slot
+    MIG->>SRC: CREATE PUBLICATION (forward)
+    MIG->>TGT: CREATE SUBSCRIPTION (forward, copy_data=false)
+    MIG->>TGT: UPDATE phase=IMPORTING (commit)
+    TGT->>SRC: START_REPLICATION SLOT ... LOGICAL (direct, target apply worker)
+    SRC-->>TGT: change stream (copy_data=false)
+    Note over OP,APP: operator repoints the app to the source
+    OP->>APP: change app DSN to source (direct)
+    APP->>SRC: app writes to source (direct)
+```
+
+The mirror of activate. `SWITCHING_TO_IMPORT` is the write-ahead intent; the drain barrier brings the reverse stream to
+lag-0, then the link is rebuilt source → target with `copy_data=false` and the target's apply worker reconnects
+**directly** to the source (no gateway tunnel). The target cannot be set read-only — it would fight the pooler — so app
+writes are stopped by quiescing the app first; the pooler then goes `DRAINING` via the ~5s monitor. No-data-loss on
+deactivate is therefore the operator's responsibility (quiesce before deactivate), not a synchronous barrier.
+
+### DropMigration
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    box transparent multipooler
+        participant MIG as migrator
+        participant MGR as manager
+        participant POOL as pooler
+    end
+    participant TGT as Target PG
+    participant SRC as Source PG
+    Note over POOL: pooler NOT-serving (active migration)
+    OP->>MIG: DropMigration (via multiadmin)
+    alt default (graceful) requires STREAMING
+        MIG->>TGT: read status, require STREAMING (--wait blocks)
+        MIG->>TGT: UPDATE phase=COMPLETING
+        MIG->>SRC: drain, quiesce publisher and wait lag-0
+        MIG->>TGT: setval sequences (surviving writer)
+        MIG->>TGT: DROP SUBSCRIPTION (subscriber)
+        MIG->>SRC: DROP PUBLICATION and slot (publisher)
+    else force, from any phase, skip drain
+        MIG->>TGT: DROP SUBSCRIPTION or PUBLICATION IF EXISTS
+        MIG->>SRC: DROP IF EXISTS (source best-effort)
+    end
+    MIG->>TGT: DELETE multigres.migration row
+    Note over MGR,POOL: gate releases, postgres-monitor tick (~5s)
+    MGR->>POOL: no migration row, clear hold, SERVING
+    Note over POOL: pooler SERVING (standalone)
+```
+
+Graceful drop requires a caught-up `STREAMING` state (`--wait` blocks until then): it drains to lag-0 and advances the
+surviving writer's sequences before teardown, leaving the standby consistent. `--force` skips the drain and tears down
+from any phase with `DROP … IF EXISTS` (source best-effort, as it may be unreachable during an abort) to abort a stuck
+migration. Either way, deleting the migration row clears the serving gate; on the next ~5s monitor tick the shard serves
+standalone again. (Shown from a non-serving IMPORT; dropping an `EXPORTING` migration is already serving and stays so.)
 
 ## Source replication user
 
 The stream connects to the source as a dedicated role, and that role needs more than the `REPLICATION` attribute. So the
-initial `COPY` can read every published table and the coordinator can create the publication, the role needs, at minimum:
+initial `COPY` can read every published table and the coordinator can create the publication, the role needs, at
+minimum:
 
 - **`REPLICATION`** attribute — mandatory; a walsender / `replication=database` connection is refused without it.
 - **`pg_read_all_data`** (or explicit `SELECT` on every migrated table) — so the initial `COPY` is not blocked by RLS or
@@ -353,7 +651,8 @@ credentials via `--source-dsn`); for a **multigres-shard source** the admin DSN 
 _Architecture_).
 
 **Managed Supabase sources (v2/v3).** Supabase already ships a purpose-built logical-replication consumer,
-`supabase_etl_admin` (`LOGIN REPLICATION BYPASSRLS`, `pg_read_all_data`, `CREATE ON DATABASE`), so there are two options:
+`supabase_etl_admin` (`LOGIN REPLICATION BYPASSRLS`, `pg_read_all_data`, `CREATE ON DATABASE`), so there are two
+options:
 
 - **Reuse `supabase_etl_admin` (preferred where available).** It already carries exactly the attributes above and is
   provisioned and rotated by the Supabase platform — the replication-sources endpoint runs an idempotent `DO` block as
@@ -362,8 +661,8 @@ _Architecture_).
   names to avoid collisions), and older v2 projects predating the baked-in role may not have it.
 - **Self-provision a dedicated role.** Connect as `postgres` and create/alter a Migrator-owned role mirroring
   `supabase_etl_admin`'s grants, which keeps the migration isolated from Pipelines. This works on **v3 / PG16+**, where
-  the demoted `postgres` keeps `CREATEROLE`, `REPLICATION`, and `BYPASSRLS` and holds `pg_read_all_data`
-  `WITH ADMIN OPTION`, so a non-superuser can confer those attributes.
+  the demoted `postgres` keeps `CREATEROLE`, `REPLICATION`, and `BYPASSRLS` and holds `pg_read_all_data` `WITH ADMIN
+OPTION`, so a non-superuser can confer those attributes.
 
 On **v2 / PG15** a non-superuser `CREATEROLE` cannot confer `REPLICATION`, so either reuse `supabase_etl_admin` or have
 the role provisioned out of band (platform-side, or as a superuser); the Migrator then only consumes its credentials.
@@ -411,8 +710,8 @@ flowchart TD
 
 - **Multigres Migrator** is shard-scoped and owns the workflow for migrations targeting its shard. It resolves the
   **target primary multipooler** from topo (watching for failover, the way multiorch/multiadmin resolve poolers) and
-  drives all target-side SQL by calling migration RPCs on it. It persists the `MigrationWorkflow` plus `MigrationJournal`
-  to topo.
+  drives all target-side SQL by calling migration RPCs on it. It persists the `MigrationWorkflow` plus
+  `MigrationJournal` to topo.
 - **multipooler** gains a small set of migration RPCs (below). It executes them locally against its Postgres using the
   connections it already manages — an autocommit/admin connection for publication/subscription DDL and status, and
   `NewLogicalReplicationConn` where a replication-protocol session is required. Because these run on the shard's current
@@ -424,6 +723,58 @@ flowchart TD
   target-side is unchanged.
 - **multiadmin** stays a thin front door: it resolves the owning (target-shard) Multigres Migrator and forwards the
   workflow RPC.
+
+### Deployment and call paths
+
+The multipooler and Postgres run together in one pod. The multipooler container hosts three services on one gRPC server
+— the **pooler** (query serving), the **migrator** (migration coordinator), and the **manager** (postgres monitor,
+serving gate, reconcile) — and the **pgctld** container manages the Postgres process; the two containers share PGDATA
+and the unix sockets under `/data/pg_sockets`.
+
+```mermaid
+flowchart LR
+    App["App / client"]
+    mg["mg CLI"]
+    GW["multigateway"]
+    MA["multiadmin"]
+
+    subgraph POD["Multigres target pod (StatefulSet)"]
+        subgraph MP["multipooler container — one gRPC server"]
+            POOL["pooler service<br/>query serving"]
+            MIG["migrator service<br/>migration coordinator"]
+            MGR["manager service<br/>monitor, serving gate, reconcile"]
+        end
+        subgraph PGC["pgctld container"]
+            PGCTL["pgctld"]
+            PGT[("Postgres target")]
+        end
+    end
+
+    SRC[("Source PG<br/>v2 / on-prem")]
+
+    App -->|client SQL| GW
+    mg -->|migration CLI| MA
+    GW -->|queries| POOL
+    GW -->|migration DDL| MIG
+    MA -->|migration RPCs| MIG
+    POOL -->|query pool, socket| PGT
+    MIG -->|admin pool, socket| PGT
+    MGR -->|manage| PGCTL
+    MGR -.->|monitor| PGT
+    MIG -.->|DSN: pg_dump, CREATE PUBLICATION, quiesce| SRC
+    SRC -.->|logical replication stream| PGT
+```
+
+The gateway routes ordinary client SQL to the **pooler** service and migration DDL (`CREATE MIGRATION`, `ALTER MIGRATION
+…`, `SHOW` / `DROP MIGRATION`) to the **migrator** service — a separate per-shard gRPC service aimed at the primary,
+gated on _being primary_ rather than on serving status, so it stays reachable while the shard is non-serving. `mg`
+reaches the same migrator service through multiadmin. The migrator drives the local Postgres over the admin-pool socket
+and the source over its DSN (direct for on-prem/v2, or via the source shard's gateway).
+
+**v2 source (roadmap).** To migrate a non-Kubernetes v2 source and let the gateway fail an application over to it, a
+multipooler is deployed **beside the v2 Postgres** — its pooler service fronts v2 for the gateway, connecting to v2 over
+a local socket and SCRAM. The call split above is what makes that placement work: the gateway can route app traffic to
+the v2-side pooler while migration control still flows to the migrator co-located with the target.
 
 ### Why multipooler, not multigateway
 
@@ -527,137 +878,89 @@ sequenceDiagram
     Note over MT,PGS2: no ALTER SUBSCRIPTION and no source re-resolution — the gateway absorbs the failover
 ```
 
-### Migration workflow (multigres shard to shard)
+### Failover during a direction switch (crash-safe switch)
 
-The source is reached over a DSN to the source shard's **gateway**, which routes to the current source primary and
-re-pins across failover; the target side is driven through the target primary multipooler exactly as in the on-prem
-case. The only difference from the on-prem workflow below is that a gateway sits between the coordinator/subscription and
-the source Postgres.
+The direction switch (`activate-migration` / `deactivate-migration`) drives a non-atomic sequence — drain, then **drop
+the current subscription**, drop the current publication, create the reverse publication, and **create the reverse
+subscription**. A target-primary failover in the middle of that sequence must not
+wedge the migration, so the switch is made crash-safe by treating the migration row as a **write-ahead intent log**.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client
-    participant MA as multiadmin
-    participant MT as Multigres Migrator target owner
-    participant MPt as target primary multipooler
-    participant PGT as target Postgres
-    participant MGS as source multigateway
-    participant PGS as source Postgres — current primary
-    Client->>MA: StartMigration id
-    MA->>MT: StartMigration forward
-    MT->>MGS: check replica identity and wal_level — DSN to source gateway
-    MGS->>PGS: routed to current primary
-    PGS-->>MGS: identity and wal_level
-    MGS-->>MT: valid or reject or FULL warning
-    MT->>MGS: pg_dump --schema-only — DSN to source gateway
-    MGS->>PGS: dump named tables
-    PGS-->>MGS: schema SQL
-    MGS-->>MT: schema SQL
-    MT->>MPt: ApplySchema RPC
-    MPt->>PGT: apply schema
-    PGT-->>MPt: applied OK
-    MPt-->>MT: ok
-    MT->>MGS: CREATE PUBLICATION — DSN to source gateway
-    MGS->>PGS: CREATE PUBLICATION
-    PGS-->>MGS: created
-    MGS-->>MT: PublicationInfo
-    MT->>MPt: CreateSubscription RPC with copy_data
-    MPt->>PGT: CREATE SUBSCRIPTION autocommit — CONNECTION to source gateway
-    PGT-->>MPt: SubscriptionInfo — slot created
-    MPt-->>MT: SubscriptionInfo
-    PGT->>MGS: initial COPY and stream via subscription CONNECTION
-    MGS->>PGS: tunnel to current primary
-    PGS-->>MGS: rows and change stream
-    MGS-->>PGT: rows and change stream
-    MT->>MPt: GetSubscriptionStatus RPC — poll
-    MPt->>PGT: read pg_subscription_rel and stats
-    PGT-->>MPt: srsubstate r and lag zero
-    MPt-->>MT: caught up
-    MT->>MT: set phase IMPORTING in topo
-    MT-->>MA: Migration phase IMPORTING
-    MA-->>Client: Migration phase IMPORTING with lag
-```
+**Directional phases record the intent.** The steady and switching phases carry the direction: `IMPORTING` / `EXPORTING`
+for the caught-up steady states, and `SWITCHING_TO_IMPORT` / `SWITCHING_TO_EXPORT` for the transient roll-back /
+cutover. `SetMigrationDirection` persists `SWITCHING_TO_<target>` in one committed row update **before** touching either
+database; that directional phase _is_ the recorded intent, so a promoted standby knows which way the switch was heading.
+(Because the phase carries direction, `active_direction` is derived from it rather than stored — one source of truth.)
 
-### Migration workflow (on-prem source, no pooler)
+**The steps are idempotent and resumable.** Every step is safe to re-run (`DROP … IF EXISTS`, existence-checked
+`CREATE`), and the drain runs only while the current subscription still exists — once it has been dropped, the barrier
+already held. On the promoted primary, `reconcileLocked` sees the `SWITCHING_TO_*` row and rolls the switch forward to
+completion: `SWITCHING_TO_EXPORT` → `EXPORTING`, `SWITCHING_TO_IMPORT` → `IMPORTING`. Roll-forward is safe because the
+drain established a byte-identical barrier before any drop.
 
-Same target side; the source-side steps are direct DSN calls from Multigres Migrator to the on-prem Postgres (there is
-no source multipooler). This is the on-prem onboarding path — nothing is deployed on the source host.
+**The EXPORT reverse slot is pre-created; the subscription attaches to it after the `EXPORTING` commit.** In the
+IMPORT→EXPORT cutover the reverse subscription runs on the external source and dials the target _through the gateway_,
+which serves only once the migration is `EXPORTING`. That creates a bind: the subscription can't be created during
+`SWITCHING_TO_EXPORT` (the gateway rejects the connection with a transient `database is temporarily unavailable; please
+retry`, SQLSTATE `57P03`/`08006`, that can't clear until the phase advances — a deadlock), but creating it _after_
+serving turns on would miss the writes the app makes to the target in the window before it attaches (`copy_data=false`
+can't backfill). The fix splits slot from subscription: `switchTo` pre-creates the reverse **slot** on the target — a
+local operation, no gateway, so no deadlock — and `pg_replication_slot_advance`s it to the current LSN (the handoff
+point, past the switch's own catalog WAL). The slot then captures every subsequent target write. `applySwitch` commits
+`EXPORTING`, and only then does `retryReverseExportLink` create the **subscription** on the source with
+`create_slot=false` attached to that slot, retrying the transient not-yet-serving window. Because the slot — not the
+subscription — is what captures changes, and it exists before serving turns on, no write is lost regardless of when the
+subscription attaches. `reconcileLocked` re-attaches idempotently if it finds a migration already `EXPORTING` with the
+subscription missing (a crash between the commit and the attach). The EXPORT→IMPORT (roll-back) reverse subscription
+dials the external source directly (no gateway), so it creates its own slot inline in `switchTo` before the `IMPORTING`
+commit; the roll-back also drops the pre-created reverse slot on the target, which `create_slot=false` leaves behind.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Client
-    participant MA as multiadmin
-    participant MT as Multigres Migrator target owner
-    participant MPt as target primary multipooler
-    participant PGT as target Postgres
-    participant PGS as on-prem source Postgres
-    Client->>MA: StartMigration id
-    MA->>MT: StartMigration forward
-    MT->>PGS: check replica identity and wal_level — direct DSN
-    PGS-->>MT: identity and wal_level — valid or reject or FULL warning
-    MT->>PGS: pg_dump --schema-only — direct DSN
-    PGS-->>MT: schema SQL
-    MT->>MPt: ApplySchema RPC
-    MPt->>PGT: apply schema
-    PGT-->>MPt: applied OK
-    MPt-->>MT: ok
-    MT->>PGS: CREATE PUBLICATION — direct DSN
-    PGS-->>MT: created
-    MT->>MPt: CreateSubscription RPC with copy_data
-    MPt->>PGT: CREATE SUBSCRIPTION autocommit
-    PGT-->>MPt: SubscriptionInfo — slot created
-    MPt-->>MT: SubscriptionInfo
-    PGT->>PGS: initial COPY and stream via subscription CONNECTION
-    PGS-->>PGT: rows and change stream
-    MT->>MPt: GetSubscriptionStatus RPC — poll
-    MPt->>PGT: read pg_subscription_rel and stats
-    PGT-->>MPt: srsubstate r and lag zero
-    MPt-->>MT: caught up
-    MT->>MT: set phase IMPORTING in topo
-    MT-->>MA: Migration phase IMPORTING
-    MA-->>Client: Migration phase IMPORTING with lag
+    participant OP as Operator
+    participant MP1 as target primary multipooler (old)
+    participant PGT as target Postgres (HA)
+    participant MP2 as standby then new primary
+    OP->>MP1: ActivateMigration (IMPORT to EXPORT)
+    MP1->>PGT: persist phase = SWITCHING_TO_EXPORT (intent, before acting)
+    Note over PGT,MP2: sidecar row + catalog changes replicate physically to the standby
+    MP1->>PGT: drain to barrier, then DROP SUBSCRIPTION
+    Note over MP1: crash — before the reverse link is created
+    Note over PGT,MP2: target-primary failover
+    MP2->>MP2: reconcile sees SWITCHING_TO_EXPORT, rolls the switch forward (idempotent)
+    MP2->>PGT: create reverse publication + slot (advance to handoff), commit EXPORTING, then attach subscription (create_slot=false)
+    Note over MP2: recovered — the pre-created slot captured the gap writes, so the reverse link loses nothing
 ```
 
-### Cutover (activate) and rollback (deactivate)
+**WAL ordering makes the intent durable.** The row and the `pg_subscription` / `pg_publication` catalog live in the
+**same target Postgres**, so they share one WAL: committing the intent before the catalog change guarantees that if the
+promoted standby can see the drop, it can also see the intent. Source-side steps are a different WAL, but they are
+re-driven idempotently, so their ordering does not matter.
 
-`activate-migration` is the go-live cutover: it drains to a barrier, reverses the stream, and flips the target from
-non-serving to serving. `deactivate-migration` is its symmetric reverse. The MSC shows the on-prem shape (source reached
-by direct DSN); the shard→shard shape reaches the same source-side steps over a DSN to the source shard's gateway
-instead.
+**Serving follows the phase.** The serving gate keys on the phase — the shard does not serve while
+`COPYING`/`IMPORTING`/`SWITCHING_TO_IMPORT`/`SWITCHING_TO_EXPORT` (the target is being populated, or the go-live has not
+yet landed), and serves once every migration on it reaches `EXPORTING`.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client
-    participant MA as multiadmin
-    participant MT as Multigres Migrator target owner
-    participant MPt as target primary multipooler
-    participant PGT as target Postgres
-    participant PGS as source Postgres
-    Client->>MA: activate-migration id
-    MA->>MT: ActivateMigration forward
-    Note over MT: require active_direction IMPORT, verify source can CREATE SUBSCRIPTION
-    MT->>PGS: quiesce — SET default_transaction_read_only, read current LSN — direct DSN
-    MT->>MPt: wait subscription confirmed to source LSN — drain barrier
-    MPt->>PGT: poll apply position
-    PGT-->>MPt: caught up to LSN
-    MPt-->>MT: drained to lag zero
-    MT->>MT: journal handoff entry — drained LSN, direction, timestamp
-    MT->>MPt: AdvanceSequences — setval target sequences past max
-    MPt->>PGT: setval
-    MT->>MPt: DropSubscription plus DropPublication — tear down the IMPORT path
-    MT->>MPt: CreatePublication on target — new publisher
-    MPt->>PGT: CREATE PUBLICATION
-    MT->>PGS: CREATE SUBSCRIPTION copy_data=false — old database becomes subscriber — direct DSN
-    PGT-->>PGS: reverse change stream via subscription CONNECTION — fail-back
-    MT->>MT: flip active_direction to EXPORT
-    Note over MPt,PGT: postgres monitor reconciles serving DRAINING to SERVING — target is now live
-    MT-->>MA: Migration EXPORTING — serving
-    MA-->>Client: Migration EXPORTING — target is live
-    Note over Client,PGS: DeactivateMigration is the symmetric reverse — serving off, drain, flip to IMPORT
-```
+**Enough state to recover.** Recreating a subscription on resume needs its full conninfo. The IMPORT subscription's
+conninfo is the row's `source_dsn` (stored with password in the superuser-only sidecar, redacted only in projections and
+logs); the EXPORT reverse subscription's conninfo is rebuilt from `targetConnInfo` (coordinator config). Both survive a
+restart, so no additional credential state is required.
+
+### Migration workflow and source addressing
+
+The end-to-end IMPORT setup and the direction switches are shown per operator action in _[Migrator operation
+sequences](#migrator-operation-sequences)_. The only architectural variable those diagrams abstract over is how the
+**source** is reached, which depends on the source shape:
+
+- **On-prem / standalone source** — the coordinator opens a **direct DSN** to the source Postgres for the read-only
+  control SQL (`pg_dump`, `CREATE PUBLICATION`, quiesce, LSN reads), and the target subscription's `CONNECTION` dials
+  that source directly. Nothing is deployed on the source host — the on-prem onboarding path.
+- **Multigres-shard source** — the same source-side steps go over a **DSN to the source shard's gateway**, which routes
+  to the current source primary and re-pins across a source failover. The target side is identical.
+
+`activate-migration` (cutover) and `deactivate-migration` (rollback) are the symmetric direction switches — see the
+_ActivateMigration_ and _DeactivateMigration_ sequences and _[Failover during a direction
+switch](#failover-during-a-direction-switch-crash-safe-switch)_ for the crash-safe resume.
 
 ### Options (for `create-migration`)
 
@@ -694,10 +997,12 @@ Each command forwards to the multiadmin RPC in parentheses; the trailing arrow i
   the `IMPORTING` state, **not serving**. (`StartMigration`) `CREATED` → `IMPORTING`.
 - **`get-migration` / `list-migrations`** — status: phase, `active_direction`, serving, copy progress (`srsubstate`),
   lag, journal. (`GetMigrations`, single = filter by id) read-only.
-- **`activate-migration`** — go live: drain to lag zero, flip `active_direction` to EXPORT, and turn serving **on**.
-  Requires the current direction to be IMPORT. (`ActivateMigration`) `IMPORTING` → `EXPORTING` (serving).
-- **`deactivate-migration`** — roll back: turn serving **off**, then flip `active_direction` back to IMPORT. Requires the
-  current direction to be EXPORT. (`DeactivateMigration`) `EXPORTING` → `IMPORTING`.
+- **`activate-migration`** — go live: wait until lag is within `--max-lag-bytes` (up to `--wait-timeout`), drain to lag
+  zero, flip `active_direction` to EXPORT, and turn serving **on** synchronously so the gateway buffer replays queries
+  held during the cutover. Requires the current direction to be IMPORT; if the lag does not fall in time it fails with a
+  precondition error and stays IMPORT. (`ActivateMigration`) `IMPORTING` → `EXPORTING` (serving).
+- **`deactivate-migration`** — roll back: turn serving **off**, then flip `active_direction` back to IMPORT. Requires
+  the current direction to be EXPORT. (`DeactivateMigration`) `EXPORTING` → `IMPORTING`.
 - **`drop-migration`** — drop sub/pub/slot both sides and delete the workflow (idempotent). Default performs a
   quiesce+drain barrier (requires caught-up; freezes the current source, drains to its LSN, advances sequences) leaving
   a standalone write-safe shard; `--wait` blocks until caught up first; `--force` skips the barrier and removes it from
@@ -706,11 +1011,11 @@ Each command forwards to the multiadmin RPC in parentheses; the trailing arrow i
 Naming note: the operator verbs are intent-named — `activate-migration` / `deactivate-migration` say what happens to the
 server (it starts / stops serving), rather than the mechanism (`switch-direction`). Both drive the one symmetric
 direction flip underneath; the workflow record and status views keep `active_direction` as IMPORT/EXPORT for monitoring.
-An alternative naming considered was `cutover-migration` / `rollback-migration` (the migration-domain-standard pair), but
-"cutover" implies the tool moves client traffic, which it does not — the application performs the traffic cutover — so
-activate/deactivate is preferred. The only pre-existing destructive verb in multiadmin is `ExpireBackups`/`expire-backups`
-— no `Delete`/`Drop`/`Remove` precedent — so `drop-migration`/`DropMigration` sets that convention. `pause`/`resume` are
-deferred to Roadmap.
+An alternative naming considered was `cutover-migration` / `rollback-migration` (the migration-domain-standard pair),
+but "cutover" implies the tool moves client traffic, which it does not — the application performs the traffic cutover —
+so activate/deactivate is preferred. The only pre-existing destructive verb in multiadmin is
+`ExpireBackups`/`expire-backups` — no `Delete`/`Drop`/`Remove` precedent — so `drop-migration`/`DropMigration` sets that
+convention. `pause`/`resume` are deferred to Roadmap.
 
 ### RPCs
 
@@ -722,7 +1027,9 @@ Migrator (`GetMigratorsByCell` plus shard filter, reusing `go/services/multiadmi
 - `StartMigration(StartMigrationRequest) → Migration`
 - `GetMigrations(GetMigrationsRequest) → GetMigrationsResponse` — single RPC for one or many: optional id/filter returns
   that one; empty returns all (mirrors `GetBackups`).
-- `ActivateMigration(ActivateMigrationRequest) → Migration` — cut over to serving (IMPORT→EXPORT).
+- `ActivateMigration(ActivateMigrationRequest) → Migration` — cut over to serving (IMPORT→EXPORT). The request
+  carries `max_lag_bytes` and `wait_timeout_seconds` (the readiness gate); an unmet threshold returns
+  `FAILED_PRECONDITION`.
 - `DeactivateMigration(DeactivateMigrationRequest) → Migration` — roll back to non-serving (EXPORT→IMPORT).
 - `DropMigration(DropMigrationRequest) → Migration`
 - `Migration` message = workflow record projection (id, name, source, target, tables, `copy_data`, phase,
@@ -740,17 +1047,17 @@ The required changes:
 **1. A migration RPC surface on the manager service.** Add the RPCs below to `proto/multipoolermanagerservice.proto`
 (messages in `multipoolermanagerdata.proto`) and regenerate with `make proto`. They are internal control-plane RPCs
 called by Multigres Migrator, not on the query-serving path and not operator-facing. The target multipooler plays both
-subscriber and publisher roles across a switch (IMPORT vs EXPORT), so it implements the full set — publication as well as
-subscription management.
+subscriber and publisher roles across a switch (IMPORT vs EXPORT), so it implements the full set — publication as well
+as subscription management.
 
 - `ValidateSource` — check `wal_level`, table existence, and replica identity (reject a table with no usable replica
   identity, warn `FULL`). **Filter-column check:** when the migration supplies a row filter (`--where`) or column list,
   verify every referenced column is covered by the table's replica identity — because a publication that replicates
   `UPDATE`/`DELETE` may only filter on replica-identity columns (the WAL carries only those for the old row image).
   Reject at create/start time with an actionable message (e.g. "column `tenant_id` is not in the replica identity of
-  `orders`; add it via `REPLICA IDENTITY USING INDEX` on a unique `(tenant_id, …)` index, or set
-  `REPLICA IDENTITY FULL`"), rather than letting `CREATE PUBLICATION` fail opaquely later. Projection-only column lists
-  (no `WHERE`) do not need this.
+  `orders`; add it via `REPLICA IDENTITY USING INDEX` on a unique `(tenant_id, …)` index, or set `REPLICA IDENTITY
+FULL`"), rather than letting `CREATE PUBLICATION` fail opaquely later. Projection-only column lists (no `WHERE`) do
+  not need this.
 - `DumpSchema` / `ApplySchema` — `pg_dump --schema-only` for named tables / apply the result locally (strip psql
   backslash meta-lines).
 - `CreatePublication` / `DropPublication` — manage the publication on the local Postgres.
@@ -766,20 +1073,20 @@ subscription management.
 **2. A manager handler implementing them.** Add `go/services/multipooler/internal/manager/rpc_migration.go` (peer of
 `rpc_backup.go`) wired into the manager gRPC service registration.
 
-**3. Connection handling.** Publication/subscription DDL must run on an **autocommit** connection
-(`CREATE`/`DROP SUBSCRIPTION` cannot run inside a transaction block) — verify the admin-conn path
-(`connpoolmanager.GetAdminConn`) executes non-transactionally, or add a dedicated non-transactional execution path.
-Reuse `NewLogicalReplicationConn` for any walsender / `replication=database` needs, and the LSN/wait helpers in
-`manager/pg_replication.go` (`getPrimaryLSN`, `checkLSNReached`, `waitForReplayComplete`) for the drain-to-lag-zero
-barrier. This is the single most important correctness point.
+**3. Connection handling.** Publication/subscription DDL must run on an **autocommit** connection (`CREATE`/`DROP
+SUBSCRIPTION` cannot run inside a transaction block) — verify the admin-conn path (`connpoolmanager.GetAdminConn`)
+executes non-transactionally, or add a dedicated non-transactional execution path. Reuse `NewLogicalReplicationConn` for
+any walsender / `replication=database` needs, and the LSN/wait helpers in `manager/pg_replication.go` (`getPrimaryLSN`,
+`checkLSNReached`, `waitForReplayComplete`) for the drain-to-lag-zero barrier. This is the single most important
+correctness point.
 
 **4. Primary-only gating.** These operations mutate replication state and must run only when the pooler is the shard
 **primary** (serving `PRIMARY`). On a replica the RPC returns a not-primary error so Multigres Migrator re-resolves the
 current primary and retries. Integrate with the existing serving-state / role checks rather than adding a parallel
 notion.
 
-**5. Idempotency.** Every RPC must be safe to retry, because Multigres Migrator retries after a primary failover
-(`DROP ... IF EXISTS`, existence pre-checks before `CREATE`, range-safe `setval`). This lets a mid-phase failover resume
+**5. Idempotency.** Every RPC must be safe to retry, because Multigres Migrator retries after a primary failover (`DROP
+... IF EXISTS`, existence pre-checks before `CREATE`, range-safe `setval`). This lets a mid-phase failover resume
 cleanly.
 
 **6. Failover-slot integration.** Publication slots created by `CreatePublication` must be **failover slots** (synced to
@@ -789,8 +1096,8 @@ work. The same applies to the reverse slot the switch pre-creates on the target 
 failover still requires `--enable-slot-based-replication` on that shard. Subscriptions and their replication origins
 are within-cluster catalog/WAL state and already survive a target failover.
 
-**7. Security.** The subscription `CONNECTION` is built from the source endpoint plus credentials and passed to
-`CREATE SUBSCRIPTION`; conninfo and passwords are never logged.
+**7. Security.** The subscription `CONNECTION` is built from the source endpoint plus credentials and passed to `CREATE
+SUBSCRIPTION`; conninfo and passwords are never logged.
 
 No changes to the query-serving (gateway-facing) path of multipooler are required — the migration surface is on the
 manager service only.
@@ -813,10 +1120,10 @@ manager service only.
   follows the multiorch sequence (senv → topo open → toporeg.Register → ready checks → start reconciler → register gRPC
   → close). The reconciler is the phase state machine (model on `go/services/multiorch/recovery/engine`).
 - **Clients**: Multigres Migrator needs a cached **multipooler gRPC client** (mirror `rpcclient.NewMultipoolerClient`)
-  plus pooler discovery/watch (`GetMultipoolersByCell{DatabaseShard}`, `poolerwatch`) to resolve and follow the **target**
-  shard primary; and a libpq/`pgprotocol/client` path for the **source DSN** — built directly from `--source-dsn`, or
-  resolved from the source shard's gateway in topo for `--source-shard`. multiadmin needs a cached **Multigres Migrator
-  gRPC client** to forward workflow RPCs.
+  plus pooler discovery/watch (`GetMultipoolersByCell{DatabaseShard}`, `poolerwatch`) to resolve and follow the
+  **target** shard primary; and a libpq/`pgprotocol/client` path for the **source DSN** — built directly from
+  `--source-dsn`, or resolved from the source shard's gateway in topo for `--source-shard`. multiadmin needs a cached
+  **Multigres Migrator gRPC client** to forward workflow RPCs.
 
 **Reuse (do not reinvent):** multiorch lifecycle (`go/services/multiorch/init.go`, `go/common/servenv`, `toporeg`);
 cached client `go/common/rpcclient/client.go`; discovery `GetMultipoolersByCell` plus `poolerwatch`; Postgres access
@@ -824,48 +1131,6 @@ incl. TLS via `go/services/multipooler/internal/connpoolmanager` (`ConnectionCon
 `ValidatePGSSL`) plus `go/common/pgprotocol/client` (for direct DSNs); the replication-connection primitive
 `NewLogicalReplicationConn` and LSN/wait helpers in `go/services/multipooler/internal/manager/pg_replication.go`;
 `topoclient.Store.LockShard`; `go/common/mterrors`; type OIDs in `go/common/parser/ast/oids.go`.
-
-## DDL replication (experimental)
-
-An experimental extension replicates table DDL from source to target over the **same logical-replication stream as the
-data**, so schema changes land on the target at the correct point relative to the rows that depend on them. It is a
-proof of concept wired into the IMPORT setup/teardown; the full rationale, mechanism, and limitations are in the
-[DDL-replication design note](./migrator_ddl_replication_issue.md).
-
-**Mechanism (stock Postgres only).**
-
-- _Capture:_ on the publisher, a `multigres.ddl_log` table plus two event triggers — `multigres.capture_ddl` on
-  `ddl_command_end` for `ALTER TABLE`, and `multigres.capture_drop` on `sql_drop` for `DROP TABLE` (whose dropped objects
-  `ddl_command_end` does not report) — append each executing statement (via `current_query()`) to the log. The INSERT
-  commits in the same transaction as the DDL, so the log row and the schema change are atomic.
-- _Stream:_ `ddl_log` is added to the migration's publication, so its rows decode and apply on the target's logical
-  apply worker in commit order — the single-stream property that guarantees a DDL lands before any later data change
-  that depends on it.
-- _Apply:_ a matching `multigres.ddl_log` on the subscriber carries an `ENABLE ALWAYS` `AFTER INSERT` trigger
-  (`multigres.apply_ddl`) that `EXECUTE`s each arriving statement inside the apply transaction, under the captured
-  schema's `search_path` and exception-guarded (a statement that still fails is skipped with a warning rather than
-  stalling the stream).
-
-**Scoping, concurrency, and direction.**
-
-- Capture is scoped to each migration's tables via a publisher-side `multigres.ddl_capture_tables` membership table:
-  `capture_ddl` fans one `ddl_log` row per owning migration, tagged with `migration_id`, and each publication carries a
-  row filter `WHERE migration_id = '<id>'`. The shared event triggers are refcounted, and a subscriber-side
-  `multigres.ddl_apply` guard keeps a server that is both an IMPORT subscriber and an EXPORT publisher correct.
-- Direction symmetry: capture runs on whichever side is the current publisher and apply on the current subscriber,
-  reconfigured across an activate/deactivate switch.
-
-**Constraints (proof of concept).**
-
-- Creating the event triggers requires a **superuser** DSN on the publisher.
-- `ALTER TABLE` (on `ddl_command_end`) and `DROP TABLE` (on `sql_drop`) are captured; `CREATE TABLE`, `CREATE INDEX`
-  (incl. `CONCURRENTLY`), `DROP INDEX`, and non-table DDL are not. `DROP TABLE` captures only the tables the user
-  explicitly dropped (cascades are handled by replaying the original statement). The one non-transactional statement
-  carrying an allowlisted tag — `ALTER TABLE … DETACH PARTITION … CONCURRENTLY` — is excluded explicitly, since it
-  cannot run inside the apply transaction.
-- `CREATE TABLE` is not captured: the migration's table set is fixed at start, so a new table is out of scope and the
-  listed tables already exist (from the initial schema copy). `current_query()` captures the whole submitted statement
-  (a multi-statement batch replays in full).
 
 ## Alternatives considered
 
@@ -879,9 +1144,9 @@ proof of concept wired into the IMPORT setup/teardown; the full rationale, mecha
   Rejected in favor of multipooler migration RPCs.
 - **Target-side administration via the target's multigateway (SQL client path).** The gateway is a multi-shard,
   client-hot-path query router; the target-side _control plane_ (autocommit `CREATE SUBSCRIPTION`, slot administration)
-  does not fit its routed-query model and would add load/blast radius to the query path. Rejected **for the target** — the
-  target is driven through its primary multipooler instead (see _Why multipooler, not multigateway_). Note this does not
-  apply to the **source**: the coordinator has no multipooler access to a source cluster, so a multigres source is
+  does not fit its routed-query model and would add load/blast radius to the query path. Rejected **for the target** —
+  the target is driven through its primary multipooler instead (see _Why multipooler, not multigateway_). Note this does
+  not apply to the **source**: the coordinator has no multipooler access to a source cluster, so a multigres source is
   reached over a DSN to its gateway (failover-stable routing), and the gateway's `replication=database` tunnel also
   carries the subscription's data-plane stream and, in EXPORT, the external reverse subscription.
 - **Source-side Multigres Migrator agent (one per source pod).** Keeps source admin credentials local and offers a home
@@ -894,9 +1159,9 @@ proof of concept wired into the IMPORT setup/teardown; the full rationale, mecha
 1. **Unit** — the multipooler migration RPCs against a real Postgres: publication/subscription/slot created,
    `copy_data=false` creates no rows, `srsubstate` reaches `r`, lag reaches 0, `setval` advances sequences, teardown
    idempotent; `ValidateSource` (missing replica identity → reject, `FULL` → warn). The Multigres Migrator reconciler
-   state-machine transitions (incl. `ActivateMigration` then `DeactivateMigration` flipping IMPORT→EXPORT→IMPORT, and the
-   serving hold asserted for IMPORT and cleared for EXPORT) with a fake multipooler client. A multiadmin forwarder unit
-   test (resolves target Multigres Migrator, forwards, holds no state).
+   state-machine transitions (incl. `ActivateMigration` then `DeactivateMigration` flipping IMPORT→EXPORT→IMPORT, and
+   the serving hold asserted for IMPORT and cleared for EXPORT) with a fake multipooler client. A multiadmin forwarder
+   unit test (resolves target Multigres Migrator, forwards, holds no state).
 2. **End-to-end**, modeled on the existing shard-setup and logical-replication-stream tests:
    - Shard→shard: two-shard cluster, seed source, `create-migration` then `start-migration` (source addressed by
      `--source-shard`); write load during copy; assert target equals source via full-table identity (row count plus
@@ -938,15 +1203,18 @@ Delivered in this order; each builds on the previous.
    onboarding case and supports **v2 migrations**.
 3. **Multigres-shard source via its gateway.** Generalize `--source-shard` to resolve the source shard's gateway from
    topo and build the source DSN from it, so a multigres shard can be a source too (in addition to the direct DSN from
-   step 2). Because the source is still just a DSN — now pointing at a gateway that re-pins across failover — this reuses
-   the step-2 machinery rather than adding a separate source path; the target is still via multipooler.
+   step 2). Because the source is still just a DSN — now pointing at a gateway that re-pins across failover — this
+   reuses the step-2 machinery rather than adding a separate source path; the target is still via multipooler.
 
 ### Feature follow-ups (roughly in priority order)
 
 - **DDL/schema propagation (fast-follow, nearest item):** keep schema in sync across shards without manual drift;
   ordering rules so replication never errors mid-migration.
-- **Failure-resilient workflow:** survive a coordinator crash — persist workflow state durably and auto-resume on
-  Multigres Migrator restart. (MVP persists to topo but does not auto-resume mid-phase.)
+- **Auto-resume the initial setup phases:** `Reconcile` already rolls a crashed direction switch forward and
+  re-attaches a missing EXPORT link (see "Failover during a direction switch" above), but has no case for
+  `VALIDATING`/`SCHEMA_COPY`/`CREATE_PUBLICATION` — a coordinator crash during `StartMigration`'s initial setup leaves
+  the migration parked at whatever phase was last persisted until an operator re-issues `StartMigration` (safe and
+  idempotent via `phaseRank`, but not automatic).
 - **Pause/resume:** `pause-migration`/`resume-migration` via `ALTER SUBSCRIPTION DISABLE/ENABLE` (plus multipooler RPC
   and a `PAUSED` phase).
 - **VDiff-style data verification** (consistent, lag-aware) — MVP ships only a checksum spot-check.
@@ -962,7 +1230,7 @@ Delivered in this order; each builds on the previous.
 
 ## Related documents
 
-- [Vitess VStreamer/VReplication vs Postgres: feature gap analysis](./vstreamer_gap_analysis.md) — a
-  feature-by-feature comparison (sourced from the Vitess codebase) of what Postgres already provides that Multigres
-  Migrator can **leverage** vs. what would have to be **built** into a `vstreamer`/`vplayer`-equivalent component, with
-  the phased build ordering (B0–B5) for that Strategy-O program. Was originally Appendix A of this document.
+- [Vitess VStreamer/VReplication vs Postgres: feature gap analysis](./vstreamer_gap_analysis.md) — a feature-by-feature
+  comparison (sourced from the Vitess codebase) of what Postgres already provides that Multigres Migrator can
+  **leverage** vs. what would have to be **built** into a `vstreamer`/`vplayer`-equivalent component, with the phased
+  build ordering (B0–B5) for that Strategy-O program. Was originally Appendix A of this document.

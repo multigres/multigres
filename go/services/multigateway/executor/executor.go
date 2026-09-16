@@ -92,6 +92,12 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	}
 }
 
+// SetMigrationBackend wires the migration/connection DDL backend into the
+// planner so the gateway can intercept and serve those statements.
+func (e *Executor) SetMigrationBackend(b *engine.MigrationBackend) {
+	e.planner.SetMigrationBackend(b)
+}
+
 // StreamExecute executes a query and streams results back via the callback function.
 //
 // For cacheable statements (SELECT, INSERT, UPDATE, DELETE), the executor

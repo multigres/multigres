@@ -67,7 +67,7 @@ PROTO_SRCS = $(shell find proto -name '*.proto')
 PROTO_GO_OUTS = pb
 
 # Proto source files for TypeScript generation (exclude google vendor protos)
-PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
+PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/migratorservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
 TS_PROTO_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-es
 TS_CONNECT_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-connect-es
 TS_PROTO_OUT = $(MTROOT)/web/multiadmin/lib/api/generated
