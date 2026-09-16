@@ -49,7 +49,7 @@ func (pm *MultipoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 // stopped (StopReplication cleared primary_conninfo) or when setCohortEligibility
 // was called explicitly (e.g. graceful shutdown).
 //
-// Note: postgres readiness (Status.PostgresReady, see coordinator.go) is a
+// Note: postgres readiness (Status.PostgresReady, see leader_fitness.go) is a
 // separate, transient signal — this field is permanent/administrative cohort
 // membership preference only.
 func (pm *MultipoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
