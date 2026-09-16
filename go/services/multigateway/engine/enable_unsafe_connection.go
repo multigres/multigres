@@ -24,25 +24,25 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// EnableDirectConnection is the gateway-local primitive for
-// `SET multigres.direct_connection = on`. It latches the connection into
-// direct connection (a one-way switch — see server.Conn.LatchDirectConnection)
+// EnableUnsafeConnection is the gateway-local primitive for
+// `SET multigres.unsafe_connection = on`. It latches the connection into
+// unsafe connection (a one-way switch — see server.Conn.LatchUnsafeConnection)
 // and replies with a bare "SET" CommandComplete. It never touches a backend: the
 // flag is a gateway control, and every subsequent statement reads it to suppress
 // the unsafe-statement rejections and pin+quarantine the backend.
-type EnableDirectConnection struct {
+type EnableUnsafeConnection struct {
 	sql string
 }
 
-// NewEnableDirectConnection creates the latch primitive for a validated
-// `SET multigres.direct_connection = on`.
-func NewEnableDirectConnection(sql string) *EnableDirectConnection {
-	return &EnableDirectConnection{sql: sql}
+// NewEnableUnsafeConnection creates the latch primitive for a validated
+// `SET multigres.unsafe_connection = on`.
+func NewEnableUnsafeConnection(sql string) *EnableUnsafeConnection {
+	return &EnableUnsafeConnection{sql: sql}
 }
 
-// StreamExecute latches direct connection on the connection and sends the
+// StreamExecute latches unsafe connection on the connection and sends the
 // CommandComplete.
-func (e *EnableDirectConnection) StreamExecute(
+func (e *EnableUnsafeConnection) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
@@ -51,13 +51,13 @@ func (e *EnableDirectConnection) StreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	conn.LatchDirectConnection()
+	conn.LatchUnsafeConnection()
 	return callback(ctx, &sqltypes.Result{CommandTag: "SET"})
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the extended
 // protocol; the statement carries no binds, so it delegates to StreamExecute.
-func (e *EnableDirectConnection) PortalStreamExecute(
+func (e *EnableUnsafeConnection) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
@@ -72,12 +72,12 @@ func (e *EnableDirectConnection) PortalStreamExecute(
 }
 
 // GetTableGroup returns empty: this primitive targets no backend.
-func (e *EnableDirectConnection) GetTableGroup() string { return "" }
+func (e *EnableUnsafeConnection) GetTableGroup() string { return "" }
 
 // GetQuery returns empty: this primitive executes no backend query.
-func (e *EnableDirectConnection) GetQuery() string { return "" }
+func (e *EnableUnsafeConnection) GetQuery() string { return "" }
 
 // String returns a description for logging/debugging.
-func (e *EnableDirectConnection) String() string {
-	return "EnableDirectConnection(" + e.sql + ")"
+func (e *EnableUnsafeConnection) String() string {
+	return "EnableUnsafeConnection(" + e.sql + ")"
 }

@@ -76,6 +76,17 @@ func TestNewWithFactory(t *testing.T) {
 	ts.Close()
 }
 
+func TestNewWithFactoryWithoutConfig(t *testing.T) {
+	factory := newMockFactory()
+	ts := NewWithFactory(factory, "/test/root", []string{"localhost:2181"}, nil)
+	require.NotNil(t, ts)
+
+	require.Eventually(t, func() bool {
+		return factory.getCreateCount() > 0
+	}, time.Second, time.Millisecond)
+	ts.Close()
+}
+
 func TestOpenServer(t *testing.T) {
 	// Save and restore the original factories map
 	originalFactories := factories
@@ -109,6 +120,60 @@ func TestOpenServer(t *testing.T) {
 		assert.Nil(t, ts, "Store should be nil")
 		assert.Contains(t, err.Error(), "no topology implementations registered", "Error should mention no implementations")
 	})
+}
+
+func TestOpenServerPassesTLSOptionsToSupportingFactory(t *testing.T) {
+	originalFactories := factories
+	defer func() { factories = originalFactories }()
+
+	factories = make(map[string]Factory)
+	factory := newMockFactoryWithTLS()
+	RegisterFactory("test-impl", factory)
+
+	tlsOptions := &TLSOptions{
+		CertPEM: []byte("client certificate"),
+		KeyPEM:  []byte("client key"),
+		CAPEM:   []byte("server CA"),
+	}
+	config := NewDefaultTopoConfig()
+	config.TLS = tlsOptions
+
+	ts, err := OpenServer("test-impl", "/test", []string{"localhost:2379"}, config)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	require.Eventually(t, func() bool {
+		return factory.getTLSOptions() != nil
+	}, time.Second, time.Millisecond)
+	assert.Same(t, tlsOptions, factory.getTLSOptions())
+}
+
+func TestCreateConnRejectsTLSOptionsForUnsupportedFactory(t *testing.T) {
+	_, err := createConn(newMockFactory(), GlobalCell, "/test", []string{"localhost:2379"}, &TLSOptions{})
+	require.ErrorContains(t, err, "does not support TLS connections")
+}
+
+type mockFactoryWithTLS struct {
+	*mockFactory
+	tlsOptionsMu sync.Mutex
+	tlsOptions   *TLSOptions
+}
+
+func newMockFactoryWithTLS() *mockFactoryWithTLS {
+	return &mockFactoryWithTLS{mockFactory: newMockFactory()}
+}
+
+func (f *mockFactoryWithTLS) CreateWithTLS(topoName, root string, serverAddrs []string, tlsOptions *TLSOptions) (Conn, error) {
+	f.tlsOptionsMu.Lock()
+	f.tlsOptions = tlsOptions
+	f.tlsOptionsMu.Unlock()
+	return f.Create(topoName, root, serverAddrs)
+}
+
+func (f *mockFactoryWithTLS) getTLSOptions() *TLSOptions {
+	f.tlsOptionsMu.Lock()
+	defer f.tlsOptionsMu.Unlock()
+	return f.tlsOptions
 }
 
 func TestConnForCell_GlobalCell(t *testing.T) {

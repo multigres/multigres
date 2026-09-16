@@ -26,13 +26,13 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// TestEnableDirectConnection confirms the primitive latches direct connection on
+// TestEnableUnsafeConnection confirms the primitive latches unsafe connection on
 // the connection and replies with a bare "SET" CommandComplete, touching no backend.
-func TestEnableDirectConnection(t *testing.T) {
+func TestEnableUnsafeConnection(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
-	require.False(t, conn.DirectConnection())
+	require.False(t, conn.UnsafeConnection())
 
-	prim := NewEnableDirectConnection("SET multigres.direct_connection = on")
+	prim := NewEnableUnsafeConnection("SET multigres.unsafe_connection = on")
 
 	var got []*sqltypes.Result
 	err := prim.StreamExecute(context.Background(), nil, conn, nil, nil, PlanExecInfo{},
@@ -42,7 +42,7 @@ func TestEnableDirectConnection(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	assert.True(t, conn.DirectConnection(), "connection must be latched into direct connection")
+	assert.True(t, conn.UnsafeConnection(), "connection must be latched into unsafe connection")
 	require.Len(t, got, 1)
 	assert.Equal(t, "SET", got[0].CommandTag)
 }

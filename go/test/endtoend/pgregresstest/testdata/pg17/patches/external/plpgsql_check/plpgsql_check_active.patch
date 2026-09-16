@@ -260,24 +260,7 @@
  create type tp as (a int, b int);
  create or replace function dyn_sql_2()
  returns void as $$
-@@ -3822,13 +3762,12 @@
- end loop;
- end
- $$ language plpgsql;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('dyn_sql_3');
--plpgsql_check_function
--------------------------
--(0 rows)
--
-+ERROR: function "dyn_sql_3" does not exist
- drop function dyn_sql_3();
-+ERROR: function dyn_sql_3() does not exist
- create or replace function dyn_sql_4()
- returns table(ax int, bx int) as $$
- begin
-@@ -3929,37 +3868,14 @@
+@@ -3929,37 +3869,14 @@
  execute 'select ' || a;
  end;
  $$ language plpgsql;
@@ -319,7 +302,7 @@
  create table testr(a int);
  create rule testr_rule as on insert to testr do nothing;
  create or replace function fx_testr()
-@@ -4838,13 +4754,10 @@
+@@ -4838,13 +4755,10 @@
  execute format('create table zzz %I(a int, b int)', 'zzz');
  end;
  $$ language plpgsql;
@@ -335,7 +318,7 @@
  -- should to correctly detect type
  create or replace function test_function()
  returns void as $$
-@@ -4882,13 +4795,13 @@
+@@ -4882,13 +4796,13 @@
  execute format('do %L', 'begin end');
  end
  $$ language plpgsql;
@@ -353,31 +336,7 @@
  drop type testtype cascade;
  create type testtype as (a int, b int);
  create function test_function()
-@@ -5692,6 +5605,7 @@
- return next;
- end;
- $$ language plpgsql immutable;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('tabret_dynamic()');
- plpgsql_check_function
-@@ -5711,6 +5625,7 @@
- end loop;
- end;
- $$ language plpgsql immutable;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('tabret_dynamic()');
- plpgsql_check_function
-@@ -5727,6 +5642,7 @@
- return query execute z_query;
- end;
- $$ language plpgsql immutable;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('tabret_dynamic()');
- plpgsql_check_function
-@@ -5860,13 +5776,12 @@
+@@ -5860,13 +5774,12 @@
  raise notice '%', i;
  end;
  $$ language plpgsql;
@@ -394,37 +353,3 @@
  -- should not to raise warning
  do $$
  declare
-@@ -5912,13 +5827,12 @@
- execute format($_$select '%1$I'$_$, p);
- end;
- $$ language plpgsql;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('fx(text)');
--plpgsql_check_function
--------------------------
--(0 rows)
--
-+ERROR: function "fx(text)" does not exist
- drop function fx(text);
-+ERROR: function fx(text) does not exist
- create or replace function fx()
- returns void as $$
- declare p varchar;
-@@ -5927,13 +5841,12 @@
- execute format($_$select '%1$I'$_$, p);
- end;
- $$ language plpgsql;
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
- -- should be ok
- select * from plpgsql_check_function('fx()');
--plpgsql_check_function
--------------------------
--(0 rows)
--
-+ERROR: function "fx()" does not exist
- drop function fx();
-+ERROR: function fx() does not exist
- -- should not crash
- create or replace procedure p1()
- as $$

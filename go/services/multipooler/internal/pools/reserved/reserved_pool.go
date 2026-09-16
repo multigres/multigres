@@ -16,7 +16,6 @@ package reserved
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -174,7 +173,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return nil, errors.New("reserved pool is closed")
+		return nil, fmt.Errorf("reserved pool: %w", connpool.ErrPoolClosed)
 	}
 	p.mu.Unlock()
 
@@ -472,9 +471,22 @@ func (p *Pool) Stats() PoolStats {
 	p.mu.Lock()
 	active := len(p.active)
 	var replActive int
+	// activeByReason is an overlapping breakdown: a connection holding several
+	// reasons at once (e.g. transaction+portal) increments each of its reasons,
+	// so the per-reason counts sum to more than Active. Keyed by the stable
+	// reason label from protoutil.ReasonLabels.
+	activeByReason := make(map[string]int)
 	for _, rc := range p.active {
-		if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
+		if rc.reservedProps == nil {
+			continue
+		}
+		if protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
 			replActive++
+		}
+		for _, r := range protoutil.ReasonLabels() {
+			if protoutil.HasReason(rc.reservedProps.Reasons, r.Bit) {
+				activeByReason[r.Name]++
+			}
 		}
 	}
 	p.mu.Unlock()
@@ -482,6 +494,7 @@ func (p *Pool) Stats() PoolStats {
 	return PoolStats{
 		Active:                   active,
 		LogicalReplicationActive: replActive,
+		ActiveByReason:           activeByReason,
 		ReserveCount:             p.reserveCount.Load(),
 		ReleaseCount:             p.releaseCount.Load(),
 		KillCount:                p.killCount.Load(),
@@ -533,6 +546,13 @@ type PoolStats struct {
 	// LogicalReplicationActive is the number of active reserved conns that
 	// have ReasonLogicalReplication set. Sub-count of Active.
 	LogicalReplicationActive int
+
+	// ActiveByReason counts active reserved conns holding each reservation
+	// reason, keyed by the stable reason label (protoutil.ReasonLabels). It is
+	// an overlapping breakdown — a connection with multiple reasons is counted
+	// under each — so the values sum to more than Active. Reasons with no active
+	// connections are absent from the map.
+	ActiveByReason map[string]int
 
 	// ReserveCount is the total number of reservations.
 	ReserveCount int64

@@ -23,11 +23,12 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 )
 
-// TestExtractDirectConnectionParam covers the connect-time parse: the parameter
+// TestExtractUnsafeConnectionParam covers the connect-time parse: the parameter
 // is stripped from the params map (so it never reaches a backend), a truthy value
-// latches direct connection on the connection, a falsy value does not, and a
-// malformed value is a FATAL.
-func TestExtractDirectConnectionParam(t *testing.T) {
+// latches unsafe connection on the connection, a falsy value does not, and a
+// malformed value is a FATAL. It runs against both the current parameter name and
+// the deprecated multigres.direct_connection alias, which must behave identically.
+func TestExtractUnsafeConnectionParam(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     string
@@ -43,24 +44,30 @@ func TestExtractDirectConnectionParam(t *testing.T) {
 		{name: "false", value: "false", present: true, wantLatch: false},
 		{name: "garbage", value: "maybe", present: true, wantErr: true},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &Conn{params: map[string]string{}}
-			if tt.present {
-				c.params[constants.DirectConnectionParam] = tt.value
-			}
+	params := map[string]string{
+		"unsafe_connection":        constants.UnsafeConnectionParam,
+		"direct_connection(alias)": constants.DirectConnectionParam,
+	}
+	for paramLabel, paramName := range params {
+		for _, tt := range tests {
+			t.Run(paramLabel+"/"+tt.name, func(t *testing.T) {
+				c := &Conn{params: map[string]string{}}
+				if tt.present {
+					c.params[paramName] = tt.value
+				}
 
-			err := c.extractDirectConnectionParam()
+				err := c.extractUnsafeConnectionParam()
 
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantLatch, c.DirectConnection())
-			// Always stripped, whatever the value, so it never flows to a backend.
-			_, stillPresent := c.params[constants.DirectConnectionParam]
-			assert.False(t, stillPresent, "param must be stripped from c.params")
-		})
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantLatch, c.UnsafeConnection())
+				// Always stripped, whatever the value, so it never flows to a backend.
+				_, stillPresent := c.params[paramName]
+				assert.False(t, stillPresent, "param must be stripped from c.params")
+			})
+		}
 	}
 }

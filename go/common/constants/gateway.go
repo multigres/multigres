@@ -21,10 +21,17 @@ const (
 	// and never forwards it to a backend.
 	MultigresServerVersionVariable = "multigres.server_version"
 
-	// DirectConnectionParam is the connect-time option / GUC name that requests a
-	// direct connection for a client connection (e.g. options=-c
-	// multigres.direct_connection=on, or `SET multigres.direct_connection = on`).
+	// UnsafeConnectionParam is the connect-time option / GUC name that requests an
+	// unsafe connection for a client connection (e.g. options=-c
+	// multigres.unsafe_connection=on, or `SET multigres.unsafe_connection = on`).
 	// It is a gateway-only property, never forwarded to a backend.
+	UnsafeConnectionParam = "multigres.unsafe_connection"
+
+	// DirectConnectionParam is the deprecated former name for
+	// UnsafeConnectionParam. It is still recognized (at connect time and via SET)
+	// so existing clients keep working, but new code and docs should use
+	// UnsafeConnectionParam. Remove once all clients have migrated off
+	// multigres.direct_connection.
 	DirectConnectionParam = "multigres.direct_connection"
 
 	// MultigresSchema is the schema used to namespace gateway-provided functions

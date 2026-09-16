@@ -1,13 +1,15 @@
-# Known divergence (by design): a single-variant topology test helper runs a
-# dynamic EXECUTE the gateway cannot vet, so its CREATE is rejected. The helper is
+# Known divergence (by design): single-variant topology test helpers run a dynamic
+# EXECUTE the gateway cannot vet, so their CREATE is rejected. The helpers are
 # re-seeded per test (postgis_preseed.sql) so the checks run; only the rejected
-# CREATE remains.
+# CREATEs remain. With format()-argument analysis, three of the rejected bodies now
+# fail skeleton reconstruction ("could not be parsed") and one stays a plain
+# runtime-built rejection.
 --- a
 +++ b
 @@ -1,3 +1,7 @@
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
-+ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
++ERROR: a dynamic EXECUTE statement inside a PL/pgSQL body could not be parsed for safety analysis
++ERROR: a dynamic EXECUTE statement inside a PL/pgSQL body could not be parsed for safety analysis
++ERROR: a dynamic EXECUTE statement inside a PL/pgSQL body could not be parsed for safety analysis
 +ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
  ERROR: SQL/MM Spatial exception - null argument
  ERROR: SQL/MM Spatial exception - null argument

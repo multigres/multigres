@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1105,7 +1104,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// need to repeat the check here, since pgctld and multipooler are
 		// co-located and share the same pgbackrest binary.
 		pgPort := int(pm.record.Port("postgres"))
-		socketDir := filepath.Join(pm.record.PoolerDir(), "pg_sockets")
+		socketDir := constants.PostgresSocketDir(pm.record.PoolerDir())
 		pg1User := constants.DefaultPostgresUser
 		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
 		if pm.connPoolMgr != nil {
@@ -1149,11 +1148,9 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// with password authentication, and we cannot use a ephemeral file in a
 		// temp directory because pgbackrest needs to be able to read it after
 		// we exec (and the temp file would be cleaned up when closed).
-		pgpassPath := filepath.Join(pm.record.PoolerDir(), "pgbackrest", "pgbackrest.pgpass")
-		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
-		// #nosec G703 -- pgpassPath is built from the pooler's own PoolerDir, not external input.
-		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
-			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
+		pgpassPath, err := backup.WritePgpassFile(pm.record.PoolerDir(), pg1User, pg1Password)
+		if err != nil {
+			pm.setStateError(err)
 			return
 		}
 
@@ -1715,13 +1712,13 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 		}
 		pm.logger.Info("manager reached ready state, will register gRPC services")
 
-		pm.logger.Info("MultipoolerManager started") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager started")
 		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("query service controller registered")
 
 		// Register manager gRPC services
 		pm.registerGRPCServices()
-		pm.logger.Info("MultipoolerManager gRPC services registered") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.Info("multipooler manager gRPC services registered")
 		return nil
 	})
 }

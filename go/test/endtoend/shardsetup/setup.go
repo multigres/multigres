@@ -808,7 +808,7 @@ func (s *ShardSetup) createMultiorchInstances(t *testing.T, config *SetupConfig)
 func (s *ShardSetup) StartMultiorchs(ctx context.Context, t *testing.T) {
 	t.Helper()
 	for name, mo := range s.MultiorchInstances {
-		if mo.IsRunning() {
+		if mo.IsRunningOrZombie() {
 			continue
 		}
 		if err := mo.Start(ctx, t); err != nil {
@@ -1109,7 +1109,7 @@ func (s *ShardSetup) connectToMultiorch(t *testing.T, orchName string) *grpc.Cli
 // ensureRecoveryEnabled makes a best-effort attempt to enable recovery.
 // Used in test cleanup to prevent disabled recovery from affecting subsequent tests.
 func ensureRecoveryEnabled(t *testing.T, mo *ProcessInstance) {
-	if mo == nil || !mo.IsRunning() {
+	if mo == nil || !mo.IsRunningOrZombie() {
 		return
 	}
 
@@ -1582,7 +1582,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 
 	// Verify multiorch instances are NOT running (clean state = no orchestration)
 	for name, mo := range s.MultiorchInstances {
-		if mo.IsRunning() {
+		if mo.IsRunningOrZombie() {
 			return fmt.Errorf("multiorch %s is running (clean state = not running)", name)
 		}
 	}
@@ -1664,7 +1664,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 
 	// Stop multiorch instances first (clean state = not running)
 	for name, mo := range s.MultiorchInstances {
-		if mo.IsRunning() {
+		if mo.IsRunningOrZombie() {
 			mo.TerminateGracefully(t.Logf, 5*time.Second)
 			t.Logf("Reset: Stopped multiorch %s", name)
 		}
@@ -1772,7 +1772,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 2. Stop multiorch instances
 	for name, mo := range s.MultiorchInstances {
-		if mo.IsRunning() {
+		if mo.IsRunningOrZombie() {
 			mo.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
 		}
@@ -2051,7 +2051,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Stop multiorch instances first (clean state = multiorch not running)
 		// Use explicit termination here since multiorch should be stopped before restoring state.
 		for name, mo := range s.MultiorchInstances {
-			if mo.IsRunning() {
+			if mo.IsRunningOrZombie() {
 				mo.TerminateGracefully(t.Logf, 5*time.Second)
 				t.Logf("Cleanup: Stopped multiorch %s", name)
 			}
@@ -2375,7 +2375,7 @@ func logMultiorchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 	t.Helper()
 
 	for name, inst := range setup.MultiorchInstances {
-		if !inst.IsRunning() {
+		if !inst.IsRunningOrZombie() {
 			continue
 		}
 

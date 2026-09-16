@@ -380,3 +380,62 @@ func BenchmarkFairShareAllocator_Allocate(b *testing.B) {
 		_ = alloc.Allocate(demands)
 	}
 }
+
+func TestSplitClassCapacity(t *testing.T) {
+	// 40 slots, 80:20 ratio → nominal targets 32 regular / 8 reserved.
+	cases := []struct {
+		name                  string
+		regular, reserved     int64
+		wantRegular, wantResv int64
+	}{
+		{"both saturated keeps ratio", 40, 40, 32, 8},
+		{"reserved borrows unused regular", 8, 32, 8, 32},
+		{"reserved borrows almost everything", 1, 40, 1, 39},
+		{"reserved floor keeps one regular slot", 0, 40, 1, 39},
+		{"regular floor keeps one reserved slot", 40, 0, 39, 1},
+		{"idle splits headroom by ratio", 0, 0, 32, 8},
+		{"partial demand shares headroom by ratio", 10, 0, 34, 6},
+		{"regular over target, reserved at target", 40, 8, 32, 8},
+		{"regular borrows unused reserved", 36, 2, 37, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, v := splitClassCapacity(40, 0.2, tc.regular, tc.reserved, 1)
+			assert.Equal(t, tc.wantRegular, r, "regular")
+			assert.Equal(t, tc.wantResv, v, "reserved")
+		})
+	}
+
+	// Three user pools keep three reserved slots even with no reserved demand.
+	r, v := splitClassCapacity(12, 0.25, 11, 0, 3)
+	assert.Equal(t, int64(9), r)
+	assert.Equal(t, int64(3), v)
+
+	// The floor is capped at the nominal target: five users on a 10-slot
+	// budget keep the fixed split's 2 reserved slots, not 5.
+	r, v = splitClassCapacity(10, 0.2, 15, 0, 5)
+	assert.Equal(t, int64(8), r)
+	assert.Equal(t, int64(2), v)
+
+	// A budget of 1 overshoots by one so both classes stay usable,
+	// matching the fixed split's behavior.
+	r, v = splitClassCapacity(1, 0.2, 0, 0, 1)
+	assert.Equal(t, int64(1), r)
+	assert.Equal(t, int64(1), v)
+
+	// Property: the split exactly consumes any budget >= 2 and never drops a
+	// class below min(minCap, target) or below 1.
+	for total := int64(2); total <= 60; total++ {
+		regularTarget := int64(float64(total) * 0.8)
+		for minCap := int64(1); minCap <= total+1; minCap += 3 {
+			for rd := int64(0); rd <= total+5; rd += 5 {
+				for vd := int64(0); vd <= total+5; vd += 5 {
+					r, v := splitClassCapacity(total, 0.2, rd, vd, minCap)
+					assert.Equal(t, total, r+v, "total=%d min=%d rd=%d vd=%d", total, minCap, rd, vd)
+					assert.GreaterOrEqual(t, r, max(min(minCap, regularTarget), 1))
+					assert.GreaterOrEqual(t, v, max(min(minCap, total-regularTarget), 1))
+				}
+			}
+		}
+	}
+}

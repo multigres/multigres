@@ -57,6 +57,16 @@ func NewRegistry() *Registry {
 	}
 }
 
+// InStaticConfig reports whether the key was present in the loaded static
+// config file. Unlike viper's IsSet — which is true for every registered value
+// because Configure installs its default via SetDefault — this consults only
+// the parsed config-file contents, so callers can distinguish "operator wrote
+// this key" from "value fell through to the default". Always false before
+// LoadConfig has run (or when no config file was found).
+func (reg *Registry) InStaticConfig(key string) bool {
+	return reg.static.InConfig(key)
+}
+
 // Combined returns a viper instance combining the static and dynamic registries.
 // This is useful for debug handlers and other utilities that need to access
 // all configuration values.

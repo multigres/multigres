@@ -107,7 +107,7 @@ func parameterOIDs(parameters []*query.ParameterDescription) []uint32 {
 	return oids
 }
 
-func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
+func (m *mockExecutor) PrepareInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
 	m.eagerParseCalls++
 	return m.eagerParseErr
 }

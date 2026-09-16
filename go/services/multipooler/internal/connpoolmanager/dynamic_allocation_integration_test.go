@@ -231,20 +231,24 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	}
 	close(ready)
 
-	// Wait for rebalancer to converge on expected capacity split.
+	// Wait for rebalancer to converge on expected capacity split. With
+	// elastic quotas and no reserved demand, regular borrows the idle reserved
+	// share down to one reserved slot per user: 15 - 2 = 13, split 7/6.
 	// Use Eventually instead of fixed sleep to handle slow CI machines.
 	require.Eventually(t, func() bool {
 		stats := manager.Stats()
 		if len(stats.UserPools) != 2 {
 			return false
 		}
+		var total int64
 		for _, poolStats := range stats.UserPools {
-			if poolStats.Regular.Capacity != 6 {
+			if poolStats.Regular.Capacity < 6 {
 				return false
 			}
+			total += poolStats.Regular.Capacity
 		}
-		return true
-	}, 5*time.Second, 50*time.Millisecond, "both users should have half of total capacity (6)")
+		return total == 13
+	}, 5*time.Second, 50*time.Millisecond, "both users should have about half of the borrowed regular capacity (13)")
 	assert.Equal(t, 2, manager.UserPoolCount())
 
 	// Now add a 3rd user during load

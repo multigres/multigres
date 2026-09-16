@@ -51,6 +51,31 @@ type Executor struct {
 	planCache *plancache.PlanCache
 }
 
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates
+// admitting a non-temporary logical failover replication slot created via
+// plain SQL. Must be called before connections are accepted. A nil getter
+// (the default) keeps the feature off, rejecting every non-temporary slot as
+// before. See planner.Planner.SetSlotBasedReplicationEnabled.
+//
+// The executor only forwards the getter; the planner is what reads it, at
+// plan time. A plan admitted under this (or any other dynamic,
+// plan-affecting) flag then stays cached and gets served on later hits
+// without re-running analysis, so the plan cache is the one place a flipped
+// flag could still be acted on. Invalidating it is the config-reload
+// handler's job (see InvalidatePlanCache and its caller in Init), which is
+// driven by the same notification that makes the new value live.
+func (e *Executor) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	e.planner.SetSlotBasedReplicationEnabled(enabled)
+}
+
+// InvalidatePlanCache discards every cached plan, so the next request for
+// any statement is re-planned from scratch. Call this whenever a dynamic
+// flag that affects planning decisions (e.g. enable-slot-based-replication)
+// changes value — see SetSlotBasedReplicationEnabled.
+func (e *Executor) InvalidatePlanCache() {
+	e.planCache.Invalidate()
+}
+
 // NewExecutor creates a new executor instance.
 // The IExecute parameter provides the execution backend (typically ScatterConn).
 // planCacheMemory controls the maximum memory in bytes for the plan cache (0 disables caching).
@@ -136,12 +161,12 @@ func (e *Executor) resolvePlan(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	// A direct connection is kept off the shared plan cache: its
+	// A unsafe connection is kept off the shared plan cache: its
 	// planning depends on the per-connection opt-out (accept/reject decisions and
-	// the ReasonDirectConnection pin), so a plan built for it must never be served to
+	// the ReasonUnsafeConnection pin), so a plan built for it must never be served to
 	// another connection. Route it through the non-cacheable path with State, like
 	// any other statement whose plan depends on live connection state.
-	if !isCacheable(astStmt) || conn.DirectConnection() {
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err
@@ -172,12 +197,22 @@ func (e *Executor) resolvePlan(
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
+	//
+	// The epoch is captured before planning, not read fresh at Put: planning
+	// may read live, mutable state (e.g. a dynamic feature flag such as
+	// enable-slot-based-replication) that Invalidate() is the designated
+	// response to changing. If a reload bumps the epoch while this plan
+	// (built under the pre-reload state) is still in flight, stamping with
+	// the captured epoch — now behind the current one — means the entry is
+	// immediately stale on the next Get, instead of Put silently caching a
+	// decision made under a policy that no longer holds.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.Put(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
 		"normalized_query", normalizedSQL,
 		"plan", plan.String())
@@ -290,12 +325,12 @@ func (e *Executor) resolvePortalPlan(
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
 	//
-	// A direct connection is also forced down this path (mirroring resolvePlan):
+	// A unsafe connection is also forced down this path (mirroring resolvePlan):
 	// its plan is built with the unsafe-statement rejections suppressed, so it
 	// must never enter the shared cache where a normal connection could receive it
 	// as a database-wide hit — that would bypass analyzeStatement's function
 	// blocklist (e.g. a cached SELECT dblink(...) served to another client).
-	if !isCacheable(astStmt) || conn.DirectConnection() {
+	if !isCacheable(astStmt) || conn.UnsafeConnection() {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err
@@ -308,6 +343,7 @@ func (e *Executor) resolvePortalPlan(
 	normalizedSQL := astStmt.SqlString()
 	fingerprint := ast.FingerprintSQL(normalizedSQL)
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
+
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
 		return cachedPlan, true, normalizedSQL, fingerprint, nil
@@ -315,12 +351,14 @@ func (e *Executor) resolvePortalPlan(
 
 	// Cacheable DML is planned protocol-agnostically (zero-value PlanOptions, same
 	// as the simple path) so the cached entry is shared safely across protocols.
+	// Epoch captured before planning — see the matching comment in resolvePlan.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.Put(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
 		"query", normalizedSQL, "plan", plan.String())
 	return plan, false, normalizedSQL, fingerprint, nil
@@ -381,11 +419,10 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 	}
 }
 
-// EagerParseInTransaction forces a backend Parse for SQL PREPARE / protocol
-// Parse inside an explicit transaction. The actual carrier is the existing
-// StreamExecute reservation path with force_unnamed_parse set; the multipooler
-// runs unnamed Parse after replaying any deferred BEGIN.
-func (e *Executor) EagerParseInTransaction(
+// PrepareInTransaction materializes a fresh named backend statement at client
+// Parse time. The StreamExecute reservation path replays any deferred BEGIN
+// before preparing, so validation and locks belong to the client's transaction.
+func (e *Executor) PrepareInTransaction(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
@@ -394,10 +431,11 @@ func (e *Executor) EagerParseInTransaction(
 ) error {
 	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
 		PreparedStatement: &query.PreparedStatement{
-			Query:      queryStr,
-			ParamTypes: paramTypes,
+			Query:        queryStr,
+			ParamTypes:   paramTypes,
+			ForceReparse: true,
 		},
-		ForceUnnamedParse: true,
+		PrepareOnly: true,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 

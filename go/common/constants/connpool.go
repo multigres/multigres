@@ -31,3 +31,7 @@ const (
 	// connection error is due to a restart.
 	ConnPoolRetryBackoff = 100 * time.Millisecond
 )
+
+// ReservedPoolMeterName is the OpenTelemetry meter name (instrumentation scope)
+// for the reserved connection pool's metrics.
+const ReservedPoolMeterName = "github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"

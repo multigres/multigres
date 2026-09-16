@@ -52,7 +52,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
 
 	// Pre-seed benign scaffolding helper functions (EXPLAIN wrappers, etc.)
-	// through a gateway direct connection before the suite. Their runtime CREATE
+	// through a gateway unsafe connection before the suite. Their runtime CREATE
 	// is rejected by the enforcing gateway's PL/pgSQL body analysis; seeding them
 	// keeps a single test from cascading into thousands of "function does not
 	// exist" errors and lets the substantive tests run. See preseedRegressHelpers.

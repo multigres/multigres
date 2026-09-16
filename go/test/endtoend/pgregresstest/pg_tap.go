@@ -122,17 +122,17 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 		}
 		name := strings.TrimSuffix(rel, ".sql")
 
-		// Most files run against the enforcing gateway. A few (DirectConnectionGlobs)
+		// Most files run against the enforcing gateway. A few (UnsafeConnectionGlobs)
 		// have scaffolding the enforcing gateway rejects by design — e.g. a
 		// runtime-built EXECUTE inside a DO block — which, under ON_ERROR_STOP,
 		// aborts the whole file mid-plan. Those connect to the same gateway but opt
-		// into direct connection per-connection (PGOPTIONS below), so they run in full while
+		// into unsafe connection per-connection (PGOPTIONS below), so they run in full while
 		// every other file keeps exercising the rejections. See
-		// ExternalExtension.DirectConnectionGlobs.
+		// ExternalExtension.UnsafeConnectionGlobs.
 		gatewayLabel := "multigateway"
-		directConnection := matchesAnyGlob(rel, ext.DirectConnectionGlobs)
-		if directConnection {
-			gatewayLabel = "multigateway(direct-connection)"
+		unsafeConnection := matchesAnyGlob(rel, ext.UnsafeConnectionGlobs)
+		if unsafeConnection {
+			gatewayLabel = "multigateway(unsafe-connection)"
 		}
 
 		// Drop the throwaway schemas a pg_partman test file creates, on the primary,
@@ -163,10 +163,10 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 			"PGDATABASE=postgres",
 			"PGCONNECT_TIMEOUT=10",
 		)
-		// Opt this connection into direct connection for the
+		// Opt this connection into unsafe connection for the
 		// files whose scaffolding the enforcing gateway rejects by design.
-		if directConnection {
-			cmd.AddEnv("PGOPTIONS=-c " + constants.DirectConnectionParam + "=on")
+		if unsafeConnection {
+			cmd.AddEnv("PGOPTIONS=-c " + constants.UnsafeConnectionParam + "=on")
 		}
 		cmd.SetWaitDelay(10 * time.Second)
 

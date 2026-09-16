@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,18 +73,22 @@ Examples:
 }
 
 // ReloadPostgreSQLConfigWithResult reloads PostgreSQL configuration and returns detailed result information
-func ReloadPostgreSQLConfigWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*ReloadResult, error) {
+func ReloadPostgreSQLConfigWithResult(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*ReloadResult, error) {
 	result := &ReloadResult{}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	running, err := checkPostgreSQLRunning(ctx, logger, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if PostgreSQL is running: %w", err)
+	}
+	if !running {
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"
 		return result, errors.New("PostgreSQL is not running")
 	}
 
 	result.WasRunning = true
-	logger.Info("reloading Postgres configuration", "data_dir", config.PostgresDataDir)
+	logger.InfoContext(ctx, "reloading Postgres configuration", "data_dir", config.PostgresDataDir)
 
 	if err := reloadPostgreSQLConfig(logger, config.PostgresDataDir); err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
@@ -100,7 +105,7 @@ func (r *PgCtlReloadCmd) runReload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := ReloadPostgreSQLConfigWithResult(r.pgCtlCmd.lg.GetLogger(), config)
+	result, err := ReloadPostgreSQLConfigWithResult(cmd.Context(), r.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}

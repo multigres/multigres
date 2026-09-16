@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/ha"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -216,6 +217,11 @@ type Engine struct {
 
 	coordinator *consensus.Coordinator
 
+	// recruitmentBackoff computes each orchestrator's deterministic next-attempt
+	// time for failover recruitment, so independent orchs collectively back off
+	// against a shard's observed TermRevocation without coordinating.
+	recruitmentBackoff ha.BackoffSchedule
+
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
 	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
 
@@ -236,17 +242,18 @@ func NewEngine(
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	engine := &Engine{
-		ts:                ts,
-		logger:            logger,
-		config:            config,
-		rpcClient:         rpcClient,
-		shardWatchTargets: shardWatchTargets,
-		coordinator:       coordinator,
-		shutdownCtx:       ctx,
-		cancel:            cancel,
-		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
-		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
-		leaderInfoRunner:  timer.NewPeriodicRunner(ctx, leaderInfoPropagationInterval),
+		ts:                 ts,
+		logger:             logger,
+		config:             config,
+		rpcClient:          rpcClient,
+		shardWatchTargets:  shardWatchTargets,
+		coordinator:        coordinator,
+		recruitmentBackoff: ha.DefaultBackoffSchedule(),
+		shutdownCtx:        ctx,
+		cancel:             cancel,
+		bookkeepingRunner:  timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:     timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
+		leaderInfoRunner:   timer.NewPeriodicRunner(ctx, leaderInfoPropagationInterval),
 	}
 
 	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
@@ -551,8 +558,11 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	re.pollAndWaitForNewSnapshots(ctx)
 
 	// Expire all grace period deadlines so the next recovery cycle acts on
-	// detected problems immediately instead of waiting. This matches the
-	// documented contract ("bypasses grace periods") of TriggerRecoveryNow.
+	// non-failover problems immediately instead of waiting. Failover problems
+	// are gated on collective recruitment backoff instead (see
+	// Engine.readyToExecute) and are not force-expired here — MaxCycles=0's
+	// retry loop below still resolves them within the RPC's own timeout, just
+	// via a few extra cycles rather than instantly.
 	re.recoveryGracePeriodTracker.ForceExpireAll()
 
 	// Create channel to wait for first cycle completion

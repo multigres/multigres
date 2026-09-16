@@ -441,3 +441,93 @@ func TestConfig_PgUser_EnvVar(t *testing.T) {
 
 	assert.Equal(t, "multigres", config.PgUser())
 }
+
+func TestConfig_GlobalCapacityExplicit(t *testing.T) {
+	t.Run("default is not explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+
+		assert.False(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("flag set is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		require.NoError(t, cmd.Flags().Set("connpool-global-capacity", "50"))
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("flag set to the default value is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		require.NoError(t, cmd.Flags().Set("connpool-global-capacity", "100"))
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("env var is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		t.Setenv("CONNPOOL_GLOBAL_CAPACITY", "90")
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	// loadConfigFile writes the given YAML to a temp config file and loads it
+	// into the registry through the production ViperConfig path.
+	loadConfigFile := func(t *testing.T, reg *viperutil.Registry, fs *pflag.FlagSet, yaml string) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "mtconfig.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+		vc := viperutil.NewViperConfig(reg)
+		vc.RegisterFlags(fs)
+		require.NoError(t, fs.Set("config-file", path))
+		cancel, err := vc.LoadConfig(reg)
+		require.NoError(t, err)
+		t.Cleanup(cancel)
+	}
+
+	t.Run("config file pinning the default value is explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		loadConfigFile(t, reg, cmd.Flags(), "connpool:\n  global-capacity: 100\n")
+
+		// The value equals the default, but the operator wrote it down — the
+		// config-file presence check must still count it as explicit.
+		assert.Equal(t, int64(100), config.GlobalCapacity())
+		assert.True(t, config.GlobalCapacityExplicit())
+	})
+
+	t.Run("config file without the key is not explicit", func(t *testing.T) {
+		viper.Reset()
+		defer viper.Reset()
+		reg := viperutil.NewRegistry()
+		config := NewConfig(reg)
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		loadConfigFile(t, reg, cmd.Flags(), "connpool:\n  admin-capacity: 7\n")
+
+		assert.False(t, config.GlobalCapacityExplicit())
+	})
+}

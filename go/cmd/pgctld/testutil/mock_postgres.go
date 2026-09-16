@@ -194,8 +194,10 @@ case "$1" in
         done
         
         if [ -n "$DATADIR" ]; then
-            # Start a background process to pass isProcessRunning check
-            sleep 3600 &
+            # Background a real process so PID-liveness checks see something
+            # running; its identity is irrelevant since the "is postgres
+            # actually running" check is now a pg_isready probe.
+            sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
@@ -238,8 +240,8 @@ case "$1" in
             echo "waiting for server to shut down.... done"
             echo "server stopped"
 
-            # Start a new background process
-            sleep 3600 &
+            # Start a new background process; see the "start" case above.
+            sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"

@@ -31,6 +31,10 @@ type Pooled[C Connection] struct {
 	// This is used for idle timeout tracking.
 	timeUsed timestamp
 
+	// scrubPass is the pool.scrubPass in which the scrubber last probed this
+	// connection. Only the scrub worker reads or writes it. See scrub.go.
+	scrubPass uint64
+
 	// pool is a reference to the pool that owns this connection.
 	// Used for the Recycle pattern.
 	pool *Pool[C]

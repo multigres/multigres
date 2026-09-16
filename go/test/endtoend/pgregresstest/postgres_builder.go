@@ -387,7 +387,7 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		}
 
 		// Seed any test-helper the gateway rejects by design (a dynamic EXECUTE in
-		// the helper body) through a gateway direct connection, after the
+		// the helper body) through a gateway unsafe connection, after the
 		// public-schema reset so it isn't wiped. The suite's own CREATE is still
 		// rejected under the enforcing default and recorded as a divergence; the
 		// seed just lets the helper's callers resolve. See ExternalExtension.PreseedFile.
@@ -396,10 +396,10 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			if !ok {
 				return merged, fmt.Errorf("external/%s: unknown PreseedFile %q (add it to externalPreseeds)", ext.Name, ext.PreseedFile)
 			}
-			if err := execViaGatewayDirectConnection(ctx, multigatewayPort, password, seed); err != nil {
+			if err := execViaGatewayUnsafeConnection(ctx, multigatewayPort, password, seed); err != nil {
 				t.Logf("external/%s: warning: preseed %q failed: %v", ext.Name, ext.PreseedFile, err)
 			} else {
-				t.Logf("external/%s: pre-seeded %s via gateway direct connection", ext.Name, ext.PreseedFile)
+				t.Logf("external/%s: pre-seeded %s via gateway unsafe connection", ext.Name, ext.PreseedFile)
 			}
 		}
 
@@ -706,16 +706,16 @@ func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ex
 		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
 		"PGIS_REG_TMPDIR="+tmpDir,
 		// Per-test helper re-seed: the patched run_test.pl runs this SQL before each
-		// test through a gateway direct connection (options=-c
-		// multigres.direct_connection=on), so the helpers the enforcing gateway
+		// test through a gateway unsafe connection (options=-c
+		// multigres.unsafe_connection=on), so the helpers the enforcing gateway
 		// rejects install via the pooled path (PGPASSWORD above authenticates it).
 		// The options value is single-quoted: it contains a space, and libpq's
 		// conninfo parser otherwise treats that space as a pair separator — reading
-		// only `options=-c` and then rejecting `multigres.direct_connection=on` as an
+		// only `options=-c` and then rejecting `multigres.unsafe_connection=on` as an
 		// unknown connection keyword, so psql never connects and the seed is skipped.
 		"MG_POSTGIS_PRESEED_FILE="+preseedPath,
 		fmt.Sprintf("MG_POSTGIS_PRESEED_CONNINFO=host=localhost port=%d user=postgres dbname=postgres options='-c %s=on'",
-			multigatewayPort, constants.DirectConnectionParam),
+			multigatewayPort, constants.UnsafeConnectionParam),
 		// Normalize planner GUCs to PostgreSQL defaults so index scan-type checks
 		// (qnodes) match PostGIS's expected output despite pgctld's tuned GUCs.
 		"PGOPTIONS=-c work_mem=4MB -c random_page_cost=4.0 -c effective_cache_size=4GB -c max_parallel_workers_per_gather=2",
@@ -1300,15 +1300,15 @@ func execOnPrimary(directPgPort int, password, stmt string) error {
 	return nil
 }
 
-// execViaGatewayDirectConnection runs stmt through multigateway on a direct
-// connection: it opens one pinned connection, enables direct connection with
-// `SET multigres.direct_connection = on`, then runs stmt. This installs
+// execViaGatewayUnsafeConnection runs stmt through multigateway on an unsafe
+// connection: it opens one pinned connection, enables unsafe connection with
+// `SET multigres.unsafe_connection = on`, then runs stmt. This installs
 // scaffolding the enforcing gateway would reject by design — e.g. a plpgsql body
 // with a dynamic EXECUTE — through the same pooled path the tests use, with no
 // direct-postgres access. The CREATE routes to the primary, commits, and
 // replicates via WAL like any DDL; the connection's backend is quarantined and
 // discarded at teardown, but the committed objects persist for every backend.
-func execViaGatewayDirectConnection(ctx context.Context, gatewayPort int, password, stmt string) error {
+func execViaGatewayUnsafeConnection(ctx context.Context, gatewayPort int, password, stmt string) error {
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
 		gatewayPort, password)
 	db, err := sql.Open("postgres", connStr)
@@ -1317,7 +1317,7 @@ func execViaGatewayDirectConnection(ctx context.Context, gatewayPort int, passwo
 	}
 	defer db.Close()
 
-	// Pin one connection so the direct-connection latch (per gateway connection)
+	// Pin one connection so the unsafe-connection latch (per gateway connection)
 	// applies to stmt below.
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -1325,8 +1325,8 @@ func execViaGatewayDirectConnection(ctx context.Context, gatewayPort int, passwo
 	}
 	defer conn.Close()
 
-	if _, err := conn.ExecContext(ctx, "SET "+constants.DirectConnectionParam+" = on"); err != nil {
-		return fmt.Errorf("enable direct connection: %w", err)
+	if _, err := conn.ExecContext(ctx, "SET "+constants.UnsafeConnectionParam+" = on"); err != nil {
+		return fmt.Errorf("enable unsafe connection: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("exec [%s]: %w", stmt, err)

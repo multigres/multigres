@@ -316,6 +316,19 @@ func TestSettingsApplyQuerySQLInjection(t *testing.T) {
 	assert.Equal(t, expected, s.ApplyQuery())
 }
 
+func TestSettingsApplyQueryBackslashInValue(t *testing.T) {
+	// Under standard_conforming_strings=off a backslash escapes the next
+	// character, so a quote-only escape of my\'app; ... would terminate the
+	// literal. Backslash values must be emitted as E'...' with the backslash
+	// doubled, which decodes identically under either setting.
+	s := NewSettings(map[string]string{
+		"application_name": `my\'app; DROP TABLE users--`,
+	}, 1)
+
+	expected := `SELECT pg_catalog.set_config('application_name', E'my\\''app; DROP TABLE users--', false)`
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
 func TestSettingsApplyQuerySingleQuoteInName(t *testing.T) {
 	// Single quotes in variable names must also be escaped.
 	s := NewSettings(map[string]string{

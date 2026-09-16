@@ -93,6 +93,9 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		slog.Error("failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
 	} else {
+		if err := registerBuildInfoMetric(id.ServiceName); err != nil {
+			slog.Error("failed to register build info metric", "error", err)
+		}
 		// Re-wrap logger now that LoggerProvider is initialized
 		sv.lg.UpdateTelemetryWrapper()
 	}
@@ -143,6 +146,12 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	// Get hostname upfront so we can fail early if it fails.
 	if err := sv.populateHostname(); err != nil {
 		return fmt.Errorf("failed to determine hostname: %w", err)
+	}
+
+	// Likewise fail early on an unusable HTTP TLS setup, rather than in the
+	// HTTP-serving goroutine where the error is only logged.
+	if err := sv.validateHTTPTLS(); err != nil {
+		return err
 	}
 
 	sv.onInitHooks.Fire()

@@ -16,13 +16,16 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
 
@@ -114,18 +117,24 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 		Port:    config.Port,
 	}
 
-	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
+	// Check if PostgreSQL is running and, from the same probe, whether it is
+	// actually accepting connections — a process that exists but cannot
+	// respond (e.g. SIGSTOP, cgroup freeze) is treated as not running so that
+	// multipooler and multiorch can detect the failure and trigger recovery
+	// rather than waiting indefinitely. The side-effect-free probe, not
+	// checkPostgreSQLRunning — see probePostgreSQLRunningAndReady's doc
+	// comment for why Status must not remove a lock file it finds stale.
+	running, ready, err := probePostgreSQLRunningAndReady(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if PostgreSQL is running: %w", err)
+	}
+	if !running {
 		result.Status = statusStopped
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
 	}
-
-	// Process exists — verify it is actually accepting connections.
-	// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
-	// is treated as not running so that multipooler and multiorch can detect
-	// the failure and trigger recovery rather than waiting indefinitely.
-	if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+	result.Ready = ready
+	if !ready {
 		result.Status = statusStopped
 		result.Message = "PostgreSQL process exists but is not accepting connections"
 		return result, nil
@@ -146,7 +155,7 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 	result.Version = getServerVersionWithConfig(ctx, config)
 
 	// Get uptime (approximate based on pidfile mtime)
-	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
+	pidFile := filepath.Join(config.PostgresDataDir, constants.PostmasterPIDFile)
 	if stat, err := os.Stat(pidFile); err == nil {
 		result.UptimeSeconds = int64(time.Since(stat.ModTime()).Seconds())
 	}
@@ -243,19 +252,55 @@ func pgIsReadyTimeoutSecs(ctx context.Context) int {
 	return max(1, int(timeout.Seconds()))
 }
 
-func isServerReadyWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) bool {
-	// Use Unix socket connection for pg_isready
+// runPgIsReady invokes pg_isready against config's connection parameters and
+// reports its exit code: 0 accepting, 1 rejecting (e.g. still starting up),
+// 2 no response, 3 no attempt made (see `man pg_isready`). err is non-nil
+// only if pg_isready itself could not be run at all (e.g. binary missing),
+// as opposed to running and reporting an exit code.
+func runPgIsReady(ctx context.Context, config *pgctld.PostgresCtlConfig, timeoutSecs int) (exitCode int, err error) {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 
-	timeoutSecs := pgIsReadyTimeoutSecs(ctx)
-
-	return executil.Command(ctx, "pg_isready",
+	runErr := executil.Command(ctx, "pg_isready",
 		"-h", socketDir,
 		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", strconv.Itoa(timeoutSecs),
-	).WithClientSpan().Run() == nil
+	).WithClientSpan().Run()
+	if runErr == nil {
+		return 0, nil
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		return exitErr.ExitCode(), nil
+	}
+
+	return 0, runErr
+}
+
+// classifyPgIsReady interprets a pg_isready exit code (or the error from
+// failing to run it at all) into running (exit 0 or 1: postgres is alive,
+// whether or not it's accepting queries yet) and ready (exit 0 only: fully
+// accepting connections). err is non-nil only for exit 3 ("no attempt made",
+// e.g. invalid connection parameters) or a failure to execute pg_isready at
+// all — both mean the control plane itself can't answer the question, not
+// that postgres is down, so callers must surface the error rather than
+// guess either way.
+func classifyPgIsReady(exitCode int, runErr error) (running, ready bool, err error) {
+	if runErr != nil {
+		return false, false, fmt.Errorf("could not run pg_isready: %w", runErr)
+	}
+	switch exitCode {
+	case 0:
+		return true, true, nil
+	case 1:
+		return true, false, nil
+	case 2:
+		return false, false, nil
+	default:
+		return false, false, fmt.Errorf("pg_isready returned unexpected exit code %d", exitCode)
+	}
 }
 
 func getServerVersionWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) string {
@@ -277,7 +322,7 @@ func getServerVersionWithConfig(ctx context.Context, config *pgctld.PostgresCtlC
 }
 
 func getServerUptime(dataDir string) string {
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	pidFile := filepath.Join(dataDir, constants.PostmasterPIDFile)
 	stat, err := os.Stat(pidFile)
 	if err != nil {
 		return ""

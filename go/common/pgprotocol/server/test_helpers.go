@@ -76,9 +76,9 @@ func WithTestUser(user string) TestConnOption {
 	return func(c *Conn) { c.user = user }
 }
 
-// WithTestDirectConnection latches direct connection on a test connection.
-func WithTestDirectConnection() TestConnOption {
-	return func(c *Conn) { c.directConnection = true }
+// WithTestUnsafeConnection latches unsafe connection on a test connection.
+func WithTestUnsafeConnection() TestConnOption {
+	return func(c *Conn) { c.unsafeConnection = true }
 }
 
 // WithTestScramKeys sets the SCRAM passthrough keys on a test connection.

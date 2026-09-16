@@ -126,7 +126,7 @@ const (
 	// residual-state gap is accepted since it only affects the statistical
 	// freshness of an unrelated session's random() sequence.
 	ReservationReason_RESERVATION_REASON_SET_SEED ReservationReason = 128 // 0b10000000
-	// Connection is a direct connection (the per-connection mode that gives the
+	// Connection is an unsafe connection (the per-connection mode that gives the
 	// client its own dedicated backend and suppresses the unsafe-statement
 	// rejections). Such a connection may run statements that change untracked
 	// backend session state, so its backend must never be returned to the shared
@@ -134,7 +134,7 @@ const (
 	// backend for the session's lifetime and, like SET_SEED, sticky: it survives
 	// DISCARD ALL and is released only at the connection's real teardown, when the
 	// tainted backend is discarded.
-	ReservationReason_RESERVATION_REASON_DIRECT_CONNECTION ReservationReason = 256 // 0b100000000
+	ReservationReason_RESERVATION_REASON_UNSAFE_CONNECTION ReservationReason = 256 // 0b100000000
 )
 
 // Enum value maps for ReservationReason.
@@ -149,7 +149,7 @@ var (
 		32:  "RESERVATION_REASON_LOGICAL_REPLICATION",
 		64:  "RESERVATION_REASON_SESSION_ADVISORY_LOCK",
 		128: "RESERVATION_REASON_SET_SEED",
-		256: "RESERVATION_REASON_DIRECT_CONNECTION",
+		256: "RESERVATION_REASON_UNSAFE_CONNECTION",
 	}
 	ReservationReason_value = map[string]int32{
 		"RESERVATION_REASON_UNSPECIFIED":           0,
@@ -161,7 +161,7 @@ var (
 		"RESERVATION_REASON_LOGICAL_REPLICATION":   32,
 		"RESERVATION_REASON_SESSION_ADVISORY_LOCK": 64,
 		"RESERVATION_REASON_SET_SEED":              128,
-		"RESERVATION_REASON_DIRECT_CONNECTION":     256,
+		"RESERVATION_REASON_UNSAFE_CONNECTION":     256,
 	}
 )
 
@@ -2110,7 +2110,7 @@ type ReleaseReservedConnectionRequest struct {
 	// remains after the usual cleanup (rollback, COPY abort, temp table
 	// discard, advisory unlock). A sticky reason has no PostgreSQL command
 	// that undoes it (RESERVATION_REASON_SET_SEED or
-	// RESERVATION_REASON_DIRECT_CONNECTION), so it can only be cleared by the
+	// RESERVATION_REASON_UNSAFE_CONNECTION), so it can only be cleared by the
 	// connection's real teardown. Real client-disconnect
 	// cleanup always leaves this false, so a sticky reason never blocks a
 	// connection's actual teardown.
@@ -2651,7 +2651,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 \x12,\n" +
 	"(RESERVATION_REASON_SESSION_ADVISORY_LOCK\x10@\x12 \n" +
 	"\x1bRESERVATION_REASON_SET_SEED\x10\x80\x01\x12)\n" +
-	"$RESERVATION_REASON_DIRECT_CONNECTION\x10\x80\x02*\x87\x01\n" +
+	"$RESERVATION_REASON_UNSAFE_CONNECTION\x10\x80\x02*\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +

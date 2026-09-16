@@ -201,10 +201,24 @@ func (s *MultiadminServer) buildCert(
 		// changes it can be an undecided proposal that we'll be able to instantly
 		// "propagate" since outgoing cohorts aren't required to reach quorum for
 		// externally-certified rule changes.
-		decision := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
-		return decision, &clustermetadatapb.ExternallyCertifiedRevocation{
+		outgoingRule := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
+		return outgoingRule, &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: &clustermetadatapb.TermRevocation{
-				OutgoingRule: decision.GetRuleNumber(),
+				OutgoingRule:           outgoingRule.GetRuleNumber(),
+				CoordinatorInitiatedAt: timestamppb.Now(),
+				RecruitIntent: &clustermetadatapb.RecruitIntent{
+					// pos is the position ComparePoolerPosition ranks highest
+					// among the probed cohort, and decision strictly
+					// dominates that comparator (see CompareRulePosition) —
+					// so pos.Decision is guaranteed to be the highest decision
+					// among the probed set, not just pos's own.
+					ReplaceDecision: pos.GetPosition().GetDecision().GetRuleNumber(),
+					// Starts at 1 per the proto's documented contract, so a
+					// subsequent multiorch failover against this same decision
+					// (see consensus.recruitAttempt) counts this as the first
+					// attempt rather than undercounting the escalation by one.
+					Attempt: 1,
+				},
 			},
 			FrozenLsn: pos.GetLsn(),
 		}, nil

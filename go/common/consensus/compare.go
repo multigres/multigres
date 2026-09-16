@@ -258,6 +258,23 @@ func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermet
 	return best
 }
 
+// HighestDecidedRule returns the highest decided rule number across the given
+// consensus statuses, considering only each status's own CurrentPosition —
+// unlike HighestKnownRule, not ReplicationPrimary, which a follower can learn
+// of before its own position replays it. This is the exact baseline
+// NewTermRevocation computes as a new attempt's ReplaceDecision; anything
+// comparing against that value must use this, not HighestKnownRule, or the
+// two can disagree.
+func HighestDecidedRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.RuleNumber {
+	var decision *clustermetadatapb.RuleNumber
+	for _, cs := range statuses {
+		if d := cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(); decision == nil || CompareRuleNumbers(d, decision) > 0 {
+			decision = d
+		}
+	}
+	return decision
+}
+
 // ReplicationPrimaryMatches reports whether a pooler's published
 // ReplicationPrimary already names target as its primary at a position no
 // older than targetPosition. Coordinators use this to skip SetPrimary RPCs

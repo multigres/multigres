@@ -30,7 +30,7 @@ var regressPreseedSQL string
 
 // postgisPreseedSQL holds the PostGIS core test-helper functions re-seeded
 // before each PostGIS test (the patched run_test.pl runs it via psql on a gateway
-// direct connection — see MG_POSTGIS_PRESEED_CONNINFO). PostGIS test files
+// unsafe connection — see MG_POSTGIS_PRESEED_CONNINFO). PostGIS test files
 // CREATE OR REPLACE their own helpers — which the enforcing gateway rejects — and
 // DROP them at the end, so they must be re-seeded per test. Extracted from
 // postgis 3.6.3 test sources.
@@ -45,7 +45,7 @@ var postgisPreseedSQL string
 var hypopgPreseedSQL string
 
 // externalPreseeds maps an ExternalExtension.PreseedFile name to the embedded
-// SQL run through a gateway direct connection before that extension's suite. Add
+// SQL run through a gateway unsafe connection before that extension's suite. Add
 // an embed var and an entry here for each extension whose test helpers the
 // enforcing gateway rejects by design (a dynamic EXECUTE in a helper body) but
 // which the suite then depends on. Keyed by the PreseedFile value in the spec.
@@ -54,7 +54,7 @@ var externalPreseeds = map[string]string{
 }
 
 // preseedRegressHelpers installs a small set of benign scaffolding helper
-// functions through a gateway direct connection before the regression suite
+// functions through a gateway unsafe connection before the regression suite
 // runs — the same pooled path the tests use, with no direct-postgres access.
 //
 // Almost every function in regress_preseed.sql — EXPLAIN wrappers,
@@ -77,9 +77,9 @@ var externalPreseeds = map[string]string{
 // backend sees the helper.
 func (pb *PostgresBuilder) preseedRegressHelpers(t *testing.T, ctx context.Context, gatewayPort int, password string) error {
 	t.Helper()
-	if err := execViaGatewayDirectConnection(ctx, gatewayPort, password, regressPreseedSQL); err != nil {
+	if err := execViaGatewayUnsafeConnection(ctx, gatewayPort, password, regressPreseedSQL); err != nil {
 		return fmt.Errorf("exec preseed: %w", err)
 	}
-	t.Logf("pre-seeded regression helper functions via gateway direct connection")
+	t.Logf("pre-seeded regression helper functions via gateway unsafe connection")
 	return nil
 }
