@@ -358,6 +358,15 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 	t.Run("GRPC_MetricsAndExemplars", func(t *testing.T) {
 		ctx := context.Background()
 
+		// Drain any exemplars recorded by earlier subtests (e.g.
+		// GRPC_TracePropagation's health check lands in the same
+		// rpc.*.call.duration bucket). The SDK's per-bucket exemplar
+		// reservoir only keeps one sample and replaces it probabilistically,
+		// not deterministically-latest, so a leftover sample here could
+		// starve out the one this subtest expects to find.
+		var discard metricdata.ResourceMetrics
+		require.NoError(t, setup.MetricReader.Collect(ctx, &discard))
+
 		// Create gRPC client
 		conn, err := grpc.NewClient(
 			grpcAddr,
