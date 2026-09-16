@@ -42,7 +42,7 @@ func (s *MultiadminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 
 	// Find a pooler synchronously so we can generate a stable job ID.
 	// The job ID includes the pooler name, which enables recovery after multiadmin restart.
-	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, req.ForcePrimary)
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, req.ForcePrimary, true)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "failed to find pooler: %v", err)
 	}
@@ -115,7 +115,11 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 // can lag the true consensus state (e.g. a demoted-then-restarted pooler that
 // re-asserts Type=PRIMARY), and a backup taken from a stale leader on a
 // divergent timeline would be unrestorable.
-func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
+// requireServing gates the serving-status filter: backup operations need a
+// SERVING pooler, but migration control-plane RPCs must reach the primary even
+// when it is DRAINING (an in-progress migration holds the target non-serving),
+// so those callers pass requireServing=false.
+func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader, requireServing bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
@@ -142,7 +146,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 			continue
 		}
 		for _, info := range poolerInfos {
-			if info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
+			if !requireServing || info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
 				poolers = append(poolers, info.Multipooler)
 			}
 		}
@@ -213,7 +217,7 @@ func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 		"shard", req.Shard)
 
 	// Find a replica pooler - all poolers for a shard share the same pgbackrest repo
-	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false, true)
 	if err != nil {
 		s.logger.DebugContext(ctx, "failed to find pooler for fallback", "error", err)
 		return nil, status.Errorf(codes.NotFound, "job not found and unable to query pooler: %s", req.JobId)
@@ -278,7 +282,7 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 	}
 
 	// Find a replica pooler - all replicas for a shard share the same pgbackrest repo
-	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false, true)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
 	}
@@ -348,7 +352,7 @@ func (s *MultiadminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 	}
 
 	// Find a replica pooler — all replicas for a shard share the same pgbackrest repo
-	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false, true)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
 	}
@@ -391,7 +395,7 @@ func (s *MultiadminServer) VerifyBackups(ctx context.Context, req *multiadminpb.
 		return nil, status.Error(codes.InvalidArgument, "shard cannot be empty")
 	}
 
-	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false, true)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
 	}

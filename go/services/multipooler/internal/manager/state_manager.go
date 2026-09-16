@@ -328,6 +328,20 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	return nil
 }
 
+// ForceMigrationHold reconciles serving with the migration import hold active,
+// draining this pooler to DRAINING inline — OnStateChange blocks until in-flight
+// writes finish, so it returns only once the pooler is non-serving and quiesced.
+// Unlike the monitor's fixDrift it reuses the cached recovery mode (a running
+// IMPORT never changes recovery) and only ever *applies* the hold; releasing it
+// stays with the monitor, which combines every hold. Requires the action lock.
+// It is the synchronous serving barrier the migration IMPORT setup runs before
+// touching target tables, rather than waiting for the ~5s monitor tick.
+func (ssm *StateManager) ForceMigrationHold(ctx context.Context) error {
+	return ssm.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
+	})
+}
+
 // hasDrift reports whether the effective state last fanned out to components is
 // stale relative to freshly-observed inputs — postgres recovery (pgMode)
 // and the live consensus snapshot, from which the routing role is derived, plus
@@ -338,10 +352,12 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // role from the same inputs, so a drift can never be detected but not corrected.
 //
 // DRAINING normally reports drift so reconciliation completes it to SERVING.
-// While divergence is suspected, DRAINING is the desired state and only role
-// drift is reconciled; this lets the monitor proceed to rewind on the next step
-// instead of repeatedly trying to serve the suspect node.
-func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) bool {
+// While a hold is active — divergence suspected, or an active IMPORT migration on
+// this shard (migrationHold) — DRAINING is the desired state and only role drift
+// is reconciled; for divergence this lets the monitor proceed to rewind, and for
+// a migration it keeps the target from serving a half-copied dataset until it is
+// activated (switched to EXPORT).
+func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence, migrationHold bool) bool {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	if ssm.lastFannedOut == nil {
@@ -349,7 +365,7 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) 
 	}
 	observed := servingstate.State{
 		Routing:       deriveRoutingState(pgMode, ssm.consensusStatus()),
-		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence),
+		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence || migrationHold),
 	}
 	// Compare with sameFanout (proto-aware), not raw struct equality: the routing
 	// state carries a *RuleNumber pointer that == would compare by identity, so a
@@ -357,24 +373,32 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) 
 	return !sameFanout(*ssm.lastFannedOut, observed)
 }
 
-func reconciledServingStatus(status clustermetadatapb.PoolerServingStatus, suspectedDivergence bool) clustermetadatapb.PoolerServingStatus {
-	if suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_SERVING {
+// reconciledServingStatus applies a serving hold. hold is true when this pooler
+// must not serve — either a suspected divergence (a rewind is pending) or an
+// active IMPORT migration on this shard (the target is still being populated, so
+// it must not serve a half-copied dataset; see the migration serving gate). A
+// hold forces SERVING to DRAINING; releasing it completes a transient DRAINING
+// back to SERVING. DISABLED is sticky (shutdown / demote) and is never
+// auto-reconciled here.
+func reconciledServingStatus(status clustermetadatapb.PoolerServingStatus, hold bool) clustermetadatapb.PoolerServingStatus {
+	if hold && status == clustermetadatapb.PoolerServingStatus_SERVING {
 		return clustermetadatapb.PoolerServingStatus_DRAINING
 	}
-	if !suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_DRAINING {
+	if !hold && status == clustermetadatapb.PoolerServingStatus_DRAINING {
 		return clustermetadatapb.PoolerServingStatus_SERVING
 	}
 	return status
 }
 
 // fixDrift re-applies the effective state from a freshly-observed recovery flag
-// and live consensus snapshot. A divergence hold forces SERVING to DRAINING;
-// otherwise a transient DRAINING state completes to SERVING. DISABLED remains
-// unchanged. Requires the action lock (asserted by Mutate).
-func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspectedDivergence bool) error {
+// and live consensus snapshot. A hold — suspected divergence OR an active IMPORT
+// migration on this shard — forces SERVING to DRAINING; with no hold a transient
+// DRAINING state completes to SERVING. DISABLED remains unchanged. Requires the
+// action lock (asserted by Mutate).
+func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspectedDivergence, migrationHold bool) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgMode
-		s.ServingStatus = reconciledServingStatus(s.ServingStatus, suspectedDivergence)
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, suspectedDivergence || migrationHold)
 	})
 }
 
