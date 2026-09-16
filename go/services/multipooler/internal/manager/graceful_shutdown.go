@@ -42,9 +42,9 @@ var pgctldStopModes = []struct {
 	{"immediate", 5 * time.Second},
 }
 
-// GracefulShutdown drains traffic, publishes COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the
-// health stream and then stops Postgres. Registered as a servenv OnTermSync
-// hook so it runs on SIGTERM bounded by --onterm-timeout.
+// GracefulShutdown drains traffic, stops Postgres, and then publishes
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the health stream. Registered as a
+// servenv OnTermSync hook so it runs on SIGTERM bounded by --onterm-timeout.
 //
 // The topology shutdown transition (Type=UNKNOWN, LifecycleStatus=SHUTDOWN)
 // happens after this returns via the existing OnClose -> mp.Shutdown ->

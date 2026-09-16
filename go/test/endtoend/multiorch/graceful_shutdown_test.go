@@ -23,6 +23,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/testpoll"
@@ -108,12 +109,20 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Send SIGTERM and, unlike before, wait for the old primary to actually
-	// exit before looking for a new one. GracefulShutdown now advertises
-	// INELIGIBLE only after its own pgctld.Stop completes, so a new primary
-	// must never be observed before the old one has exited — if it were,
-	// that would mean INELIGIBLE fired while the old primary might still be
+	// Send SIGTERM and wait for the old primary's postgres to actually stop
+	// before looking for a new one. GracefulShutdown now advertises
+	// INELIGIBLE only once its own pgctld.Stop confirms postgres is down, so
+	// a new primary must never be observed before that — if it were, that
+	// would mean INELIGIBLE fired while the old primary might still be
 	// producing WAL, exactly the ordering this design is meant to prevent.
+	//
+	// Poll pgctld's own Status directly (it stays up independently after the
+	// multipooler process exits) rather than waiting for the whole
+	// multipooler process to exit: GracefulShutdown does more cleanup after
+	// advertising INELIGIBLE (closing the repl tracker/stats, servenv's
+	// OnClose chain, topology unregister) before the process actually exits,
+	// so gating this assertion on full process exit would be asserting a
+	// stronger guarantee than the code actually provides.
 	t.Logf("Sending SIGTERM to multipooler %s (PID %d)",
 		oldPrimary.Name, oldPrimary.Multipooler.Process.Process.Pid)
 	start := time.Now()
@@ -125,23 +134,37 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		_, _ = oldPrimary.Multipooler.Process.Stop(termCtx)
 	}()
 
-	// No new primary should appear while the old one is still exiting. Poll
-	// alongside waiting for exit so a regression (INELIGIBLE advertised too
-	// early again) is caught directly instead of just measured as latency.
+	oldPgctldClient, err := shardsetup.NewPgctldClient(oldPrimary.Pgctld.GrpcPort)
+	require.NoError(t, err, "expected to connect to old primary's pgctld")
+	defer oldPgctldClient.Close()
+
+	// No new primary should appear while the old primary's postgres is still
+	// running. Poll alongside waiting for postgres to stop so a regression
+	// (INELIGIBLE advertised too early again) is caught directly instead of
+	// just measured as latency.
 	testpoll.WaitFor(t, func(ctx context.Context) bool {
-		select {
-		case <-terminateDone:
+		statusResp, err := oldPgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
+		if err == nil && statusResp.GetStatus() == pgctldpb.ServerStatus_STOPPED {
 			return true
-		default:
 		}
 		if current, ok := setup.TryFindPrimary(t); ok && current.Name != oldPrimaryName {
-			t.Fatalf("new primary %s observed before old primary %s exited; "+
+			t.Fatalf("new primary %s observed before old primary %s's postgres stopped; "+
 				"INELIGIBLE must not be advertised until postgres has stopped",
 				current.Name, oldPrimaryName)
 		}
 		return false
 	}, 60*time.Second, 200*time.Millisecond,
-		"multipooler %s did not exit gracefully", oldPrimaryName)
+		"old primary %s's postgres did not stop", oldPrimaryName)
+	t.Logf("Old primary %s's postgres stopped in %s", oldPrimaryName, time.Since(start))
+
+	// The multipooler process itself has more cleanup to do after that (see
+	// above) before it actually exits; confirm it does so cleanly, with a
+	// generous bound rather than folding this into the race check above.
+	select {
+	case <-terminateDone:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("multipooler %s did not exit within 30s of its postgres stopping", oldPrimaryName)
+	}
 	t.Logf("Multipooler %s exited gracefully in %s", oldPrimaryName, time.Since(start))
 
 	t.Logf("Waiting for multiorch to elect a new primary...")
