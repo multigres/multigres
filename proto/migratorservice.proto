@@ -29,11 +29,21 @@ enum MigrationPhase {
   MIGRATION_PHASE_SCHEMA_COPY = 3;
   MIGRATION_PHASE_CREATE_PUBLICATION = 4;
   MIGRATION_PHASE_COPYING = 5;
-  MIGRATION_PHASE_STREAMING = 6;
   MIGRATION_PHASE_DROPPED = 7;
   MIGRATION_PHASE_FAILED = 8;
-  MIGRATION_PHASE_SWITCHING = 9;
   MIGRATION_PHASE_COMPLETING = 10;
+  // 6 (STREAMING) and 9 (SWITCHING) were split into the directional phases below
+  // so the phase records the direction and, mid-switch, the target it is heading
+  // to (its intent) — which makes a mid-switch failover resumable.
+  reserved 6, 9;
+  reserved "MIGRATION_PHASE_STREAMING", "MIGRATION_PHASE_SWITCHING";
+  // IMPORTING/EXPORTING are the caught-up steady states (importing from / serving
+  // and exporting to the external database). SWITCHING_TO_* are the transient
+  // cutover (to export) and roll-back (to import).
+  MIGRATION_PHASE_IMPORTING = 11;
+  MIGRATION_PHASE_EXPORTING = 12;
+  MIGRATION_PHASE_SWITCHING_TO_IMPORT = 13;
+  MIGRATION_PHASE_SWITCHING_TO_EXPORT = 14;
 }
 
 // MigrationDirection is which side is currently the publisher.

@@ -115,6 +115,13 @@ func TestCreateMigrationTableResolution(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			// Only one migration is supported at a time: drop this one before the
+			// next case creates another.
+			id := resp.GetMigration().GetId()
+			t.Cleanup(func() {
+				_, err := mt.DropMigration(ctx, &migratorpb.DropMigrationRequest{Id: id, Force: true})
+				require.NoError(t, err)
+			})
 			// resolved order is unspecified (the query does not ORDER BY), so
 			// compare as a set.
 			require.ElementsMatch(t, tc.want, resp.GetMigration().GetTables())

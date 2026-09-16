@@ -395,10 +395,11 @@ func (s *source) DumpSchema(tables []string) (string, error) {
 	return b.String(), nil
 }
 
-// CreatePublication creates a publication FOR TABLE the given tables on the
-// source (IMPORT direction: the source is the publisher).
+// CreatePublication creates a publication on the source FOR TABLE the given
+// tables plus multigres.ddl_log (so captured DDL rides the same stream). Used
+// when the source is the publisher (IMPORT direction).
 func (s *source) CreatePublication(name string, tables []string) error {
-	if _, err := s.conn.Exec(s.ctx, createPublicationSQL(name, tables)); err != nil {
+	if _, err := s.conn.Exec(s.ctx, createPublicationWithDDLLogSQL(name, tables)); err != nil {
 		return fmt.Errorf("create publication on source: %w", err)
 	}
 	return nil
@@ -415,8 +416,12 @@ func (s *source) DropPublication(name string) error {
 // CreateSubscription creates a subscription on the source (EXPORT direction: the
 // source is the subscriber, replicating from the Multigres target). Requires a
 // superuser DSN and runs in autocommit (pgx.Exec is not in a transaction).
-func (s *source) CreateSubscription(name, conninfo, publication string, copyData bool) error {
-	if _, err := s.conn.Exec(s.ctx, createSubscriptionSQL(name, conninfo, publication, copyData)); err != nil {
+// CreateSubscription creates a subscription on the source. slotName is non-empty
+// for the IMPORT->EXPORT reverse subscription, which attaches (create_slot=false)
+// to a slot pre-created on the target during the switch, so no target write is
+// missed between serving turning on and this subscription attaching.
+func (s *source) CreateSubscription(name, conninfo, publication string, copyData bool, slotName string) error {
+	if _, err := s.conn.Exec(s.ctx, createSubscriptionSQL(name, conninfo, publication, copyData, slotName)); err != nil {
 		return fmt.Errorf("create subscription on source: %w", err)
 	}
 	return nil
@@ -445,6 +450,15 @@ func (s *source) SetReadOnly(ro bool) error {
 	if _, err := s.conn.Exec(s.ctx, "SELECT pg_reload_conf()"); err != nil {
 		return fmt.Errorf("reload source conf: %w", err)
 	}
+	// Also set it on THIS session. ALTER SYSTEM + pg_reload_conf() propagates
+	// asynchronously (the reload is processed between statements, and only by other
+	// backends at their next transaction), so a caller that writes on this same
+	// connection right after — e.g. teardown's DROP PUBLICATION after un-quiescing
+	// on a graceful IMPORT drop — would otherwise still run read-only and fail. The
+	// session SET takes effect immediately for this connection.
+	if _, err := s.conn.Exec(s.ctx, "SET default_transaction_read_only = "+val); err != nil {
+		return fmt.Errorf("set source read_only (session): %w", err)
+	}
 	return nil
 }
 
@@ -455,6 +469,26 @@ func (s *source) CurrentLSN() (string, error) {
 		return "", fmt.Errorf("read source LSN: %w", err)
 	}
 	return lsn, nil
+}
+
+// SubscriptionExists reports whether a subscription with the given name exists on
+// the source. Used to make the direction switch idempotent on resume.
+func (s *source) SubscriptionExists(name string) (bool, error) {
+	var n int64
+	if err := s.conn.QueryRow(s.ctx, "SELECT count(*) FROM pg_subscription WHERE subname = $1", name).Scan(&n); err != nil {
+		return false, fmt.Errorf("check source subscription: %w", err)
+	}
+	return n > 0, nil
+}
+
+// PublicationExists reports whether a publication with the given name exists on
+// the source.
+func (s *source) PublicationExists(name string) (bool, error) {
+	var n int64
+	if err := s.conn.QueryRow(s.ctx, "SELECT count(*) FROM pg_publication WHERE pubname = $1", name).Scan(&n); err != nil {
+		return false, fmt.Errorf("check source publication: %w", err)
+	}
+	return n > 0, nil
 }
 
 // WaitSlotConfirmed blocks until the named replication slot on the source has

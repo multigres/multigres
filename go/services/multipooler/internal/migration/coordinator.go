@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +44,14 @@ type Coordinator struct {
 	// May be nil, in which case EXPORT is unavailable.
 	targetConnInfo func(database string) (string, error)
 
+	// drainForImport forces this pooler to non-serving and blocks until the
+	// graceful drain completes, so the IMPORT setup never drops target tables or
+	// starts streaming while clients can still write to the target. It is the
+	// synchronous serving barrier the async ~5s postgres-monitor gate cannot
+	// guarantee on its own (setup finishes faster than a tick). May be nil (unit
+	// tests without a manager), in which case the barrier is skipped.
+	drainForImport func(ctx context.Context) error
+
 	now func() time.Time
 
 	// mu serializes state transitions so concurrent operator calls on the same
@@ -53,12 +62,15 @@ type Coordinator struct {
 // NewCoordinator builds a Coordinator over the given admin query service.
 // targetConnInfo builds the target-reachable conninfo used for the EXPORT-side
 // reverse subscription; pass nil if EXPORT is not supported in this deployment.
-func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error)) *Coordinator {
+// drainForImport is the synchronous serving barrier run before IMPORT setup
+// touches the target (see the drainForImport field); pass nil to skip it.
+func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error), drainForImport func(ctx context.Context) error) *Coordinator {
 	return &Coordinator{
 		store:          NewStore(qs),
 		target:         newTarget(qs),
 		logger:         logger,
 		targetConnInfo: targetConnInfo,
+		drainForImport: drainForImport,
 		now:            time.Now,
 	}
 }
@@ -127,29 +139,29 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Reject a duplicate name up front for a clear error (the partial-unique index
-	// on name is the backstop). c.mu serializes creates on the primary, so this
-	// check-then-insert cannot race another create in this coordinator.
-	if p.Name != "" {
-		if existing, err := c.store.GetByRef(ctx, Ref{Name: p.Name}); err == nil && existing.Name == p.Name {
-			return nil, fmt.Errorf("a migration named %q already exists", p.Name)
-		} else if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, err
-		}
+	// Only one migration at a time is supported: the DDL-replication machinery
+	// (ddlrepl.go) is not scoped per migration, so a second concurrent migration
+	// would corrupt the first's ddl_log/ddl_capture_tables state. c.mu serializes
+	// creates on the primary, so this check-then-insert cannot race another
+	// create in this coordinator. A FAILED migration still counts — its row (and
+	// possibly its DDL-replication objects) must be explicitly dropped first.
+	if existing, err := c.store.List(ctx); err != nil {
+		return nil, err
+	} else if len(existing) > 0 {
+		return nil, fmt.Errorf("migration %d already exists (phase %s); only one migration is supported at a time, drop it first", existing[0].ID, existing[0].Phase)
 	}
 
 	m := &Migration{
-		ID:              c.now().UnixNano(),
-		Phase:           PhaseCreated,
-		ActiveDirection: DirectionImport,
-		Name:            p.Name,
-		SourceDSN:       p.SourceDSN,
-		TargetDatabase:  p.TargetDatabase,
-		TargetShard:     p.TargetShard,
-		Tables:          resolvedTables,
-		CopyData:        p.CopyData,
-		SkipSchemaCopy:  p.SkipSchemaCopy,
-		SequenceMargin:  p.SequenceMargin,
+		ID:             c.now().UnixNano(),
+		Phase:          PhaseCreated,
+		Name:           p.Name,
+		SourceDSN:      p.SourceDSN,
+		TargetDatabase: p.TargetDatabase,
+		TargetShard:    p.TargetShard,
+		Tables:         resolvedTables,
+		CopyData:       p.CopyData,
+		SkipSchemaCopy: p.SkipSchemaCopy,
+		SequenceMargin: p.SequenceMargin,
 	}
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
@@ -171,8 +183,8 @@ func (c *Coordinator) StartMigration(ctx context.Context, ref Ref) (*Projection,
 	}
 
 	// Only the IMPORT-direction start flow is implemented in this step.
-	if m.ActiveDirection != DirectionImport {
-		return nil, fmt.Errorf("start is only valid in IMPORT direction; migration %d is %s", m.ID, m.ActiveDirection)
+	if directionOf(m.Phase) != DirectionImport {
+		return nil, fmt.Errorf("start is only valid in IMPORT direction; migration %d is %s", m.ID, directionOf(m.Phase))
 	}
 
 	// If the subscription does not yet exist, run the setup phases in order.
@@ -192,8 +204,8 @@ func (c *Coordinator) StartMigration(ctx context.Context, ref Ref) (*Projection,
 
 // runSetup runs VALIDATING -> SCHEMA_COPY -> CREATE_PUBLICATION -> COPYING.
 func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
-	// One source connection drives the whole setup (validate, publication);
-	// DumpSchema still shells out to pg_dump separately.
+	// One source connection drives the whole setup (validate, publication, DDL
+	// capture); DumpSchema still shells out to pg_dump separately.
 	src, err := newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
@@ -211,6 +223,19 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		c.logger.WarnContext(ctx, "migration source validation warning", "migration", m.ID, "warning", w)
 	}
 
+	// Serving barrier: make this pooler non-serving and drain in-flight writes
+	// BEFORE any destructive target change (DropTables) or streaming, so a client
+	// cannot read a half-dropped table or land a write that the drop/initial COPY
+	// then silently discards. The phase already left CREATED, so the ~5s monitor
+	// would eventually hold serving — but setup usually finishes within one tick,
+	// so hold it synchronously here. Runs after the read-only Validate, so a source
+	// that fails validation never drains the shard needlessly.
+	if c.drainForImport != nil {
+		if err := c.drainForImport(ctx); err != nil {
+			return fmt.Errorf("drain to non-serving before import setup: %w", err)
+		}
+	}
+
 	if err := c.setPhase(ctx, m, PhaseSchemaCopy); err != nil {
 		return err
 	}
@@ -218,6 +243,12 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	// bypass the pg_dump --schema-only + apply. The phase still advances so the
 	// resume path and progress reporting stay monotonic.
 	if !m.SkipSchemaCopy {
+		// Drop the migrated tables on the target first, so a pre-existing table (a
+		// re-run after a partial migration, or a target that already had them) does
+		// not fail the schema apply with "relation already exists".
+		if err := c.target.DropTables(ctx, m.Tables); err != nil {
+			return err
+		}
 		schemaSQL, err := src.DumpSchema(m.Tables)
 		if err != nil {
 			return err
@@ -227,10 +258,28 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		}
 	}
 
+	// EXPERIMENTAL: table-scoped DDL replication (see ddlrepl.go). IMPORT: the
+	// target is the subscriber (apply) and the source is the publisher (capture).
+	// Register this migration's tables for capture and set up apply before the
+	// publication; the publication carries multigres.ddl_log so captured DDL
+	// rides the same stream; arm the source event trigger last (after the
+	// log/function exist and just before CreateSubscription) so little DDL
+	// accumulates in ddl_log before the subscription's initial snapshot.
+	// (CREATE PUBLICATION is never captured regardless — wrong command tag.)
+	if err := setupDDLApply(ctx, c.target.ddlConn()); err != nil {
+		return err
+	}
+	if err := setupDDLCapture(ctx, src.ddlConn(), m.Tables); err != nil {
+		return err
+	}
+
 	if err := c.setPhase(ctx, m, PhaseCreatePublication); err != nil {
 		return err
 	}
 	if err := src.CreatePublication(m.PublicationName(), m.Tables); err != nil {
+		return err
+	}
+	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
 		return err
 	}
 
@@ -276,7 +325,7 @@ func (c *Coordinator) UpdateMigration(ctx context.Context, ref Ref, p UpdatePara
 		// If the subscription already exists on the local target (IMPORT), repoint
 		// its CONNECTION. EXPORT-direction connection updates are a follow-up.
 		if phaseRank(m.Phase) >= phaseRank(PhaseCopying) {
-			if m.ActiveDirection != DirectionImport {
+			if directionOf(m.Phase) != DirectionImport {
 				return nil, errors.New("source connection update is only supported in IMPORT direction once streaming")
 			}
 			if err := c.target.AlterSubscriptionConnection(ctx, m.SubscriptionName(), *p.SourceDSN); err != nil {
@@ -390,6 +439,22 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 		return nil, err
 	}
 
+	// A row already in COMPLETING is a drop that committed the phase but did not
+	// finish (a crash/restart, or a drain that failed after the phase was
+	// persisted). Finish it idempotently from the persisted direction — regardless
+	// of force/wait — rather than re-running the drain from a non-streaming phase.
+	if m.Phase == PhaseCompleting {
+		c.teardown(ctx, m, m.effectiveDirection())
+		if err := c.store.Delete(ctx, m.ID); err != nil {
+			return nil, err
+		}
+		return c.project(m, nil), nil
+	}
+
+	// Capture the direction while the phase still carries one — PhaseCompleting
+	// below does not, so drain and teardown must be told which side is which.
+	dir := directionOf(m.Phase)
+
 	if !opts.Force {
 		// Advance the phase from live status first, so a just-caught-up migration
 		// (COPYING with caught_up=true, before the reconcile poller ticked) is
@@ -397,12 +462,12 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 		if err := c.reconcileLocked(ctx, m); err != nil {
 			return nil, err
 		}
-		if m.Phase != PhaseStreaming {
+		if !isStreaming(m.Phase) {
 			if phaseRank(m.Phase) < phaseRank(PhaseCopying) {
 				return nil, fmt.Errorf("migration %d has not started (phase %s); use --force to remove it", m.ID, m.Phase)
 			}
 			if !opts.Wait {
-				return nil, fmt.Errorf("migration %d is not caught up (phase %s); wait for STREAMING, re-run with --wait, or --force to tear down now", m.ID, m.Phase)
+				return nil, fmt.Errorf("migration %d is not caught up (phase %s); wait for it to catch up, re-run with --wait, or --force to tear down now", m.ID, m.Phase)
 			}
 			waitCtx := ctx
 			if opts.WaitTimeout > 0 {
@@ -414,24 +479,47 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 				return nil, err
 			}
 		}
+		// reconcileLocked/waitStreamingLocked may have advanced the phase (e.g.
+		// COPYING -> IMPORTING); re-derive the direction from the settled phase.
+		dir = directionOf(m.Phase)
+		origPhase := m.Phase
 		m.Phase = PhaseCompleting
+		m.Direction = dir
 		if err := c.store.Update(ctx, m); err != nil {
 			return nil, err
 		}
-		if err := c.drainAndAdvance(ctx, m); err != nil {
-			return nil, err
+		if err := c.drainAndAdvance(ctx, m, dir); err != nil {
+			// The drain did not complete (e.g. the subscriber never reached lag
+			// zero and the deadline fired). Roll the phase back to its streaming
+			// state so the migration is not stranded in COMPLETING — which the
+			// serving gate treats as non-serving and the shard never recovers from.
+			// The restore runs on a context detached from the request deadline: the
+			// most common drain failure IS the deadline firing, and the rollback must
+			// still land then (a reconcile-poller heal is the crash-only backstop, not
+			// the path for an ordinary slow drain).
+			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			m.Phase = origPhase
+			if uerr := c.store.Update(restoreCtx, m); uerr != nil {
+				c.logger.WarnContext(restoreCtx, "restore migration phase after failed drain", "migration", m.ID, "error", uerr)
+			}
+			cancel()
+			return nil, fmt.Errorf("drain before dropping migration %d failed (left in %s, serving preserved): %w", m.ID, origPhase, err)
 		}
+	} else {
+		// Force skips the drain but must still record the direction so teardown
+		// (which no longer inspects the phase) drops the correct side's objects.
+		m.Direction = dir
 	}
 
-	c.teardown(ctx, m, opts.Force)
+	c.teardown(ctx, m, dir)
 	if err := c.store.Delete(ctx, m.ID); err != nil {
 		return nil, err
 	}
 	return c.project(m, nil), nil
 }
 
-// waitStreamingLocked polls until the migration reaches STREAMING or ctx ends.
-// Caller holds c.mu.
+// waitStreamingLocked polls until the migration reaches a caught-up streaming
+// state (IMPORTING/EXPORTING) or ctx ends. Caller holds c.mu.
 func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) error {
 	ticker := time.NewTicker(slotPollInterval)
 	defer ticker.Stop()
@@ -439,7 +527,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 		if err := c.reconcileLocked(ctx, m); err != nil {
 			return err
 		}
-		if m.Phase == PhaseStreaming {
+		if isStreaming(m.Phase) {
 			return nil
 		}
 		select {
@@ -451,9 +539,11 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 }
 
 // drainCurrent quiesces the current publisher, captures its LSN, and waits until
-// the subscriber has consumed past it (lag zero). Returns the captured LSN.
-func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration) (string, error) {
-	if m.ActiveDirection == DirectionImport {
+// the subscriber has consumed past it (lag zero). Returns the captured LSN. dir is
+// the active direction, passed in because a drop may have already moved the phase
+// to PhaseCompleting (which carries no direction).
+func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction) (string, error) {
+	if dir == DirectionImport {
 		src, err := newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return "", err
@@ -484,12 +574,13 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration) (string, e
 }
 
 // drainAndAdvance runs the drain barrier and advances the surviving writer's
-// sequences (the target in IMPORT, the source in EXPORT).
-func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration) error {
-	if _, err := c.drainCurrent(ctx, m); err != nil {
+// sequences (the target in IMPORT, the source in EXPORT). dir is the active
+// direction (see drainCurrent).
+func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) error {
+	if _, err := c.drainCurrent(ctx, m, dir); err != nil {
 		return err
 	}
-	if m.ActiveDirection == DirectionImport {
+	if dir == DirectionImport {
 		return c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin)
 	}
 	src, err := newSource(ctx, m.SourceDSN)
@@ -516,7 +607,7 @@ func (c *Coordinator) Activate(ctx context.Context, ref Ref) (*Projection, error
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection != DirectionImport {
+	if directionOf(m.Phase) != DirectionImport {
 		return nil, fmt.Errorf("cannot activate migration %d: it is already active (EXPORT direction)", m.ID)
 	}
 	return c.SetMigrationDirection(ctx, Ref{ID: m.ID}, DirectionExport)
@@ -531,7 +622,7 @@ func (c *Coordinator) Deactivate(ctx context.Context, ref Ref) (*Projection, err
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection != DirectionExport {
+	if directionOf(m.Phase) != DirectionExport {
 		return nil, fmt.Errorf("cannot deactivate migration %d: it is not active (IMPORT direction)", m.ID)
 	}
 	return c.SetMigrationDirection(ctx, Ref{ID: m.ID}, DirectionImport)
@@ -548,7 +639,15 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection == target {
+	// A switch already recorded in the row (crash resume, or a duplicate call):
+	// roll the same-target one forward idempotently; reject a conflicting one.
+	if m.Phase == PhaseSwitchingToExport || m.Phase == PhaseSwitchingToImport {
+		if switchTarget(m.Phase) != target {
+			return nil, fmt.Errorf("a switch to %s is already in progress for migration %d", switchTarget(m.Phase), m.ID)
+		}
+		return c.applySwitch(ctx, m, target)
+	}
+	if directionOf(m.Phase) == target {
 		status, _ := c.liveStatus(ctx, m)
 		return c.project(m, status), nil // no-op
 	}
@@ -583,31 +682,147 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	if err := c.reconcileLocked(ctx, m); err != nil {
 		return nil, err
 	}
-	if m.Phase != PhaseStreaming {
-		return nil, fmt.Errorf("migration %d must be caught up (STREAMING) to switch direction; current phase %s", m.ID, m.Phase)
+	if !isStreaming(m.Phase) {
+		return nil, fmt.Errorf("migration %d must be caught up (IMPORTING/EXPORTING) to switch direction; current phase %s", m.ID, m.Phase)
 	}
 
-	m.Phase = PhaseSwitching
+	// Commit the switch intent to the row before touching either database. A crash
+	// after this point leaves a directional SWITCHING_TO_* phase that the resume
+	// path (reconcileLocked) rolls forward — the row is the switch's write-ahead log.
+	m.Phase = switchingPhase(target)
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
+	return c.applySwitch(ctx, m, target)
+}
 
-	if _, err := c.drainCurrent(ctx, m); err != nil {
+// applySwitch performs — or, after a crash, resumes — the switch recorded by
+// m.Phase toward target. It is idempotent: the drain barrier runs only while the
+// current-direction subscription still exists (once the switch has dropped it,
+// the barrier already held), and switchTo skips objects it has already created,
+// so re-running converges. Caller holds c.mu; m.Phase is switchingPhase(target).
+func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Direction) (*Projection, error) {
+	live, err := c.currentLinkLive(ctx, m)
+	if err != nil {
 		c.fail(ctx, m, err)
 		return nil, err
+	}
+	if live {
+		// A switching phase still carries the current (pre-switch) direction, so
+		// derive it from the phase: SWITCHING_TO_EXPORT drains the import publisher,
+		// SWITCHING_TO_IMPORT drains the export publisher.
+		if _, err := c.drainCurrent(ctx, m, directionOf(m.Phase)); err != nil {
+			c.fail(ctx, m, err)
+			return nil, err
+		}
 	}
 	if err := c.switchTo(ctx, m, target); err != nil {
 		c.fail(ctx, m, err)
 		return nil, err
 	}
-
-	m.ActiveDirection = target
-	m.Phase = PhaseStreaming
+	m.Phase = streamingPhase(target)
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
+	// EXPORT: establish the reverse subscription now that the phase is EXPORTING,
+	// so the gateway (which serves only at EXPORTING, and flips serving
+	// asynchronously via the monitor) will accept the source's connection. Retry
+	// the transient "temporarily unavailable" window. This runs after the EXPORTING
+	// commit on purpose; a failure here does NOT fail the migration (serving is
+	// already up) — reconcileLocked keeps re-ensuring the link. IMPORT's reverse
+	// subscription dials the source directly and was already created in switchTo.
+	if target == DirectionExport {
+		if err := c.retryReverseExportLink(ctx, m); err != nil {
+			return nil, err
+		}
+	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(m, status), nil
+}
+
+// Reverse-export retry bounds: the gateway starts serving only once the phase is
+// EXPORTING and the monitor propagates that to the pooler's serving status, so
+// the source's reverse subscription may see a brief "temporarily unavailable".
+const (
+	reverseExportRetryFor      = 90 * time.Second
+	reverseExportRetryInterval = time.Second
+)
+
+// retryReverseExportLink establishes the EXPORT reverse subscription, retrying
+// the gateway's transient not-yet-serving signal for a bounded window. Any other
+// error, a cancelled context, or the deadline returns immediately.
+func (c *Coordinator) retryReverseExportLink(ctx context.Context, m *Migration) error {
+	deadline := c.now().Add(reverseExportRetryFor)
+	for {
+		err := c.ensureReverseExportLink(ctx, m)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableUnavailable(err) || ctx.Err() != nil || !c.now().Before(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(reverseExportRetryInterval):
+		}
+	}
+}
+
+// ensureReverseExportLink creates the EXPORT reverse subscription — this source
+// subscribing back to the target through the gateway — if it is not already
+// present. Idempotent, so both applySwitch and reconcileLocked (crash recovery,
+// when a migration is found already EXPORTING but the link is missing) call it.
+func (c *Coordinator) ensureReverseExportLink(ctx context.Context, m *Migration) error {
+	conninfo, err := c.targetConnInfo(m.TargetDatabase)
+	if err != nil {
+		return err
+	}
+	src, err := newSource(ctx, m.SourceDSN)
+	if err != nil {
+		return err
+	}
+	defer src.close()
+	sub, pub := m.SubscriptionName(), m.PublicationName()
+	if exists, err := src.SubscriptionExists(sub); err != nil {
+		return err
+	} else if exists {
+		return nil
+	}
+	// Attach to the slot pre-created and advanced on the target during switchTo
+	// (create_slot=false, slot_name=sub), so streaming starts at the handoff LSN
+	// and no target write is missed. copy_data=false: the barrier already made the
+	// two sides identical at that LSN.
+	return src.CreateSubscription(sub, conninfo, pub, false, sub)
+}
+
+// isRetryableUnavailable reports whether err is the gateway's transient
+// not-yet-serving signal — SQLSTATE 57P03 (cannot_connect_now) or 08006
+// (connection_failure) carrying "temporarily unavailable" — which clears once
+// the target's serving status catches up to the EXPORTING phase.
+func isRetryableUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "temporarily unavailable") ||
+		strings.Contains(s, "57P03") || strings.Contains(s, "08006")
+}
+
+// currentLinkLive reports whether the current-direction subscription still
+// exists — i.e. the switch has not yet dropped it, so the drain barrier is still
+// required. The current subscriber is the target while importing, the source
+// while exporting.
+func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, error) {
+	if directionOf(m.Phase) == DirectionImport {
+		return c.target.SubscriptionExists(ctx, m.SubscriptionName())
+	}
+	src, err := newSource(ctx, m.SourceDSN)
+	if err != nil {
+		return false, err
+	}
+	defer src.close()
+	return src.SubscriptionExists(m.SubscriptionName())
 }
 
 // switchTo tears down the current-direction link and establishes the reverse
@@ -636,17 +851,62 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		if err := src.DropPublication(pub); err != nil {
 			return err
 		}
-		if err := c.target.CreatePublication(ctx, pub, m.Tables); err != nil {
+		// Flip DDL replication to match: capture moves from the source to the
+		// target, apply from the target to the source (see ddlrepl.go). Tear down
+		// the old-direction roles, then set up the new ones before recreating the
+		// link.
+		if err := teardownDDLCapture(ctx, src.ddlConn()); err != nil {
 			return err
 		}
-		conninfo, err := c.targetConnInfo(m.TargetDatabase)
-		if err != nil {
+		if err := teardownDDLApply(ctx, c.target.ddlConn()); err != nil {
 			return err
 		}
-		return src.CreateSubscription(sub, conninfo, pub, false)
+		if err := setupDDLApply(ctx, src.ddlConn()); err != nil {
+			return err
+		}
+		if err := setupDDLCapture(ctx, c.target.ddlConn(), m.Tables); err != nil {
+			return err
+		}
+		if exists, err := c.target.PublicationExists(ctx, pub); err != nil {
+			return err
+		} else if !exists {
+			if err := c.target.CreatePublication(ctx, pub, m.Tables); err != nil {
+				return err
+			}
+		}
+		if err := armDDLCapture(ctx, c.target.ddlConn()); err != nil {
+			return err
+		}
+		// Pre-create the reverse slot on the target *now*, before serving turns on,
+		// so it captures every subsequent target write; then advance it to the
+		// current LSN — the handoff point, past the switch's own catalog WAL. This
+		// is a local target operation (not through the gateway), so it avoids the
+		// serving-gate deadlock. The reverse SUBSCRIPTION is created later, once the
+		// phase is EXPORTING and the gateway serves (applySwitch ->
+		// retryReverseExportLink), and attaches to this slot with create_slot=false —
+		// so no write is lost in the window between serving turning on and the
+		// subscription attaching. Idempotent on resume: before serving there are no
+		// app writes, so re-advancing only skips more switch WAL, never data.
+		if exists, err := c.target.SlotExists(ctx, sub); err != nil {
+			return err
+		} else if !exists {
+			if err := c.target.CreateLogicalSlot(ctx, sub); err != nil {
+				return err
+			}
+		}
+		lsn, lerr := c.target.CurrentLSN(ctx)
+		if lerr != nil {
+			return lerr
+		}
+		if err := c.target.AdvanceSlot(ctx, sub, lsn); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// EXPORT -> IMPORT: the external source becomes publisher/writer again.
+	// EXPORT -> IMPORT: the external source becomes publisher/writer again. Its
+	// reverse subscription (below) dials the external source directly, not the
+	// gateway, so there is no serving-gate deadlock and it stays inline here.
 	if err := src.AdvanceSequences(m.Tables, m.SequenceMargin); err != nil {
 		return err
 	}
@@ -656,16 +916,52 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if err := c.target.DropPublication(ctx, pub); err != nil {
 		return err
 	}
-	if err := src.CreatePublication(pub, m.Tables); err != nil {
+	// Drop the reverse slot on the target. The reverse subscription attached with
+	// create_slot=false, so dropping it (above, on the source) does not drop this
+	// slot — do it explicitly or it lingers, pinning WAL and catalog_xmin.
+	if err := c.target.DropLogicalSlot(ctx, sub); err != nil {
 		return err
 	}
-	return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
+	// Flip DDL replication back: capture moves from the target to the source,
+	// apply from the source to the target.
+	if err := teardownDDLCapture(ctx, c.target.ddlConn()); err != nil {
+		return err
+	}
+	if err := teardownDDLApply(ctx, src.ddlConn()); err != nil {
+		return err
+	}
+	if err := setupDDLApply(ctx, c.target.ddlConn()); err != nil {
+		return err
+	}
+	if err := setupDDLCapture(ctx, src.ddlConn(), m.Tables); err != nil {
+		return err
+	}
+	if exists, err := src.PublicationExists(pub); err != nil {
+		return err
+	} else if !exists {
+		if err := src.CreatePublication(pub, m.Tables); err != nil {
+			return err
+		}
+	}
+	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
+		return err
+	}
+	if exists, err := c.target.SubscriptionExists(ctx, sub); err != nil {
+		return err
+	} else if !exists {
+		return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
+	}
+	return nil
 }
 
 // teardown drops the subscription and publication (and thus the slot) on both
-// sides for the active direction. force makes source-side failures best-effort
-// (the source may be unreachable during an abort).
-func (c *Coordinator) teardown(ctx context.Context, m *Migration, _ bool) {
+// sides for the given direction. dir is passed in rather than derived from m.Phase
+// because a drop tears down while the phase is PhaseCompleting, which carries no
+// direction. Every drop is IF EXISTS / existence-checked, so teardown is idempotent
+// and safe to re-run (the reconcile poller finishes an interrupted drop this way).
+// Source-side failures are best-effort — the source may be unreachable during an
+// abort — so they are logged, never returned.
+func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction) {
 	logErr := func(step string, err error) {
 		if err != nil {
 			c.logger.WarnContext(ctx, "migration teardown step failed", "migration", m.ID, "step", step, "error", err)
@@ -679,18 +975,34 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, _ bool) {
 	} else {
 		defer src.close()
 	}
-	if m.ActiveDirection == DirectionImport {
+	if dir == DirectionImport {
+		// IMPORT: subscription (apply) on the target, publication (capture) on the source.
 		logErr("drop target subscription", c.target.DropSubscription(ctx, m.SubscriptionName()))
+		// EXPERIMENTAL: tear down DDL replication (see ddlrepl.go).
+		logErr("drop target DDL apply", teardownDDLApply(ctx, c.target.ddlConn()))
 		if src != nil {
+			// A graceful (non-force) drop drained the source with
+			// default_transaction_read_only=on; reset it before the source-side
+			// DROP PUBLICATION, which would otherwise be rejected under a read-only
+			// transaction, orphaning the publication. Also leaves the abandoned old
+			// source writable again (the migration is being torn down). No-op on a
+			// force drop that never quiesced.
+			logErr("un-quiesce source", src.SetReadOnly(false))
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
+			logErr("drop source DDL capture", teardownDDLCapture(ctx, src.ddlConn()))
 		}
 		return
 	}
-	// EXPORT: subscription on the source, publication on the target.
+	// EXPORT: subscription (apply) on the source, publication (capture) on the target.
 	if src != nil {
 		logErr("drop source subscription", src.DropSubscription(m.SubscriptionName()))
+		logErr("drop source DDL apply", teardownDDLApply(ctx, src.ddlConn()))
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
+	// The reverse slot was pre-created on the target (create_slot=false), so the
+	// source-side subscription drop above does not remove it.
+	logErr("drop target reverse slot", c.target.DropLogicalSlot(ctx, m.SubscriptionName()))
+	logErr("drop target DDL capture", teardownDDLCapture(ctx, c.target.ddlConn()))
 }
 
 // Reconcile refreshes every in-flight migration: it advances COPYING to
@@ -712,27 +1024,53 @@ func (c *Coordinator) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// reconcileLocked advances a single migration. Caller holds c.mu.
+// reconcileLocked advances a single migration. Caller holds c.mu. It moves
+// COPYING to IMPORTING once the initial copy is caught up, and rolls a switch
+// that was interrupted by a crash/failover forward to completion — the
+// directional SWITCHING_TO_* phase is the recorded intent (see the design doc's
+// crash-safe-switch section).
 func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 	switch m.Phase {
-	case PhaseCopying, PhaseStreaming:
+	case PhaseCopying:
 		status, err := c.target.SubscriptionStatus(ctx, m.SubscriptionName())
 		if err != nil {
 			return err
 		}
-		if status.CaughtUp && m.Phase != PhaseStreaming {
+		if status.CaughtUp {
 			now := c.now()
-			m.Phase = PhaseStreaming
+			m.Phase = PhaseImporting
 			m.StreamingSince = &now
 			return c.store.Update(ctx, m)
 		}
+	case PhaseSwitchingToExport:
+		_, err := c.applySwitch(ctx, m, DirectionExport)
+		return err
+	case PhaseSwitchingToImport:
+		_, err := c.applySwitch(ctx, m, DirectionImport)
+		return err
+	case PhaseExporting:
+		// Crash recovery: a migration committed to EXPORTING before its reverse
+		// subscription was established (applySwitch commits EXPORTING, then creates
+		// the link) re-establishes it here. Idempotent — a no-op once the link
+		// exists. The gateway is serving at EXPORTING, so no retry loop is needed;
+		// a transient failure just retries on the next reconcile tick.
+		return c.ensureReverseExportLink(ctx, m)
+	case PhaseCompleting:
+		// Crash recovery: a drop committed COMPLETING but did not finish (the
+		// primary restarted mid-teardown, or a drain failed after the phase was
+		// persisted and the phase-restore did not land). Finish the teardown from
+		// the persisted direction and remove the row, so the serving gate — which
+		// counts any non-EXPORTING migration and would otherwise hold this shard
+		// non-serving forever — is released.
+		c.teardown(ctx, m, m.effectiveDirection())
+		return c.store.Delete(ctx, m.ID)
 	}
 	return nil
 }
 
 // liveStatus reads subscription status for phases where it is meaningful.
 func (c *Coordinator) liveStatus(ctx context.Context, m *Migration) (*SubscriptionStatus, error) {
-	if m.Phase == PhaseCopying || m.Phase == PhaseStreaming {
+	if m.Phase == PhaseCopying || isStreaming(m.Phase) {
 		return c.target.SubscriptionStatus(ctx, m.SubscriptionName())
 	}
 	return nil, nil
@@ -768,7 +1106,7 @@ func phaseRank(p Phase) int {
 		return 3
 	case PhaseCopying:
 		return 4
-	case PhaseStreaming:
+	case PhaseImporting, PhaseExporting:
 		return 5
 	default:
 		return 100
@@ -805,7 +1143,7 @@ func (c *Coordinator) project(m *Migration, status *SubscriptionStatus) *Project
 		Name:             m.Name,
 		Source:           redactDSN(m.SourceDSN),
 		Phase:            m.Phase,
-		ActiveDirection:  m.ActiveDirection,
+		ActiveDirection:  directionOf(m.Phase),
 		TargetDatabase:   m.TargetDatabase,
 		TargetShard:      m.TargetShard,
 		Tables:           m.Tables,

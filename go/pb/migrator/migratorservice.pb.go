@@ -47,11 +47,16 @@ const (
 	MigrationPhase_MIGRATION_PHASE_SCHEMA_COPY        MigrationPhase = 3
 	MigrationPhase_MIGRATION_PHASE_CREATE_PUBLICATION MigrationPhase = 4
 	MigrationPhase_MIGRATION_PHASE_COPYING            MigrationPhase = 5
-	MigrationPhase_MIGRATION_PHASE_STREAMING          MigrationPhase = 6
 	MigrationPhase_MIGRATION_PHASE_DROPPED            MigrationPhase = 7
 	MigrationPhase_MIGRATION_PHASE_FAILED             MigrationPhase = 8
-	MigrationPhase_MIGRATION_PHASE_SWITCHING          MigrationPhase = 9
 	MigrationPhase_MIGRATION_PHASE_COMPLETING         MigrationPhase = 10
+	// IMPORTING/EXPORTING are the caught-up steady states (importing from / serving
+	// and exporting to the external database). SWITCHING_TO_* are the transient
+	// cutover (to export) and roll-back (to import).
+	MigrationPhase_MIGRATION_PHASE_IMPORTING           MigrationPhase = 11
+	MigrationPhase_MIGRATION_PHASE_EXPORTING           MigrationPhase = 12
+	MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_IMPORT MigrationPhase = 13
+	MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_EXPORT MigrationPhase = 14
 )
 
 // Enum value maps for MigrationPhase.
@@ -63,24 +68,28 @@ var (
 		3:  "MIGRATION_PHASE_SCHEMA_COPY",
 		4:  "MIGRATION_PHASE_CREATE_PUBLICATION",
 		5:  "MIGRATION_PHASE_COPYING",
-		6:  "MIGRATION_PHASE_STREAMING",
 		7:  "MIGRATION_PHASE_DROPPED",
 		8:  "MIGRATION_PHASE_FAILED",
-		9:  "MIGRATION_PHASE_SWITCHING",
 		10: "MIGRATION_PHASE_COMPLETING",
+		11: "MIGRATION_PHASE_IMPORTING",
+		12: "MIGRATION_PHASE_EXPORTING",
+		13: "MIGRATION_PHASE_SWITCHING_TO_IMPORT",
+		14: "MIGRATION_PHASE_SWITCHING_TO_EXPORT",
 	}
 	MigrationPhase_value = map[string]int32{
-		"MIGRATION_PHASE_UNSPECIFIED":        0,
-		"MIGRATION_PHASE_CREATED":            1,
-		"MIGRATION_PHASE_VALIDATING":         2,
-		"MIGRATION_PHASE_SCHEMA_COPY":        3,
-		"MIGRATION_PHASE_CREATE_PUBLICATION": 4,
-		"MIGRATION_PHASE_COPYING":            5,
-		"MIGRATION_PHASE_STREAMING":          6,
-		"MIGRATION_PHASE_DROPPED":            7,
-		"MIGRATION_PHASE_FAILED":             8,
-		"MIGRATION_PHASE_SWITCHING":          9,
-		"MIGRATION_PHASE_COMPLETING":         10,
+		"MIGRATION_PHASE_UNSPECIFIED":         0,
+		"MIGRATION_PHASE_CREATED":             1,
+		"MIGRATION_PHASE_VALIDATING":          2,
+		"MIGRATION_PHASE_SCHEMA_COPY":         3,
+		"MIGRATION_PHASE_CREATE_PUBLICATION":  4,
+		"MIGRATION_PHASE_COPYING":             5,
+		"MIGRATION_PHASE_DROPPED":             7,
+		"MIGRATION_PHASE_FAILED":              8,
+		"MIGRATION_PHASE_COMPLETING":          10,
+		"MIGRATION_PHASE_IMPORTING":           11,
+		"MIGRATION_PHASE_EXPORTING":           12,
+		"MIGRATION_PHASE_SWITCHING_TO_IMPORT": 13,
+		"MIGRATION_PHASE_SWITCHING_TO_EXPORT": 14,
 	}
 )
 
@@ -1441,20 +1450,22 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x05force\x18\x04 \x01(\bR\x05force\x12\x12\n" +
 	"\x04name\x18\x05 \x01(\tR\x04name\"J\n" +
 	"\x15DropMigrationResponse\x121\n" +
-	"\tmigration\x18\x01 \x01(\v2\x13.migrator.MigrationR\tmigration*\xeb\x02\n" +
+	"\tmigration\x18\x01 \x01(\v2\x13.migrator.MigrationR\tmigration*\xff\x03\n" +
 	"\x0eMigrationPhase\x12\x1f\n" +
 	"\x1bMIGRATION_PHASE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17MIGRATION_PHASE_CREATED\x10\x01\x12\x1e\n" +
 	"\x1aMIGRATION_PHASE_VALIDATING\x10\x02\x12\x1f\n" +
 	"\x1bMIGRATION_PHASE_SCHEMA_COPY\x10\x03\x12&\n" +
 	"\"MIGRATION_PHASE_CREATE_PUBLICATION\x10\x04\x12\x1b\n" +
-	"\x17MIGRATION_PHASE_COPYING\x10\x05\x12\x1d\n" +
-	"\x19MIGRATION_PHASE_STREAMING\x10\x06\x12\x1b\n" +
+	"\x17MIGRATION_PHASE_COPYING\x10\x05\x12\x1b\n" +
 	"\x17MIGRATION_PHASE_DROPPED\x10\a\x12\x1a\n" +
-	"\x16MIGRATION_PHASE_FAILED\x10\b\x12\x1d\n" +
-	"\x19MIGRATION_PHASE_SWITCHING\x10\t\x12\x1e\n" +
+	"\x16MIGRATION_PHASE_FAILED\x10\b\x12\x1e\n" +
 	"\x1aMIGRATION_PHASE_COMPLETING\x10\n" +
-	"*y\n" +
+	"\x12\x1d\n" +
+	"\x19MIGRATION_PHASE_IMPORTING\x10\v\x12\x1d\n" +
+	"\x19MIGRATION_PHASE_EXPORTING\x10\f\x12'\n" +
+	"#MIGRATION_PHASE_SWITCHING_TO_IMPORT\x10\r\x12'\n" +
+	"#MIGRATION_PHASE_SWITCHING_TO_EXPORT\x10\x0e\"\x04\b\x06\x10\x06\"\x04\b\t\x10\t*\x19MIGRATION_PHASE_STREAMING*\x19MIGRATION_PHASE_SWITCHING*y\n" +
 	"\x12MigrationDirection\x12#\n" +
 	"\x1fMIGRATION_DIRECTION_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aMIGRATION_DIRECTION_IMPORT\x10\x01\x12\x1e\n" +

@@ -281,10 +281,14 @@ func phaseToProto(p migration.Phase) migratorpb.MigrationPhase {
 		return migratorpb.MigrationPhase_MIGRATION_PHASE_CREATE_PUBLICATION
 	case migration.PhaseCopying:
 		return migratorpb.MigrationPhase_MIGRATION_PHASE_COPYING
-	case migration.PhaseStreaming:
-		return migratorpb.MigrationPhase_MIGRATION_PHASE_STREAMING
-	case migration.PhaseSwitching:
-		return migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING
+	case migration.PhaseImporting:
+		return migratorpb.MigrationPhase_MIGRATION_PHASE_IMPORTING
+	case migration.PhaseExporting:
+		return migratorpb.MigrationPhase_MIGRATION_PHASE_EXPORTING
+	case migration.PhaseSwitchingToImport:
+		return migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_IMPORT
+	case migration.PhaseSwitchingToExport:
+		return migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_EXPORT
 	case migration.PhaseCompleting:
 		return migratorpb.MigrationPhase_MIGRATION_PHASE_COMPLETING
 	case migration.PhaseFailed:
