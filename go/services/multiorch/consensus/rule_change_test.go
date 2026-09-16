@@ -165,14 +165,13 @@ func TestBuildFailoverProposal(t *testing.T) {
 		"zone1_mp3": makeAddr("mp3"),
 	}
 
-	t.Run("picks first eligible leader", func(t *testing.T) {
+	t.Run("builds proposal for the given leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
+			TermRevocation: rev,
+			OutgoingRule:   outgoingRule,
 		}
 
-		proposal, err := buildFailoverProposal(result, addressByID)
+		proposal, err := buildFailoverProposal(result, makeCS("mp1"), addressByID)
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
@@ -182,24 +181,22 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    nil,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
+			TermRevocation: rev,
+			OutgoingRule:   nil,
 		}
 
-		_, err := buildFailoverProposal(result, addressByID)
+		_, err := buildFailoverProposal(result, makeCS("mp1"), addressByID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no committed rule found")
 	})
 
-	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
+	t.Run("nil leader returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: nil,
+			TermRevocation: rev,
+			OutgoingRule:   outgoingRule,
 		}
 
-		_, err := buildFailoverProposal(result, addressByID)
+		_, err := buildFailoverProposal(result, nil, addressByID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no eligible leaders")
 	})

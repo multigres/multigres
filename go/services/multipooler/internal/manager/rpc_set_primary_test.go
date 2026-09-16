@@ -696,6 +696,35 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
+// TestSetPrimary_RejectsWhileWalReceiverManuallyStopped verifies SetPrimary
+// refuses to reconfigure replication while paused.
+func TestSetPrimary_RejectsWhileWalReceiverManuallyStopped(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// isPrimary check: standby mode.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	// Simulate a prior StopReplication: mark the node as INELIGIBLE.
+	pm.walReceiverManuallyStopped.Store(true)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	rule := ruleAtTermForLeader(leader, 10)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:  leader,
+		},
+	}
+	_, err := pm.SetPrimary(t.Context(), req)
+	require.Error(t, err, "SetPrimary must refuse to reconfigure replication while manually stopped")
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "expected FAILED_PRECONDITION, got %v", err)
+
+	assert.True(t, pm.walReceiverManuallyStopped.Load(),
+		"SetPrimary must not clear walReceiverManuallyStopped on its own")
+}
+
 // TestSetPrimary_ApplyPathErrors covers the post-revocation-check error
 // paths in SetPrimary: ObservePosition, isPrimary, and the standby branch's
 // setPrimaryConnInfoLocked. Each case drives the handler past validation and

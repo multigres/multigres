@@ -45,11 +45,13 @@ func (pm *MultipoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 }
 
 // buildCohortEligibilityStatus returns the pooler's self-reported willingness
-// to be a cohort member. Defaults to ELIGIBLE; downgraded to INELIGIBLE when
-// the WAL receiver was manually stopped (StopReplication cleared
-// primary_conninfo), so the coordinator does not try to re-include this node
-// while the admin signal is in effect. ConsensusManager.SetCohortEligibility
-// sets the base value the dynamic downgrade applies on top of.
+// to be a cohort member. Returns INELIGIBLE when the WAL receiver was manually
+// stopped (StopReplication cleared primary_conninfo) or when setCohortEligibility
+// was called explicitly (e.g. graceful shutdown).
+//
+// Note: postgres readiness (Status.PostgresReady, see leader_fitness.go) is a
+// separate, transient signal — this field is permanent/administrative cohort
+// membership preference only.
 func (pm *MultipoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
 	if pm.walReceiverManuallyStopped.Load() {
 		return &clustermetadatapb.CohortEligibilityStatus{
