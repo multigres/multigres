@@ -296,16 +296,38 @@ func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
 	disabled.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	require.NoError(t, server.ts.CreateMultipooler(ctx, disabled))
 
-	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false, true)
 	require.ErrorContains(t, err, "serving follower pooler not found")
 
 	serving := makeRoutedPooler("cell1", "serving-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
 	serving.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	require.NoError(t, server.ts.CreateMultipooler(ctx, serving))
 
-	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false, true)
 	require.NoError(t, err)
 	require.Equal(t, serving.Id.Name, got.Id.Name)
+}
+
+// A migration in progress holds the target primary DRAINING; the migration
+// control plane must still reach it (requireServing=false), while the backup
+// path (requireServing=true) correctly does not.
+func TestFindPoolerForBackup_MigrationReachesDrainingPrimary(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	primary := makeRoutedPooler("cell1", "draining-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	primary.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+	require.NoError(t, server.ts.CreateMultipooler(ctx, primary))
+
+	// Backup path: a non-serving leader is invisible.
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", true, true)
+	require.ErrorContains(t, err, "serving leader pooler not found")
+
+	// Migration path: the DRAINING primary is reached.
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", true, false)
+	require.NoError(t, err)
+	require.Equal(t, primary.Id.Name, got.Id.Name)
 }
 
 func TestBackup_ForcePrimary(t *testing.T) {
