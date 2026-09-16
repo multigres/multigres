@@ -289,8 +289,9 @@ stateDiagram-v2
   event; `deactivate-migration` (`EXPORTING`→`IMPORTING`) turns serving **off** first, then drains back.
 - **`DROPPED` / `FAILED`** — `drop-migration` drops sub/pub/slot idempotently on both sides and deletes the workflow;
   journal retained for audit. The default drop performs a **quiesce+drain barrier** so no in-flight change is lost: it
-  requires the migration to be caught up (`STREAMING`), sets the current source read-only, waits for the target to reach
-  the source's LSN, advances the new writer's sequences, and only then tears down — leaving the shard standalone and
+  requires the migration to be caught up (`IMPORTING`/`EXPORTING`), sets the current source read-only, waits for the
+  target to reach the source's LSN, advances the new writer's sequences, and only then tears down — leaving the shard
+  standalone and
   write-safe. `--wait` first blocks until the migration catches up (bounding the read-only window), then runs the same
   barrier. `--force` skips the whole barrier (no quiesce, no drain, no sequence advance) and removes the workflow from
   any phase — the abandon path, which can leave an incompletely-copied or PK-unsafe target. A default drop is thus safe
@@ -552,6 +553,57 @@ sequenceDiagram
     MGS-->>PGT: change stream — no gap
     Note over MT,PGS2: no ALTER SUBSCRIPTION and no source re-resolution — the gateway absorbs the failover
 ```
+
+### Failover during a direction switch (crash-safe switch)
+
+The direction switch (`activate-migration` / `deactivate-migration`) drives a non-atomic sequence — drain, then **drop
+the current subscription**, drop the current publication, flip the DDL-replication roles, create the reverse publication,
+and **create the reverse subscription**. A target-primary failover in the middle of that sequence must not wedge the
+migration, so the switch is made crash-safe by treating the migration row as a **write-ahead intent log**.
+
+**Directional phases record the intent.** The steady and switching phases carry the direction: `IMPORTING` / `EXPORTING`
+for the caught-up steady states, and `SWITCHING_TO_IMPORT` / `SWITCHING_TO_EXPORT` for the transient roll-back / cutover.
+`SetMigrationDirection` persists `SWITCHING_TO_<target>` in one committed row update **before** touching either database;
+that directional phase _is_ the recorded intent, so a promoted standby knows which way the switch was heading. (Because
+the phase carries direction, `active_direction` is derived from it rather than stored — one source of truth.)
+
+**The steps are idempotent and resumable.** Every step is safe to re-run (`DROP … IF EXISTS`, existence-checked
+`CREATE`), and the drain runs only while the current subscription still exists — once it has been dropped, the barrier
+already held. On the promoted primary, `reconcileLocked` sees the `SWITCHING_TO_*` row and rolls the switch forward to
+completion: `SWITCHING_TO_EXPORT` → `EXPORTING`, `SWITCHING_TO_IMPORT` → `IMPORTING`. Roll-forward is safe because the
+drain established a byte-identical barrier before any drop.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant MP1 as target primary multipooler (old)
+    participant PGT as target Postgres (HA)
+    participant MP2 as standby then new primary
+    OP->>MP1: ActivateMigration (IMPORT to EXPORT)
+    MP1->>PGT: persist phase = SWITCHING_TO_EXPORT (intent, before acting)
+    Note over PGT,MP2: sidecar row + catalog changes replicate physically to the standby
+    MP1->>PGT: drain to barrier, then DROP SUBSCRIPTION
+    Note over MP1: crash — before the reverse link is created
+    Note over PGT,MP2: target-primary failover
+    MP2->>MP2: reconcile sees SWITCHING_TO_EXPORT, rolls the switch forward (idempotent)
+    MP2->>PGT: create reverse publication + subscription, set phase EXPORTING
+    Note over MP2: recovered — the switch completes, serving flips on at EXPORTING
+```
+
+**WAL ordering makes the intent durable.** The row and the `pg_subscription` / `pg_publication` catalog live in the
+**same target Postgres**, so they share one WAL: committing the intent before the catalog change guarantees that if the
+promoted standby can see the drop, it can also see the intent. Source-side steps are a different WAL, but they are
+re-driven idempotently, so their ordering does not matter.
+
+**Serving follows the phase.** The serving gate keys on the phase — the shard does not serve while
+`COPYING`/`IMPORTING`/`SWITCHING_TO_IMPORT`/`SWITCHING_TO_EXPORT` (the target is being populated, or the go-live has not
+yet landed), and serves once every migration on it reaches `EXPORTING`.
+
+**Enough state to recover.** Recreating a subscription on resume needs its full conninfo. The IMPORT subscription's
+conninfo is the row's `source_dsn` (stored with password in the superuser-only sidecar, redacted only in projections and
+logs); the EXPORT reverse subscription's conninfo is rebuilt from `targetConnInfo` (coordinator config). Both survive a
+restart, so no additional credential state is required.
 
 ### Migration workflow (multigres shard to shard)
 

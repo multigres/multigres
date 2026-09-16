@@ -84,8 +84,10 @@ func TestPhaseToProto(t *testing.T) {
 		migration.PhaseSchemaCopy:        migratorpb.MigrationPhase_MIGRATION_PHASE_SCHEMA_COPY,
 		migration.PhaseCreatePublication: migratorpb.MigrationPhase_MIGRATION_PHASE_CREATE_PUBLICATION,
 		migration.PhaseCopying:           migratorpb.MigrationPhase_MIGRATION_PHASE_COPYING,
-		migration.PhaseStreaming:         migratorpb.MigrationPhase_MIGRATION_PHASE_STREAMING,
-		migration.PhaseSwitching:         migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING,
+		migration.PhaseImporting:         migratorpb.MigrationPhase_MIGRATION_PHASE_IMPORTING,
+		migration.PhaseExporting:         migratorpb.MigrationPhase_MIGRATION_PHASE_EXPORTING,
+		migration.PhaseSwitchingToImport: migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_IMPORT,
+		migration.PhaseSwitchingToExport: migratorpb.MigrationPhase_MIGRATION_PHASE_SWITCHING_TO_EXPORT,
 		migration.PhaseCompleting:        migratorpb.MigrationPhase_MIGRATION_PHASE_COMPLETING,
 		migration.PhaseFailed:            migratorpb.MigrationPhase_MIGRATION_PHASE_FAILED,
 	}
@@ -105,7 +107,7 @@ func TestProjToProto(t *testing.T) {
 	since := time.Now()
 	p := &migration.Projection{
 		ID: "m1", Name: "nightly", Source: "h:5432/db", TargetDatabase: "db", TargetShard: "0",
-		Tables: []string{"public.orders"}, Phase: migration.PhaseStreaming,
+		Tables: []string{"public.orders"}, Phase: migration.PhaseExporting,
 		ActiveDirection: migration.DirectionExport, CaughtUp: true, TotalRelations: 2, ReadyRelations: 2,
 		PublicationName: "mt_pub_m1", SubscriptionName: "mt_sub_m1", StreamingSince: &since,
 	}
@@ -114,7 +116,7 @@ func TestProjToProto(t *testing.T) {
 	require.Equal(t, "nightly", got.GetName())
 	require.Equal(t, "h:5432/db", got.GetSource())
 	require.Equal(t, []string{"public.orders"}, got.GetTables())
-	require.Equal(t, migratorpb.MigrationPhase_MIGRATION_PHASE_STREAMING, got.GetPhase())
+	require.Equal(t, migratorpb.MigrationPhase_MIGRATION_PHASE_EXPORTING, got.GetPhase())
 	require.Equal(t, migratorpb.MigrationDirection_MIGRATION_DIRECTION_EXPORT, got.GetActiveDirection())
 	require.True(t, got.GetCaughtUp())
 	require.NotNil(t, got.GetStreamingSince())

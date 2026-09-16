@@ -81,8 +81,8 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 // defaults to now(); streaming_since starts NULL.
 func (s *Store) Insert(ctx context.Context, m *Migration) error {
 	const insertMigrationSQL = `INSERT INTO multigres.migration
-		(migration_id, phase, active_direction, name, source_dsn, target_database, target_shard,
-		 sequence_margin, copy_data, skip_schema_copy)
+		(migration_id, phase, name, source_dsn, target_database, target_shard,
+		 sequence_margin, copy_data, skip_schema_copy, direction)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
@@ -91,8 +91,9 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.QueryArgs(
 		ctx, insertMigrationSQL,
-		m.ID, string(m.Phase), string(m.ActiveDirection), nullableName(m.Name), m.SourceDSN,
+		m.ID, string(m.Phase), nullableName(m.Name), m.SourceDSN,
 		m.TargetDatabase, m.TargetShard, m.SequenceMargin, m.CopyData, m.SkipSchemaCopy,
+		string(m.effectiveDirection()),
 	); err != nil {
 		return fmt.Errorf("insert migration: %w", err)
 	}
@@ -121,11 +122,11 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.QueryArgs(
 		ctx, `UPDATE multigres.migration SET
-		phase=$2, active_direction=$3, source_dsn=$4,
-		sequence_margin=$5, last_error=$6, streaming_since=$7
+		phase=$2, source_dsn=$3,
+		sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7
 		WHERE migration_id=$1`,
-		m.ID, string(m.Phase), string(m.ActiveDirection), m.SourceDSN,
-		m.SequenceMargin, m.LastError, streamingSince,
+		m.ID, string(m.Phase), m.SourceDSN,
+		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()),
 	); err != nil {
 		return fmt.Errorf("update migration: %w", err)
 	}
@@ -162,9 +163,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 // only to (re)load the read-cache — per-id lookup and ordering happen in memory.
 // The plain LEFT JOIN yields one all-NULL row for a migration with no tables, so
 // the CASE returns '[]' (rather than '[null]') when the group has no table rows.
-const selectMigrationSQL = `SELECT m.migration_id, m.phase, m.active_direction, COALESCE(m.name, ''),
+const selectMigrationSQL = `SELECT m.migration_id, m.phase, COALESCE(m.name, ''),
 	m.source_dsn, m.target_database, m.target_shard, m.sequence_margin,
-	m.copy_data, m.skip_schema_copy, m.last_error,
+	m.copy_data, m.skip_schema_copy, m.direction, m.last_error,
 	m.created_at, m.streaming_since,
 	CASE WHEN count(t.table_name) = 0 THEN '[]'
 	     ELSE json_agg(t.schema_name || '.' || t.table_name)::text
@@ -301,12 +302,12 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 		streaming  *time.Time
 		tablesJSON string
 	)
-	err := executor.ScanRow(row, &m.ID, &phase, &direction, &m.Name, &m.SourceDSN, &m.TargetDatabase, &m.TargetShard, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &m.LastError, &m.CreatedAt, &streaming, &tablesJSON)
+	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.SourceDSN, &m.TargetDatabase, &m.TargetShard, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.CreatedAt, &streaming, &tablesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scan migration: %w", err)
 	}
 	m.Phase = Phase(phase)
-	m.ActiveDirection = Direction(direction)
+	m.Direction = Direction(direction)
 	m.StreamingSince = streaming
 	if tablesJSON != "" {
 		if err := json.Unmarshal([]byte(tablesJSON), &m.Tables); err != nil {

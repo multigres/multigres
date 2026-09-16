@@ -108,7 +108,7 @@ func TestStoreInsert(t *testing.T) {
 	s.cache = map[string]*Migration{"stale": {ID: "stale"}} // Insert invalidates it
 
 	m := &Migration{
-		ID: "m1", Phase: PhaseCreated, ActiveDirection: DirectionImport,
+		ID: "m1", Phase: PhaseCreated,
 		Name: "nightly", SourceDSN: "host=h dbname=d", TargetDatabase: "d",
 		Tables: []string{"public.orders", "public.items"}, CopyData: true,
 	}
@@ -125,7 +125,7 @@ func TestStoreInsert(t *testing.T) {
 func TestStoreInsertRejectsBadTableName(t *testing.T) {
 	qs := &fakeQS{}
 	s := NewStore(qs)
-	m := &Migration{ID: "m1", Phase: PhaseCreated, ActiveDirection: DirectionImport, Tables: []string{"nodot"}}
+	m := &Migration{ID: "m1", Phase: PhaseCreated, Tables: []string{"nodot"}}
 	err := s.Insert(context.Background(), m)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expected schema.table")
@@ -137,7 +137,7 @@ func TestStoreUpdateAndDelete(t *testing.T) {
 	qs := &fakeQS{}
 	s := NewStore(qs)
 	m := &Migration{
-		ID: "m1", Phase: PhaseStreaming, ActiveDirection: DirectionExport,
+		ID: "m1", Phase: PhaseExporting,
 		SourceDSN: "host=h dbname=d", Tables: []string{"public.orders"},
 	}
 	require.NoError(t, s.Update(context.Background(), m))
@@ -155,8 +155,7 @@ func TestStoreUpdateAndDelete(t *testing.T) {
 func selectRow(id, name, createdAt string) *sqltypes.Row {
 	return &sqltypes.Row{Values: []sqltypes.Value{
 		sqltypes.Value(id),                  // migration_id
-		sqltypes.Value("STREAMING"),         // phase
-		sqltypes.Value("IMPORT"),            // active_direction
+		sqltypes.Value("IMPORTING"),         // phase
 		sqltypes.Value(name),                // name (COALESCE '')
 		sqltypes.Value("host=h dbname=d"),   // source_dsn
 		sqltypes.Value("d"),                 // target_database
@@ -164,6 +163,7 @@ func selectRow(id, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value("0"),                 // sequence_margin
 		sqltypes.Value("true"),              // copy_data
 		sqltypes.Value("false"),             // skip_schema_copy
+		sqltypes.Value("IMPORT"),            // direction
 		sqltypes.Value(""),                  // last_error
 		sqltypes.Value(createdAt),           // created_at
 		nil,                                 // streaming_since (NULL)
@@ -212,11 +212,39 @@ func TestScanMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "m9", m.ID)
 	require.Equal(t, "daily", m.Name)
-	require.Equal(t, PhaseStreaming, m.Phase)
-	require.Equal(t, DirectionImport, m.ActiveDirection)
+	require.Equal(t, PhaseImporting, m.Phase)
+	require.Equal(t, DirectionImport, m.Direction, "direction column round-trips into the row")
 	require.Nil(t, m.StreamingSince)
 	require.Equal(t, []string{"public.orders"}, m.Tables)
 
 	_, err = scanMigration(&sqltypes.Row{Values: []sqltypes.Value{sqltypes.Value("only-one")}})
 	require.Error(t, err, "too few columns must error")
+}
+
+func TestStorePersistsDirection(t *testing.T) {
+	ctx := context.Background()
+
+	// With no explicit Direction, the persisted value is derived from the phase, so
+	// an EXPORTING migration is stored as EXPORT.
+	qs := &fakeQS{}
+	require.NoError(t, NewStore(qs).Update(ctx,
+		&Migration{ID: "m1", Phase: PhaseExporting, SourceDSN: "host=h dbname=d"}))
+	require.Contains(t, qs.tx.calls[0].sql, "direction=")
+	require.Contains(t, qs.tx.calls[0].args, "EXPORT",
+		"a streaming phase persists its derived direction")
+
+	// A COMPLETING row carries no direction of its own, so the explicit Direction is
+	// what gets stored — this is what lets a crashed drop finish correctly.
+	qsC := &fakeQS{}
+	require.NoError(t, NewStore(qsC).Update(ctx,
+		&Migration{ID: "m1", Phase: PhaseCompleting, Direction: DirectionExport, SourceDSN: "host=h dbname=d"}))
+	require.Contains(t, qsC.tx.calls[0].args, "EXPORT",
+		"COMPLETING persists the explicit direction, not the phase default")
+
+	// Insert persists the direction too (CREATED derives IMPORT).
+	qsI := &fakeQS{}
+	require.NoError(t, NewStore(qsI).Insert(ctx,
+		&Migration{ID: "m1", Phase: PhaseCreated, SourceDSN: "host=h dbname=d"}))
+	require.Contains(t, qsI.tx.calls[0].sql, "direction")
+	require.Contains(t, qsI.tx.calls[0].args, "IMPORT")
 }
