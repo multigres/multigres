@@ -46,10 +46,17 @@ const (
 	PhaseCreatePublication Phase = "CREATE_PUBLICATION"
 	// PhaseCopying: subscription created; initial COPY in progress.
 	PhaseCopying Phase = "COPYING"
-	// PhaseStreaming: caught up; steady-state logical replication.
-	PhaseStreaming Phase = "STREAMING"
-	// PhaseSwitching: transient during a set-direction flip.
-	PhaseSwitching Phase = "SWITCHING"
+	// PhaseImporting: caught up, streaming from the external source into Multigres
+	// (IMPORT direction). Steady state; the target does not serve client queries.
+	PhaseImporting Phase = "IMPORTING"
+	// PhaseExporting: caught up, streaming from Multigres out to the external
+	// database (EXPORT direction). Steady state; the target serves — this is live.
+	PhaseExporting Phase = "EXPORTING"
+	// PhaseSwitchingToExport: transient go-live cutover (IMPORTING -> EXPORTING).
+	// Persisted before the switch acts, so a resumed primary knows to roll forward.
+	PhaseSwitchingToExport Phase = "SWITCHING_TO_EXPORT"
+	// PhaseSwitchingToImport: transient roll-back (EXPORTING -> IMPORTING).
+	PhaseSwitchingToImport Phase = "SWITCHING_TO_IMPORT"
 	// PhaseCompleting: transient during teardown (drain + detach).
 	PhaseCompleting Phase = "COMPLETING"
 	// PhaseFailed: a phase errored; last_error carries the reason.
@@ -66,6 +73,64 @@ const (
 	DirectionExport Direction = "EXPORT"
 )
 
+// directionOf reports which side is currently the publisher for a phase — the
+// single source of truth for direction, derived from the phase rather than
+// stored separately. During a switch the "current" side is the one being drained:
+// SWITCHING_TO_EXPORT is still importing, SWITCHING_TO_IMPORT is still exporting.
+func directionOf(p Phase) Direction {
+	switch p {
+	case PhaseExporting, PhaseSwitchingToImport:
+		return DirectionExport
+	default:
+		return DirectionImport
+	}
+}
+
+// isStreaming reports whether a phase is a caught-up steady state (either
+// direction) — the states from which a direction switch or a drain-and-drop may
+// begin.
+func isStreaming(p Phase) bool { return p == PhaseImporting || p == PhaseExporting }
+
+// effectiveDirection is the migration's active direction, preferring the persisted
+// Direction and falling back to directionOf(Phase) when it is empty (a row written
+// before the direction column existed, or any non-completing phase where the phase
+// alone is authoritative).
+func (m *Migration) effectiveDirection() Direction {
+	if m.Direction != "" {
+		return m.Direction
+	}
+	return directionOf(m.Phase)
+}
+
+// switchingPhase is the transient phase recorded before switching toward target.
+func switchingPhase(target Direction) Phase {
+	if target == DirectionExport {
+		return PhaseSwitchingToExport
+	}
+	return PhaseSwitchingToImport
+}
+
+// streamingPhase is the steady state a completed switch toward target settles in.
+func streamingPhase(target Direction) Phase {
+	if target == DirectionExport {
+		return PhaseExporting
+	}
+	return PhaseImporting
+}
+
+// switchTarget is the direction an in-flight switching phase is heading toward.
+// For a non-switching phase it returns the current direction (harmless).
+func switchTarget(p Phase) Direction {
+	switch p {
+	case PhaseSwitchingToExport:
+		return DirectionExport
+	case PhaseSwitchingToImport:
+		return DirectionImport
+	default:
+		return directionOf(p)
+	}
+}
+
 // Migration is the persisted (coordinator-owned) state of one migration — the
 // intent, inputs, and history. Live copy/stream status (relation counts, lag,
 // caught-up) is NOT stored here; it is derived from pg_subscription_rel and
@@ -77,9 +142,17 @@ const (
 // migration, pass a Migration you own to Store.Insert/Update (which persist it
 // and invalidate the cache).
 type Migration struct {
-	ID              string
-	Phase           Phase
-	ActiveDirection Direction
+	ID    string
+	Phase Phase
+
+	// Direction is the active replication direction (which side is the publisher).
+	// It is normally derivable from Phase via directionOf, but PhaseCompleting — the
+	// transient teardown phase — carries no direction of its own, so the direction
+	// in effect at drop time is persisted here. reconcileLocked and teardown read it
+	// to finish an interrupted drop correctly (an EXPORT drop must not be torn down
+	// as an IMPORT). Empty on rows written before this column existed; treat empty as
+	// directionOf(Phase) — see effectiveDirection.
+	Direction Direction
 
 	// Name is an optional, human-friendly identifier, unique per target database
 	// (empty for unnamed migrations). The ID remains the stable internal key; Name
@@ -129,7 +202,6 @@ func (m *Migration) SubscriptionName() string { return "mt_sub_" + m.ID }
 const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_id TEXT PRIMARY KEY,
 	phase TEXT NOT NULL,
-	active_direction TEXT NOT NULL DEFAULT 'IMPORT',
 	name TEXT NULL,
 	source_dsn TEXT NOT NULL,
 	target_database TEXT NOT NULL,
@@ -137,6 +209,7 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	sequence_margin BIGINT NOT NULL DEFAULT 0,
 	copy_data BOOLEAN NOT NULL DEFAULT true,
 	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
+	direction TEXT NOT NULL DEFAULT 'IMPORT',
 	last_error TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	streaming_since TIMESTAMPTZ NULL
@@ -155,6 +228,7 @@ var alterMigrationAddColumnsSQL = []string{
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS name TEXT NULL`,
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS copy_data BOOLEAN NOT NULL DEFAULT true`,
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS skip_schema_copy BOOLEAN NOT NULL DEFAULT false`,
+	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IMPORT'`,
 }
 
 // CreateMigrationTablesSQL is the DDL for multigres.migration_tables, the normalized

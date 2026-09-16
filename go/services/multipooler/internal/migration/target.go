@@ -43,10 +43,12 @@ func (t *target) ApplySchema(ctx context.Context, schemaSQL string) error {
 	return nil
 }
 
-// CreatePublication creates a publication FOR TABLE the given tables on the
-// local Postgres. Used when this side is the publisher (EXPORT direction).
-func (t *target) CreatePublication(ctx context.Context, name string, tables []string) error {
-	if _, err := t.qs.QueryAdmin(ctx, createPublicationSQL(name, tables)); err != nil {
+// CreatePublication creates a publication on the local Postgres FOR TABLE the
+// given tables plus this migration's row-filtered multigres.ddl_log (so captured
+// DDL rides the same stream). Used when this side is the publisher (EXPORT
+// direction).
+func (t *target) CreatePublication(ctx context.Context, name string, tables []string, migrationID string) error {
+	if _, err := t.qs.QueryAdmin(ctx, createPublicationWithDDLLogSQL(name, tables, migrationID)); err != nil {
 		return fmt.Errorf("create publication: %w", err)
 	}
 	return nil
@@ -138,6 +140,29 @@ func (t *target) SubscriptionStatus(ctx context.Context, name string) (*Subscrip
 	return st, nil
 }
 
+// SubscriptionExists reports whether a subscription with the given name exists on
+// the local Postgres. Used to make the direction switch idempotent on resume.
+func (t *target) SubscriptionExists(ctx context.Context, name string) (bool, error) {
+	return t.existsCount(ctx, "SELECT count(*) FROM pg_subscription WHERE subname = $1", name)
+}
+
+// PublicationExists reports whether a publication with the given name exists.
+func (t *target) PublicationExists(ctx context.Context, name string) (bool, error) {
+	return t.existsCount(ctx, "SELECT count(*) FROM pg_publication WHERE pubname = $1", name)
+}
+
+func (t *target) existsCount(ctx context.Context, sql, arg string) (bool, error) {
+	res, err := t.qs.QueryAdminArgs(ctx, sql, arg)
+	if err != nil {
+		return false, err
+	}
+	var n int64
+	if err := executor.ScanSingleRow(res, &n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // CurrentLSN returns the local Postgres's current WAL LSN (call on a
 // publisher/primary, e.g. the target in EXPORT direction).
 func (t *target) CurrentLSN(ctx context.Context) (string, error) {
@@ -215,17 +240,6 @@ func createSubscriptionSQL(name, conninfo, publication string, copyData bool) st
 		ast.QuoteIdentifier(publication),
 		copyData,
 	)
-}
-
-// createPublicationSQL builds a CREATE PUBLICATION ... FOR TABLE statement,
-// quoting each (optionally schema-qualified) table name.
-func createPublicationSQL(name string, tables []string) string {
-	quoted := make([]string, len(tables))
-	for i, tbl := range tables {
-		quoted[i] = quoteQualifiedName(tbl)
-	}
-	return fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
-		ast.QuoteIdentifier(name), strings.Join(quoted, ", "))
 }
 
 // quoteQualifiedName quotes a possibly schema-qualified identifier

@@ -57,11 +57,6 @@ export enum MigrationPhase {
   COPYING = 5,
 
   /**
-   * @generated from enum value: MIGRATION_PHASE_STREAMING = 6;
-   */
-  STREAMING = 6,
-
-  /**
    * @generated from enum value: MIGRATION_PHASE_DROPPED = 7;
    */
   DROPPED = 7,
@@ -72,14 +67,33 @@ export enum MigrationPhase {
   FAILED = 8,
 
   /**
-   * @generated from enum value: MIGRATION_PHASE_SWITCHING = 9;
-   */
-  SWITCHING = 9,
-
-  /**
    * @generated from enum value: MIGRATION_PHASE_COMPLETING = 10;
    */
   COMPLETING = 10,
+
+  /**
+   * IMPORTING/EXPORTING are the caught-up steady states (importing from / serving
+   * and exporting to the external database). SWITCHING_TO_* are the transient
+   * cutover (to export) and roll-back (to import).
+   *
+   * @generated from enum value: MIGRATION_PHASE_IMPORTING = 11;
+   */
+  IMPORTING = 11,
+
+  /**
+   * @generated from enum value: MIGRATION_PHASE_EXPORTING = 12;
+   */
+  EXPORTING = 12,
+
+  /**
+   * @generated from enum value: MIGRATION_PHASE_SWITCHING_TO_IMPORT = 13;
+   */
+  SWITCHING_TO_IMPORT = 13,
+
+  /**
+   * @generated from enum value: MIGRATION_PHASE_SWITCHING_TO_EXPORT = 14;
+   */
+  SWITCHING_TO_EXPORT = 14,
 }
 // Retrieve enum metadata with: proto3.getEnumType(MigrationPhase)
 proto3.util.setEnumType(MigrationPhase, "migrator.MigrationPhase", [
@@ -89,11 +103,13 @@ proto3.util.setEnumType(MigrationPhase, "migrator.MigrationPhase", [
   { no: 3, name: "MIGRATION_PHASE_SCHEMA_COPY" },
   { no: 4, name: "MIGRATION_PHASE_CREATE_PUBLICATION" },
   { no: 5, name: "MIGRATION_PHASE_COPYING" },
-  { no: 6, name: "MIGRATION_PHASE_STREAMING" },
   { no: 7, name: "MIGRATION_PHASE_DROPPED" },
   { no: 8, name: "MIGRATION_PHASE_FAILED" },
-  { no: 9, name: "MIGRATION_PHASE_SWITCHING" },
   { no: 10, name: "MIGRATION_PHASE_COMPLETING" },
+  { no: 11, name: "MIGRATION_PHASE_IMPORTING" },
+  { no: 12, name: "MIGRATION_PHASE_EXPORTING" },
+  { no: 13, name: "MIGRATION_PHASE_SWITCHING_TO_IMPORT" },
+  { no: 14, name: "MIGRATION_PHASE_SWITCHING_TO_EXPORT" },
 ]);
 
 /**

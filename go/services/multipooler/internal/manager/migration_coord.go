@@ -125,7 +125,7 @@ func (pm *MultipoolerManager) migrationCoordinator() *migration.Coordinator {
 		if qs == nil {
 			return nil
 		}
-		pm.migrationCoord = migration.NewCoordinator(qs, pm.logger, pm.targetConnInfo)
+		pm.migrationCoord = migration.NewCoordinator(qs, pm.logger, pm.targetConnInfo, pm.drainForMigrationImport)
 	}
 	return pm.migrationCoord
 }
@@ -180,10 +180,16 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // multigres.migration table and stores it in migrationImportHold. It runs on
 // every postgres-monitor tick — on the primary and on standbys alike, since the
 // table is physically replicated — so the gate holds across the whole shard and
-// survives failover. Any migration row in the IMPORT direction holds serving; a
+// survives failover. Serving is held as soon as a migration EXISTS on the shard
+// in any phase other than EXPORTING: CREATED (staged but not started),
+// VALIDATING/SCHEMA_COPY/CREATE_PUBLICATION/COPYING/IMPORTING and the
+// SWITCHING_TO_* transitions (the target is being populated or the go-live has
+// not yet landed), plus FAILED (the target may be half-migrated). Holding from
+// CREATED keeps clients from changing the database while a migration is staged
+// against it. Only an EXPORTING migration serves (it is live as the primary). A
 // missing table (no migrations on this shard) or an unreadable Postgres clears
-// the hold (a down Postgres cannot serve regardless). It is a single count over a
-// tiny table and never touches the state-manager lock.
+// the hold (a down Postgres cannot serve regardless). It is a single count over
+// a tiny table and never touches the state-manager lock.
 func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 	qs := pm.internalQueryService()
 	if qs == nil {
@@ -191,7 +197,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 		return
 	}
 	res, err := qs.QueryAdmin(ctx,
-		"SELECT count(*) FROM multigres.migration WHERE active_direction = 'IMPORT'")
+		"SELECT count(*) FROM multigres.migration WHERE phase != 'EXPORTING'")
 	if err != nil {
 		// multigres.migration absent (no migrations here) or Postgres unreachable.
 		pm.migrationImportHold.Store(false)
@@ -203,6 +209,28 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 		return
 	}
 	pm.migrationImportHold.Store(n > 0)
+}
+
+// drainForMigrationImport is the synchronous serving barrier the migration
+// coordinator runs before an IMPORT setup drops target tables or starts
+// streaming. It sets the import hold and reconciles serving inline — draining
+// in-flight writes and leaving the pooler DRAINING — instead of waiting for the
+// asynchronous ~5s postgres-monitor tick to observe the phase, which setup
+// usually outruns. Injected into the coordinator via NewCoordinator.
+//
+// The hold atomic is set first so the monitor's drift check (migrationServingHold
+// reads it) keeps the pooler DRAINING once ForceMigrationHold puts it there;
+// otherwise a monitor tick landing before refreshMigrationHold re-reads the table
+// could reconcile DRAINING back to SERVING. refreshMigrationHold then keeps it
+// true on every tick because the phase has left CREATED.
+func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error {
+	pm.migrationImportHold.Store(true)
+	lockCtx, err := pm.actionLock.Acquire(ctx, "MigrationImportDrain")
+	if err != nil {
+		return err
+	}
+	defer pm.actionLock.Release(lockCtx)
+	return pm.stateManager.ForceMigrationHold(lockCtx)
 }
 
 // runMigrationReconcile is the reconcile poller. Each tick, if this pooler is
