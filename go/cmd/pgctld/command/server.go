@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -229,11 +230,20 @@ type PgCtldServiceConfig struct {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger     *slog.Logger
-	ctldConfig PgCtldServiceConfig
-	timeout    int
-	poolerDir  string
-	pgConfig   *pgctld.PostgresCtlConfig
+	logger            *slog.Logger
+	ctldConfig        PgCtldServiceConfig
+	timeout           int
+	poolerDir         string
+	pgbackrestPort    int
+	pgbackrestCertDir string
+	pgConfig          *pgctld.PostgresCtlConfig
+
+	// maxConnsCache caches the postgres -C max_connections result reported on
+	// Status (the pooler polls Status every few seconds; forking postgres each
+	// time would be wasteful). 0 = not computed / unknown. Invalidated (reset
+	// to 0) by every operation that can change the effective config:
+	// InitDataDir, Start, Restart, ReloadConfig.
+	maxConnsCache atomic.Int32
 
 	// pgBackRest management
 	ctx              context.Context
@@ -343,14 +353,16 @@ func NewPgCtldService(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &PgCtldService{
-		logger:     logger,
-		ctldConfig: cfg,
-		timeout:    timeout,
-		poolerDir:  poolerDir,
-		pgConfig:   pgConfig,
-		ctx:        ctx,
-		cancel:     cancel,
-		metrics:    metrics,
+		logger:            logger,
+		ctldConfig:        cfg,
+		timeout:           timeout,
+		poolerDir:         poolerDir,
+		pgbackrestPort:    pgbackrestPort,
+		pgbackrestCertDir: pgbackrestCertDir,
+		pgConfig:          pgConfig,
+		ctx:               ctx,
+		cancel:            cancel,
+		metrics:           metrics,
 		pgBackRestStatus: &pb.PgBackRestStatus{
 			Running: false,
 		},
@@ -557,6 +569,7 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
+	defer s.invalidateMaxConnections()
 	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
@@ -674,6 +687,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
+	defer s.invalidateMaxConnections()
 	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
 
 	// Check if data directory is initialized
@@ -703,6 +717,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 }
 
 func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
+	defer s.invalidateMaxConnections()
 	s.logger.InfoContext(ctx, "gRPC ReloadConfig request")
 
 	// Check if data directory is initialized
@@ -722,8 +737,63 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	}, nil
 }
 
+// effectiveMaxConnections returns the effective configured max_connections,
+// resolved the way postgres itself resolves it — `postgres -C` follows
+// include directives and postgresql.auto.conf, and works whether or not the
+// server is running. Returns 0 (unknown) before the data directory is
+// initialized or when the value cannot be determined. Cached because the
+// multipooler polls Status every few seconds; invalidated by every operation
+// that can change the effective config.
+func (s *PgCtldService) effectiveMaxConnections(ctx context.Context) int32 {
+	// Positive = cached value; negative = cached failure (do not re-fork until
+	// the next invalidation). Status sits on the multipooler's monitoring path,
+	// so a persistent failure must not fork postgres on every 5s poll, and a
+	// hung probe (e.g. a stuck volume) must not wedge the Status RPC: the probe
+	// gets its own short deadline independent of the caller's context.
+	if v := s.maxConnsCache.Load(); v != 0 {
+		return max(v, 0)
+	}
+	if !pgctld.IsDataDirInitialized() {
+		return 0
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := executil.Command(probeCtx, "postgres", "-C", "max_connections", "-D", pgctld.PostgresDataDir()).Output()
+	if err != nil {
+		s.logger.WarnContext(ctx, "could not determine effective max_connections; reporting unknown until the next start/restart/reload", "error", err)
+		s.maxConnsCache.Store(-1)
+		return 0
+	}
+	v, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 32)
+	if err != nil || v <= 0 {
+		s.logger.WarnContext(ctx, "unexpected postgres -C max_connections output; reporting unknown until the next start/restart/reload", "output", string(out), "error", err)
+		s.maxConnsCache.Store(-1)
+		return 0
+	}
+	s.maxConnsCache.Store(int32(v))
+	return int32(v)
+}
+
+// invalidateMaxConnections drops the cached max_connections so the next
+// Status recomputes it. Deferred (so it runs after the operation completes,
+// not before — a Status racing the operation must not re-cache a mid-flight
+// value) by every operation that can change the effective config: InitDataDir,
+// Start, Restart, ReloadConfig, and PgRewind (which copies the source
+// cluster's postgresql.conf).
+func (s *PgCtldService) invalidateMaxConnections() {
+	s.maxConnsCache.Store(0)
+}
+
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	s.logger.DebugContext(ctx, "gRPC Status request")
+
+	// Hostname of the machine postgres runs on (postgres is colocated with
+	// pgctld). Best-effort: empty when unavailable.
+	host, _ := os.Hostname()
+	pgbackrestPort, err := intToInt32(s.pgbackrestPort)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pgbackrest port: %w", err)
+	}
 
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
@@ -732,11 +802,15 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			return nil, fmt.Errorf("invalid port: %w", err)
 		}
 		return &pb.StatusResponse{
-			Status:           pb.ServerStatus_NOT_INITIALIZED,
-			DataDir:          pgctld.PostgresDataDir(),
-			Port:             port,
-			Message:          "Data directory is not initialized",
-			PgbackrestStatus: s.getPgBackRestStatus(),
+			Status:            pb.ServerStatus_NOT_INITIALIZED,
+			DataDir:           pgctld.PostgresDataDir(),
+			Port:              port,
+			Host:              host,
+			Message:           "Data directory is not initialized",
+			PgbackrestStatus:  s.getPgBackRestStatus(),
+			PoolerDir:         s.poolerDir,
+			PgbackrestPort:    pgbackrestPort,
+			PgbackrestCertDir: s.pgbackrestCertDir,
 		}, nil
 	}
 
@@ -767,15 +841,20 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	return &pb.StatusResponse{
-		Status:           status,
-		Pid:              pid,
-		Version:          result.Version,
-		Uptime:           durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
-		DataDir:          result.DataDir,
-		Port:             port,
-		Ready:            result.Ready,
-		Message:          result.Message,
-		PgbackrestStatus: s.getPgBackRestStatus(),
+		Status:            status,
+		Pid:               pid,
+		Version:           result.Version,
+		Uptime:            durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
+		DataDir:           result.DataDir,
+		Port:              port,
+		Host:              host,
+		Ready:             result.Ready,
+		Message:           result.Message,
+		PgbackrestStatus:  s.getPgBackRestStatus(),
+		PoolerDir:         s.poolerDir,
+		MaxConnections:    s.effectiveMaxConnections(ctx),
+		PgbackrestPort:    pgbackrestPort,
+		PgbackrestCertDir: s.pgbackrestCertDir,
 	}, nil
 }
 
@@ -793,6 +872,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
+	defer s.invalidateMaxConnections()
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
@@ -807,6 +887,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 }
 
 func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	defer s.invalidateMaxConnections()
 	s.logger.InfoContext(ctx, "gRPC PgRewind request",
 		"source_host", req.GetSourceHost(),
 		"source_port", req.GetSourcePort(),
