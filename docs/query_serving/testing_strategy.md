@@ -593,12 +593,77 @@ regression suite can't reach:
 - **`sqllogictest`** - large-scale query-result verification via the sqllogictest
   corpus.
 - **`postgrest` / `pgbouncer` differential suites** - real-world client
-  ecosystems (PostgREST's hspec, PgBouncer's suite) run through the gateway,
-  differentially against direct PG.
+  ecosystems (PostgREST's hspec and I/O suites, PgBouncer's suite) run through
+  the gateway. PostgREST I/O runs a curated proxy-relevant subset; its default
+  run treats the direct-PostgreSQL baseline as an established invariant.
+  `POSTGREST_FULL_BASELINE=1` rechecks that baseline.
 - **Targeted proxy tests** - session-state leakage across pooled sessions,
   reserved-connection lifecycle, temp-table timeout, prepared-statement handling,
   transaction failover, query cancellation, `LISTEN`/`NOTIFY`, replica reads.
   This is where multi-tenant isolation is actually proven.
+
+### Prepared-Statement Preparation and DDL
+
+`TestPreparedDDLMatrix` compares 108 scenarios against direct PostgreSQL:
+nine DDL variants × three operations (statement Describe, portal Describe,
+Bind+Execute) × reuse/reprepare × autocommit/in-transaction. It requires all
+reprepare and in-transaction outcomes to match. Differences are allowed only
+for autocommit reuse without a fresh Parse, where reactive recovery can succeed
+instead of surfacing PostgreSQL's stale-statement error. A passing matrix does
+not mean every cell has identical output.
+
+The optimization also needs tests that measure preparation behavior directly:
+
+- `TestTransactionParseMaterializesOnce` checks `pg_prepared_statements` after
+  Parse, then verifies the same name and `prepare_time` survive Describe and
+  repeated Execute. Another client statement is Parsed in between, and extra
+  whitespace must not create a second backend variant.
+- `TestSQLPrepareEagerParseInTransaction` checks prepare-time semantic errors
+  and relation locks. Its name is retained even though the eager operation now
+  creates the named statement instead of an unnamed validation statement.
+- `TestReprepareParamTypeAfterDDLInTransaction` covers UUID-to-bigint DDL for
+  both formatting-only normalization and a semantic rewrite. Describe of the
+  original precedes execution, so it must not consume the rewrite's refresh.
+- `TestDescribeStaleAcrossClients` and `TestReservedExecuteStaleAcrossClients`
+  check that a new client does not inherit stale result metadata from another
+  client's statement on a pooled backend, including inside a transaction.
+- `TestPostgRESTIO` includes `test_notify_reloading_catalog_cache`, the
+  real-client regression that motivated stale parameter-type recovery.
+
+Unit tests cover the internal contract: `TestPrepareOnlyReusesNamedStatement`
+rejects a redundant backend Parse while checking that a fresh client Parse
+still refreshes the statement; `TestRoutePortalPreservesPreparedQuery` checks
+normalization, semantic rewrites, and shared metadata; and
+`TestReparsePendingEndsWithTransaction` checks commit/rollback cleanup.
+
+Run these from the repository root, building and starting the port pool before
+the end-to-end tests:
+
+```bash
+go test -short -count=1 \
+  ./go/services/multigateway/... \
+  ./go/services/multipooler/internal/executor
+
+make build
+scripts/portpool.sh start
+export MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock
+
+go test -count=1 -timeout=20m \
+  -run 'Test(PreparedDDLMatrix|TransactionParseMaterializesOnce|SQLPrepareEagerParseInTransaction|ReprepareParamTypeAfterDDLInTransaction|DescribeStaleAcrossClients|ReservedExecuteStaleAcrossClients)$' \
+  ./go/test/endtoend/queryserving
+
+RUN_POSTGREST=1 go test -count=1 -timeout=55m \
+  -run '^TestPostgRESTIO$' ./go/test/endtoend/queryserving/postgresttests
+```
+
+PostgREST I/O requires Docker and PostgreSQL 17. Its
+[runner documentation](../../go/test/endtoend/queryserving/postgresttests/io_tests.md)
+describes selection and environment overrides. The default run checks the
+curated I/O selection against the gateway; set `POSTGREST_FULL_BASELINE=1` to
+also recheck direct PostgreSQL. These correctness tests do not measure latency
+or validate mixed-version gateway/pooler deployments. See
+[protocol compatibility](prepared_statements_design.md#prepare-only-protocol-compatibility)
+for the prepare-only wire contract.
 
 ## Coverage tracking and reproducibility
 

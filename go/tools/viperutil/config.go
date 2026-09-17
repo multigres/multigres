@@ -217,8 +217,14 @@ func isConfigFileNotFoundError(err error) bool {
 }
 
 // NotifyConfigReload adds a subscription that the dynamic registry will attempt
-// to notify on config changes. The notification fires after the updated config
-// has been loaded from disk into the live config.
+// to notify on config changes. The notification fires after the new value is
+// live, so a consumer that re-reads a dynamic Value on waking always observes
+// the change that woke it.
+//
+// Both ways a live value can change are covered: a config-file reload (the
+// notification fires once the file has been loaded from disk into the live
+// config) and an explicit Value.Set. Consumers can therefore treat this as
+// the complete set of change events for any dynamic Value.
 //
 // Analogous to signal.Notify, notifications are sent non-blocking, so users
 // should account for this when writing code to consume from the channel.

@@ -32,6 +32,15 @@ import (
 // render correctly, we may need to add more css styles.
 // We are using a classless css approach to minimize complexity.
 
+// unauthenticatedHTTPPaths bypass client-cert enforcement: kubelet probes
+// issue plain GETs on this port and cannot present a certificate, and
+// /version is queried by tooling before a caller has one.
+var unauthenticatedHTTPPaths = map[string]bool{
+	"/live":    true,
+	"/ready":   true,
+	"/version": true,
+}
+
 func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 	sv.HTTPHandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")

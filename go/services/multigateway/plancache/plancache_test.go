@@ -42,7 +42,7 @@ func TestGetPut(t *testing.T) {
 	ctx := context.Background()
 
 	plan := makePlan("SELECT * FROM users WHERE id = $1")
-	c.Put("SELECT * FROM users WHERE id = $1", plan)
+	c.Put("SELECT * FROM users WHERE id = $1", plan, c.Epoch())
 
 	// theine processes writes asynchronously; give it a moment
 	time.Sleep(50 * time.Millisecond)
@@ -63,10 +63,10 @@ func TestUpdateExistingEntry(t *testing.T) {
 	plan1 := makePlan("q1-v1")
 	plan2 := makePlan("q1-v2")
 
-	c.Put("q1", plan1)
+	c.Put("q1", plan1, c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
-	c.Put("q1", plan2)
+	c.Put("q1", plan2, c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	got, ok := c.Get(ctx, "q1")
@@ -79,8 +79,8 @@ func TestInvalidate(t *testing.T) {
 	defer c.Close()
 	ctx := context.Background()
 
-	c.Put("q1", makePlan("q1"))
-	c.Put("q2", makePlan("q2"))
+	c.Put("q1", makePlan("q1"), c.Epoch())
+	c.Put("q2", makePlan("q2"), c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify entries exist
@@ -98,11 +98,47 @@ func TestInvalidate(t *testing.T) {
 	assert.False(t, ok, "q2 should be stale after Invalidate")
 
 	// New entries should work at the new epoch
-	c.Put("q3", makePlan("q3"))
+	c.Put("q3", makePlan("q3"), c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	_, ok = c.Get(ctx, "q3")
 	assert.True(t, ok, "q3 should be found after Invalidate")
+}
+
+// TestPut_StaleEpochNeverServed proves the TOCTOU fix executor.go relies on:
+// a caller that captured Epoch() before starting a long-running operation
+// (e.g. planning under a live, mutable flag) and passes that captured value
+// to Put must never have the entry served if Invalidate() ran in the
+// meantime, even though the Put itself runs after Invalidate(). Without
+// this, a decision made under a since-superseded policy could be cached and
+// served indefinitely.
+func TestPut_StaleEpochNeverServed(t *testing.T) {
+	c := newForTest(1000)
+	defer c.Close()
+	ctx := t.Context()
+
+	// Simulates: cache miss, capture the epoch, then start a slow plan.
+	epochAtPlanStart := c.Epoch()
+
+	// Simulates: a config reload invalidates the cache while the plan above
+	// is still in flight.
+	c.Invalidate()
+
+	// Simulates: the slow plan finishes and is cached, stamped with the
+	// epoch captured before the reload — not the current (bumped) one.
+	c.Put("q1", makePlan("q1"), epochAtPlanStart)
+	time.Sleep(50 * time.Millisecond)
+
+	_, ok := c.Get(ctx, "q1")
+	assert.False(t, ok, "an entry stamped with a superseded epoch must never be served")
+
+	// A plan started after the reload (correct current epoch) must still
+	// cache and serve normally.
+	c.Put("q2", makePlan("q2"), c.Epoch())
+	time.Sleep(50 * time.Millisecond)
+
+	_, ok = c.Get(ctx, "q2")
+	assert.True(t, ok, "an entry stamped with the current epoch must be served")
 }
 
 func TestMultipleInvalidations(t *testing.T) {
@@ -110,7 +146,7 @@ func TestMultipleInvalidations(t *testing.T) {
 	defer c.Close()
 	ctx := context.Background()
 
-	c.Put("q1", makePlan("q1"))
+	c.Put("q1", makePlan("q1"), c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	_, ok := c.Get(ctx, "q1")
@@ -122,7 +158,7 @@ func TestMultipleInvalidations(t *testing.T) {
 	assert.False(t, ok)
 
 	// Insert at new epoch
-	c.Put("q2", makePlan("q2"))
+	c.Put("q2", makePlan("q2"), c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	_, ok = c.Get(ctx, "q2")
@@ -138,7 +174,7 @@ func TestDisabledCache(t *testing.T) {
 	c := New(0)
 	ctx := context.Background()
 
-	c.Put("q1", makePlan("q1"))
+	c.Put("q1", makePlan("q1"), c.Epoch())
 	_, ok := c.Get(ctx, "q1")
 	assert.False(t, ok, "disabled cache should always miss")
 	assert.Equal(t, 0, c.Len())
@@ -149,7 +185,7 @@ func TestMetrics(t *testing.T) {
 	defer c.Close()
 	ctx := context.Background()
 
-	c.Put("q1", makePlan("q1"))
+	c.Put("q1", makePlan("q1"), c.Epoch())
 	time.Sleep(50 * time.Millisecond)
 
 	// Hit
@@ -176,7 +212,7 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("q%d", i)
-			c.Put(key, makePlan(key))
+			c.Put(key, makePlan(key), c.Epoch())
 		}(i)
 	}
 
