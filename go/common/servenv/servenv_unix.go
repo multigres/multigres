@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,13 +40,26 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
+// slogAttrsFromOTel converts OTel resource attributes into slog attributes, so
+// log records carry the same service identity as spans/metrics without a
+// second, separately maintained attribute list. Log keys use underscores in
+// place of OTel's dotted namespaces (e.g. "multigres.shard" -> "multigres_shard")
+// to match the project's snake_case logging convention (see sloglint config).
+func slogAttrsFromOTel(attrs []attribute.KeyValue) []slog.Attr {
+	out := make([]slog.Attr, len(attrs))
+	for i, a := range attrs {
+		key := strings.ReplaceAll(string(a.Key), ".", "_")
+		out[i] = slog.Any(key, a.Value.AsInterface())
+	}
+	return out
+}
+
 // Init is the first phase of the server startup.
 // The id parameter provides service identification for telemetry resource attributes.
 func (sv *ServEnv) Init(id ServiceIdentity) error {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
-	sv.lg.SetupLogging(id.logAttributes()...)
 
 	// Build OTel resource attributes from service identity
 	var attrs []attribute.KeyValue
@@ -87,6 +101,8 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 			semconv.ServiceVersion(build.revision),
 		)
 	}
+
+	sv.lg.SetupLogging(slogAttrsFromOTel(attrs)...)
 
 	// Initialize OpenTelemetry with service identity attributes
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {

@@ -23,11 +23,22 @@ When the `context.Context` passed to a log call carries an active trace span,
 `go/tools/telemetry` adds `trace_id` and `span_id` to the record. This is why
 context-aware log calls matter (see below).
 
-Server logs also carry the configured service identity: `service_id` (the raw
-service instance ID), `multigres_cell`, `multigres_shard`, and
-`multigres_tablegroup`. Fields with empty values are omitted. These attributes
-are included in both local output and OTLP log records, including startup logs.
-They do not change the existing OpenTelemetry resource attributes.
+Server logs also carry the configured service identity, derived from the same
+OTel resource attributes attached to spans and metrics: `service_instance_id`
+(cell-qualified), `cloud_availability_zone` (cell), `multigres_shard`,
+`multigres_database`, and `multigres_tablegroup`. Fields with empty values are
+omitted, and every log call attaches them automatically — call sites should not
+add their own `cell`/`service_id`/etc. attributes.
+
+Log keys use underscores (`service_instance_id`) rather than the OTel dotted
+form (`service.instance.id`) to stay snake_case per the enforced convention
+below; the OpenTelemetry resource attributes on spans and metrics are
+unaffected.
+
+These attributes are included in local output from process start. OTLP log
+export only comes online once `ServEnv.Init` finishes setting up the
+`LoggerProvider`, so the very first "logging initialized" line is local-only;
+everything logged afterwards is exported with these attributes attached.
 
 ## Enforced conventions
 
