@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -32,6 +33,13 @@ import (
 var (
 	defaultHeartbeatInterval = 1 * time.Second
 )
+
+// provenWatermark is an (LSN, ts) pair captured pre-commit by a successful
+// write, held for one tick before being embedded in the next write's row.
+type provenWatermark struct {
+	lsn    pgutil.LSN
+	tsNano int64
+}
 
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
@@ -44,6 +52,14 @@ type Writer struct {
 	now          func() time.Time
 
 	runner *timer.PeriodicRunner
+
+	// lastProven is the (LSN, ts) pair captured pre-commit by the most recent
+	// successful write. Written only from writeHeartbeat's own goroutine (the
+	// PeriodicRunner never overlaps ticks), but read from other goroutines via
+	// LastProven() (e.g. an RPC handler reporting the leader's own view). Each
+	// write replaces the whole pointer rather than mutating fields in place,
+	// so a plain atomic pointer swap covers it -- no mutex needed.
+	lastProven atomic.Pointer[provenWatermark]
 
 	writes      atomic.Int64
 	writeErrors atomic.Int64
@@ -110,21 +126,63 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 }
 
 // write writes a single heartbeat update.
+//
+// quorum_commit_lsn/quorum_commit_ts carry the PREVIOUS write's captured
+// values, never this write's own: replica visibility only needs a replayed
+// commit record, not quorum ack, so a fast/non-quorum standby can show a row
+// as committed before quorum is actually reached. A value is only
+// trustworthy once its own write already succeeded (proving quorum) before
+// the write embedding it began. Nil (and thus a NULL row) until the second
+// successful write, e.g. right after a promotion.
 func (w *Writer) write(ctx context.Context) error {
 	tsNano := w.now().UnixNano()
 
-	_, err := w.queryService.QueryAdminArgs(ctx, `
-		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts)
-		VALUES ($1, $2, $3)
+	var lsnArg, provenTsArg any
+	if lastProven := w.lastProven.Load(); lastProven != nil {
+		lsnArg = lastProven.lsn.String()
+		provenTsArg = lastProven.tsNano
+	}
+
+	result, err := w.queryService.QueryAdminArgs(ctx, `
+		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, quorum_commit_lsn, quorum_commit_ts)
+		VALUES ($1, $2, $3, $4::pg_lsn, $5)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
-		    ts = EXCLUDED.ts
-	`, w.shardID, w.poolerID, tsNano)
+		    ts = EXCLUDED.ts,
+		    quorum_commit_lsn = EXCLUDED.quorum_commit_lsn,
+		    quorum_commit_ts = EXCLUDED.quorum_commit_ts
+		RETURNING pg_current_wal_lsn()::text
+	`, w.shardID, w.poolerID, tsNano, lsnArg, provenTsArg)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
 
+	// Candidate for the NEXT write's quorum_commit_lsn/quorum_commit_ts, paired
+	// with tsNano (also captured pre-commit, above). Best-effort: on failure,
+	// keep the previous candidate and retry next tick.
+	if result != nil && len(result.StructuredRows()) > 0 {
+		if raw, rawErr := executor.GetString(result.StructuredRows()[0], 0); rawErr == nil && raw != "" {
+			if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr == nil {
+				w.lastProven.Store(&provenWatermark{lsn: lsn, tsNano: tsNano})
+			} else {
+				w.logger.DebugContext(ctx, "failed to parse pg_current_wal_lsn", "value", raw, "error", lsnErr)
+			}
+		}
+	}
+
 	return nil
+}
+
+// LastProven returns the (LSN, ts) pair captured pre-commit by the most
+// recent successful write, and whether one has been observed yet. This is
+// the leader's own first-hand view -- available even when no follower is
+// reachable to relay the replicated row.
+func (w *Writer) LastProven() (lsn pgutil.LSN, tsNano int64, have bool) {
+	lastProven := w.lastProven.Load()
+	if lastProven == nil {
+		return 0, 0, false
+	}
+	return lastProven.lsn, lastProven.tsNano, true
 }
 
 // Writes returns the number of successful heartbeat writes.
