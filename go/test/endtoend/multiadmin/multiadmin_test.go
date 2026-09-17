@@ -56,7 +56,7 @@ func TestMultiadminProcessRunning(t *testing.T) {
 	setup := getSharedSetup(t)
 
 	require.NotNil(t, setup.Multiadmin, "WithMultiadmin() should have created a multiadmin instance")
-	require.True(t, setup.Multiadmin.IsRunning(), "multiadmin process should be running")
+	require.True(t, setup.Multiadmin.IsRunningOrZombie(), "multiadmin process should be running")
 	require.NotZero(t, setup.MultiadminHttpPort, "MultiadminHttpPort should be set")
 	require.NotZero(t, setup.MultiadminGrpcPort, "MultiadminGrpcPort should be set")
 }

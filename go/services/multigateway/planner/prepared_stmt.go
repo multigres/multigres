@@ -45,37 +45,36 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 // gateway-managed name at execution time, preserving argument expressions for
 // PostgreSQL to evaluate.
 //
-// EXECUTE is non-cacheable, so this runs fresh with live session state on every
-// execution — the pinned/unpinned decision below is therefore safe to bake into
-// the plan (unlike the cacheable SELECT set_config path, which defers it to a
-// SessionStateBranch at execute time). A prepared body runs VERBATIM on the
-// backend, so a session-persisting set_config(..., false) in it would persist on
-// a pooled backend and leak. On an unpinned session we rewrite the body's
-// is_local false→true so the pooled backend reverts it (the value lives only in
-// the gateway map, replayed at the next checkout — mirroring an unpinned SET);
-// on a pinned session the reserved backend has no replay path, so the body runs
-// verbatim and genuinely carries the change. Either way the value is tracked.
+// EXECUTE is non-cacheable, so this runs fresh with live session state on
+// every execution — the pinned/unpinned decision below is therefore safe to
+// bake into the plan (unlike the cacheable SELECT set_config path, which
+// defers it to a SessionStateBranch at execute time).
 func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *server.Conn, state *handler.MultigatewayConnectionState) (*engine.Plan, error) {
 	var execInfo engine.PlanExecInfo
 	var setConfigs []engine.SQLPreparedSetConfig
 	var bodyOverride ast.Stmt
-	unsafeConnection := conn != nil && conn.UnsafeConnection()
 	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
-		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), unsafeConnection)
+		unsafeConnection := conn != nil && conn.UnsafeConnection()
+		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), unsafeConnection, p.admitsFailoverSlots())
 		if err != nil {
 			return nil, err
 		}
-		execInfo.AdvisoryLock = analysis.AcquiresSessionAdvisoryLock
-		execInfo.RecheckAdvisoryLocks = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
-		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt())
+		execInfo = preparedBodyExecInfo(analysis, psi.AstStmt())
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 
 		// If the session is unpinned and the body carries a persisting ordinary
 		// set_config, substitute into a clone with its is_local flipped to true so
-		// the pooled backend reverts it. A pinned session (or a body with nothing
-		// to flip) uses the registered body verbatim. A body that reserves its own
-		// backend (temp table, advisory lock, ...) counts as pinned too: it must
-		// persist on the backend it just pinned.
+		// the pooled backend reverts it; the value still reaches the gateway map
+		// via setConfigs above, replayed at the next checkout, mirroring an
+		// unpinned SET. A pinned session (or a body with nothing to flip) uses the
+		// registered body verbatim. A body that reserves its own backend (temp
+		// table, advisory lock, ...) counts as pinned too: it must persist on the
+		// backend it just pinned.
+		//
+		// Only this path can do that safely, and only because it can record the
+		// value: the wrapped-EXECUTE unwrapper's Route has no session-state
+		// channel, so it refuses such a body outright rather than reverting a
+		// value it cannot track (see tryUnwrapWrappedExecute).
 		pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard) ||
 			engine.StatementReservesBackend(execInfo)
 		if !pinned {
@@ -102,6 +101,27 @@ func preparedBodyCreatesTempTable(stmt ast.Stmt) bool {
 	}
 	into := ss.LeafIntoClause()
 	return into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP
+}
+
+// preparedBodyExecInfo derives the reserved-connection directives for a
+// prepared statement's body from its analysis, mirroring execInfoFromOpts's
+// treatment of the equivalent PlanOptions fields for a direct (non-prepared)
+// statement. Every caller that builds a plan from a prepared body's
+// analysis — planExecuteStmt and the wrapped-EXECUTE unwrapper
+// (tryUnwrapWrappedExecute) — goes through this rather than picking
+// individual fields by hand: a body creating a temporary logical
+// replication slot, acquiring a session advisory lock, or calling
+// setseed(...) needs the same pinning a direct statement doing the same
+// thing gets, and hand-copying each field at each call site is exactly how
+// a future field only ends up wired into one of them.
+func preparedBodyExecInfo(analysis *statementAnalysis, bodyStmt ast.Stmt) engine.PlanExecInfo {
+	return engine.PlanExecInfo{
+		AdvisoryLock:           analysis.AcquiresSessionAdvisoryLock,
+		RecheckAdvisoryLocks:   analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock,
+		TempTable:              preparedBodyCreatesTempTable(bodyStmt),
+		LogicalReplicationSlot: analysis.CreatesLogicalReplicationSlot,
+		SetSeed:                analysis.CallsSetSeed,
+	}
 }
 
 func sqlPreparedSetConfigs(setConfigs []setConfigCall) []engine.SQLPreparedSetConfig {

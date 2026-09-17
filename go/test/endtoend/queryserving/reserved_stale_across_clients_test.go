@@ -28,10 +28,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// cachedPlanErrorMessage is the exact PostgreSQL error text for SQLSTATE
-// 0A000 on a stale prepared statement.
-const cachedPlanErrorMessage = "cached plan must not change result type"
-
 // reservedStalePoolCapacity settles the lone test user's pool down to a
 // single backend in *both* the regular and reserved sub-pools (global 2,
 // reserved ratio 0.5 -> 1 and 1), making backend reuse across two different
@@ -51,25 +47,21 @@ const (
 // (keyed by query text + param types, see preparedstatement.PoolerConsolidator)
 // with whichever client reserves that same backend next.
 //
-// If a DDL changes the table's shape after client A's transaction releases
-// the backend, and client B — who never touched the original statement —
-// reserves that same backend for its own transaction, PostgreSQL raises
-// SQLSTATE 0A000 "cached plan must not change result type" on client B's
-// Bind/Execute.
+// After a DDL changes the table's shape and client A's transaction releases
+// the backend, a brand-new client B — who never touched the original
+// statement — reserves that same backend for its own transaction and freshly
+// Parses the same query. It must see the CURRENT schema, not the stale plan
+// cached from before the DDL, matching direct PostgreSQL where a fresh Parse
+// always re-plans.
 //
-// Unlike TestDescribeStaleAcrossClients, this cannot heal transparently
-// within client B's transaction: once any statement inside an explicit
-// PostgreSQL transaction errors, every later command in that same
-// transaction fails with "current transaction is aborted" until ROLLBACK —
-// closing and re-Parsing the stale statement doesn't undo that, so
-// cachedPlanRetry (see its doc comment) deliberately does not attempt a
-// retry here and preserves the original 0A000 instead of masking it behind
-// that opaque secondary error. Client B has to ROLLBACK and retry its
-// transaction as a whole, exactly as it would for any other error inside a
-// transaction — but once it does, the statement is correctly rebuilt: this
-// verifies both that client B's first attempt gets the clean, diagnosable
-// 0A000 (not the aborted-transaction error), and that its next attempt, in
-// a fresh transaction, succeeds with the correct post-DDL shape.
+// This works inside client B's transaction because a client Parse forces the
+// pooler to re-Parse the consolidated backend statement (force_reparse): the
+// transaction is pinned to the one reserved backend, so re-Parsing it up front
+// is sufficient. The reactive cachedPlanRetry heal could not help here — any
+// error inside an explicit transaction aborts it, and the close+re-Parse+retry
+// would run in the already-failed block — so before force_reparse this same
+// path surfaced a stale-plan 0A000 that client B had to ROLLBACK and retry.
+// Now it just returns the post-DDL shape.
 func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping end-to-end tests in short mode")
@@ -166,39 +158,19 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 	// same canonical statement at the pooler, and the settled 1-backend
 	// reserved pool means its own transaction reserves the same backend
 	// client A used — the one with a stale PREPARE cached from before the
-	// DDL.
+	// DDL. Its fresh Parse forces a re-Parse of that backend statement, so the
+	// Execute returns the current post-DDL shape rather than the stale one.
 	connB := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
 	defer connB.Close()
 
 	_, err = connB.Query(ctx, "BEGIN")
 	require.NoError(t, err)
 	require.NoError(t, connB.Parse(ctx, "b_s1", "SELECT * FROM restest", nil))
-	_, err = collectFields(t, connB, "b_s1")
-	require.Error(t, err, "the stale statement must surface an error inside this transaction")
-	assert.ErrorContains(t, err, cachedPlanErrorMessage,
-		"must be the clean, diagnosable 0A000 — not PostgreSQL's opaque secondary "+
-			`"current transaction is aborted" error from a doomed retry attempt`)
-
-	// The transaction is now aborted (as any error inside an explicit
-	// transaction leaves it, regardless of cause) and must be rolled back —
-	// exactly what a real client would do for any transactional error, not
-	// something specific to this bug.
-	_, err = connB.Query(ctx, "ROLLBACK")
-	require.NoError(t, err)
-
-	// A fresh transaction on the same connection must now succeed with the
-	// correct post-DDL shape: cachedPlanRetry's cleanup (closing the stale
-	// backend statement and dropping the local cache entry) on the failed
-	// attempt above is what makes this possible — without it, this Parse
-	// would either wrongly reuse the stale plan again or collide with
-	// "prepared statement already exists".
-	_, err = connB.Query(ctx, "BEGIN")
-	require.NoError(t, err)
-	require.NoError(t, connB.Parse(ctx, "b_s2", "SELECT * FROM restest", nil))
-	rawB, err := collectFields(t, connB, "b_s2")
-	require.NoError(t, err, "the statement must be correctly rebuilt by the time this connection is usable again")
+	rawB, err := collectFields(t, connB, "b_s1")
+	require.NoError(t, err,
+		"a fresh client Parse after the DDL must run against the current schema, not the stale cached statement on the shared reserved backend")
 	resB := fieldsOf(rawB)
-	require.NoError(t, connB.CloseStatement(ctx, "b_s2"))
+	require.NoError(t, connB.CloseStatement(ctx, "b_s1"))
 	_, err = connB.Query(ctx, "COMMIT")
 	require.NoError(t, err)
 

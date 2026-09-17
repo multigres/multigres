@@ -158,10 +158,10 @@ type IExecute interface {
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
-	//   eagerParsePreparedStatement: Optional prepared statement to eager-Parse as
-	//     the unnamed statement on the reserved backend (for PREPARE/Parse issued
-	//     inside an explicit transaction, so transaction-time validation and locks
-	//     match PostgreSQL). Presence is the request; pass nil otherwise.
+	//   eagerParsePreparedStatement: Optional prepared statement to eagerly prepare
+	//     on the reserved backend (for PREPARE/Parse issued inside an explicit
+	//     transaction, so transaction-time validation and locks match PostgreSQL).
+	//     Presence is the request; pass nil otherwise.
 	//   state: Connection state containing session information and reserved connections
 	//   info: Per-query reservation intent (temp-table / advisory-lock / portal
 	//     pin-release signals) the calling primitive derived; folded into the

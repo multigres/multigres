@@ -47,6 +47,16 @@ var ReplicationSlotFuncFailoverArgIndex = map[string]int{
 	"pg_create_logical_replication_slot": 4,
 }
 
+// ReplicationSlotTemporaryParamName and ReplicationSlotFailoverParamName are
+// the pg_create_*_replication_slot builtins' parameter names, for resolving
+// a call that passes the argument by name (temporary => true) rather than
+// position. Both builtins name their temporary parameter "temporary"; only
+// the logical one has "failover".
+const (
+	ReplicationSlotTemporaryParamName = "temporary"
+	ReplicationSlotFailoverParamName  = "failover"
+)
+
 // FindNonTemporaryReplicationSlotCall walks stmt for a call to one of
 // ReplicationSlotFuncTemporaryArgIndex's functions whose `temporary`
 // argument is missing, non-literal, or false, and returns that function's
@@ -105,7 +115,7 @@ func findRejectableReplicationSlotCall(stmt Stmt, admissible func(name string, f
 // literal true. Fails closed: a missing, bound, or non-literal argument reads
 // as not-temporary.
 func isTemporaryReplicationSlotCall(name string, fc *FuncCall) bool {
-	return literalBoolArgAt(fc, ReplicationSlotFuncTemporaryArgIndex[name])
+	return literalBoolArgAt(fc, ReplicationSlotFuncTemporaryArgIndex[name], ReplicationSlotTemporaryParamName)
 }
 
 // isFailoverReplicationSlotCall reports whether fc's `failover` argument is a
@@ -117,18 +127,57 @@ func isFailoverReplicationSlotCall(name string, fc *FuncCall) bool {
 	if !ok {
 		return false
 	}
-	return literalBoolArgAt(fc, idx)
+	return literalBoolArgAt(fc, idx, ReplicationSlotFailoverParamName)
 }
 
-// literalBoolArgAt reports whether fc's argument at index idx is a literal
-// boolean true.
-func literalBoolArgAt(fc *FuncCall, idx int) bool {
-	if fc.Args != nil && fc.Args.Len() > idx {
-		if isTrue, ok := literalBoolArg(fc.Args.Items[idx]); ok && isTrue {
-			return true
-		}
+// literalBoolArgAt reports whether fc's paramName parameter (see FuncCallArg)
+// is a literal boolean true.
+func literalBoolArgAt(fc *FuncCall, positionalIndex int, paramName string) bool {
+	arg, given := FuncCallArg(fc, positionalIndex, paramName)
+	if !given {
+		return false
 	}
-	return false
+	isTrue, ok := literalBoolArg(arg)
+	return ok && isTrue
+}
+
+// FuncCallArg resolves fc's parameter at positionalIndex, however the caller
+// passed it: positionally or with name => value syntax (parsed as a
+// *NamedArgExpr). given reports whether the parameter was specified at all;
+// when false, the caller gave neither form and the parameter's default
+// applies.
+//
+// Shared by this file's own literalBoolArgAt and the planner's equivalent
+// check (funcCallBoolArg in
+// go/services/multigateway/planner/unsafe_funccall.go) so both enforcement
+// points resolve an argument's position identically and can only differ in
+// how they parse the resolved node as a literal — literalBoolArg's doc
+// comment explains why that part can't be shared too.
+//
+// The raw parser doesn't validate that named arguments only follow
+// positional ones — PostgreSQL enforces that during catalog-aware semantic
+// analysis, which this codebase (parser-only, no catalog) never performs —
+// so this scans every item once rather than assuming a fixed layout: each
+// non-named item advances a running positional counter, and a NamedArgExpr
+// is matched by name regardless of where it appears.
+func FuncCallArg(fc *FuncCall, positionalIndex int, paramName string) (arg Node, given bool) {
+	if fc.Args == nil {
+		return nil, false
+	}
+	positional := 0
+	for _, item := range fc.Args.Items {
+		if named, ok := item.(*NamedArgExpr); ok {
+			if named.Name == paramName {
+				return named.Arg, true
+			}
+			continue
+		}
+		if positional == positionalIndex {
+			return item, true
+		}
+		positional++
+	}
+	return nil, false
 }
 
 // replicationSlotFuncCallName resolves a FuncCall's name for comparison
