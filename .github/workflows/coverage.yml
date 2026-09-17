@@ -91,6 +91,17 @@ jobs:
           name: coverage-direct
           path: coverage-direct.txt
           retention-days: 7
+      # The golang-json reporter below fails the whole job if any test group's
+      # final event lacks an "elapsed" field ("missing elapsed on final test
+      # event"). A complete, all-passing `go test -json` stream can still end a
+      # group on an elapsed-less event (stray async output from the integration
+      # suite attributed to a test after its pass), which turns a green run red
+      # for a purely cosmetic reason. Normalize the stream first so the reporter
+      # never chokes on it; genuine failures are preserved. See the gotestjson
+      # package doc for details.
+      - name: Normalize test results for the reporter
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/gotestjson/normalize coverage-direct-test-results.jsonl
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
@@ -169,6 +180,12 @@ jobs:
           name: coverage-subprocess
           path: coverage-subprocess.txt
           retention-days: 7
+      # See the note in coverage-direct: normalize the stream so the reporter
+      # cannot fail the job on an elapsed-less final event while genuine test
+      # failures are preserved.
+      - name: Normalize test results for the reporter
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/gotestjson/normalize coverage-subprocess-test-results.jsonl
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
