@@ -28,7 +28,9 @@ import (
 
 func main() {
 	dataDir := flag.String("data", "go/common/pgcatalog/data", "directory containing the vendored .dat files")
-	outDir := flag.String("out", "go/common/pgcatalog", "directory to write generated Go files to")
+	outDir := flag.String("out", "go/common/pgcatalog", "directory to write the generated catalog tables to")
+	pgoidDir := flag.String("pgoid-out", "go/common/parser/pgoid", "directory to write the generated Oid constants to")
+	astDir := flag.String("ast-out", "go/common/parser/ast", "directory to write the generated constant re-exports to")
 	flag.Parse()
 
 	cat, err := pgcataloggen.Load(*dataDir)
@@ -36,7 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "pgcataloggen: %v\n", err)
 		os.Exit(1) //nolint:forbidigo // main() may exit directly.
 	}
-	if err := pgcataloggen.Render(cat, *outDir); err != nil {
+	if err := pgcataloggen.Render(cat, *outDir, *pgoidDir, *astDir); err != nil {
 		fmt.Fprintf(os.Stderr, "pgcataloggen: %v\n", err)
 		os.Exit(1) //nolint:forbidigo // main() may exit directly.
 	}
