@@ -39,10 +39,12 @@ import (
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
@@ -546,6 +548,31 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		notifMetrics,
 	)
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
+
+	// Wire the migration/connection DDL interface. The migrator service is
+	// hosted on the shard primary multipooler, so resolve it via the pooler
+	// gateway (the same failover-following path as LISTEN/NOTIFY). Named
+	// connections are held in an in-memory store for now (not persisted).
+	mg.executor.SetMigrationBackend(&engine.MigrationBackend{
+		Client: func() migratorpb.MigratorClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.MigratorClient()
+		},
+		Conns:          engine.NewInMemoryConnectionStore(),
+		TargetDatabase: constants.DefaultPostgresDatabase,
+		TargetShard:    constants.DefaultShard,
+	})
+
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:               pgAddr,
