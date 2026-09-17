@@ -23,6 +23,12 @@ When the `context.Context` passed to a log call carries an active trace span,
 `go/tools/telemetry` adds `trace_id` and `span_id` to the record. This is why
 context-aware log calls matter (see below).
 
+Server logs also carry the configured service identity: `service_id` (the raw
+service instance ID), `multigres_cell`, `multigres_shard`, and
+`multigres_tablegroup`. Fields with empty values are omitted. These attributes
+are included in both local output and OTLP log records, including startup logs.
+They do not change the existing OpenTelemetry resource attributes.
+
 ## Enforced conventions
 
 These are checked by `sloglint` (see `.golangci.yml`). A violation fails CI.

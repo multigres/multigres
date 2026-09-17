@@ -45,7 +45,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
-	sv.lg.SetupLogging()
+	sv.lg.SetupLogging(id.logAttributes()...)
 
 	// Build OTel resource attributes from service identity
 	var attrs []attribute.KeyValue
