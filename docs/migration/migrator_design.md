@@ -553,6 +553,68 @@ sequenceDiagram
     Note over MT,PGS2: no ALTER SUBSCRIPTION and no source re-resolution — the gateway absorbs the failover
 ```
 
+### Failover during a direction switch (crash-safe switch)
+
+The direction switch (`activate-migration` / `deactivate-migration`) is the one place where a target-primary failover can
+leave a migration wedged. `SetMigrationDirection` drives a non-atomic sequence — drain, then **drop the current
+subscription**, drop the current publication, flip the DDL-replication roles, create the reverse publication, and finally
+**create the reverse subscription** — and today it records only a coarse `SWITCHING` phase. Two problems compound:
+
+- **The phase does not record the target direction.** During the switch `active_direction` still holds the _old_
+  direction (it is flipped only after the switch completes), so a promoted standby that finds `SWITCHING` cannot tell
+  which way the switch was going.
+- **There is no resume path.** `reconcileLocked` advances only `COPYING`/`STREAMING`; a `SWITCHING` row is ignored.
+
+If the target primary crashes between the drop and the reverse create, the promoted primary comes up with the
+subscription gone (the catalog drop replicated physically), the reverse link absent, and the phase pinned at `SWITCHING`
+with no way forward. Serving stays off (the direction never flipped), so there is no dual-write — but the migration is
+stuck and needs a manual drop + recreate.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Operator
+    participant MP1 as target primary multipooler (old)
+    participant PGT as target Postgres (HA)
+    participant MP2 as standby then new primary
+    OP->>MP1: ActivateMigration (IMPORT to EXPORT)
+    MP1->>PGT: persist phase = SWITCHING
+    Note over PGT,MP2: sidecar row + catalog changes replicate physically to the standby
+    MP1->>PGT: DROP SUBSCRIPTION
+    Note over MP1: crash — before CreatePublication / reverse CreateSubscription
+    Note over PGT,MP2: target-primary failover
+    MP2->>MP2: reconcile — phase SWITCHING has no handler, so no-op
+    Note over MP2: stuck — subscription gone, reverse link never created, phase pinned at SWITCHING
+```
+
+**Hardening: directional phases as a write-ahead intent log.** Make the migration row a WAL for the switch by recording
+the _intent_ before acting, so a promoted primary can roll the switch forward:
+
+- **Split the streaming and switching phases by direction:** `STREAMING` → `IMPORTING` / `EXPORTING`, and `SWITCHING` →
+  `SWITCHING_TO_IMPORT` / `SWITCHING_TO_EXPORT`. The directional switching phase _is_ the recorded intent — no separate
+  column is needed, and the phase names line up with the state diagram.
+- **Commit intent first.** `SetMigrationDirection` persists `SWITCHING_TO_<target>` in one committed row update before
+  the first `DROP`, performs the idempotent steps, then commits `<target>ING`.
+- **Make every step idempotent** (`DROP … IF EXISTS`, existence-checked `CREATE`) so re-running the switch converges.
+- **Resume in `reconcileLocked`:** a `SWITCHING_TO_EXPORT` row re-drives `switchTo(EXPORT)` to completion → `EXPORTING`;
+  `SWITCHING_TO_IMPORT` → `IMPORTING`. Roll-forward is safe because the drain already established a byte-identical
+  barrier before the switch began.
+
+The row and the `pg_subscription` / `pg_publication` catalog live in the **same target Postgres**, so they share one
+WAL: committing the intent before the catalog change guarantees that if the promoted standby can see the drop, it can
+also see the intent. Source-side steps are a different WAL, but they are re-driven idempotently, so their ordering does
+not matter.
+
+With directional phases, `active_direction` becomes derivable from the phase (kept in the projection for monitoring, but
+sourced from the phase), and the serving gate keys on the phase — not serving while
+`COPYING`/`IMPORTING`/`SWITCHING_TO_IMPORT` (the target is being populated), serving once `EXPORTING`, with the go-live
+flip landing at the end of `SWITCHING_TO_EXPORT`.
+
+**Enough state to recover.** Recreating a subscription on resume needs its full conninfo. The IMPORT subscription's
+conninfo is the row's `source_dsn` (stored with password in the superuser-only sidecar, redacted only in projections and
+logs); the EXPORT reverse subscription's conninfo is rebuilt from `targetConnInfo` (coordinator config). Both survive a
+restart, so no additional credential state is required.
+
 ### Migration workflow (multigres shard to shard)
 
 The source is reached over a DSN to the source shard's **gateway**, which routes to the current source primary and
