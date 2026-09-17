@@ -521,13 +521,15 @@ func (s *poolerService) portalStreamExecuteTo(
 		pending.ReservedState = reservedState
 	}
 	if err != nil {
-		if sendErr := flushPending(); sendErr != nil {
-			return mterrors.ToGRPC(sendErr)
-		}
-		// Convert errors to gRPC format, preserving PostgreSQL error details.
+		// Same shape as streamExecuteTo: the send error is intentionally
+		// discarded. If the stream is already broken nothing returned here
+		// reaches the gateway anyway, and it cleans up via
+		// ReleaseReservedConnection on client disconnect; the execution error,
+		// with its PostgreSQL diagnostics, is the one worth returning.
+		_ = flushPending()
 		return mterrors.ToGRPC(err)
 	}
-	return flushPending()
+	return mterrors.ToGRPC(flushPending())
 }
 
 // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).

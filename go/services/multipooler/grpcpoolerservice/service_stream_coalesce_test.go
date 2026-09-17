@@ -38,6 +38,12 @@ import (
 type mockPortalStream struct {
 	ctx  context.Context
 	sent []*multipoolerpb.PortalStreamExecuteResponse
+	// failOnCall, when > 0, makes the n-th Send (1-based) and every later one
+	// return sendErr without recording the message, modelling a stream the
+	// client tore down.
+	failOnCall int
+	sendErr    error
+	calls      int
 }
 
 func (m *mockPortalStream) SetHeader(metadata.MD) error  { return nil }
@@ -53,6 +59,10 @@ func (m *mockPortalStream) Context() context.Context {
 }
 
 func (m *mockPortalStream) Send(resp *multipoolerpb.PortalStreamExecuteResponse) error {
+	m.calls++
+	if m.failOnCall > 0 && m.calls >= m.failOnCall {
+		return m.sendErr
+	}
 	m.sent = append(m.sent, resp)
 	return nil
 }
@@ -62,6 +72,10 @@ var _ multipoolerpb.MultipoolerService_PortalStreamExecuteServer = (*mockPortalS
 type mockExecStream struct {
 	ctx  context.Context
 	sent []*multipoolerpb.StreamExecuteResponse
+	// failOnCall / sendErr: see mockPortalStream.
+	failOnCall int
+	sendErr    error
+	calls      int
 }
 
 func (m *mockExecStream) SetHeader(metadata.MD) error  { return nil }
@@ -77,6 +91,10 @@ func (m *mockExecStream) Context() context.Context {
 }
 
 func (m *mockExecStream) Send(resp *multipoolerpb.StreamExecuteResponse) error {
+	m.calls++
+	if m.failOnCall > 0 && m.calls >= m.failOnCall {
+		return m.sendErr
+	}
 	m.sent = append(m.sent, resp)
 	return nil
 }
