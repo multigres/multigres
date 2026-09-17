@@ -309,6 +309,15 @@ The deciding factor is **composability**. A function or view is an ordinary SQL 
 
 Supporting all of this would effectively require the gateway to become a distributed SQL engine that splits statements and forwards sub-queries to the primary. The DDL surface avoids the whole class of problems by never being embeddable.
 
+#### The native read relation refines, but does not overturn, this
+
+The migrator now persists migrations to a **real relation** on the target — `multigres.migration` (plus the normalized `multigres.migration_tables`) in the sidecar schema, physically replicated with the shard. That changes the picture for the **read** side only: reads do not have to be a gateway-synthesized view at all, since a native, composable view over that relation is viable. The read-side leak examples above apply to a view the gateway _fabricates_; they do not apply to a real one. Two caveats keep the base table from being a drop-in client surface as it stands, so the read surface would be a **view**, not the table itself:
+
+- The base table gets **no `PUBLIC` grant** and stores the source DSN in clear text (superuser-only by design), so a client-facing read must be a **redacting** view.
+- The live-derived columns (`caught_up`, `total_relations` / `ready_relations`, `publication_name` / `subscription_name`, lag) are computed at `GetMigrations` time, not stored. A complete view would **join `multigres.migration` with the live replication catalogs** (`pg_stat_subscription`, the publication/subscription catalogs) to add them.
+
+Such a view is a reasonable read surface on its own — and an alternative to the gateway's `SHOW` synthesis for the read side — regardless of which mutation surface is chosen. What it does **not** change is the decision, because that rests on the **mutating** verbs, and a real read relation says nothing about those. As plain top-level statements the CALL API's procedures would be fine: `CALL migrator.create_migration(...)` is interceptable and, being a procedure, runs outside a transaction. The problem is the composability the CALL API offers as its advantage. To put a mutation _inside a query_ — `SELECT migrator.create_migration(...) FROM my_table` — it has to be a _function_, and a function that creates or cuts over a migration is unsafe: the planner evaluates it an undefined number of times and in no fixed order, it runs inside the caller's transaction (so `CREATE` / `DROP SUBSCRIPTION` cannot run), and it can be buried in trigger, view, or generated-column bodies the gateway never sees. So the read side can be a native view, but the mutations stay DDL — closed top-level statements the gateway fully owns.
+
 ### Connections (CALL API)
 
 ```sql
@@ -361,7 +370,12 @@ The drawback is that this must be implemented in the gateway, which would requir
 
 ### Reads (CALL API)
 
-Migrations and connections are exposed as the views `migrator.migrations` and `migrator.connections`, queried with ordinary SQL. They expose the same columns listed under Status and inspection above.
+On the current `shard-migration` branch the persisted migration state already lives in **real relations** — `multigres.migration` and the normalized `multigres.migration_tables` in the sidecar schema — but there is no `migrator.migrations` view yet, and the base table is superuser-only and holds the source DSN in clear text (see "The native read relation refines, but does not overturn, this" above). So a CALL-API read surface would layer views over that state rather than expose the table directly:
+
+- `migrator.migrations` — a view over `multigres.migration` joined with the live replication catalogs (for example `pg_stat_subscription`) to add the derived status columns (`caught_up`, `ready_relations` / `total_relations`, publication/subscription names, lag), with the source DSN redacted.
+- `migrator.connections` — a view over the stored connections, password redacted.
+
+Both would expose the same columns listed under Status and inspection above, queried with ordinary SQL.
 
 ```sql
 SELECT * FROM migrator.migrations;
