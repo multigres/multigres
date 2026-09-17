@@ -50,6 +50,22 @@ type Planner struct {
 	// handler.MultigatewayHandler.SetSlotBasedReplicationEnabled, which gates
 	// the same feature for the replication-protocol preamble.
 	slotBasedReplicationEnabled func() bool
+
+	// migration backs the gateway migration/connection DDL interface. It is
+	// injected after construction (SetMigrationBackend); when nil the DDL
+	// statements still plan but fail at execution with a clear error.
+	migration *engine.MigrationBackend
+}
+
+// SetMigrationBackend wires the migration/connection DDL backend (migrator
+// client + connection store) into the planner.
+func (p *Planner) SetMigrationBackend(b *engine.MigrationBackend) {
+	p.migration = b
+}
+
+// planMigrationDDL plans one of the gateway migration/connection DDL statements.
+func (p *Planner) planMigrationDDL(sql string, stmt ast.Stmt) (*engine.Plan, error) {
+	return engine.NewPlan(sql, engine.NewMigrationDDL(sql, stmt, p.migration)), nil
 }
 
 // NewPlanner creates a new query planner.
@@ -256,6 +272,11 @@ func (p *Planner) Plan(
 
 	case ast.T_VariableShowStmt:
 		plan, err = p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
+
+	case ast.T_CreateConnectionStmt, ast.T_AlterConnectionStmt, ast.T_DropConnectionStmt,
+		ast.T_ShowConnectionsStmt, ast.T_CreateMigrationStmt, ast.T_AlterMigrationStmt,
+		ast.T_DropMigrationStmt, ast.T_ShowMigrationsStmt:
+		plan, err = p.planMigrationDDL(sql, stmt)
 
 	case ast.T_PrepareStmt:
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
