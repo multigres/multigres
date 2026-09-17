@@ -430,7 +430,7 @@ func (pm *MultipoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
-	return pm.backup.List(ctx, limit)
+	return pm.backup.CachedList(ctx, limit)
 }
 
 // GetBackupByJobId searches for a backup with the given job_id annotation.
