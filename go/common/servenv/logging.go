@@ -230,23 +230,6 @@ func (lg *Logger) UpdateTelemetryWrapper() {
 	slog.SetDefault(lg.logger)
 }
 
-// logAttributes exposes the configured service identity on log records. Empty
-// values are omitted for services that do not supply that part of the identity.
-func (id ServiceIdentity) logAttributes() []slog.Attr {
-	var attrs []slog.Attr
-	for _, field := range []struct{ key, value string }{
-		{"service_id", id.ServiceInstanceID},
-		{"multigres_cell", id.Cell},
-		{"multigres_shard", id.Shard},
-		{"multigres_tablegroup", id.TableGroup},
-	} {
-		if field.value != "" {
-			attrs = append(attrs, slog.String(field.key, field.value))
-		}
-	}
-	return attrs
-}
-
 // GetLogger returns the configured logger instance.
 // SetupLogging must be called before this function.
 func (lg *Logger) GetLogger() *slog.Logger {

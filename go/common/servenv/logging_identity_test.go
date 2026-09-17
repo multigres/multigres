@@ -37,8 +37,8 @@ func TestServiceIdentityInLogs(t *testing.T) {
 		id   ServiceIdentity
 		want map[string]string
 	}{
-		{"pooler", ServiceIdentity{ServiceName: "multipooler", ServiceInstanceID: "dqxscvcb", Cell: "zone2", Shard: "0-inf", TableGroup: "default"}, map[string]string{"service_id": "dqxscvcb", "multigres_cell": "zone2", "multigres_shard": "0-inf", "multigres_tablegroup": "default"}},
-		{"gateway", ServiceIdentity{ServiceName: "multigateway", ServiceInstanceID: "gw1", Cell: "zone1"}, map[string]string{"service_id": "gw1", "multigres_cell": "zone1"}},
+		{"pooler", ServiceIdentity{ServiceName: "multipooler", ServiceInstanceID: "dqxscvcb", Cell: "zone2", Shard: "0-inf", TableGroup: "default"}, map[string]string{"service_instance_id": "zone2-dqxscvcb", "cloud_availability_zone": "zone2", "multigres_shard": "0-inf", "multigres_tablegroup": "default"}},
+		{"gateway", ServiceIdentity{ServiceName: "multigateway", ServiceInstanceID: "gw1", Cell: "zone1"}, map[string]string{"service_instance_id": "zone1-gw1", "cloud_availability_zone": "zone1"}},
 		{"admin", ServiceIdentity{ServiceName: "multiadmin"}, map[string]string{}},
 	} {
 		for _, format := range []string{"json", "text"} {
@@ -64,7 +64,7 @@ func TestServiceIdentityInLogs(t *testing.T) {
 				require.NoError(t, err)
 				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 				require.GreaterOrEqual(t, len(lines), 4)
-				keys := []string{"service_id", "multigres_cell", "multigres_shard", "multigres_tablegroup"}
+				keys := []string{"service_instance_id", "cloud_availability_zone", "multigres_shard", "multigres_tablegroup"}
 				for _, line := range lines {
 					if format == "json" {
 						var record map[string]any
