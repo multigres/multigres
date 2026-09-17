@@ -372,10 +372,48 @@ The drawback is that this must be implemented in the gateway, which would requir
 
 On the current `shard-migration` branch the persisted migration state already lives in **real relations** — `multigres.migration` and the normalized `multigres.migration_tables` in the sidecar schema — but there is no `migrator.migrations` view yet, and the base table is superuser-only and holds the source DSN in clear text (see "The native read relation refines, but does not overturn, this" above). So a CALL-API read surface would layer views over that state rather than expose the table directly:
 
-- `migrator.migrations` — a view over `multigres.migration` joined with the live replication catalogs (for example `pg_stat_subscription`) to add the derived status columns (`caught_up`, `ready_relations` / `total_relations`, publication/subscription names, lag), with the source DSN redacted.
+- `migrator.migrations` — a view over `multigres.migration` joined with the live replication catalogs to add the derived status columns (`caught_up`, `ready_relations` / `total_relations`, publication/subscription names), with the source DSN redacted.
 - `migrator.connections` — a view over the stored connections, password redacted.
 
-Both would expose the same columns listed under Status and inspection above, queried with ordinary SQL.
+Both would expose the same columns listed under Status and inspection above. Every `SHOW MIGRATION` column is reproducible: the stored fields come straight from `multigres.migration`, `tables` aggregates `multigres.migration_tables`, the publication/subscription names follow the migrator's `mt_pub_<id>` / `mt_sub_<id>` convention, and `total_relations` / `ready_relations` / `caught_up` are derived from `pg_subscription_rel` exactly as the RPC's `SubscriptionStatus` computes them (a relation is ready when `srsubstate = 'r'`; caught up when every relation is ready). Concretely:
+
+```sql
+CREATE VIEW migrator.migrations AS
+SELECT
+    m.name,
+    -- password redacted; a real definition would use a redaction function
+    regexp_replace(m.source_dsn, 'password=[^ ]*', 'password=***') AS source,
+    m.target_database,
+    m.target_shard,
+    tl.tables,
+    m.phase,
+    m.active_direction,
+    coalesce(s.total_relations, 0)                             AS total_relations,
+    coalesce(s.ready_relations, 0)                             AS ready_relations,
+    coalesce(s.total_relations > 0
+             AND s.ready_relations = s.total_relations, false) AS caught_up,
+    'mt_pub_' || m.migration_id                                AS publication_name,
+    'mt_sub_' || m.migration_id                                AS subscription_name,
+    m.streaming_since,
+    m.created_at,
+    nullif(m.last_error, '')                                   AS last_error
+FROM multigres.migration m
+LEFT JOIN LATERAL (
+    SELECT array_agg(t.schema_name || '.' || t.table_name
+                     ORDER BY t.schema_name, t.table_name) AS tables
+    FROM multigres.migration_tables t
+    WHERE t.migration_id = m.migration_id
+) tl ON true
+LEFT JOIN LATERAL (
+    SELECT count(r.*)                                        AS total_relations,
+           count(r.*) FILTER (WHERE r.srsubstate = 'r')     AS ready_relations
+    FROM pg_subscription sub
+    LEFT JOIN pg_subscription_rel r ON r.srsubid = sub.oid
+    WHERE sub.subname = 'mt_sub_' || m.migration_id
+) s ON true;
+```
+
+The view must be defined on the target primary, where both the sidecar table and the subscription catalogs (`pg_subscription`, `pg_subscription_rel`) live; stream position / lag, if ever exposed, would join `pg_stat_subscription` the same way. Once it exists it is queried with ordinary SQL:
 
 ```sql
 SELECT * FROM migrator.migrations;
