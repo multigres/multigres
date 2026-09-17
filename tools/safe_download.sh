@@ -24,9 +24,9 @@ set -euo pipefail
 # Downloads a file from URL, saves it to output_file, and verifies its SHA256 checksum
 # Exits with code 1 and a clear error message if the download or verification fails
 safe_download() {
-  local url="$1"
-  local output_file="$2"
-  local expected_sha256="$3"
+  local url="{$1:-}"
+  local output_file="{$2:-}"
+  local expected_sha256="{$3:-}"
 
   if [ -z "$url" ] || [ -z "$output_file" ] || [ -z "$expected_sha256" ]; then
     echo "❌ Error: safe_download requires URL, output file, and SHA256 hash" >&2
