@@ -46,10 +46,17 @@ const (
 	PhaseCreatePublication Phase = "CREATE_PUBLICATION"
 	// PhaseCopying: subscription created; initial COPY in progress.
 	PhaseCopying Phase = "COPYING"
-	// PhaseStreaming: caught up; steady-state logical replication.
-	PhaseStreaming Phase = "STREAMING"
-	// PhaseSwitching: transient during a set-direction flip.
-	PhaseSwitching Phase = "SWITCHING"
+	// PhaseImporting: caught up, streaming from the external source into Multigres
+	// (IMPORT direction). Steady state; the target does not serve client queries.
+	PhaseImporting Phase = "IMPORTING"
+	// PhaseExporting: caught up, streaming from Multigres out to the external
+	// database (EXPORT direction). Steady state; the target serves — this is live.
+	PhaseExporting Phase = "EXPORTING"
+	// PhaseSwitchingToExport: transient go-live cutover (IMPORTING -> EXPORTING).
+	// Persisted before the switch acts, so a resumed primary knows to roll forward.
+	PhaseSwitchingToExport Phase = "SWITCHING_TO_EXPORT"
+	// PhaseSwitchingToImport: transient roll-back (EXPORTING -> IMPORTING).
+	PhaseSwitchingToImport Phase = "SWITCHING_TO_IMPORT"
 	// PhaseCompleting: transient during teardown (drain + detach).
 	PhaseCompleting Phase = "COMPLETING"
 	// PhaseFailed: a phase errored; last_error carries the reason.
@@ -66,6 +73,53 @@ const (
 	DirectionExport Direction = "EXPORT"
 )
 
+// directionOf reports which side is currently the publisher for a phase — the
+// single source of truth for direction, derived from the phase rather than
+// stored separately. During a switch the "current" side is the one being drained:
+// SWITCHING_TO_EXPORT is still importing, SWITCHING_TO_IMPORT is still exporting.
+func directionOf(p Phase) Direction {
+	switch p {
+	case PhaseExporting, PhaseSwitchingToImport:
+		return DirectionExport
+	default:
+		return DirectionImport
+	}
+}
+
+// isStreaming reports whether a phase is a caught-up steady state (either
+// direction) — the states from which a direction switch or a drain-and-drop may
+// begin.
+func isStreaming(p Phase) bool { return p == PhaseImporting || p == PhaseExporting }
+
+// switchingPhase is the transient phase recorded before switching toward target.
+func switchingPhase(target Direction) Phase {
+	if target == DirectionExport {
+		return PhaseSwitchingToExport
+	}
+	return PhaseSwitchingToImport
+}
+
+// streamingPhase is the steady state a completed switch toward target settles in.
+func streamingPhase(target Direction) Phase {
+	if target == DirectionExport {
+		return PhaseExporting
+	}
+	return PhaseImporting
+}
+
+// switchTarget is the direction an in-flight switching phase is heading toward.
+// For a non-switching phase it returns the current direction (harmless).
+func switchTarget(p Phase) Direction {
+	switch p {
+	case PhaseSwitchingToExport:
+		return DirectionExport
+	case PhaseSwitchingToImport:
+		return DirectionImport
+	default:
+		return directionOf(p)
+	}
+}
+
 // Migration is the persisted (coordinator-owned) state of one migration — the
 // intent, inputs, and history. Live copy/stream status (relation counts, lag,
 // caught-up) is NOT stored here; it is derived from pg_subscription_rel and
@@ -77,9 +131,8 @@ const (
 // migration, pass a Migration you own to Store.Insert/Update (which persist it
 // and invalidate the cache).
 type Migration struct {
-	ID              string
-	Phase           Phase
-	ActiveDirection Direction
+	ID    string
+	Phase Phase
 
 	// Name is an optional, human-friendly identifier, unique per target database
 	// (empty for unnamed migrations). The ID remains the stable internal key; Name
@@ -129,7 +182,6 @@ func (m *Migration) SubscriptionName() string { return "mt_sub_" + m.ID }
 const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_id TEXT PRIMARY KEY,
 	phase TEXT NOT NULL,
-	active_direction TEXT NOT NULL DEFAULT 'IMPORT',
 	name TEXT NULL,
 	source_dsn TEXT NOT NULL,
 	target_database TEXT NOT NULL,

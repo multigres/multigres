@@ -108,7 +108,7 @@ func TestStoreInsert(t *testing.T) {
 	s.cache = map[string]*Migration{"stale": {ID: "stale"}} // Insert invalidates it
 
 	m := &Migration{
-		ID: "m1", Phase: PhaseCreated, ActiveDirection: DirectionImport,
+		ID: "m1", Phase: PhaseCreated,
 		Name: "nightly", SourceDSN: "host=h dbname=d", TargetDatabase: "d",
 		Tables: []string{"public.orders", "public.items"}, CopyData: true,
 	}
@@ -125,7 +125,7 @@ func TestStoreInsert(t *testing.T) {
 func TestStoreInsertRejectsBadTableName(t *testing.T) {
 	qs := &fakeQS{}
 	s := NewStore(qs)
-	m := &Migration{ID: "m1", Phase: PhaseCreated, ActiveDirection: DirectionImport, Tables: []string{"nodot"}}
+	m := &Migration{ID: "m1", Phase: PhaseCreated, Tables: []string{"nodot"}}
 	err := s.Insert(context.Background(), m)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expected schema.table")
@@ -137,7 +137,7 @@ func TestStoreUpdateAndDelete(t *testing.T) {
 	qs := &fakeQS{}
 	s := NewStore(qs)
 	m := &Migration{
-		ID: "m1", Phase: PhaseStreaming, ActiveDirection: DirectionExport,
+		ID: "m1", Phase: PhaseExporting,
 		SourceDSN: "host=h dbname=d", Tables: []string{"public.orders"},
 	}
 	require.NoError(t, s.Update(context.Background(), m))
@@ -155,8 +155,7 @@ func TestStoreUpdateAndDelete(t *testing.T) {
 func selectRow(id, name, createdAt string) *sqltypes.Row {
 	return &sqltypes.Row{Values: []sqltypes.Value{
 		sqltypes.Value(id),                  // migration_id
-		sqltypes.Value("STREAMING"),         // phase
-		sqltypes.Value("IMPORT"),            // active_direction
+		sqltypes.Value("IMPORTING"),         // phase
 		sqltypes.Value(name),                // name (COALESCE '')
 		sqltypes.Value("host=h dbname=d"),   // source_dsn
 		sqltypes.Value("d"),                 // target_database
@@ -212,8 +211,7 @@ func TestScanMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "m9", m.ID)
 	require.Equal(t, "daily", m.Name)
-	require.Equal(t, PhaseStreaming, m.Phase)
-	require.Equal(t, DirectionImport, m.ActiveDirection)
+	require.Equal(t, PhaseImporting, m.Phase)
 	require.Nil(t, m.StreamingSince)
 	require.Equal(t, []string{"public.orders"}, m.Tables)
 

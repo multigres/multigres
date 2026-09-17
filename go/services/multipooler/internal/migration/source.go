@@ -445,6 +445,26 @@ func (s *source) CurrentLSN() (string, error) {
 	return lsn, nil
 }
 
+// SubscriptionExists reports whether a subscription with the given name exists on
+// the source. Used to make the direction switch idempotent on resume.
+func (s *source) SubscriptionExists(name string) (bool, error) {
+	var n int64
+	if err := s.conn.QueryRow(s.ctx, "SELECT count(*) FROM pg_subscription WHERE subname = $1", name).Scan(&n); err != nil {
+		return false, fmt.Errorf("check source subscription: %w", err)
+	}
+	return n > 0, nil
+}
+
+// PublicationExists reports whether a publication with the given name exists on
+// the source.
+func (s *source) PublicationExists(name string) (bool, error) {
+	var n int64
+	if err := s.conn.QueryRow(s.ctx, "SELECT count(*) FROM pg_publication WHERE pubname = $1", name).Scan(&n); err != nil {
+		return false, fmt.Errorf("check source publication: %w", err)
+	}
+	return n > 0, nil
+}
+
 // WaitSlotConfirmed blocks until the named replication slot on the source has
 // confirmed_flush_lsn >= targetLSN (the subscriber has consumed past the barrier
 // point), or the context is done. Call on the publisher side (source in IMPORT).

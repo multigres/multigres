@@ -139,17 +139,16 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	}
 
 	m := &Migration{
-		ID:              fmt.Sprintf("m%d", c.now().UnixNano()),
-		Phase:           PhaseCreated,
-		ActiveDirection: DirectionImport,
-		Name:            p.Name,
-		SourceDSN:       p.SourceDSN,
-		TargetDatabase:  p.TargetDatabase,
-		TargetShard:     p.TargetShard,
-		Tables:          resolvedTables,
-		CopyData:        p.CopyData,
-		SkipSchemaCopy:  p.SkipSchemaCopy,
-		SequenceMargin:  p.SequenceMargin,
+		ID:             fmt.Sprintf("m%d", c.now().UnixNano()),
+		Phase:          PhaseCreated,
+		Name:           p.Name,
+		SourceDSN:      p.SourceDSN,
+		TargetDatabase: p.TargetDatabase,
+		TargetShard:    p.TargetShard,
+		Tables:         resolvedTables,
+		CopyData:       p.CopyData,
+		SkipSchemaCopy: p.SkipSchemaCopy,
+		SequenceMargin: p.SequenceMargin,
 	}
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
@@ -171,8 +170,8 @@ func (c *Coordinator) StartMigration(ctx context.Context, id string) (*Projectio
 	}
 
 	// Only the IMPORT-direction start flow is implemented in this step.
-	if m.ActiveDirection != DirectionImport {
-		return nil, fmt.Errorf("start is only valid in IMPORT direction; migration %s is %s", m.ID, m.ActiveDirection)
+	if directionOf(m.Phase) != DirectionImport {
+		return nil, fmt.Errorf("start is only valid in IMPORT direction; migration %s is %s", m.ID, directionOf(m.Phase))
 	}
 
 	// If the subscription does not yet exist, run the setup phases in order.
@@ -294,7 +293,7 @@ func (c *Coordinator) UpdateMigration(ctx context.Context, id string, p UpdatePa
 		// If the subscription already exists on the local target (IMPORT), repoint
 		// its CONNECTION. EXPORT-direction connection updates are a follow-up.
 		if phaseRank(m.Phase) >= phaseRank(PhaseCopying) {
-			if m.ActiveDirection != DirectionImport {
+			if directionOf(m.Phase) != DirectionImport {
 				return nil, errors.New("source connection update is only supported in IMPORT direction once streaming")
 			}
 			if err := c.target.AlterSubscriptionConnection(ctx, m.SubscriptionName(), *p.SourceDSN); err != nil {
@@ -415,12 +414,12 @@ func (c *Coordinator) DropMigration(ctx context.Context, id string, opts DropOpt
 		if err := c.reconcileLocked(ctx, m); err != nil {
 			return nil, err
 		}
-		if m.Phase != PhaseStreaming {
+		if !isStreaming(m.Phase) {
 			if phaseRank(m.Phase) < phaseRank(PhaseCopying) {
 				return nil, fmt.Errorf("migration %s has not started (phase %s); use --force to remove it", m.ID, m.Phase)
 			}
 			if !opts.Wait {
-				return nil, fmt.Errorf("migration %s is not caught up (phase %s); wait for STREAMING, re-run with --wait, or --force to tear down now", m.ID, m.Phase)
+				return nil, fmt.Errorf("migration %s is not caught up (phase %s); wait for it to catch up, re-run with --wait, or --force to tear down now", m.ID, m.Phase)
 			}
 			waitCtx := ctx
 			if opts.WaitTimeout > 0 {
@@ -448,8 +447,8 @@ func (c *Coordinator) DropMigration(ctx context.Context, id string, opts DropOpt
 	return c.project(m, nil), nil
 }
 
-// waitStreamingLocked polls until the migration reaches STREAMING or ctx ends.
-// Caller holds c.mu.
+// waitStreamingLocked polls until the migration reaches a caught-up streaming
+// state (IMPORTING/EXPORTING) or ctx ends. Caller holds c.mu.
 func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) error {
 	ticker := time.NewTicker(slotPollInterval)
 	defer ticker.Stop()
@@ -457,7 +456,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 		if err := c.reconcileLocked(ctx, m); err != nil {
 			return err
 		}
-		if m.Phase == PhaseStreaming {
+		if isStreaming(m.Phase) {
 			return nil
 		}
 		select {
@@ -471,7 +470,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // drainCurrent quiesces the current publisher, captures its LSN, and waits until
 // the subscriber has consumed past it (lag zero). Returns the captured LSN.
 func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration) (string, error) {
-	if m.ActiveDirection == DirectionImport {
+	if directionOf(m.Phase) == DirectionImport {
 		src, err := newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return "", err
@@ -507,7 +506,7 @@ func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration) error {
 	if _, err := c.drainCurrent(ctx, m); err != nil {
 		return err
 	}
-	if m.ActiveDirection == DirectionImport {
+	if directionOf(m.Phase) == DirectionImport {
 		return c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin)
 	}
 	src, err := newSource(ctx, m.SourceDSN)
@@ -534,7 +533,7 @@ func (c *Coordinator) Activate(ctx context.Context, id string) (*Projection, err
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection != DirectionImport {
+	if directionOf(m.Phase) != DirectionImport {
 		return nil, fmt.Errorf("cannot activate migration %s: it is already active (EXPORT direction)", m.ID)
 	}
 	return c.SetMigrationDirection(ctx, m.ID, DirectionExport)
@@ -549,7 +548,7 @@ func (c *Coordinator) Deactivate(ctx context.Context, id string) (*Projection, e
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection != DirectionExport {
+	if directionOf(m.Phase) != DirectionExport {
 		return nil, fmt.Errorf("cannot deactivate migration %s: it is not active (IMPORT direction)", m.ID)
 	}
 	return c.SetMigrationDirection(ctx, m.ID, DirectionImport)
@@ -566,7 +565,15 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, id string, targ
 	if err != nil {
 		return nil, err
 	}
-	if m.ActiveDirection == target {
+	// A switch already recorded in the row (crash resume, or a duplicate call):
+	// roll the same-target one forward idempotently; reject a conflicting one.
+	if m.Phase == PhaseSwitchingToExport || m.Phase == PhaseSwitchingToImport {
+		if switchTarget(m.Phase) != target {
+			return nil, fmt.Errorf("a switch to %s is already in progress for migration %s", switchTarget(m.Phase), m.ID)
+		}
+		return c.applySwitch(ctx, m, target)
+	}
+	if directionOf(m.Phase) == target {
 		status, _ := c.liveStatus(ctx, m)
 		return c.project(m, status), nil // no-op
 	}
@@ -601,31 +608,63 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, id string, targ
 	if err := c.reconcileLocked(ctx, m); err != nil {
 		return nil, err
 	}
-	if m.Phase != PhaseStreaming {
-		return nil, fmt.Errorf("migration %s must be caught up (STREAMING) to switch direction; current phase %s", m.ID, m.Phase)
+	if !isStreaming(m.Phase) {
+		return nil, fmt.Errorf("migration %s must be caught up (IMPORTING/EXPORTING) to switch direction; current phase %s", m.ID, m.Phase)
 	}
 
-	m.Phase = PhaseSwitching
+	// Commit the switch intent to the row before touching either database. A crash
+	// after this point leaves a directional SWITCHING_TO_* phase that the resume
+	// path (reconcileLocked) rolls forward — the row is the switch's write-ahead log.
+	m.Phase = switchingPhase(target)
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
+	return c.applySwitch(ctx, m, target)
+}
 
-	if _, err := c.drainCurrent(ctx, m); err != nil {
+// applySwitch performs — or, after a crash, resumes — the switch recorded by
+// m.Phase toward target. It is idempotent: the drain barrier runs only while the
+// current-direction subscription still exists (once the switch has dropped it,
+// the barrier already held), and switchTo skips objects it has already created,
+// so re-running converges. Caller holds c.mu; m.Phase is switchingPhase(target).
+func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Direction) (*Projection, error) {
+	live, err := c.currentLinkLive(ctx, m)
+	if err != nil {
 		c.fail(ctx, m, err)
 		return nil, err
+	}
+	if live {
+		if _, err := c.drainCurrent(ctx, m); err != nil {
+			c.fail(ctx, m, err)
+			return nil, err
+		}
 	}
 	if err := c.switchTo(ctx, m, target); err != nil {
 		c.fail(ctx, m, err)
 		return nil, err
 	}
-
-	m.ActiveDirection = target
-	m.Phase = PhaseStreaming
+	m.Phase = streamingPhase(target)
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(m, status), nil
+}
+
+// currentLinkLive reports whether the current-direction subscription still
+// exists — i.e. the switch has not yet dropped it, so the drain barrier is still
+// required. The current subscriber is the target while importing, the source
+// while exporting.
+func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, error) {
+	if directionOf(m.Phase) == DirectionImport {
+		return c.target.SubscriptionExists(ctx, m.SubscriptionName())
+	}
+	src, err := newSource(ctx, m.SourceDSN)
+	if err != nil {
+		return false, err
+	}
+	defer src.close()
+	return src.SubscriptionExists(m.SubscriptionName())
 }
 
 // switchTo tears down the current-direction link and establishes the reverse
@@ -670,8 +709,12 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		if err := setupDDLCapture(ctx, c.target.ddlConn(), m.ID, m.Tables); err != nil {
 			return err
 		}
-		if err := c.target.CreatePublication(ctx, pub, m.Tables, m.ID); err != nil {
+		if exists, err := c.target.PublicationExists(ctx, pub); err != nil {
 			return err
+		} else if !exists {
+			if err := c.target.CreatePublication(ctx, pub, m.Tables, m.ID); err != nil {
+				return err
+			}
 		}
 		if err := armDDLCapture(ctx, c.target.ddlConn()); err != nil {
 			return err
@@ -680,7 +723,12 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		if err != nil {
 			return err
 		}
-		return src.CreateSubscription(sub, conninfo, pub, false)
+		if exists, err := src.SubscriptionExists(sub); err != nil {
+			return err
+		} else if !exists {
+			return src.CreateSubscription(sub, conninfo, pub, false)
+		}
+		return nil
 	}
 
 	// EXPORT -> IMPORT: the external source becomes publisher/writer again.
@@ -707,13 +755,22 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if err := setupDDLCapture(ctx, src.ddlConn(), m.ID, m.Tables); err != nil {
 		return err
 	}
-	if err := src.CreatePublication(pub, m.Tables, m.ID); err != nil {
+	if exists, err := src.PublicationExists(pub); err != nil {
 		return err
+	} else if !exists {
+		if err := src.CreatePublication(pub, m.Tables, m.ID); err != nil {
+			return err
+		}
 	}
 	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
 		return err
 	}
-	return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
+	if exists, err := c.target.SubscriptionExists(ctx, sub); err != nil {
+		return err
+	} else if !exists {
+		return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
+	}
+	return nil
 }
 
 // teardown drops the subscription and publication (and thus the slot) on both
@@ -733,7 +790,7 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, _ bool) {
 	} else {
 		defer src.close()
 	}
-	if m.ActiveDirection == DirectionImport {
+	if directionOf(m.Phase) == DirectionImport {
 		// IMPORT: subscription (apply) on the target, publication (capture) on the source.
 		logErr("drop target subscription", c.target.DropSubscription(ctx, m.SubscriptionName()))
 		// EXPERIMENTAL: tear down DDL replication (see ddlrepl.go), refcounted so
@@ -773,27 +830,37 @@ func (c *Coordinator) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// reconcileLocked advances a single migration. Caller holds c.mu.
+// reconcileLocked advances a single migration. Caller holds c.mu. It moves
+// COPYING to IMPORTING once the initial copy is caught up, and rolls a switch
+// that was interrupted by a crash/failover forward to completion — the
+// directional SWITCHING_TO_* phase is the recorded intent (see the design doc's
+// crash-safe-switch section).
 func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 	switch m.Phase {
-	case PhaseCopying, PhaseStreaming:
+	case PhaseCopying:
 		status, err := c.target.SubscriptionStatus(ctx, m.SubscriptionName())
 		if err != nil {
 			return err
 		}
-		if status.CaughtUp && m.Phase != PhaseStreaming {
+		if status.CaughtUp {
 			now := c.now()
-			m.Phase = PhaseStreaming
+			m.Phase = PhaseImporting
 			m.StreamingSince = &now
 			return c.store.Update(ctx, m)
 		}
+	case PhaseSwitchingToExport:
+		_, err := c.applySwitch(ctx, m, DirectionExport)
+		return err
+	case PhaseSwitchingToImport:
+		_, err := c.applySwitch(ctx, m, DirectionImport)
+		return err
 	}
 	return nil
 }
 
 // liveStatus reads subscription status for phases where it is meaningful.
 func (c *Coordinator) liveStatus(ctx context.Context, m *Migration) (*SubscriptionStatus, error) {
-	if m.Phase == PhaseCopying || m.Phase == PhaseStreaming {
+	if m.Phase == PhaseCopying || isStreaming(m.Phase) {
 		return c.target.SubscriptionStatus(ctx, m.SubscriptionName())
 	}
 	return nil, nil
@@ -829,7 +896,7 @@ func phaseRank(p Phase) int {
 		return 3
 	case PhaseCopying:
 		return 4
-	case PhaseStreaming:
+	case PhaseImporting, PhaseExporting:
 		return 5
 	default:
 		return 100
@@ -866,7 +933,7 @@ func (c *Coordinator) project(m *Migration, status *SubscriptionStatus) *Project
 		Name:             m.Name,
 		Source:           redactDSN(m.SourceDSN),
 		Phase:            m.Phase,
-		ActiveDirection:  m.ActiveDirection,
+		ActiveDirection:  directionOf(m.Phase),
 		TargetDatabase:   m.TargetDatabase,
 		TargetShard:      m.TargetShard,
 		Tables:           m.Tables,

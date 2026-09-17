@@ -180,10 +180,13 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // multigres.migration table and stores it in migrationImportHold. It runs on
 // every postgres-monitor tick — on the primary and on standbys alike, since the
 // table is physically replicated — so the gate holds across the whole shard and
-// survives failover. Any migration row in the IMPORT direction holds serving; a
-// missing table (no migrations on this shard) or an unreadable Postgres clears
-// the hold (a down Postgres cannot serve regardless). It is a single count over a
-// tiny table and never touches the state-manager lock.
+// survives failover. Serving is allowed only when a migration is live in the
+// EXPORT direction (phase EXPORTING); any other phase (still importing, being
+// switched, or not yet live) holds serving. So the shard serves only once every
+// migration on it reaches EXPORTING. A missing table (no migrations on this
+// shard) or an unreadable Postgres clears the hold (a down Postgres cannot serve
+// regardless). It is a single count over a tiny table and never touches the
+// state-manager lock.
 func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 	qs := pm.internalQueryService()
 	if qs == nil {
@@ -191,7 +194,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 		return
 	}
 	res, err := qs.QueryAdmin(ctx,
-		"SELECT count(*) FROM multigres.migration WHERE active_direction = 'IMPORT'")
+		"SELECT count(*) FROM multigres.migration WHERE phase <> 'EXPORTING'")
 	if err != nil {
 		// multigres.migration absent (no migrations here) or Postgres unreachable.
 		pm.migrationImportHold.Store(false)

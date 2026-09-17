@@ -208,7 +208,7 @@ func TestMigrationDDL_ShowMigrations(t *testing.T) {
 		{
 			Name: "orders_move", Id: "m1", Source: "host=src",
 			TargetDatabase: "appdb", TargetShard: "0",
-			Phase:           migratorpb.MigrationPhase_MIGRATION_PHASE_STREAMING,
+			Phase:           migratorpb.MigrationPhase_MIGRATION_PHASE_IMPORTING,
 			ActiveDirection: migratorpb.MigrationDirection_MIGRATION_DIRECTION_IMPORT,
 			CaughtUp:        copyDone,
 		},

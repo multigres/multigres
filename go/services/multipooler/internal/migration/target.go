@@ -140,6 +140,29 @@ func (t *target) SubscriptionStatus(ctx context.Context, name string) (*Subscrip
 	return st, nil
 }
 
+// SubscriptionExists reports whether a subscription with the given name exists on
+// the local Postgres. Used to make the direction switch idempotent on resume.
+func (t *target) SubscriptionExists(ctx context.Context, name string) (bool, error) {
+	return t.existsCount(ctx, "SELECT count(*) FROM pg_subscription WHERE subname = $1", name)
+}
+
+// PublicationExists reports whether a publication with the given name exists.
+func (t *target) PublicationExists(ctx context.Context, name string) (bool, error) {
+	return t.existsCount(ctx, "SELECT count(*) FROM pg_publication WHERE pubname = $1", name)
+}
+
+func (t *target) existsCount(ctx context.Context, sql, arg string) (bool, error) {
+	res, err := t.qs.QueryAdminArgs(ctx, sql, arg)
+	if err != nil {
+		return false, err
+	}
+	var n int64
+	if err := executor.ScanSingleRow(res, &n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // CurrentLSN returns the local Postgres's current WAL LSN (call on a
 // publisher/primary, e.g. the target in EXPORT direction).
 func (t *target) CurrentLSN(ctx context.Context) (string, error) {

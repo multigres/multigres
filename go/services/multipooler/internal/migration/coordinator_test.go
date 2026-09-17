@@ -54,26 +54,50 @@ func TestPhaseRank(t *testing.T) {
 	require.Less(t, phaseRank(PhaseValidating), phaseRank(PhaseSchemaCopy))
 	require.Less(t, phaseRank(PhaseSchemaCopy), phaseRank(PhaseCreatePublication))
 	require.Less(t, phaseRank(PhaseCreatePublication), phaseRank(PhaseCopying))
-	require.Less(t, phaseRank(PhaseCopying), phaseRank(PhaseStreaming))
+	require.Less(t, phaseRank(PhaseCopying), phaseRank(PhaseImporting))
+	// Both steady streaming states share the same (highest linear) rank.
+	require.Equal(t, phaseRank(PhaseImporting), phaseRank(PhaseExporting))
 	// Non-linear phases sort high so they never re-run setup.
-	require.Equal(t, 100, phaseRank(PhaseSwitching))
+	require.Equal(t, 100, phaseRank(PhaseSwitchingToExport))
+	require.Equal(t, 100, phaseRank(PhaseSwitchingToImport))
 	require.Equal(t, 100, phaseRank(PhaseFailed))
+}
+
+func TestDirectionHelpers(t *testing.T) {
+	// directionOf gives the current publisher; during a switch it is the side
+	// still being drained (SWITCHING_TO_EXPORT is still importing).
+	require.Equal(t, DirectionImport, directionOf(PhaseImporting))
+	require.Equal(t, DirectionImport, directionOf(PhaseCopying))
+	require.Equal(t, DirectionImport, directionOf(PhaseSwitchingToExport))
+	require.Equal(t, DirectionExport, directionOf(PhaseExporting))
+	require.Equal(t, DirectionExport, directionOf(PhaseSwitchingToImport))
+
+	require.True(t, isStreaming(PhaseImporting))
+	require.True(t, isStreaming(PhaseExporting))
+	require.False(t, isStreaming(PhaseCopying))
+	require.False(t, isStreaming(PhaseSwitchingToExport))
+
+	require.Equal(t, PhaseSwitchingToExport, switchingPhase(DirectionExport))
+	require.Equal(t, PhaseSwitchingToImport, switchingPhase(DirectionImport))
+	require.Equal(t, PhaseExporting, streamingPhase(DirectionExport))
+	require.Equal(t, PhaseImporting, streamingPhase(DirectionImport))
+	require.Equal(t, DirectionExport, switchTarget(PhaseSwitchingToExport))
+	require.Equal(t, DirectionImport, switchTarget(PhaseSwitchingToImport))
 }
 
 func TestProject(t *testing.T) {
 	c := &Coordinator{} // project reads no coordinator state
 	now := time.Now()
 	m := &Migration{
-		ID:              "m123",
-		Name:            "nightly",
-		SourceDSN:       testDSN,
-		TargetDatabase:  "appdb",
-		TargetShard:     "0",
-		ActiveDirection: DirectionImport,
-		Phase:           PhaseStreaming,
-		Tables:          []string{"public.orders"},
-		LastError:       "",
-		CreatedAt:       now,
+		ID:             "m123",
+		Name:           "nightly",
+		SourceDSN:      testDSN,
+		TargetDatabase: "appdb",
+		TargetShard:    "0",
+		Phase:          PhaseImporting,
+		Tables:         []string{"public.orders"},
+		LastError:      "",
+		CreatedAt:      now,
 	}
 
 	// Without live status.
@@ -84,7 +108,8 @@ func TestProject(t *testing.T) {
 	require.NotContains(t, p.Source, "s3cr3t", "projection must never carry the password")
 	require.Equal(t, "mt_pub_m123", p.PublicationName)
 	require.Equal(t, "mt_sub_m123", p.SubscriptionName)
-	require.Equal(t, PhaseStreaming, p.Phase)
+	require.Equal(t, PhaseImporting, p.Phase)
+	require.Equal(t, DirectionImport, p.ActiveDirection, "active_direction is derived from the phase")
 	require.False(t, p.CaughtUp)
 
 	// With live status merged in.
