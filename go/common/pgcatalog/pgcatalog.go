@@ -42,11 +42,12 @@
 package pgcatalog
 
 import (
-	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/pgoid"
 )
 
-// Oid is PostgreSQL's object identifier type, shared with the parser AST.
-type Oid = ast.Oid
+// Oid is PostgreSQL's object identifier type, shared repo-wide via the pgoid
+// leaf package (the parser AST aliases the same type).
+type Oid = pgoid.Oid
 
 // RegProc mirrors PostgreSQL's regproc: an Oid that references a pg_proc
 // row - postgres/src/include/c.h:649 ("typedef Oid regproc"). Like the C
