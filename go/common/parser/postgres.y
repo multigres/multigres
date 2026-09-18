@@ -75,6 +75,9 @@ type ImportQual struct {
 }
 
 %union {
+	migrationAction *ast.MigrationActionSpec
+	migrationDropBehavior *ast.MigrationDropBehavior
+	migrationTables *ast.MigrationTables
 	keyword    string
 	bval       bool
 	byt        byte
@@ -143,6 +146,7 @@ type ImportQual struct {
  */
 %token <keyword> ALL ALTER AS CASCADE CONCURRENTLY CREATE DROP IF_P EXISTS
 %token <keyword> AND NOT NULLS_P OR REPLACE RESTRICT WITH
+%token <keyword> ACTIVATE DEACTIVATE MIGRATION WAIT
 /* Expression keywords */
 %token <keyword> BETWEEN CASE COLLATE DEFAULT DISTINCT ESCAPE
 %token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P UNKNOWN WHEN
@@ -493,6 +497,10 @@ type ImportQual struct {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ConstraintsSetStmt PLAssignStmt PLpgSQL_Expr RemoveFuncStmt RemoveAggrStmt RemoveOperStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
+%type <stmt>         CreateMigrationStmt AlterMigrationStmt DropMigrationStmt ShowMigrationsStmt CreateConnectionStmt AlterConnectionStmt DropConnectionStmt ShowConnectionsStmt
+%type <migrationAction> migration_action
+%type <migrationDropBehavior> migration_drop_behavior
+%type <migrationTables> migration_tables
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt CommentStmt SecLabelStmt DoStmt CallStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
@@ -740,6 +748,14 @@ stmt:
 		|	VacuumStmt								{ $$ = $1 }
 		| 	AnalyzeStmt								{ $$ = $1 }
 		|	VariableShowStmt						{ $$ = $1 }
+		|	CreateMigrationStmt						{ $$ = $1 }
+		|	AlterMigrationStmt						{ $$ = $1 }
+		|	DropMigrationStmt						{ $$ = $1 }
+		|	ShowMigrationsStmt						{ $$ = $1 }
+		|	CreateConnectionStmt					{ $$ = $1 }
+		|	AlterConnectionStmt						{ $$ = $1 }
+		|	DropConnectionStmt						{ $$ = $1 }
+		|	ShowConnectionsStmt						{ $$ = $1 }
 		|	AlterSystemStmt							{ $$ = $1 }
 		|	ClusterStmt								{ $$ = $1 }
 		|	ReindexStmt								{ $$ = $1 }
@@ -1048,6 +1064,7 @@ unreserved_keyword:
 			| ABSOLUTE_P									{ $$ = "absolute" }
 			| ACCESS										{ $$ = "access" }
 			| ACTION										{ $$ = "action" }
+			| ACTIVATE									{ $$ = "activate" }
 			| ADD_P										{ $$ = "add" }
 			| ADMIN										{ $$ = "admin" }
 			| AFTER										{ $$ = "after" }
@@ -1103,6 +1120,7 @@ unreserved_keyword:
 			| DATA_P										{ $$ = "data" }
 			| DATABASE									{ $$ = "database" }
 			| DAY_P										{ $$ = "day" }
+			| DEACTIVATE								{ $$ = "deactivate" }
 			| DEALLOCATE									{ $$ = "deallocate" }
 			| DECLARE										{ $$ = "declare" }
 			| DEFAULTS									{ $$ = "defaults" }
@@ -1200,6 +1218,7 @@ unreserved_keyword:
 			| MAXVALUE									{ $$ = "maxvalue" }
 			| MERGE										{ $$ = "merge" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINUTE_P									{ $$ = "minute" }
 			| MINVALUE									{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
@@ -1360,6 +1379,7 @@ unreserved_keyword:
 			| VIEW										{ $$ = "view" }
 			| VIEWS										{ $$ = "views" }
 			| VOLATILE										{ $$ = "volatile" }
+			| WAIT										{ $$ = "wait" }
 			| WHITESPACE_P									{ $$ = "whitespace" }
 			| WITHIN										{ $$ = "within" }
 			| WITHOUT										{ $$ = "without" }
@@ -1586,6 +1606,7 @@ bare_label_keyword:
 			| ABSOLUTE_P									{ $$ = "absolute" }
 			| ACCESS										{ $$ = "access" }
 			| ACTION										{ $$ = "action" }
+			| ACTIVATE									{ $$ = "activate" }
 			| ADD_P										{ $$ = "add" }
 			| ADMIN										{ $$ = "admin" }
 			| AFTER										{ $$ = "after" }
@@ -1671,6 +1692,7 @@ bare_label_keyword:
 			| CYCLE										{ $$ = "cycle" }
 			| DATA_P										{ $$ = "data" }
 			| DATABASE									{ $$ = "database" }
+			| DEACTIVATE								{ $$ = "deactivate" }
 			| DEALLOCATE									{ $$ = "deallocate" }
 			| DEC										{ $$ = "dec" }
 			| DECIMAL_P									{ $$ = "decimal" }
@@ -1813,6 +1835,7 @@ bare_label_keyword:
 			| MERGE										{ $$ = "merge" }
 			| MERGE_ACTION										{ $$ = "merge_action" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINVALUE										{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
 			| MOVE										{ $$ = "move" }
@@ -2014,6 +2037,7 @@ bare_label_keyword:
 			| VIEW										{ $$ = "view" }
 			| VIEWS										{ $$ = "views" }
 			| VOLATILE										{ $$ = "volatile" }
+			| WAIT										{ $$ = "wait" }
 			| WHEN										{ $$ = "when" }
 			| WHITESPACE_P										{ $$ = "whitespace" }
 			| WORK										{ $$ = "work" }
@@ -12562,6 +12586,112 @@ AlterPublicationStmt:
 				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_DropObjects)
 			}
 		;
+
+/*
+ * Multigres migration and connection statements.
+ *
+ * These are NOT part of PostgreSQL. The multigateway parses them and handles
+ * them in-gateway (translating to migrator RPCs) rather than forwarding to
+ * PostgreSQL. See docs/migration/migrator_sql_interface.md. The table-selection
+ * clause reuses pub_obj_list (from CREATE PUBLICATION) and the OPTIONS clauses
+ * reuse create_generic_options/alter_generic_options (from CREATE SERVER).
+ */
+CreateConnectionStmt:
+		CREATE CONNECTION name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($3, $4, false)
+			}
+	|	CREATE CONNECTION IF_P NOT EXISTS name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($6, $7, true)
+			}
+	;
+
+AlterConnectionStmt:
+		ALTER CONNECTION name alter_generic_options
+			{
+				$$ = ast.NewAlterConnectionStmt($3, $4)
+			}
+	;
+
+DropConnectionStmt:
+		DROP CONNECTION name_list
+			{
+				$$ = ast.NewDropConnectionStmt($3, false)
+			}
+	|	DROP CONNECTION IF_P EXISTS name_list
+			{
+				$$ = ast.NewDropConnectionStmt($5, true)
+			}
+	;
+
+ShowConnectionsStmt:
+		SHOW CONNECTION name
+			{
+				$$ = ast.NewShowConnectionsStmt($3)
+			}
+	;
+
+CreateMigrationStmt:
+		CREATE MIGRATION name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($3, $5, $7, $8, false)
+			}
+	|	CREATE MIGRATION IF_P NOT EXISTS name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($6, $8, $10, $11, true)
+			}
+	;
+
+migration_tables:
+		ALL TABLES			{ $$ = &ast.MigrationTables{ForAllTables: true} }
+	|	pub_obj_list		{ $$ = &ast.MigrationTables{Objects: $1} }
+	;
+
+AlterMigrationStmt:
+		ALTER MIGRATION name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($3, false, $4)
+			}
+	|	ALTER MIGRATION IF_P EXISTS name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($5, true, $6)
+			}
+	;
+
+migration_action:
+		START				{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionStart} }
+	|	ACTIVATE			{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionActivate} }
+	|	DEACTIVATE			{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionDeactivate} }
+	|	CONNECTION name		{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionSetConnection, Connection: $2} }
+	|	SET definition		{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionSetOptions, Options: $2} }
+	;
+
+DropMigrationStmt:
+		DROP MIGRATION name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($3, false, $4)
+			}
+	|	DROP MIGRATION IF_P EXISTS name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($5, true, $6)
+			}
+	;
+
+migration_drop_behavior:
+		/* EMPTY */				{ $$ = &ast.MigrationDropBehavior{} }
+	|	FORCE					{ $$ = &ast.MigrationDropBehavior{Force: true} }
+	|	WAIT					{ $$ = &ast.MigrationDropBehavior{Wait: true} }
+	|	WAIT '(' Iconst ')'		{ $$ = &ast.MigrationDropBehavior{Wait: true, WaitTimeout: $3, HasTimeout: true} }
+	;
+
+ShowMigrationsStmt:
+		SHOW MIGRATION name
+			{
+				$$ = ast.NewShowMigrationsStmt($3)
+			}
+	;
+
 
 pub_obj_list:
 		PublicationObjSpec						{ $$ = ast.NewNodeList(); $$.Append($1) }

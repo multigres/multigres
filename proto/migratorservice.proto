@@ -1,0 +1,265 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package migrator;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/migrator";
+
+// MigrationPhase is the lifecycle phase of a migration workflow.
+enum MigrationPhase {
+  MIGRATION_PHASE_UNSPECIFIED = 0;
+  MIGRATION_PHASE_CREATED = 1;
+  MIGRATION_PHASE_VALIDATING = 2;
+  MIGRATION_PHASE_SCHEMA_COPY = 3;
+  MIGRATION_PHASE_CREATE_PUBLICATION = 4;
+  MIGRATION_PHASE_COPYING = 5;
+  MIGRATION_PHASE_DROPPED = 7;
+  MIGRATION_PHASE_FAILED = 8;
+  MIGRATION_PHASE_COMPLETING = 10;
+  // 6 (STREAMING) and 9 (SWITCHING) were split into the directional phases below
+  // so the phase records the direction and, mid-switch, the target it is heading
+  // to (its intent) — which makes a mid-switch failover resumable.
+  reserved 6, 9;
+  reserved "MIGRATION_PHASE_STREAMING", "MIGRATION_PHASE_SWITCHING";
+  // IMPORTING/EXPORTING are the caught-up steady states (importing from / serving
+  // and exporting to the external database). SWITCHING_TO_* are the transient
+  // cutover (to export) and roll-back (to import).
+  MIGRATION_PHASE_IMPORTING = 11;
+  MIGRATION_PHASE_EXPORTING = 12;
+  MIGRATION_PHASE_SWITCHING_TO_IMPORT = 13;
+  MIGRATION_PHASE_SWITCHING_TO_EXPORT = 14;
+}
+
+// MigrationDirection is which side is currently the publisher.
+enum MigrationDirection {
+  MIGRATION_DIRECTION_UNSPECIFIED = 0;
+  // IMPORT: the external old database is the source (old DB -> Multigres).
+  MIGRATION_DIRECTION_IMPORT = 1;
+  // EXPORT: Multigres is the source (Multigres -> old DB), for fail-back.
+  MIGRATION_DIRECTION_EXPORT = 2;
+}
+
+// TableSpec selects one table for a migration, mirroring one CREATE PUBLICATION
+// "FOR TABLE" entry. qualified_name is "schema.table".
+//
+// columns, where, and include_descendants are accepted by the wire surface but
+// are NOT yet honored by the backend: supplying any of them yields a
+// feature_not_supported (SQLSTATE 0A000) error. This lets a caller (e.g. the
+// gateway SQL surface) ship the full grammar ahead of the backend and surface an
+// actionable "not yet supported" message rather than silently dropping the
+// clause. A TableSpec with only qualified_name is a plain table selection.
+message TableSpec {
+  // qualified_name is the schema-qualified table name ("schema.table").
+  string qualified_name = 1;
+  // columns is an optional column list (publication column list). NOT YET
+  // SUPPORTED.
+  repeated string columns = 2;
+  // where is an optional row filter (publication WHERE). NOT YET SUPPORTED.
+  string where = 3;
+  // include_descendants publishes partition/inheritance children (the default
+  // "*"/descendants form, vs ONLY). NOT YET SUPPORTED.
+  bool include_descendants = 4;
+}
+
+// SelectionObject is one entry in a migration's table selection: either a table
+// (optionally with per-table clauses, see TableSpec) or a whole schema. Schema
+// selection is a SNAPSHOT of the tables owned by the source role in that schema
+// at create time — tables added to the schema later are NOT auto-included
+// (native dynamic FOR TABLES IN SCHEMA would require superuser on the source).
+message SelectionObject {
+  oneof object {
+    TableSpec table = 1;
+    string schema = 2;
+  }
+}
+
+// Migration is the operator-facing projection of a migration workflow.
+// It never contains credentials; source is a redacted host/db summary.
+message Migration {
+  string id = 1;
+  // source is a redacted summary of the source server (host/db, no password).
+  string source = 2;
+  string target_database = 3;
+  string target_shard = 4;
+  repeated string tables = 5;
+  MigrationPhase phase = 7;
+  string last_error = 8;
+  // total_relations / ready_relations report initial-copy progress (srsubstate).
+  int64 total_relations = 9;
+  int64 ready_relations = 10;
+  bool caught_up = 11;
+  string publication_name = 12;
+  string subscription_name = 13;
+  google.protobuf.Timestamp created_at = 14;
+  reserved 15; // was updated_at; removed for now, may return
+  // active_direction is which side is currently the publisher.
+  MigrationDirection active_direction = 16;
+  // streaming_since is set when the migration first reaches STREAMING.
+  google.protobuf.Timestamp streaming_since = 17;
+  // name is the optional, human-friendly identifier, unique per target database.
+  // Empty for migrations created without one. The generated id remains the stable
+  // internal key.
+  string name = 18;
+}
+
+message CreateMigrationRequest {
+  // source_dsn is a full libpq conninfo to the standalone source postgres
+  // (may include TLS options). Held only by Multigres Migrator; never returned.
+  string source_dsn = 1;
+  string target_database = 2;
+  string target_shard = 3;
+  // 4/7/9 held the old redundant flat `tables` / `schemas` / `table_specs`
+  // selection; folded into `objects` (and the top-level `all_tables`).
+  reserved 4, 7, 9;
+  reserved "tables", "schemas", "table_specs";
+  // name is an optional, human-friendly identifier, unique per target database.
+  // When set it can address the migration in place of the generated id.
+  string name = 5;
+  // all_tables selects every table owned by the source role, as a SNAPSHOT taken
+  // at create time: tables added later are NOT auto-included (native dynamic
+  // FOR ALL TABLES would require superuser on the source). May be combined with
+  // `objects` — the two sets are unioned and de-duplicated.
+  bool all_tables = 6;
+  // sequence_margin is added past each sequence's max at a direction switch.
+  int64 sequence_margin = 8;
+  // objects is the heterogeneous table selection: each entry is a table
+  // (optionally with per-table clauses) or a whole schema. Combined with
+  // all_tables when both are set (union). See SelectionObject.
+  repeated SelectionObject objects = 14;
+  // copy_data controls the initial COPY at subscription setup (default true when
+  // unset). false subscribes without an initial copy (seeded out-of-band).
+  optional bool copy_data = 10;
+  // skip_schema_copy skips the pg_dump --schema-only step (target schema exists).
+  bool skip_schema_copy = 11;
+  // source_publication reuses a pre-created publication instead of creating one.
+  // NOT YET SUPPORTED.
+  string source_publication = 12;
+  // publish_via_partition_root publishes changes through the partitioned-table
+  // root rather than leaves. NOT YET SUPPORTED.
+  bool publish_via_partition_root = 13;
+}
+message CreateMigrationResponse {
+  Migration migration = 1;
+}
+
+// UpdateMigrationRequest changes mutable fields; only fields named in
+// update_mask are applied. Supported paths: source_dsn, sequence_margin, and
+// (only while CREATED) tables. The migration is addressed by id or, when id is
+// empty, by name.
+message UpdateMigrationRequest {
+  string id = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  // source_dsn, when in the mask, replaces the source connection (ALTER
+  // SUBSCRIPTION ... CONNECTION once the subscription exists). Never returned.
+  string source_dsn = 3;
+  int64 sequence_margin = 4;
+  repeated string tables = 5;
+  // name addresses the migration when id is empty (it does not rename it).
+  string name = 6;
+}
+message UpdateMigrationResponse {
+  Migration migration = 1;
+}
+
+// ActivateMigrationRequest cuts the migration over to serving: drain to lag zero,
+// switch to the EXPORT direction, and start serving. Requires the current
+// direction to be IMPORT. Addressed by id or, when id is empty, by name.
+message ActivateMigrationRequest {
+  string id = 1;
+  string name = 2;
+}
+message ActivateMigrationResponse {
+  Migration migration = 1;
+}
+// DeactivateMigrationRequest rolls the migration back to non-serving: stop
+// serving, then switch back to the IMPORT direction. Requires the current
+// direction to be EXPORT. Addressed by id or, when id is empty, by name.
+message DeactivateMigrationRequest {
+  string id = 1;
+  string name = 2;
+}
+message DeactivateMigrationResponse {
+  Migration migration = 1;
+}
+
+// StartMigrationRequest is addressed by id or, when id is empty, by name.
+message StartMigrationRequest {
+  string id = 1;
+  string name = 2;
+}
+message StartMigrationResponse {
+  Migration migration = 1;
+}
+
+// GetMigrationsRequest returns one migration when id or name is set, else all.
+message GetMigrationsRequest {
+  string id = 1;
+  // name selects one migration by name when id is empty.
+  string name = 2;
+}
+message GetMigrationsResponse {
+  repeated Migration migrations = 1;
+}
+
+// DropMigrationRequest is addressed by id or, when id is empty, by name.
+message DropMigrationRequest {
+  string id = 1;
+  // wait blocks until the migration reaches a completable (caught-up) state,
+  // then drains and tears down. Mutually exclusive with force.
+  bool wait = 2;
+  // wait_timeout_seconds bounds wait (0 = no timeout).
+  int64 wait_timeout_seconds = 3;
+  // force skips the drain and tears down from any phase.
+  bool force = 4;
+  // name addresses the migration when id is empty.
+  string name = 5;
+}
+message DropMigrationResponse {
+  Migration migration = 1;
+}
+
+// Migrator coordinates one logical-replication migration per workflow,
+// from a standalone source postgres into a multigres target shard.
+service Migrator {
+  // CreateMigration records a migration's configuration (no database changes).
+  rpc CreateMigration(CreateMigrationRequest) returns (CreateMigrationResponse);
+
+  // StartMigration runs the workflow: validate, schema copy, publication,
+  // subscription, and initial catch-up.
+  rpc StartMigration(StartMigrationRequest) returns (StartMigrationResponse);
+
+  // UpdateMigration changes mutable fields (field-masked), notably the source
+  // connection.
+  rpc UpdateMigration(UpdateMigrationRequest) returns (UpdateMigrationResponse);
+
+  // GetMigrations returns status for one migration (id set) or all migrations.
+  rpc GetMigrations(GetMigrationsRequest) returns (GetMigrationsResponse);
+
+  // ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
+  // direction, and start serving. Requires the current direction to be IMPORT.
+  rpc ActivateMigration(ActivateMigrationRequest) returns (ActivateMigrationResponse);
+
+  // DeactivateMigration rolls back to non-serving (EXPORT -> IMPORT): stop
+  // serving, then flip direction. Requires the current direction to be EXPORT.
+  rpc DeactivateMigration(DeactivateMigrationRequest) returns (DeactivateMigrationResponse);
+
+  // DropMigration tears down the subscription/publication/slot and removes
+  // the workflow (default drains first; wait/force modify that).
+  rpc DropMigration(DropMigrationRequest) returns (DropMigrationResponse);
+}

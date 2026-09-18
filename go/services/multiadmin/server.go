@@ -61,6 +61,11 @@ type MultiadminServer struct {
 	// Defaults to dialing with the configured transport credentials; tests
 	// can swap it for a fake.
 	gatewayDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
+
+	// migrationDialer opens a one-shot gRPC connection to a multipooler's
+	// Migrator service by host:port, for forwarding migration commands to the
+	// shard primary.
+	migrationDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
 }
 
 // NewMultiadminServer creates a new MultiadminServer instance.
@@ -72,6 +77,9 @@ func NewMultiadminServer(ts topoclient.Store, logger *slog.Logger, transportCred
 		backupJobTracker: NewBackupJobTracker(),
 		rpcClient:        rpcclient.NewMultipoolerClient(100, transportCreds),
 		gatewayDialer: func(_ context.Context, target string) (*grpc.ClientConn, error) {
+			return grpccommon.NewClient(target, grpccommon.WithDialOptions(transportCreds))
+		},
+		migrationDialer: func(_ context.Context, target string) (*grpc.ClientConn, error) {
 			return grpccommon.NewClient(target, grpccommon.WithDialOptions(transportCreds))
 		},
 	}
