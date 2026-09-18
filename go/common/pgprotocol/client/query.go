@@ -730,7 +730,8 @@ func parseRowsAffected(tag string) uint64 {
 	return 0
 }
 
-// parseDiagnosticFields parses all 14 PostgreSQL diagnostic fields from the wire format.
+// parseDiagnosticFields parses PostgreSQL diagnostic fields from the wire format,
+// including source location (file, line, routine).
 // This is a shared helper used by both parseError() and parseNotice() since PostgreSQL
 // uses the same field format for ErrorResponse ('E') and NoticeResponse ('N') messages.
 // The msgType parameter should be protocol.MsgErrorResponse or protocol.MsgNoticeResponse.
@@ -797,6 +798,14 @@ func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 			diag.DataType = value
 		case protocol.FieldConstraint:
 			diag.Constraint = value
+		case protocol.FieldFile:
+			diag.File = value
+		case protocol.FieldLine:
+			if line, err := strconv.ParseInt(value, 10, 32); err == nil {
+				diag.Line = int32(line)
+			}
+		case protocol.FieldRoutine:
+			diag.Routine = value
 		}
 	}
 
@@ -818,7 +827,7 @@ func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 // parseError parses an ErrorResponse message into a *mterrors.PgDiagnostic.
 // Since mterrors.PgDiagnostic implements the error interface, it can be returned
 // directly as an error. This eliminates the need for a separate wrapper type.
-// It captures all 14 PostgreSQL error fields defined in the protocol.
+// It captures the PostgreSQL diagnostic fields, including source location.
 func (c *Conn) parseError(body []byte) error {
 	return parseDiagnosticFields(protocol.MsgErrorResponse, body)
 }
