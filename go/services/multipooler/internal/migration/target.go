@@ -43,6 +43,36 @@ func (t *target) ApplySchema(ctx context.Context, schemaSQL string) error {
 	return nil
 }
 
+// DropTables drops the migrated tables on the local Postgres before a schema
+// copy, so a pre-existing target table (a re-run after a partial migration, or a
+// target that already had these tables) does not fail the copy with "relation
+// already exists". IF EXISTS makes it safe when they are absent; CASCADE removes
+// dependent objects (indexes, FKs, views) that would otherwise block the drop.
+// Never called when SkipSchemaCopy keeps an out-of-band-seeded target.
+func (t *target) DropTables(ctx context.Context, tables []string) error {
+	stmt := dropTablesSQL(tables)
+	if stmt == "" {
+		return nil
+	}
+	if _, err := t.qs.QueryAdmin(ctx, stmt); err != nil {
+		return fmt.Errorf("drop target tables before schema copy: %w", err)
+	}
+	return nil
+}
+
+// dropTablesSQL builds a single DROP TABLE IF EXISTS ... CASCADE over the given
+// schema-qualified tables, or "" when there are none.
+func dropTablesSQL(tables []string) string {
+	if len(tables) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(tables))
+	for i, tbl := range tables {
+		quoted[i] = quoteQualifiedName(tbl)
+	}
+	return "DROP TABLE IF EXISTS " + strings.Join(quoted, ", ") + " CASCADE"
+}
+
 // CreatePublication creates a publication on the local Postgres FOR TABLE the
 // given tables plus this migration's row-filtered multigres.ddl_log (so captured
 // DDL rides the same stream). Used when this side is the publisher (EXPORT

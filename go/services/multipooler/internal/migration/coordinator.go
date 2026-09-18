@@ -217,6 +217,12 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	// bypass the pg_dump --schema-only + apply. The phase still advances so the
 	// resume path and progress reporting stay monotonic.
 	if !m.SkipSchemaCopy {
+		// Drop the migrated tables on the target first, so a pre-existing table (a
+		// re-run after a partial migration, or a target that already had them) does
+		// not fail the schema apply with "relation already exists".
+		if err := c.target.DropTables(ctx, m.Tables); err != nil {
+			return err
+		}
 		schemaSQL, err := src.DumpSchema(m.Tables)
 		if err != nil {
 			return err

@@ -270,8 +270,11 @@ stateDiagram-v2
   table has a usable replica identity — reject a table with no PK/unique index and no explicit replica identity; warn on
   `REPLICA IDENTITY FULL`. If a row filter (`--where`) is supplied, also reject when any filter column is not covered by
   the replica identity (a publication replicating `UPDATE`/`DELETE` can only filter on replica-identity columns).
-- **`SCHEMA_COPY`** — ensure target tables exist: `pg_dump --schema-only` of named tables from the source, applied on
-  the target (psql backslash meta-lines stripped). Skippable (`--skip-schema-copy`).
+- **`SCHEMA_COPY`** — ensure target tables exist: first **drop the migrated tables on the target**
+  (`DROP TABLE IF EXISTS … CASCADE`) so a pre-existing table (a re-run after a partial migration, or a target that
+  already had them) does not fail the apply with "relation already exists"; then `pg_dump --schema-only` of the named
+  tables from the source, applied on the target (psql backslash meta-lines stripped). Skippable (`--skip-schema-copy`),
+  which also skips the drop — that path keeps a target seeded out-of-band.
 - **`CREATE_PUBLICATION`** — `CREATE PUBLICATION` on the source `FOR TABLE <tables>` (plus optional `WHERE`/column
   list). Skipped if publication pre-created.
 - **`COPYING`** — `CREATE SUBSCRIPTION` on the target. `copy_data` optional: `true` = stock tablesync initial `COPY`;
