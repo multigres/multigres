@@ -43,6 +43,36 @@ func (t *target) ApplySchema(ctx context.Context, schemaSQL string) error {
 	return nil
 }
 
+// DropTables drops the migrated tables on the local Postgres before a schema
+// copy, so a pre-existing target table (a re-run after a partial migration, or a
+// target that already had these tables) does not fail the copy with "relation
+// already exists". IF EXISTS makes it safe when they are absent; CASCADE removes
+// dependent objects (indexes, FKs, views) that would otherwise block the drop.
+// Never called when SkipSchemaCopy keeps an out-of-band-seeded target.
+func (t *target) DropTables(ctx context.Context, tables []string) error {
+	stmt := dropTablesSQL(tables)
+	if stmt == "" {
+		return nil
+	}
+	if _, err := t.qs.QueryAdmin(ctx, stmt); err != nil {
+		return fmt.Errorf("drop target tables before schema copy: %w", err)
+	}
+	return nil
+}
+
+// dropTablesSQL builds a single DROP TABLE IF EXISTS ... CASCADE over the given
+// schema-qualified tables, or "" when there are none.
+func dropTablesSQL(tables []string) string {
+	if len(tables) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(tables))
+	for i, tbl := range tables {
+		quoted[i] = quoteQualifiedName(tbl)
+	}
+	return "DROP TABLE IF EXISTS " + strings.Join(quoted, ", ") + " CASCADE"
+}
+
 // CreatePublication creates a publication on the local Postgres FOR TABLE the
 // given tables plus this migration's row-filtered multigres.ddl_log (so captured
 // DDL rides the same stream). Used when this side is the publisher (EXPORT
@@ -66,7 +96,11 @@ func (t *target) DropPublication(ctx context.Context, name string) error {
 // CreateSubscription creates a logical-replication subscription on the local
 // Postgres. conninfo is the source DSN, evaluated by the local Postgres.
 func (t *target) CreateSubscription(ctx context.Context, name, conninfo, publication string, copyData bool) error {
-	if _, err := t.qs.QueryAdmin(ctx, createSubscriptionSQL(name, conninfo, publication, copyData)); err != nil {
+	// create_slot defaults on (slotName ""): the forward IMPORT subscription and
+	// the EXPORT->IMPORT reverse subscription both make their own slot on the
+	// external source they dial. Only the IMPORT->EXPORT reverse subscription,
+	// which dials the target through the gateway, attaches to a pre-created slot.
+	if _, err := t.qs.QueryAdmin(ctx, createSubscriptionSQL(name, conninfo, publication, copyData, "")); err != nil {
 		return fmt.Errorf("create subscription: %w", err)
 	}
 	return nil
@@ -177,6 +211,47 @@ func (t *target) CurrentLSN(ctx context.Context) (string, error) {
 	return lsn, nil
 }
 
+// SlotExists reports whether a replication slot of the given name exists locally.
+func (t *target) SlotExists(ctx context.Context, name string) (bool, error) {
+	return t.existsCount(ctx, "SELECT count(*) FROM pg_replication_slots WHERE slot_name = $1", name)
+}
+
+// CreateLogicalSlot creates a logical replication slot (pgoutput plugin) on the
+// local Postgres. Used to pre-create the EXPORT reverse slot during the switch,
+// before serving turns on, so it captures every subsequent target write; the
+// reverse subscription later attaches to it with create_slot=false.
+func (t *target) CreateLogicalSlot(ctx context.Context, name string) error {
+	if _, err := t.qs.QueryAdminArgs(ctx, "SELECT pg_create_logical_replication_slot($1, 'pgoutput')", name); err != nil {
+		return fmt.Errorf("create logical slot %q: %w", name, err)
+	}
+	return nil
+}
+
+// AdvanceSlot moves the named logical slot forward to targetLSN (forward-only, per
+// pg_replication_slot_advance), so it starts delivering exactly at the handoff
+// point and skips the switch's own catalog WAL. Call while the slot is inactive.
+func (t *target) AdvanceSlot(ctx context.Context, name, targetLSN string) error {
+	if _, err := t.qs.QueryAdminArgs(ctx, "SELECT pg_replication_slot_advance($1, $2::pg_lsn)", name, targetLSN); err != nil {
+		return fmt.Errorf("advance slot %q to %s: %w", name, targetLSN, err)
+	}
+	return nil
+}
+
+// DropLogicalSlot drops the named replication slot if it exists. Used to tear
+// down the EXPORT reverse slot (create_slot=false means dropping the subscription
+// does not drop it).
+func (t *target) DropLogicalSlot(ctx context.Context, name string) error {
+	if exists, err := t.SlotExists(ctx, name); err != nil {
+		return err
+	} else if !exists {
+		return nil
+	}
+	if _, err := t.qs.QueryAdminArgs(ctx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
+		return fmt.Errorf("drop slot %q: %w", name, err)
+	}
+	return nil
+}
+
 // WaitSlotConfirmed blocks until the named local replication slot has
 // confirmed_flush_lsn >= targetLSN, or ctx is done. Call on the publisher side
 // (target in EXPORT direction).
@@ -232,13 +307,22 @@ func (t *target) AdvanceSequences(ctx context.Context, tables []string, margin i
 // a string literal (utility DDL takes no bind parameters); it is doubly quoted —
 // as a libpq conninfo by the caller and as a SQL string literal here — and must
 // never be logged.
-func createSubscriptionSQL(name, conninfo, publication string, copyData bool) string {
+// createSubscriptionSQL builds a CREATE SUBSCRIPTION. When slotName is non-empty
+// the subscription attaches to a pre-existing slot (create_slot = false) instead
+// of creating its own — used by the EXPORT reverse subscription, whose slot is
+// created on the target during the switch (before serving) so it captures every
+// post-switch write; see the coordinator's switchTo / ensureReverseExportLink.
+func createSubscriptionSQL(name, conninfo, publication string, copyData bool, slotName string) string {
+	opts := fmt.Sprintf("copy_data = %t", copyData)
+	if slotName != "" {
+		opts += ", create_slot = false, slot_name = " + ast.QuoteIdentifier(slotName)
+	}
 	return fmt.Sprintf(
-		"CREATE SUBSCRIPTION %s CONNECTION %s PUBLICATION %s WITH (copy_data = %t)",
+		"CREATE SUBSCRIPTION %s CONNECTION %s PUBLICATION %s WITH (%s)",
 		ast.QuoteIdentifier(name),
 		ast.QuoteStringLiteral(conninfo),
 		ast.QuoteIdentifier(publication),
-		copyData,
+		opts,
 	)
 }
 

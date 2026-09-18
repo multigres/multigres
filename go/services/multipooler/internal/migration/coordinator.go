@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +44,14 @@ type Coordinator struct {
 	// May be nil, in which case EXPORT is unavailable.
 	targetConnInfo func(database string) (string, error)
 
+	// drainForImport forces this pooler to non-serving and blocks until the
+	// graceful drain completes, so the IMPORT setup never drops target tables or
+	// starts streaming while clients can still write to the target. It is the
+	// synchronous serving barrier the async ~5s postgres-monitor gate cannot
+	// guarantee on its own (setup finishes faster than a tick). May be nil (unit
+	// tests without a manager), in which case the barrier is skipped.
+	drainForImport func(ctx context.Context) error
+
 	now func() time.Time
 
 	// mu serializes state transitions so concurrent operator calls on the same
@@ -53,12 +62,15 @@ type Coordinator struct {
 // NewCoordinator builds a Coordinator over the given admin query service.
 // targetConnInfo builds the target-reachable conninfo used for the EXPORT-side
 // reverse subscription; pass nil if EXPORT is not supported in this deployment.
-func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error)) *Coordinator {
+// drainForImport is the synchronous serving barrier run before IMPORT setup
+// touches the target (see the drainForImport field); pass nil to skip it.
+func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error), drainForImport func(ctx context.Context) error) *Coordinator {
 	return &Coordinator{
 		store:          NewStore(qs),
 		target:         newTarget(qs),
 		logger:         logger,
 		targetConnInfo: targetConnInfo,
+		drainForImport: drainForImport,
 		now:            time.Now,
 	}
 }
@@ -210,6 +222,19 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		c.logger.WarnContext(ctx, "migration source validation warning", "migration", m.ID, "warning", w)
 	}
 
+	// Serving barrier: make this pooler non-serving and drain in-flight writes
+	// BEFORE any destructive target change (DropTables) or streaming, so a client
+	// cannot read a half-dropped table or land a write that the drop/initial COPY
+	// then silently discards. The phase already left CREATED, so the ~5s monitor
+	// would eventually hold serving — but setup usually finishes within one tick,
+	// so hold it synchronously here. Runs after the read-only Validate, so a source
+	// that fails validation never drains the shard needlessly.
+	if c.drainForImport != nil {
+		if err := c.drainForImport(ctx); err != nil {
+			return fmt.Errorf("drain to non-serving before import setup: %w", err)
+		}
+	}
+
 	if err := c.setPhase(ctx, m, PhaseSchemaCopy); err != nil {
 		return err
 	}
@@ -217,6 +242,12 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	// bypass the pg_dump --schema-only + apply. The phase still advances so the
 	// resume path and progress reporting stay monotonic.
 	if !m.SkipSchemaCopy {
+		// Drop the migrated tables on the target first, so a pre-existing table (a
+		// re-run after a partial migration, or a target that already had them) does
+		// not fail the schema apply with "relation already exists".
+		if err := c.target.DropTables(ctx, m.Tables); err != nil {
+			return err
+		}
 		schemaSQL, err := src.DumpSchema(m.Tables)
 		if err != nil {
 			return err
@@ -692,8 +723,89 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
+	// EXPORT: establish the reverse subscription now that the phase is EXPORTING,
+	// so the gateway (which serves only at EXPORTING, and flips serving
+	// asynchronously via the monitor) will accept the source's connection. Retry
+	// the transient "temporarily unavailable" window. This runs after the EXPORTING
+	// commit on purpose; a failure here does NOT fail the migration (serving is
+	// already up) — reconcileLocked keeps re-ensuring the link. IMPORT's reverse
+	// subscription dials the source directly and was already created in switchTo.
+	if target == DirectionExport {
+		if err := c.retryReverseExportLink(ctx, m); err != nil {
+			return nil, err
+		}
+	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(m, status), nil
+}
+
+// Reverse-export retry bounds: the gateway starts serving only once the phase is
+// EXPORTING and the monitor propagates that to the pooler's serving status, so
+// the source's reverse subscription may see a brief "temporarily unavailable".
+const (
+	reverseExportRetryFor      = 90 * time.Second
+	reverseExportRetryInterval = time.Second
+)
+
+// retryReverseExportLink establishes the EXPORT reverse subscription, retrying
+// the gateway's transient not-yet-serving signal for a bounded window. Any other
+// error, a cancelled context, or the deadline returns immediately.
+func (c *Coordinator) retryReverseExportLink(ctx context.Context, m *Migration) error {
+	deadline := c.now().Add(reverseExportRetryFor)
+	for {
+		err := c.ensureReverseExportLink(ctx, m)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableUnavailable(err) || ctx.Err() != nil || !c.now().Before(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(reverseExportRetryInterval):
+		}
+	}
+}
+
+// ensureReverseExportLink creates the EXPORT reverse subscription — this source
+// subscribing back to the target through the gateway — if it is not already
+// present. Idempotent, so both applySwitch and reconcileLocked (crash recovery,
+// when a migration is found already EXPORTING but the link is missing) call it.
+func (c *Coordinator) ensureReverseExportLink(ctx context.Context, m *Migration) error {
+	conninfo, err := c.targetConnInfo(m.TargetDatabase)
+	if err != nil {
+		return err
+	}
+	src, err := newSource(ctx, m.SourceDSN)
+	if err != nil {
+		return err
+	}
+	defer src.close()
+	sub, pub := m.SubscriptionName(), m.PublicationName()
+	if exists, err := src.SubscriptionExists(sub); err != nil {
+		return err
+	} else if exists {
+		return nil
+	}
+	// Attach to the slot pre-created and advanced on the target during switchTo
+	// (create_slot=false, slot_name=sub), so streaming starts at the handoff LSN
+	// and no target write is missed. copy_data=false: the barrier already made the
+	// two sides identical at that LSN.
+	return src.CreateSubscription(sub, conninfo, pub, false, sub)
+}
+
+// isRetryableUnavailable reports whether err is the gateway's transient
+// not-yet-serving signal — SQLSTATE 57P03 (cannot_connect_now) or 08006
+// (connection_failure) carrying "temporarily unavailable" — which clears once
+// the target's serving status catches up to the EXPORTING phase.
+func isRetryableUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "temporarily unavailable") ||
+		strings.Contains(s, "57P03") || strings.Contains(s, "08006")
 }
 
 // currentLinkLive reports whether the current-direction subscription still
@@ -764,19 +876,36 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		if err := armDDLCapture(ctx, c.target.ddlConn()); err != nil {
 			return err
 		}
-		conninfo, err := c.targetConnInfo(m.TargetDatabase)
-		if err != nil {
-			return err
-		}
-		if exists, err := src.SubscriptionExists(sub); err != nil {
+		// Pre-create the reverse slot on the target *now*, before serving turns on,
+		// so it captures every subsequent target write; then advance it to the
+		// current LSN — the handoff point, past the switch's own catalog WAL. This
+		// is a local target operation (not through the gateway), so it avoids the
+		// serving-gate deadlock. The reverse SUBSCRIPTION is created later, once the
+		// phase is EXPORTING and the gateway serves (applySwitch ->
+		// retryReverseExportLink), and attaches to this slot with create_slot=false —
+		// so no write is lost in the window between serving turning on and the
+		// subscription attaching. Idempotent on resume: before serving there are no
+		// app writes, so re-advancing only skips more switch WAL, never data.
+		if exists, err := c.target.SlotExists(ctx, sub); err != nil {
 			return err
 		} else if !exists {
-			return src.CreateSubscription(sub, conninfo, pub, false)
+			if err := c.target.CreateLogicalSlot(ctx, sub); err != nil {
+				return err
+			}
+		}
+		lsn, lerr := c.target.CurrentLSN(ctx)
+		if lerr != nil {
+			return lerr
+		}
+		if err := c.target.AdvanceSlot(ctx, sub, lsn); err != nil {
+			return err
 		}
 		return nil
 	}
 
-	// EXPORT -> IMPORT: the external source becomes publisher/writer again.
+	// EXPORT -> IMPORT: the external source becomes publisher/writer again. Its
+	// reverse subscription (below) dials the external source directly, not the
+	// gateway, so there is no serving-gate deadlock and it stays inline here.
 	if err := src.AdvanceSequences(m.Tables, m.SequenceMargin); err != nil {
 		return err
 	}
@@ -784,6 +913,12 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		return err
 	}
 	if err := c.target.DropPublication(ctx, pub); err != nil {
+		return err
+	}
+	// Drop the reverse slot on the target. The reverse subscription attached with
+	// create_slot=false, so dropping it (above, on the source) does not drop this
+	// slot — do it explicitly or it lingers, pinning WAL and catalog_xmin.
+	if err := c.target.DropLogicalSlot(ctx, sub); err != nil {
 		return err
 	}
 	// Flip DDL replication back: capture moves from the target to the source,
@@ -857,6 +992,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 		logErr("drop source DDL apply", teardownDDLApply(ctx, src.ddlConn(), m.ID))
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
+	// The reverse slot was pre-created on the target (create_slot=false), so the
+	// source-side subscription drop above does not remove it.
+	logErr("drop target reverse slot", c.target.DropLogicalSlot(ctx, m.SubscriptionName()))
 	logErr("drop target DDL capture", teardownDDLCapture(ctx, c.target.ddlConn(), m.ID))
 }
 
@@ -903,6 +1041,13 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 	case PhaseSwitchingToImport:
 		_, err := c.applySwitch(ctx, m, DirectionImport)
 		return err
+	case PhaseExporting:
+		// Crash recovery: a migration committed to EXPORTING before its reverse
+		// subscription was established (applySwitch commits EXPORTING, then creates
+		// the link) re-establishes it here. Idempotent — a no-op once the link
+		// exists. The gateway is serving at EXPORTING, so no retry loop is needed;
+		// a transient failure just retries on the next reconcile tick.
+		return c.ensureReverseExportLink(ctx, m)
 	case PhaseCompleting:
 		// Crash recovery: a drop committed COMPLETING but did not finish (the
 		// primary restarted mid-teardown, or a drain failed after the phase was
