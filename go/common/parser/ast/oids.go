@@ -341,6 +341,24 @@ func ArrayTypeOid(oid Oid) Oid {
 	}
 }
 
+// OidToTypeName returns a TypeName that deparses to a SQL cast target for the
+// given built-in type OID (scalars, plus the array and range types Oid.String
+// recognizes), or nil if the OID is unrecognized — including user-defined types.
+// Callers substitute the argument without a cast in that case.
+//
+// The returned TypeName carries no type modifier, matching PostgreSQL's EXECUTE:
+// it coerces each argument to the base parameter type with a typmod of -1 (see
+// commands/prepare.c EvaluateParams), so a base-type-name cast is exact.
+func OidToTypeName(oid Oid) *TypeName {
+	name := oid.String()
+	if name == "" {
+		return nil
+	}
+	tn := NewTypeName([]string{strings.ToLower(name)})
+	tn.TypeOid = oid
+	return tn
+}
+
 // String returns the canonical PostgreSQL type name for this OID.
 // Returns an empty string if the OID is not recognized.
 func (o Oid) String() string {
