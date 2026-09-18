@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -991,6 +992,39 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
+}
+
+// TestTakeRemedialAction_SlowStartDoesNotBlockForever verifies that a wedged
+// pgctld.Start call is bounded by the caller's ctx rather than blocking the
+// monitor tick forever. It mirrors what monitorPostgresIteration does before
+// calling in: bound ctx to remedialActionTimeout(action) (see postgres_monitor.go).
+//
+// Runs under synctest so the simulated wait costs no real wall-clock time. If
+// takeRemedialAction ever stopped honoring that bound (e.g. a future case
+// reaching for an unbounded context instead), the mock's blocking read would
+// never unblock, and synctest would fail the test with a deadlock instead of
+// hanging the test run.
+func TestTakeRemedialAction_SlowStartDoesNotBlockForever(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mockPgctld := &mockPgctldClient{startBlockForever: true}
+		pm := newTestManager(t)
+		pm.pgctldClient = mockPgctld
+
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+
+		actionCtx, cancel := context.WithTimeout(lockCtx, remedialActionTimeout(remedialActionStartPostgres))
+		defer cancel()
+
+		start := time.Now()
+		actionErr := pm.takeRemedialAction(actionCtx, remedialActionStartPostgres, postgresState{})
+		elapsed := time.Since(start)
+
+		require.ErrorIs(t, actionErr, context.DeadlineExceeded)
+		assert.Equal(t, defaultRemedialActionTimeout, elapsed)
+		assert.True(t, mockPgctld.startCalled)
+	})
 }
 
 // TestTakeRemedialAction_RewindToLeaderFails verifies that a failed rewind
