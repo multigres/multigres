@@ -393,6 +393,33 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
+	// Regression test for a staging incident (see project_multigres_leader_health_bug
+	// memory): a recruit round gossips a standby into HighestPosition's leader
+	// slot (via SetPrimary landing on some other follower) but that standby is
+	// never actually sent Promote/pg_promote(). It stays a live, ready,
+	// ordinary standby — exactly the same signals as the "ignores healthy
+	// leader" case above, apart from PostgresStatus.
+	//
+	// Currently FAILS: leaderPostgresReady never checks PostgresStatus, so a
+	// live standby mistakenly recorded as leader passes the happy-path check
+	// and no problem is raised. The exact problem code/shape asserted here is
+	// provisional — refine once the fix lands and the real code path is known
+	// (see the memory's fix-design discussion: it should key off the leader's
+	// self-reported leadership status, not a raw PostgresStatus comparison).
+	t.Run("detects a live, ready leader that was never actually promoted", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.NotEmpty(t, problems, "leader was gossiped in but never actually promoted; analyzer should raise a failover problem")
+	})
+
 	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.HighestPosition = nil
