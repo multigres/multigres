@@ -242,8 +242,17 @@ type PgCtldService struct {
 	// Status (the pooler polls Status every few seconds; forking postgres each
 	// time would be wasteful). 0 = not computed / unknown. Invalidated (reset
 	// to 0) by every operation that can change the effective config:
-	// InitDataDir, Start, Restart, ReloadConfig.
+	// InitDataDir, Start, Restart, ReloadConfig, PgRewind.
+	//
+	// maxConnsGen (guarded by maxConnsMu) orders probe publication against
+	// invalidation: a probe captures the generation before forking postgres
+	// and publishes only if no invalidation happened in between — otherwise a
+	// probe overlapping e.g. a Restart could store the pre-restart value
+	// after the restart's invalidation ran, pinning a stale result until the
+	// next mutation. Reads stay lock-free via the atomic.
 	maxConnsCache atomic.Int32
+	maxConnsMu    sync.Mutex
+	maxConnsGen   uint64
 
 	// pgBackRest management
 	ctx              context.Context
@@ -328,6 +337,10 @@ func NewPgCtldService(
 	pgConfig.Password = cfg.Password
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
+	if (pgbackrestPort > 0) != (pgbackrestCertDir != "") {
+		logger.Warn("pgBackRest is half-configured and will be disabled: --pgbackrest-port and --pgbackrest-cert-dir must be set together",
+			"pgbackrest_port", pgbackrestPort, "pgbackrest_cert_dir", pgbackrestCertDir)
+	}
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
 		configPath, err := backup.WriteServerConfig(backup.ServerConfigOpts{
 			PoolerDir:     poolerDir,
@@ -756,22 +769,30 @@ func (s *PgCtldService) effectiveMaxConnections(ctx context.Context) int32 {
 	if !pgctld.IsDataDirInitialized() {
 		return 0
 	}
+	s.maxConnsMu.Lock()
+	gen := s.maxConnsGen
+	s.maxConnsMu.Unlock()
+
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	result := int32(-1)
 	out, err := executil.Command(probeCtx, "postgres", "-C", "max_connections", "-D", pgctld.PostgresDataDir()).Output()
 	if err != nil {
 		s.logger.WarnContext(ctx, "could not determine effective max_connections; reporting unknown until the next start/restart/reload", "error", err)
-		s.maxConnsCache.Store(-1)
-		return 0
+	} else if v, perr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 32); perr != nil || v <= 0 {
+		s.logger.WarnContext(ctx, "unexpected postgres -C max_connections output; reporting unknown until the next start/restart/reload", "output", string(out), "error", perr)
+	} else {
+		result = int32(v)
 	}
-	v, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 32)
-	if err != nil || v <= 0 {
-		s.logger.WarnContext(ctx, "unexpected postgres -C max_connections output; reporting unknown until the next start/restart/reload", "output", string(out), "error", err)
-		s.maxConnsCache.Store(-1)
-		return 0
+
+	// Publish only if no invalidation ran while the probe was in flight; a
+	// discarded result leaves the cache empty for the next poll to retry.
+	s.maxConnsMu.Lock()
+	if s.maxConnsGen == gen {
+		s.maxConnsCache.Store(result)
 	}
-	s.maxConnsCache.Store(int32(v))
-	return int32(v)
+	s.maxConnsMu.Unlock()
+	return max(result, 0)
 }
 
 // invalidateMaxConnections drops the cached max_connections so the next
@@ -781,6 +802,9 @@ func (s *PgCtldService) effectiveMaxConnections(ctx context.Context) int32 {
 // Start, Restart, ReloadConfig, and PgRewind (which copies the source
 // cluster's postgresql.conf).
 func (s *PgCtldService) invalidateMaxConnections() {
+	s.maxConnsMu.Lock()
+	defer s.maxConnsMu.Unlock()
+	s.maxConnsGen++
 	s.maxConnsCache.Store(0)
 }
 
@@ -790,9 +814,20 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// Hostname of the machine postgres runs on (postgres is colocated with
 	// pgctld). Best-effort: empty when unavailable.
 	host, _ := os.Hostname()
-	pgbackrestPort, err := intToInt32(s.pgbackrestPort)
-	if err != nil {
-		return nil, fmt.Errorf("invalid pgbackrest port: %w", err)
+
+	// pgBackRest is configured only when BOTH port and cert dir are set —
+	// NewPgCtldService generates no server config otherwise. Report the pair
+	// all-or-nothing so a half-configured pgctld cannot advertise a port it
+	// is not serving (an adopting multipooler would marry it to default cert
+	// paths and publish a nonexistent endpoint).
+	var pgbackrestPort int32
+	pgbackrestCertDir := ""
+	if s.pgbackrestPort > 0 && s.pgbackrestCertDir != "" {
+		var err error
+		if pgbackrestPort, err = intToInt32(s.pgbackrestPort); err != nil {
+			return nil, fmt.Errorf("invalid pgbackrest port: %w", err)
+		}
+		pgbackrestCertDir = s.pgbackrestCertDir
 	}
 
 	// First check if data directory is initialized
@@ -810,7 +845,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			PgbackrestStatus:  s.getPgBackRestStatus(),
 			PoolerDir:         s.poolerDir,
 			PgbackrestPort:    pgbackrestPort,
-			PgbackrestCertDir: s.pgbackrestCertDir,
+			PgbackrestCertDir: pgbackrestCertDir,
 		}, nil
 	}
 
@@ -854,7 +889,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		PoolerDir:         s.poolerDir,
 		MaxConnections:    s.effectiveMaxConnections(ctx),
 		PgbackrestPort:    pgbackrestPort,
-		PgbackrestCertDir: s.pgbackrestCertDir,
+		PgbackrestCertDir: pgbackrestCertDir,
 	}, nil
 }
 

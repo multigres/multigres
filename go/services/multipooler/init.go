@@ -743,12 +743,17 @@ func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logge
 	if !explicit["pooler-dir"] && status.GetPoolerDir() == "" {
 		// Every pgctld that has the pooler_dir Status field reports it
 		// (non-empty is constructor-enforced), so an empty value means an
-		// older pgctld. Warn rather than fail: legacy TCP-only setups without
-		// --pooler-dir must survive a rolling upgrade that updates the pooler
-		// first, but anything expecting socket derivation will be broken
-		// until pgctld is upgraded or --pooler-dir is set explicitly.
-		logger.WarnContext(ctx, "pgctld did not report pooler_dir (older pgctld?); socket-path derivation is unavailable until pgctld is upgraded or --pooler-dir is set",
-			"pgctld_addr", addr)
+		// older pgctld. This must fail, not warn: the pooler directory
+		// anchors durable per-instance state — consensus promise files,
+		// backup configuration, recovery sentinels — and an empty value
+		// makes those paths resolve relative to the working directory,
+		// which co-located poolers share, so instances would overwrite each
+		// other's durable consensus terms. Rolling upgrades are unaffected:
+		// a manifest written for the older pooler necessarily passes
+		// --pooler-dir explicitly (that pooler required it), so adoption is
+		// never triggered until the flag is deliberately removed — which
+		// must wait until pgctld is upgraded.
+		return adoptedPgctldValues{}, fmt.Errorf("pgctld at %s did not report pooler_dir (older pgctld?); upgrade pgctld before removing --pooler-dir, or set --pooler-dir explicitly", addr)
 	}
 	logger.InfoContext(ctx, "adopted configuration from pgctld",
 		"pgctld_addr", addr,
