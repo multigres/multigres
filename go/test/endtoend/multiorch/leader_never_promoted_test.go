@@ -187,8 +187,6 @@ func TestLeaderNeverPromoted_AutoRecovers(t *testing.T) {
 	require.NoError(t, err, "SetPrimary (simulating the landed half of the lost-Promote race) should succeed on standbyB")
 
 	t.Logf("never-promoted (gossiped) leader: %s; other standby (received SetPrimary): %s", standbyAName, standbyBName)
-	t.Logf("DEBUG standbyA (%s) ConsensusStatus: %s", standbyAName, statusOf(t, setup, standbyAName).GetConsensusStatus().String())
-	t.Logf("DEBUG standbyB (%s) ConsensusStatus: %s", standbyBName, statusOf(t, setup, standbyBName).GetConsensusStatus().String())
 
 	// Let a real multiorch, with ordinary automatic recovery, run against
 	// this state. This is the exact live-incident condition: nothing is

@@ -918,6 +918,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.CheckName("LeaderNeedsReplacement"), analyzer.Name())
 	})
 
+	// TODO: this cluster of leader-fitness-axis subtests duplicates the theme
+	// of "ignores when leader pooler down but all replicas still connected to
+	// postgres" and "triggers failover when leader pooler up but postgres
+	// down" above — consolidate into one place.
 	t.Run("ignores when leader pooler down but replicas connected (postgres still running, recent timestamp)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, false)                               // Pooler is down
