@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryrpc"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -40,6 +41,7 @@ import (
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
 // This is a private implementation used internally by PoolerGateway.
 type grpcQueryService struct {
+	executeStreams *queryrpc.Pool
 	// conn is the gRPC connection to the multipooler
 	conn *grpc.ClientConn
 
@@ -65,13 +67,20 @@ func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
+	reuseQueryStreams bool,
 ) queryservice.QueryService {
+	client := multipoolerservice.NewMultipoolerServiceClient(conn)
+	var streams *queryrpc.Pool
+	if reuseQueryStreams {
+		streams = queryrpc.NewPool(client, conn)
+	}
 	return &grpcQueryService{
-		conn:        conn,
-		client:      multipoolerservice.NewMultipoolerServiceClient(conn),
-		logger:      logger,
-		poolerID:    poolerID,
-		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
+		executeStreams: streams,
+		conn:           conn,
+		client:         client,
+		logger:         logger,
+		poolerID:       poolerID,
+		copyStreams:    make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 
@@ -119,10 +128,28 @@ func (g *grpcQueryService) StreamExecute(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
-	// Call the gRPC StreamExecute
-	stream, err := g.client.StreamExecute(ctx, req)
-	if err != nil {
-		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
+	var stream interface {
+		Recv() (*multipoolerservice.StreamExecuteResponse, error)
+	}
+	if g.executeStreams != nil {
+		reused, used, err := g.executeStreams.Open(ctx, req)
+		if err != nil {
+			if !used {
+				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start execute stream")
+			}
+			return nil, mterrors.FromGRPC(err)
+		}
+		if used {
+			defer reused.Release()
+			stream = reused
+		}
+	}
+	if stream == nil {
+		legacy, err := g.client.StreamExecute(ctx, req)
+		if err != nil {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
+		}
+		stream = legacy
 	}
 
 	var reservedState *querypb.ReservedState
@@ -344,6 +371,9 @@ func (g *grpcQueryService) Describe(
 
 // Close closes the gRPC connection.
 func (g *grpcQueryService) Close() error {
+	if g.executeStreams != nil {
+		g.executeStreams.Close()
+	}
 	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
