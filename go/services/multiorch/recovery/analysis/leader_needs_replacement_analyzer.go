@@ -153,6 +153,22 @@ func leaderPostgresReady(sa *ShardAnalysis) bool {
 	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresReady()
 }
 
+// leaderTermCaughtUp reports whether the leader's own reported term is at
+// least the shard's highest known term (see ProblemLeaderNeverPromoted for
+// why this can lag). No separate grace window is needed: the leader's own
+// report reflects Promote atomically, so a lag here just means Promote
+// hasn't landed yet — which inPromotionGrace (checked earlier in Analyze())
+// already waits out.
+func leaderTermCaughtUp(sa *ShardAnalysis) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	leaderPosition := sa.Leader.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()
+	leaderTerm := commonconsensus.PossiblyUndecidedRule(leaderPosition).GetRuleNumber().GetCoordinatorTerm()
+	highestTerm := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetRuleNumber().GetCoordinatorTerm()
+	return leaderTerm >= highestTerm
+}
+
 // leaderServing reports whether the leader is a healthy, currently-serving
 // primary suitable to drive a leader-led change (cohort reconcile, replica
 // re-pointing): a recent observation (within the policy's leader-change
@@ -385,6 +401,22 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	if leaderHasResigned(sa) || leaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
 			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
+	}
+
+	// Checked ahead of postgres-readiness: a leader stuck here looks like an
+	// ordinary, ready standby forever, so it would otherwise sail through the
+	// happy path below and its anti-flap fallback (neither checks term).
+	//
+	// TODO: emitFailover below dispatches a fresh AppointLeaderAction (full
+	// recruit round), but sa.HighestPosition plus any cohort member's
+	// accepted TermRevocation already carry everything a PromoteRequest
+	// needs (Proposal, ProposalLeader, ProposedTransition). A targeted
+	// Promote retry against the existing decided outcome would be more
+	// surgical than redoing Recruit on the whole cohort and risking a
+	// different winner.
+	if leaderLive && !leaderTermCaughtUp(sa) {
+		return types.ProblemLeaderNeverPromoted,
+			fmt.Sprintf("Leader for shard %s was recruited into the current term but never actually appointed (Promote never landed)", sa.ShardKey), false
 	}
 
 	// Healthy and serving as a postgres primary — no replacement needed.
