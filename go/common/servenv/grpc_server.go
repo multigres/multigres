@@ -91,6 +91,9 @@ type GrpcServer struct {
 	// initialWindowSize sets window size for stream.
 	initialWindowSize viperutil.Value[int]
 
+	// streamWorkers reuse grown goroutine stacks across incoming RPCs.
+	streamWorkers viperutil.Value[uint32]
+
 	// keepAliveEnforcementPolicyMinTime sets the keepalive enforcement policy on the server.
 	keepAliveEnforcementPolicyMinTime viperutil.Value[time.Duration]
 
@@ -143,6 +146,7 @@ type GrpcServer struct {
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
 func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 	return &GrpcServer{
+		streamWorkers: viperutil.Configure(reg, "grpc-stream-workers", viperutil.Options[uint32]{Default: 64, FlagName: "grpc-stream-workers"}),
 		auth: viperutil.Configure(reg, "grpc-auth-mode", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-auth-mode",
@@ -238,6 +242,7 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 
 // RegisterFlags registers all gRPC server flags with the given FlagSet
 func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Uint32("grpc-stream-workers", g.streamWorkers.Default(), "Reusable gRPC handler workers (0 disables reuse; busy workers fall back to new goroutines)")
 	fs.String("grpc-auth-mode", g.auth.Default(), "gRPC auth plugin to use (e.g., 'mtls', 'jwt')")
 	fs.Int("grpc-port", g.port.Default(), "Port to listen on for gRPC calls. If zero, do not listen.")
 	fs.String("grpc-bind-address", g.bindAddress.Default(), "Bind address for gRPC calls. If empty, listen on all addresses.")
@@ -274,6 +279,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	mustDeprecate("grpc-ca", "tls-ca")
 
 	viperutil.BindFlags(fs,
+		g.streamWorkers,
 		g.auth,
 		g.port,
 		g.bindAddress,
@@ -456,6 +462,7 @@ func (g *GrpcServer) Create(sv *ServEnv) error {
 
 	opts = append(opts, g.interceptors()...)
 
+	opts = append(opts, grpc.NumStreamWorkers(g.streamWorkers.Get()))
 	g.Server = grpc.NewServer(opts...)
 	return nil
 }
