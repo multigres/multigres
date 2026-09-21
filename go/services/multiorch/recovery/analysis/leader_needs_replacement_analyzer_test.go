@@ -492,6 +492,29 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 
+	t.Run("treats a leader within the connect grace as adapting, not lapsed", func(t *testing.T) {
+		// A leader whose own report hasn't caught up yet is inconclusive, not
+		// convicted, while the rule is still within the connect grace.
+		// Distinct from inPromotionGrace's PROMOTING-status short-circuit in
+		// Analyze(): this exercises leaderParticipation's own grace check,
+		// reached whenever the leader isn't (or is no longer) flagged
+		// PROMOTING but the rule is still fresh.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setRuleCreatedNow(sa)
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus.CurrentPosition.Position.Decision = &clustermetadatapb.ShardRule{
+					LeaderId: follower1ID,
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderHealthUnknown, problems[0].Code, "a leader within the connect grace must not be convicted yet")
+	})
+
 	t.Run("reports ShardStuck when a must-replace leader cannot reach a recruitment quorum", func(t *testing.T) {
 		// LeaderUnhealthy (a convict cause): leader reachable but postgres wedged past
 		// the response threshold. With both followers gone, only the leader is
