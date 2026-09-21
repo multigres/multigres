@@ -50,19 +50,23 @@ const (
 	// *predictors* of (imminent) stuckness — they let us act before, or explain
 	// why, progress stops — but they are not exhaustive.
 	//
-	// The dividing principle is first-hand vs observer-derived evidence:
+	// The dividing principle is rule-support vs leader-fitness evidence (see
+	// LeaderNeedsReplacementAnalyzer's doc for the two-axis judgment these fall
+	// out of):
 	//   - LeaderUnspecified: the rule has a cohort but names no leader (e.g. a leader
 	//     was removed and none recruited yet) — recruit one. There is no leader to
 	//     reason about, so only the feasibility gate applies. (An *empty* cohort is
 	//     the unbootstrapped case and belongs to ShardNeedsInitialization instead.)
 	//   - LeaderResigned: the leader voluntarily signalled it should step down.
 	//     First-hand; act immediately.
-	//   - LeaderUnhealthy: the leader is observed live but reports its own postgres
-	//     dead/unresponsive. First-hand about itself, so no quorum corroboration is
-	//     required.
-	//   - LeaderUnreachableByCohort: observer-derived — a durability-sufficient set
-	//     of the cohort no longer reaches the leader, so it cannot maintain quorum.
-	//     Quorum-gated precisely because we are inferring rather than being told.
+	//   - LeaderUnsupported: no durability-sufficient set of the cohort currently
+	//     backs this rule — either the leader itself never confirmed the term (or
+	//     was revoked with no successor decided yet), or enough followers have
+	//     moved on (revoked past it) or gone unreachable. Quorum-gated, since this
+	//     is inferred from self-reports rather than a single authoritative signal.
+	//   - LeaderUnhealthy: the rule IS supported, but the leader reports its own
+	//     postgres dead/unresponsive. First-hand about itself, so no quorum
+	//     corroboration is required.
 	//
 	// TODO(LeaderStuck): a further cause — leader reachable and claiming health but
 	// the quorum-commit position is not advancing — is not yet split out. Detecting
@@ -70,10 +74,10 @@ const (
 	// quorum-safe: standbys replay WAL ahead of the synchronous-quorum ack). That
 	// waits on a quorum-commit watermark in the heartbeat row; see the failover
 	// detection redesign note.
-	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
-	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
-	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
-	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
+	ProblemLeaderUnspecified ProblemCode = "LeaderUnspecified"
+	ProblemLeaderUnsupported ProblemCode = "LeaderUnsupported"
+	ProblemLeaderUnhealthy   ProblemCode = "LeaderUnhealthy"
+	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
 )
 
 // IsFailoverProblem reports whether this problem is resolved by
@@ -81,7 +85,7 @@ const (
 // which share one recovery action and one per-shard failover throttle.
 func (c ProblemCode) IsFailoverProblem() bool {
 	return c == ProblemLeaderUnspecified ||
-		c == ProblemLeaderUnreachableByCohort ||
+		c == ProblemLeaderUnsupported ||
 		c == ProblemLeaderUnhealthy ||
 		c == ProblemLeaderResigned
 }

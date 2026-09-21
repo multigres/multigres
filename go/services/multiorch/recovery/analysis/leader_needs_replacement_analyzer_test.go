@@ -98,16 +98,22 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// window never accidentally suppresses detection; promotion subtests reset it.
 	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
 		now := time.Now()
+		decision := &clustermetadatapb.ShardRule{
+			LeaderId:         leaderID,
+			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			CohortMembers:    []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
+			CreationTime:     timestamppb.New(now.Add(-time.Hour)),
+			DurabilityPolicy: atLeastN(2),
+		}
 		sa := &ShardAnalysis{
-			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
-				LeaderId:         leaderID,
-				CohortMembers:    []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
-				CreationTime:     timestamppb.New(now.Add(-time.Hour)),
-				DurabilityPolicy: atLeastN(2),
-			}},
-			Now:    now,
-			Policy: DefaultAvailabilityPolicy(),
+			ShardKey:        shardKey,
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			Now:             now,
+			Policy:          DefaultAvailabilityPolicy(),
+			// The leader's own ConsensusStatus mirrors HighestPosition's decision
+			// by default — a genuinely-promoted leader confirms its own rule
+			// (commonconsensus.IsActiveLeader). setLeaderRevoked/setLeaderStaleTerm
+			// override this for subtests exercising the rule-support axis.
 			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
 					Id:       leaderID,
@@ -116,6 +122,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					PortMap:  map[string]int32{"postgres": 5432},
 				},
 				Status: &multipoolermanagerdatapb.Status{},
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id:              leaderID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: decision}},
+				},
 			}, nil),
 			Analyses: []*store.Pooler{
 				freshFollower(follower1ID, now),
@@ -265,7 +275,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		problem := problems[0]
-		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problem.Code)
+		require.Equal(t, types.ProblemLeaderUnsupported, problem.Code)
 		require.Equal(t, types.ScopeShard, problem.Scope)
 		require.Equal(t, types.PriorityEmergency, problem.Priority)
 		require.Equal(t, leaderID, problem.PoolerID)
@@ -359,7 +369,60 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
+	})
+
+	// Regression: a staging incident where a recruit round reached quorum and
+	// decided a new leader via the OTHER cohort members' SetPrimary, but the
+	// Promote RPC to the designated leader itself was lost — so it kept
+	// running as an ordinary, healthy-looking standby forever, and orch never
+	// noticed no one was actually primary.
+	t.Run("detects a leader that was recorded but never actually promoted", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			// The leader's own report never caught up: it still names the OLD
+			// leader (follower1) at the OLD term, even though HighestPosition
+			// (fed by the other cohort members' SetPrimary) has moved on to
+			// leaderID at term 2.
+			sa.HighestPosition.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus.CurrentPosition.Position.Decision = &clustermetadatapb.ShardRule{
+					LeaderId:   follower1ID,
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "a live, postgres-ready leader that never confirmed its own promotion must still be convicted")
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
+	})
+
+	// Regression: term comparison alone is not enough. Here the leader's own
+	// report already matches the shard's highest known term and names itself
+	// — but it has ALSO accepted a newer revocation with no successor decided
+	// or gossiped anywhere yet (a recruit that revoked the old leader, then
+	// stalled before establishing a new one). commonconsensus.IsActiveLeader's
+	// revocation check catches this; a bare term comparison would not, since
+	// no cohort member's report shows a higher term to compare against.
+	t.Run("detects a leader that self-revoked with no successor decided yet", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 2,
+					OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "a self-revoked leader must be convicted even with no higher term known anywhere else")
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 
 	t.Run("reports ShardStuck when a must-replace leader cannot reach a recruitment quorum", func(t *testing.T) {
@@ -593,7 +656,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 
 	t.Run("ignores when leader pooler down but all replicas still connected to postgres", func(t *testing.T) {
@@ -629,7 +692,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
@@ -917,6 +980,6 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1, "should detect dead leader when multipooler is unreachable even if promotion flag is set")
-		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 }
