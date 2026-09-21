@@ -372,6 +372,49 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 
+	t.Run("counts a self-revoked follower as cut off even though it still appears to stream", func(t *testing.T) {
+		// Revocation must win over streaming evidence: a follower that reports
+		// itself self-revoked but still looks like it's streaming (recruit
+		// presumably failed to stop its WAL receiver) must not vouch for the
+		// leader. Both followers this way → durability-sufficient revocation.
+		selfRevokedButStreaming := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
+			return newRider(&multiorchdatapb.PoolerHealthState{
+				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+				LastSeen:    timestamppb.New(now),
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: id,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+							LeaderId:   leaderID,
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						}},
+					},
+					TermRevocation: &clustermetadatapb.TermRevocation{
+						RevokedBelowTerm: 2,
+						OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					},
+				},
+				Status: &multipoolermanagerdatapb.Status{
+					IsInitialized: true,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						PrimaryConnInfo:    &multipoolermanagerdatapb.PrimaryConnInfo{Host: "leader-host", Port: 5432},
+						LastReceiveLsn:     "0/1",
+						WalReceiverStatus:  "streaming",
+						LastMsgReceiveTime: timestamppb.New(now),
+					},
+				},
+			})
+		}
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses = []*store.Pooler{selfRevokedButStreaming(follower1ID, sa.Now), selfRevokedButStreaming(follower2ID, sa.Now)}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "a self-revoked follower must not vouch for the leader just because it appears to stream")
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
+	})
+
 	// Regression: a staging incident where a recruit round reached quorum and
 	// decided a new leader via the OTHER cohort members' SetPrimary, but the
 	// Promote RPC to the designated leader itself was lost — so it kept
@@ -422,6 +465,30 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1, "a self-revoked leader must be convicted even with no higher term known anywhere else")
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
+	})
+
+	// Regression: leader participation is a mandatory precondition, not one
+	// vote among many. Writes only ever flow through the leader, so even a
+	// durability-sufficient set of genuinely vouching followers cannot make up
+	// for a leader that never confirmed its own promotion.
+	t.Run("convicts a never-promoted leader even when followers are genuinely vouching for it", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			connectReplica(sa) // both followers genuinely stream from the leader
+			sa.HighestPosition.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus.CurrentPosition.Position.Decision = &clustermetadatapb.ShardRule{
+					LeaderId:   follower1ID,
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "a leader that never confirmed its own promotion must be convicted even if followers vouch for it")
 		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
 	})
 
