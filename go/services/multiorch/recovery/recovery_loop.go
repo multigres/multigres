@@ -502,7 +502,7 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 // TODO: collective backoff has no persist-across-ticks debounce like
 // recoveryGracePeriodTracker — a first-ever failover acts on one detection.
 // Fine for first-hand causes (LeaderResigned); less clearly so for
-// observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy), whose
+// observer-derived ones (LeaderUnsupported, LeaderUnhealthy), whose
 // quorum-of-followers check is a different anti-false-positive mechanism.
 // Revisit if this causes false-positive failovers.
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {

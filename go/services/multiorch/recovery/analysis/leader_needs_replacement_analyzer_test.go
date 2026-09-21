@@ -570,7 +570,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// toward the recruitment quorum — leaving only follower1 reachable, which is
 		// below the majority of 3, so the failover is infeasible. (Were staleness not
 		// checked, follower2 would count and this would be an actionable
-		// LeaderUnreachableByCohort instead.)
+		// LeaderUnsupported instead.)
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 				h.LastSeen = timestamppb.New(sa.Now.Add(-time.Hour))
@@ -784,7 +784,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// single streaming follower proves the leader is alive (you cannot stream
 		// from a dead primary), so the leader vouches for itself: {follower1, leader}
 		// meets AtLeast(2) and failover is suppressed. Without the leader-self-vouch
-		// this would be LeaderUnreachableByCohort.
+		// this would be LeaderUnsupported.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
