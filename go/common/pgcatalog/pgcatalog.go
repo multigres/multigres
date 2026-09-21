@@ -201,6 +201,13 @@ func init() {
 	}
 }
 
+// The lookup functions below return pointers and slices that alias the
+// package-global builtin tables (Types, Procs, Operators, Casts) and the
+// internal by-name overload slices. These are immutable builtin catalog data:
+// callers must treat every result as read-only. Mutating a returned
+// *Type/*Proc/*Operator/*Cast, or a returned overload slice, corrupts the
+// shared tables and every subsequent lookup in the process.
+
 // TypeByOid returns the builtin type with the given OID, or nil.
 func TypeByOid(oid Oid) *Type {
 	return typesByOid[oid]
