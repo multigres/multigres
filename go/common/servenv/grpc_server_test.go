@@ -85,11 +85,14 @@ func (fake *FakeInterceptor) UnaryServerInterceptor(ctx context.Context, value a
 	return handler(ctx, value)
 }
 
-func newEnabledGRPCServerForTest() *GrpcServer {
+// newEnabledGRPCServerForTest returns a GrpcServer and the paired ServEnv on
+// the same registry - Create now reads --tls-cert/-key/-ca from the ServEnv
+// side, shared with the HTTP listener.
+func newEnabledGRPCServerForTest() (*GrpcServer, *ServEnv) {
 	reg := viperutil.NewRegistry()
 	g := NewGrpcServer(reg)
 	g.port.Set(12345)
-	return g
+	return g, NewServEnv(reg)
 }
 
 // TestGrpcServerKeepaliveDefaults guards the keepalive invariant that long-lived
@@ -113,28 +116,37 @@ func TestGrpcServerKeepaliveDefaults(t *testing.T) {
 		"MaxConnectionIdle must stay unset; an idle replication stream must not be reaped")
 }
 
-func TestGrpcServerCreate_SucceedsWithoutTLS(t *testing.T) {
-	g := newEnabledGRPCServerForTest()
+func TestGrpcStreamWorkerConfiguration(t *testing.T) {
+	g := NewGrpcServer(viperutil.NewRegistry())
+	require.EqualValues(t, 64, g.streamWorkers.Get())
+	for _, n := range []uint32{0, 8, 64} {
+		g.streamWorkers.Set(n)
+		require.Equal(t, n, g.streamWorkers.Get())
+	}
+}
 
-	err := g.Create()
+func TestGrpcServerCreate_SucceedsWithoutTLS(t *testing.T) {
+	g, sv := newEnabledGRPCServerForTest()
+
+	err := g.Create(sv)
 	require.NoError(t, err)
 	require.NotNil(t, g.Server)
 }
 
 func TestGrpcServerCreate_FailsWhenCRLSet(t *testing.T) {
-	g := newEnabledGRPCServerForTest()
+	g, sv := newEnabledGRPCServerForTest()
 	g.crl.Set("/tmp/test.crl")
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--grpc-crl is not implemented yet")
 }
 
 func TestGrpcServerCreate_FailsWhenOptionalTLSEnabled(t *testing.T) {
-	g := newEnabledGRPCServerForTest()
+	g, sv := newEnabledGRPCServerForTest()
 	g.enableOptionalTLS.Set(true)
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--grpc-enable-optional-tls is not implemented yet")
 }
@@ -149,12 +161,12 @@ func TestGrpcServerCreate_FailsWhenMTLSAuthWithoutTLS(t *testing.T) {
 	t.Cleanup(func() { clientCertSubstrings = origSubstrings })
 	clientCertSubstrings = "some-client"
 
-	g := newEnabledGRPCServerForTest()
+	g, sv := newEnabledGRPCServerForTest()
 	g.auth.Set("mtls")
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--grpc-auth-mode=mtls requires --grpc-cert and --grpc-key for transport TLS")
+	assert.Contains(t, err.Error(), "--grpc-auth-mode=mtls requires --tls-cert and --tls-key")
 }
 
 // TestGrpcServerCreate_SucceedsWithJWTAuth proves --grpc-auth-mode=jwt selects
@@ -175,10 +187,10 @@ func TestGrpcServerCreate_SucceedsWithJWTAuth(t *testing.T) {
 	t.Cleanup(srv.Close)
 	jwtIssuer, jwtJWKSURI = testJWTIssuer, srv.URL
 
-	g := newEnabledGRPCServerForTest()
+	g, sv := newEnabledGRPCServerForTest()
 	g.auth.Set("jwt")
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.NoError(t, err)
 	require.NotNil(t, g.Server)
 
@@ -209,11 +221,13 @@ func TestGrpcServerCreate_ResolvesAuthPluginWhenGRPCDisabled(t *testing.T) {
 	t.Cleanup(srv.Close)
 	jwtIssuer, jwtJWKSURI = testJWTIssuer, srv.URL
 
-	g := NewGrpcServer(viperutil.NewRegistry()) // port defaults to 0, no socket-file: IsEnabled() == false
+	reg := viperutil.NewRegistry()
+	g := NewGrpcServer(reg) // port defaults to 0, no socket-file: IsEnabled() == false
+	sv := NewServEnv(reg)
 	g.auth.Set("jwt")
 	require.False(t, g.IsEnabled())
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.NoError(t, err)
 	assert.Nil(t, g.Server, "gRPC server itself should not be built when disabled")
 
@@ -271,11 +285,11 @@ func TestGrpcServerCreate_HTTPOnlyAuthSkipsGRPCInterceptor(t *testing.T) {
 	t.Cleanup(srv.Close)
 	jwtIssuer, jwtJWKSURI = testJWTIssuer, srv.URL
 
-	g := newEnabledGRPCServerForTest()
+	g, sv := newEnabledGRPCServerForTest()
 	g.SetAuthMode("jwt")
 	g.SetHTTPOnlyAuth(true)
 
-	err := g.Create()
+	err := g.Create(sv)
 	require.NoError(t, err)
 	require.NotNil(t, g.Server)
 

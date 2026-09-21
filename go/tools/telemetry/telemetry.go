@@ -65,6 +65,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -185,19 +186,22 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs
 // The exporter is automatically configured based on OTEL_TRACES_EXPORTER and OTEL_EXPORTER_OTLP_PROTOCOL
 func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) error {
 	var traceExporter sdktrace.SpanExporter
+	var exporterConfigured bool
 	var err error
 
 	// Use test exporter if provided, otherwise use autoexport
 	if t.testSpanExporter != nil {
 		traceExporter = t.testSpanExporter
 	} else {
-		// Default to "none" if OTEL_TRACES_EXPORTER is not explicitly set
-		// This prevents unwanted data export when telemetry is not explicitly configured
-		if os.Getenv("OTEL_TRACES_EXPORTER") == "" {
-			os.Setenv("OTEL_TRACES_EXPORTER", "none")
-		}
-
-		traceExporter, err = autoexport.NewSpanExporter(ctx)
+		// With OTEL_TRACES_EXPORTER unset, fall back to a no-op exporter so nothing
+		// is exported unless explicitly configured. The fallback is passed to
+		// autoexport rather than written into the environment: this process's
+		// default must not become an explicit setting for a later initialization
+		// or for services it spawns with os.Environ() (see the sampler below).
+		exporterConfigured = os.Getenv("OTEL_TRACES_EXPORTER") != ""
+		traceExporter, err = autoexport.NewSpanExporter(ctx, autoexport.WithFallbackSpanExporter(
+			func(context.Context) (sdktrace.SpanExporter, error) { return tracetest.NewNoopExporter(), nil },
+		))
 		if err != nil {
 			return fmt.Errorf("failed to create trace exporter: %w", err)
 		}
@@ -236,6 +240,16 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 		// Otherwise OTEL will use its default sampler based on environment variables
 		if sampler != nil {
 			providerOpts = append(providerOpts, sdktrace.WithSampler(sampler))
+		} else if exporterConfigured && autoexport.IsNoneSpanExporter(traceExporter) && os.Getenv("OTEL_TRACES_SAMPLER") == "" {
+			// Export is explicitly disabled and nothing consumes spans, so do not
+			// record locally-rooted ones. Non-recording SDK spans still carry
+			// valid trace/span IDs and propagate context. ParentBased keeps
+			// honouring a sampled upstream parent so this process never turns a
+			// sampled trace into an unsampled one for services downstream of it.
+			// An unset exporter keeps the OTel default (parentbased_always_on) so
+			// an unconfigured process still roots sampled traces for exporting
+			// peers; an explicit OTEL_TRACES_SAMPLER or file sampler wins above.
+			providerOpts = append(providerOpts, sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.NeverSample())))
 		}
 	}
 	t.tracerProvider = sdktrace.NewTracerProvider(providerOpts...)
