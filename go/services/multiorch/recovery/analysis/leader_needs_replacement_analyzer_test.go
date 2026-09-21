@@ -410,8 +410,24 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, true)
 			setLeaderPGReady(sa, true)
+			// The shard-wide gossiped position (e.g. via another follower's
+			// SetPrimary) is ahead of what the leader itself has committed —
+			// the signature of a recruit that reached quorum but whose
+			// Promote to the winner never landed.
+			sa.HighestPosition.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}
 			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 				h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+				h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+					Id: leaderID,
+					CurrentPosition: &clustermetadatapb.PoolerPosition{
+						Position: &clustermetadatapb.RulePosition{
+							Decision: &clustermetadatapb.ShardRule{
+								LeaderId:   leaderID,
+								RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+							},
+						},
+					},
+				}
 			})
 		})
 

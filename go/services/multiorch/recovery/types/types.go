@@ -74,6 +74,15 @@ const (
 	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
 	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
 	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
+	// ProblemLeaderNeverPromoted covers a recruit round that reached quorum
+	// and decided an outcome, but whose delivery to the designated leader
+	// (Promote) never landed, so it never took up the role — unlike
+	// ProblemReplicaRecruitAbandoned, a follower stranded by a round that was
+	// itself superseded before deciding anything. The same fresh recruit
+	// round also re-delivers to any follower whose SetPrimary similarly
+	// missed, so the leader-term signal here is just this failure's most
+	// visible symptom.
+	ProblemLeaderNeverPromoted ProblemCode = "LeaderNeverPromoted"
 )
 
 // IsFailoverProblem reports whether this problem is resolved by
@@ -83,7 +92,8 @@ func (c ProblemCode) IsFailoverProblem() bool {
 	return c == ProblemLeaderUnspecified ||
 		c == ProblemLeaderUnreachableByCohort ||
 		c == ProblemLeaderUnhealthy ||
-		c == ProblemLeaderResigned
+		c == ProblemLeaderResigned ||
+		c == ProblemLeaderNeverPromoted
 }
 
 const (
