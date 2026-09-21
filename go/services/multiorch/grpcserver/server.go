@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 )
@@ -74,24 +75,13 @@ func (s *MultiorchServer) GetShardStatus(
 			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
 	}
 
-	// Get all detected problems from the engine
-	allProblems := s.engine.GetDetectedProblems()
-
-	// Filter problems for the requested shard
+	// Get every tracked problem state (active and recently-resolved) and
+	// filter for the requested shard.
 	skStr := commontypes.FormatShardKey(sk)
 	var shardProblems []*multiorchpb.DetectedProblem
-	for _, p := range allProblems {
-		if commontypes.FormatShardKey(p.ShardKey) == skStr {
-			shardProblems = append(shardProblems, &multiorchpb.DetectedProblem{
-				Code:        string(p.Code),
-				CheckName:   string(p.CheckName),
-				PoolerId:    p.PoolerID,
-				ShardKey:    p.ShardKey,
-				Description: p.Description,
-				Priority:    int32(p.Priority),
-				Scope:       string(p.Scope),
-				DetectedAt:  timestamppb.New(p.DetectedAt),
-			})
+	for _, state := range s.engine.GetProblemStates() {
+		if commontypes.FormatShardKey(state.LastKnown.ShardKey) == skStr {
+			shardProblems = append(shardProblems, s.buildDetectedProblem(state))
 		}
 	}
 
@@ -101,6 +91,71 @@ func (s *MultiorchServer) GetShardStatus(
 	}
 
 	return resp, nil
+}
+
+// buildDetectedProblem fetches the pieces one tracked problem state needs
+// from the engine (its recovery action's attempt history, scoped by action
+// name + entity rather than by this specific problem code — see
+// ActionAttemptHistory's doc — and, for still-active problems, when the
+// next attempt is allowed) and assembles the wire message.
+func (s *MultiorchServer) buildDetectedProblem(state recovery.ProblemState) *multiorchpb.DetectedProblem {
+	p := state.LastKnown
+	hist, _ := s.engine.GetActionAttemptHistory(p.RecoveryAction.Metadata().Name, p.EntityID())
+
+	var nextEligibleAt *time.Time
+	// Only meaningful for a still-active problem: the underlying grace/backoff
+	// trackers drop their state on resolution, so calling this for a resolved
+	// entry would misreport rather than just being unset.
+	if state.ResolvedSince.IsZero() {
+		if readyAt, ready := s.engine.NextEligibleAttempt(p); !ready {
+			nextEligibleAt = &readyAt
+		}
+	}
+
+	return detectedProblemFromState(state, hist, nextEligibleAt)
+}
+
+// detectedProblemFromState is the pure conversion from a tracked problem
+// state (plus its already-fetched action history and next-eligible time,
+// nil if not applicable) into the wire message. No engine dependency, so
+// it's directly unit-testable without a live Engine.
+func detectedProblemFromState(state recovery.ProblemState, hist recovery.ActionAttemptHistory, nextEligibleAt *time.Time) *multiorchpb.DetectedProblem {
+	p := state.LastKnown
+	dp := &multiorchpb.DetectedProblem{
+		Code:            string(p.Code),
+		CheckName:       string(p.CheckName),
+		PoolerId:        p.PoolerID,
+		ShardKey:        p.ShardKey,
+		Description:     p.Description,
+		Priority:        int32(p.Priority),
+		Scope:           string(p.Scope),
+		DetectedAt:      timestamppb.New(state.BrokenSince),
+		BrokenSince:     timestamppb.New(state.BrokenSince),
+		OccurrenceCount: int32(state.OccurrenceCount),
+		TotalAttempts:   int32(hist.TotalAttempts),
+	}
+	if !state.ResolvedSince.IsZero() {
+		dp.ResolvedSince = timestamppb.New(state.ResolvedSince)
+	}
+
+	dp.RecentAttempts = make([]*multiorchpb.AttemptRecord, 0, len(hist.RecentAttempts))
+	for _, a := range hist.RecentAttempts {
+		record := &multiorchpb.AttemptRecord{
+			At:             timestamppb.New(a.At),
+			TriggeringCode: string(a.TriggeringCode),
+			Error:          a.Error,
+		}
+		if !a.CompletedAt.IsZero() {
+			record.CompletedAt = timestamppb.New(a.CompletedAt)
+		}
+		dp.RecentAttempts = append(dp.RecentAttempts, record)
+	}
+
+	if nextEligibleAt != nil {
+		dp.NextEligibleAttemptAt = timestamppb.New(*nextEligibleAt)
+	}
+
+	return dp
 }
 
 // DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
@@ -165,6 +220,14 @@ func (s *MultiorchServer) TriggerRecoveryNow(ctx context.Context, req *multiorch
 	}, nil
 }
 
+// GetWatchedShards returns the concrete shard keys this orch instance
+// currently has live pooler data for.
+func (s *MultiorchServer) GetWatchedShards(_ context.Context, _ *multiorchpb.GetWatchedShardsRequest) (*multiorchpb.GetWatchedShardsResponse, error) {
+	return &multiorchpb.GetWatchedShardsResponse{
+		ShardKeys: s.engine.GetWatchedShards(),
+	}, nil
+}
+
 // ApplyCertifiedRuleChange installs a new shard rule using a fully-populated
 // externally certified revocation. See proto/multiorchservice.proto for the
 // shape contract — multiorch is a pure executor and the caller must populate
@@ -188,25 +251,15 @@ func (s *MultiorchServer) ApplyCertifiedRuleChange(
 	return &multiorchpb.ApplyCertifiedRuleChangeResponse{}, nil
 }
 
-// buildPoolerHealthList creates pooler health snapshots for the requested shard.
-func (s *MultiorchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
+// buildPoolerHealthList returns the full pooler health state — exactly what
+// multiorch itself reasons from — for every pooler in the requested shard.
+func (s *MultiorchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchdatapb.PoolerHealthState {
 	sk := req.ShardKey
 	poolers := s.engine.GetPoolerHealthForShard(sk.Database, sk.TableGroup, sk.Shard)
 
-	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))
+	healthList := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, p := range poolers {
-		h := p.Health()
-
-		// Get pooler type string
-		poolerType := h.GetStatus().GetPoolerType().String()
-
-		healthList = append(healthList, &multiorchpb.PoolerHealth{
-			PoolerId:        h.Multipooler.Id,
-			StreamConnected: h.StreamConnected,
-			PostgresReady:   h.GetStatus().GetPostgresReady(),
-			PoolerType:      poolerType,
-			LastSeen:        h.LastSeen,
-		})
+		healthList = append(healthList, p.Health())
 	}
 
 	return healthList

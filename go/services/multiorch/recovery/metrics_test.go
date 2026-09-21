@@ -34,7 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-func TestEngine_UpdateDetectedProblems(t *testing.T) {
+func TestEngine_ReconcileProblemStates(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
@@ -51,7 +51,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	)
 
 	// Test with empty problems
-	engine.updateDetectedProblems(nil)
+	engine.reconcileProblemStates(nil)
 	data := engine.collectDetectedProblemsData()
 	assert.Empty(t, data)
 
@@ -87,7 +87,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		},
 	}
 
-	engine.updateDetectedProblems(problems)
+	engine.reconcileProblemStates(problems)
 	data = engine.collectDetectedProblemsData()
 
 	require.Len(t, data, 2)
@@ -102,7 +102,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	assert.Contains(t, data[1].EntityID, "pooler2")
 }
 
-func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
+func TestEngine_ReconcileProblemStates_OldResolvedNewActive(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
@@ -135,7 +135,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 			},
 		},
 	}
-	engine.updateDetectedProblems(initialProblems)
+	engine.reconcileProblemStates(initialProblems)
 
 	// Replace with different problems
 	newProblems := []types.Problem{
@@ -154,7 +154,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 			},
 		},
 	}
-	engine.updateDetectedProblems(newProblems)
+	engine.reconcileProblemStates(newProblems)
 
 	// Verify old problems are gone, new problems are present
 	data := engine.collectDetectedProblemsData()
@@ -203,7 +203,7 @@ func TestEngine_DetectedProblems_ThreadSafety(t *testing.T) {
 						},
 					},
 				}
-				engine.updateDetectedProblems(problems)
+				engine.reconcileProblemStates(problems)
 				time.Sleep(time.Millisecond)
 			}
 		})

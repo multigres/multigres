@@ -18,6 +18,7 @@ package multiorch;
 
 import "clustermetadata.proto";
 import "google/protobuf/timestamp.proto";
+import "multiorchdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiorch";
 
@@ -56,6 +57,12 @@ service MultiorchService {
   // leader, cohort, and durability policy, plus a cert that attests to which
   // outgoing rule and WAL position the absent cohort members are frozen at.
   rpc ApplyCertifiedRuleChange(ApplyCertifiedRuleChangeRequest) returns (ApplyCertifiedRuleChangeResponse) {}
+
+  // GetWatchedShards returns the concrete shard keys this orch instance
+  // currently has live pooler data for (derived from its pooler cache), not
+  // its configured watch-target patterns (which may be wildcarded, e.g. a
+  // whole database).
+  rpc GetWatchedShards(GetWatchedShardsRequest) returns (GetWatchedShardsResponse) {}
 }
 
 message ShardStatusRequest {
@@ -64,11 +71,13 @@ message ShardStatusRequest {
 }
 
 message ShardStatusResponse {
-  // Currently detected problems for this shard
+  // Currently detected and recently-resolved problems for this shard.
   repeated DetectedProblem problems = 1;
 
-  // Per-pooler health details for this shard
-  repeated PoolerHealth pooler_healths = 2;
+  // Full per-pooler health state for this shard, exactly as multiorch
+  // itself reasons from (ConsensusStatus, AvailabilityStatus, replication
+  // status, etc.).
+  repeated multiorchdata.PoolerHealthState pooler_healths = 2;
 }
 
 message DetectedProblem {
@@ -80,15 +89,53 @@ message DetectedProblem {
   int32 priority = 6;
   string scope = 7; // "Shard" or "Pooler"
   google.protobuf.Timestamp detected_at = 8;
+
+  // The fields below reflect what this orch instance has observed since it
+  // started — not a durable, cluster-wide record (this orch may be one of
+  // several watching the same shard, and none of this survives a restart).
+
+  // When the current (or most recent, if resolved_since is set) episode of
+  // this problem started.
+  google.protobuf.Timestamp broken_since = 9;
+  // When this problem most recently cleared. Unset if still active.
+  google.protobuf.Timestamp resolved_since = 10;
+  // Number of distinct episodes of this problem this orch has observed.
+  int32 occurrence_count = 11;
+
+  // Attempt history for the recovery action associated with this problem.
+  // Scoped to the action + affected entity, not to this specific problem
+  // code — several different codes can drive the same action (e.g. several
+  // Leader* codes all drive AppointLeaderAction for a shard), so these
+  // counts reflect attempts at fixing the underlying condition, not just
+  // attempts triggered by this exact code.
+  int32 total_attempts = 12;
+  repeated AttemptRecord recent_attempts = 13;
+  // When the next attempt is allowed, per the existing grace-period/backoff
+  // trackers. Unset if unknown or not applicable (e.g. alert-only problems).
+  //
+  // TODO: a "force retry now" control (bypass this wait for a specific
+  // problem/action) would be a natural follow-up once this is visible —
+  // TriggerRecoveryNow already exists as a blunter, whole-shard version of
+  // "don't wait." Not proposed here; this pass is read-only.
+  google.protobuf.Timestamp next_eligible_attempt_at = 14;
 }
 
-message PoolerHealth {
-  clustermetadata.ID pooler_id = 1;
-  bool stream_connected = 2; // is the health stream to this pooler connected right now
-  bool postgres_running = 3;
-  string pooler_type = 4; // PRIMARY, REPLICA, UNKNOWN
-  google.protobuf.Timestamp last_seen = 5; // when we last received a health snapshot
-  bool postgres_ready = 6;
+// AttemptRecord is one recovery-action execution, from start to completion.
+message AttemptRecord {
+  google.protobuf.Timestamp at = 1;
+  string triggering_code = 2; // which problem code drove this attempt
+  // Unset while the attempt is still running.
+  google.protobuf.Timestamp completed_at = 4;
+  string error = 3; // only meaningful once completed_at is set; empty means it succeeded
+}
+
+message GetWatchedShardsRequest {
+  // Empty - no parameters needed
+}
+
+message GetWatchedShardsResponse {
+  // Concrete shard keys this orch currently has live pooler data for.
+  repeated clustermetadata.ShardKey shard_keys = 1;
 }
 
 message DisableRecoveryRequest {

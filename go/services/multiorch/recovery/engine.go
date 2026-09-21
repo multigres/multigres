@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -205,9 +206,9 @@ type Engine struct {
 	recoveryRunner    *timer.PeriodicRunner
 	leaderInfoRunner  *timer.PeriodicRunner
 
-	// Detected problems tracking (replaced each cycle)
-	detectedProblemsMu sync.Mutex
-	detectedProblems   []types.Problem // For metrics and gRPC diagnostics
+	// Problem state and recovery-action attempt history, reconciled once per
+	// cycle in reconcileProblemStates. See problem_state.go.
+	problems *problemTracker
 
 	// Metrics
 	metrics *Metrics
@@ -254,6 +255,7 @@ func NewEngine(
 		bookkeepingRunner:  timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
 		recoveryRunner:     timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 		leaderInfoRunner:   timer.NewPeriodicRunner(ctx, leaderInfoPropagationInterval),
+		problems:           newProblemTracker(),
 	}
 
 	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
@@ -424,11 +426,10 @@ func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 // This is called by the observable gauge callback. Converts types.Problem to
 // DetectedProblemData on-demand.
 func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
+	active := re.problems.activeProblems()
 
-	data := make([]DetectedProblemData, 0, len(re.detectedProblems))
-	for _, p := range re.detectedProblems {
+	data := make([]DetectedProblemData, 0, len(active))
+	for _, p := range active {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
 			DBNamespace:  p.ShardKey.Database,
@@ -460,25 +461,63 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 	return data
 }
 
-// updateDetectedProblems replaces the detected problems slice with current problems.
-// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
-// for simplicity.
-func (re *Engine) updateDetectedProblems(problems []types.Problem) {
-	re.detectedProblemsMu.Lock()
-	re.detectedProblems = problems
-	re.detectedProblemsMu.Unlock()
+// reconcileProblemStates updates problem-state and attempt-history tracking
+// against the problems detected this cycle. Called once per recovery cycle;
+// see problemTracker.reconcile for the reconciliation/eviction rules.
+func (re *Engine) reconcileProblemStates(problems []types.Problem) {
+	re.problems.reconcile(problems)
 }
 
-// GetDetectedProblems returns a snapshot of currently detected problems.
+// GetDetectedProblems returns a snapshot of currently active problems.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetDetectedProblems() []types.Problem {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
+	return re.problems.activeProblems()
+}
 
-	// Return a copy to prevent external mutation
-	problems := make([]types.Problem, len(re.detectedProblems))
-	copy(problems, re.detectedProblems)
-	return problems
+// GetProblemStates returns every tracked problem state, active and
+// recently-resolved alike. Thread-safe for concurrent access from gRPC
+// handlers.
+func (re *Engine) GetProblemStates() []ProblemState {
+	return re.problems.allStates()
+}
+
+// GetActionAttemptHistory returns the recovery-action attempt history
+// recorded for the given action name + entity ID, if any. Thread-safe for
+// concurrent access from gRPC handlers.
+func (re *Engine) GetActionAttemptHistory(actionName, entityID string) (ActionAttemptHistory, bool) {
+	return re.problems.actionHistoryFor(actionName, entityID)
+}
+
+// NextEligibleAttempt is readyToExecute, exported for gRPC diagnostics: it
+// reports when problem's recovery action is next allowed to run, per the
+// existing grace-period/recruitment-backoff trackers — the same gate
+// filterAndPrioritize already applies. Only meaningful for an active
+// problem (calling it for an already-resolved one may report an unexpected
+// gate, since the underlying trackers drop state on resolution).
+func (re *Engine) NextEligibleAttempt(problem types.Problem) (time.Time, bool) {
+	return re.readyToExecute(problem)
+}
+
+// GetWatchedShards returns the concrete shard keys this orch instance
+// currently has live pooler data for, derived from the pooler cache — not
+// the configured (possibly wildcarded) watch-target patterns. Groups the
+// cache directly (like collectStreamHealthData) rather than going through
+// analysis.GenerateShardAnalyses, which would do a full per-pooler
+// freshness/cohort analysis this just-list-the-keys query doesn't need.
+func (re *Engine) GetWatchedShards() []*clustermetadatapb.ShardKey {
+	seen := make(map[commontypes.ShardKeyString]*clustermetadatapb.ShardKey)
+	for _, entry := range re.poolerCache.All() {
+		sk := entry.Rider.Health().GetMultipooler().GetShardKey()
+		if sk == nil {
+			continue
+		}
+		seen[commontypes.FormatShardKey(sk)] = sk
+	}
+	shardKeys := make([]*clustermetadatapb.ShardKey, 0, len(seen))
+	for _, sk := range seen {
+		shardKeys = append(shardKeys, sk)
+	}
+	return shardKeys
 }
 
 // IsWatchingShard returns true if the engine is configured to watch the specified shard.

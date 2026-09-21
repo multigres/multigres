@@ -197,6 +197,33 @@ func local_request_MultiorchService_ApplyCertifiedRuleChange_0(ctx context.Conte
 	return msg, metadata, err
 }
 
+func request_MultiorchService_GetWatchedShards_0(ctx context.Context, marshaler runtime.Marshaler, client MultiorchServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetWatchedShardsRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.GetWatchedShards(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiorchService_GetWatchedShards_0(ctx context.Context, marshaler runtime.Marshaler, server MultiorchServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetWatchedShardsRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.GetWatchedShards(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 // RegisterMultiorchServiceHandlerServer registers the http handlers for service MultiorchService to "mux".
 // UnaryRPC     :call MultiorchServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -322,6 +349,26 @@ func RegisterMultiorchServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 		forward_MultiorchService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiorchService_GetWatchedShards_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiorch.MultiorchService/GetWatchedShards", runtime.WithHTTPPathPattern("/multiorch.MultiorchService/GetWatchedShards"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiorchService_GetWatchedShards_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiorchService_GetWatchedShards_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -465,6 +512,23 @@ func RegisterMultiorchServiceHandlerClient(ctx context.Context, mux *runtime.Ser
 		}
 		forward_MultiorchService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiorchService_GetWatchedShards_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiorch.MultiorchService/GetWatchedShards", runtime.WithHTTPPathPattern("/multiorch.MultiorchService/GetWatchedShards"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiorchService_GetWatchedShards_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiorchService_GetWatchedShards_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	return nil
 }
 
@@ -475,6 +539,7 @@ var (
 	pattern_MultiorchService_GetRecoveryStatus_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multiorch.MultiorchService", "GetRecoveryStatus"}, ""))
 	pattern_MultiorchService_TriggerRecoveryNow_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multiorch.MultiorchService", "TriggerRecoveryNow"}, ""))
 	pattern_MultiorchService_ApplyCertifiedRuleChange_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multiorch.MultiorchService", "ApplyCertifiedRuleChange"}, ""))
+	pattern_MultiorchService_GetWatchedShards_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multiorch.MultiorchService", "GetWatchedShards"}, ""))
 )
 
 var (
@@ -484,4 +549,5 @@ var (
 	forward_MultiorchService_GetRecoveryStatus_0        = runtime.ForwardResponseMessage
 	forward_MultiorchService_TriggerRecoveryNow_0       = runtime.ForwardResponseMessage
 	forward_MultiorchService_ApplyCertifiedRuleChange_0 = runtime.ForwardResponseMessage
+	forward_MultiorchService_GetWatchedShards_0         = runtime.ForwardResponseMessage
 )

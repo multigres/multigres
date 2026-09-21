@@ -22,6 +22,7 @@ package multiorch
 
 import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -84,10 +85,12 @@ func (x *ShardStatusRequest) GetShardKey() *clustermetadata.ShardKey {
 
 type ShardStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Currently detected problems for this shard
+	// Currently detected and recently-resolved problems for this shard.
 	Problems []*DetectedProblem `protobuf:"bytes,1,rep,name=problems,proto3" json:"problems,omitempty"`
-	// Per-pooler health details for this shard
-	PoolerHealths []*PoolerHealth `protobuf:"bytes,2,rep,name=pooler_healths,json=poolerHealths,proto3" json:"pooler_healths,omitempty"`
+	// Full per-pooler health state for this shard, exactly as multiorch
+	// itself reasons from (ConsensusStatus, AvailabilityStatus, replication
+	// status, etc.).
+	PoolerHealths []*multiorchdata.PoolerHealthState `protobuf:"bytes,2,rep,name=pooler_healths,json=poolerHealths,proto3" json:"pooler_healths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -129,7 +132,7 @@ func (x *ShardStatusResponse) GetProblems() []*DetectedProblem {
 	return nil
 }
 
-func (x *ShardStatusResponse) GetPoolerHealths() []*PoolerHealth {
+func (x *ShardStatusResponse) GetPoolerHealths() []*multiorchdata.PoolerHealthState {
 	if x != nil {
 		return x.PoolerHealths
 	}
@@ -137,17 +140,40 @@ func (x *ShardStatusResponse) GetPoolerHealths() []*PoolerHealth {
 }
 
 type DetectedProblem struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Code          string                    `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                            // e.g., "PrimaryIsDead"
-	CheckName     string                    `protobuf:"bytes,2,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"` // Analyzer name
-	PoolerId      *clustermetadata.ID       `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`    // Affected pooler
-	ShardKey      *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
-	Description   string                    `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
-	Priority      int32                     `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
-	Scope         string                    `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"` // "Shard" or "Pooler"
-	DetectedAt    *timestamppb.Timestamp    `protobuf:"bytes,8,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState    `protogen:"open.v1"`
+	Code        string                    `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                            // e.g., "PrimaryIsDead"
+	CheckName   string                    `protobuf:"bytes,2,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"` // Analyzer name
+	PoolerId    *clustermetadata.ID       `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`    // Affected pooler
+	ShardKey    *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	Description string                    `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Priority    int32                     `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
+	Scope       string                    `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"` // "Shard" or "Pooler"
+	DetectedAt  *timestamppb.Timestamp    `protobuf:"bytes,8,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
+	// When the current (or most recent, if resolved_since is set) episode of
+	// this problem started.
+	BrokenSince *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=broken_since,json=brokenSince,proto3" json:"broken_since,omitempty"`
+	// When this problem most recently cleared. Unset if still active.
+	ResolvedSince *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=resolved_since,json=resolvedSince,proto3" json:"resolved_since,omitempty"`
+	// Number of distinct episodes of this problem this orch has observed.
+	OccurrenceCount int32 `protobuf:"varint,11,opt,name=occurrence_count,json=occurrenceCount,proto3" json:"occurrence_count,omitempty"`
+	// Attempt history for the recovery action associated with this problem.
+	// Scoped to the action + affected entity, not to this specific problem
+	// code — several different codes can drive the same action (e.g. several
+	// Leader* codes all drive AppointLeaderAction for a shard), so these
+	// counts reflect attempts at fixing the underlying condition, not just
+	// attempts triggered by this exact code.
+	TotalAttempts  int32            `protobuf:"varint,12,opt,name=total_attempts,json=totalAttempts,proto3" json:"total_attempts,omitempty"`
+	RecentAttempts []*AttemptRecord `protobuf:"bytes,13,rep,name=recent_attempts,json=recentAttempts,proto3" json:"recent_attempts,omitempty"`
+	// When the next attempt is allowed, per the existing grace-period/backoff
+	// trackers. Unset if unknown or not applicable (e.g. alert-only problems).
+	//
+	// TODO: a "force retry now" control (bypass this wait for a specific
+	// problem/action) would be a natural follow-up once this is visible —
+	// TriggerRecoveryNow already exists as a blunter, whole-shard version of
+	// "don't wait." Not proposed here; this pass is read-only.
+	NextEligibleAttemptAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=next_eligible_attempt_at,json=nextEligibleAttemptAt,proto3" json:"next_eligible_attempt_at,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *DetectedProblem) Reset() {
@@ -236,32 +262,74 @@ func (x *DetectedProblem) GetDetectedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-type PoolerHealth struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	PoolerId        *clustermetadata.ID    `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	StreamConnected bool                   `protobuf:"varint,2,opt,name=stream_connected,json=streamConnected,proto3" json:"stream_connected,omitempty"` // is the health stream to this pooler connected right now
-	PostgresRunning bool                   `protobuf:"varint,3,opt,name=postgres_running,json=postgresRunning,proto3" json:"postgres_running,omitempty"`
-	PoolerType      string                 `protobuf:"bytes,4,opt,name=pooler_type,json=poolerType,proto3" json:"pooler_type,omitempty"` // PRIMARY, REPLICA, UNKNOWN
-	LastSeen        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`       // when we last received a health snapshot
-	PostgresReady   bool                   `protobuf:"varint,6,opt,name=postgres_ready,json=postgresReady,proto3" json:"postgres_ready,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+func (x *DetectedProblem) GetBrokenSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.BrokenSince
+	}
+	return nil
 }
 
-func (x *PoolerHealth) Reset() {
-	*x = PoolerHealth{}
+func (x *DetectedProblem) GetResolvedSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ResolvedSince
+	}
+	return nil
+}
+
+func (x *DetectedProblem) GetOccurrenceCount() int32 {
+	if x != nil {
+		return x.OccurrenceCount
+	}
+	return 0
+}
+
+func (x *DetectedProblem) GetTotalAttempts() int32 {
+	if x != nil {
+		return x.TotalAttempts
+	}
+	return 0
+}
+
+func (x *DetectedProblem) GetRecentAttempts() []*AttemptRecord {
+	if x != nil {
+		return x.RecentAttempts
+	}
+	return nil
+}
+
+func (x *DetectedProblem) GetNextEligibleAttemptAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.NextEligibleAttemptAt
+	}
+	return nil
+}
+
+// AttemptRecord is one recovery-action execution, from start to completion.
+type AttemptRecord struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	At             *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=at,proto3" json:"at,omitempty"`
+	TriggeringCode string                 `protobuf:"bytes,2,opt,name=triggering_code,json=triggeringCode,proto3" json:"triggering_code,omitempty"` // which problem code drove this attempt
+	// Unset while the attempt is still running.
+	CompletedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"` // only meaningful once completed_at is set; empty means it succeeded
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttemptRecord) Reset() {
+	*x = AttemptRecord{}
 	mi := &file_multiorchservice_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PoolerHealth) String() string {
+func (x *AttemptRecord) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PoolerHealth) ProtoMessage() {}
+func (*AttemptRecord) ProtoMessage() {}
 
-func (x *PoolerHealth) ProtoReflect() protoreflect.Message {
+func (x *AttemptRecord) ProtoReflect() protoreflect.Message {
 	mi := &file_multiorchservice_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -273,51 +341,118 @@ func (x *PoolerHealth) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PoolerHealth.ProtoReflect.Descriptor instead.
-func (*PoolerHealth) Descriptor() ([]byte, []int) {
+// Deprecated: Use AttemptRecord.ProtoReflect.Descriptor instead.
+func (*AttemptRecord) Descriptor() ([]byte, []int) {
 	return file_multiorchservice_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *PoolerHealth) GetPoolerId() *clustermetadata.ID {
+func (x *AttemptRecord) GetAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.PoolerId
+		return x.At
 	}
 	return nil
 }
 
-func (x *PoolerHealth) GetStreamConnected() bool {
+func (x *AttemptRecord) GetTriggeringCode() string {
 	if x != nil {
-		return x.StreamConnected
-	}
-	return false
-}
-
-func (x *PoolerHealth) GetPostgresRunning() bool {
-	if x != nil {
-		return x.PostgresRunning
-	}
-	return false
-}
-
-func (x *PoolerHealth) GetPoolerType() string {
-	if x != nil {
-		return x.PoolerType
+		return x.TriggeringCode
 	}
 	return ""
 }
 
-func (x *PoolerHealth) GetLastSeen() *timestamppb.Timestamp {
+func (x *AttemptRecord) GetCompletedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.LastSeen
+		return x.CompletedAt
 	}
 	return nil
 }
 
-func (x *PoolerHealth) GetPostgresReady() bool {
+func (x *AttemptRecord) GetError() string {
 	if x != nil {
-		return x.PostgresReady
+		return x.Error
 	}
-	return false
+	return ""
+}
+
+type GetWatchedShardsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetWatchedShardsRequest) Reset() {
+	*x = GetWatchedShardsRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWatchedShardsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWatchedShardsRequest) ProtoMessage() {}
+
+func (x *GetWatchedShardsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWatchedShardsRequest.ProtoReflect.Descriptor instead.
+func (*GetWatchedShardsRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{4}
+}
+
+type GetWatchedShardsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Concrete shard keys this orch currently has live pooler data for.
+	ShardKeys     []*clustermetadata.ShardKey `protobuf:"bytes,1,rep,name=shard_keys,json=shardKeys,proto3" json:"shard_keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetWatchedShardsResponse) Reset() {
+	*x = GetWatchedShardsResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWatchedShardsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWatchedShardsResponse) ProtoMessage() {}
+
+func (x *GetWatchedShardsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWatchedShardsResponse.ProtoReflect.Descriptor instead.
+func (*GetWatchedShardsResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetWatchedShardsResponse) GetShardKeys() []*clustermetadata.ShardKey {
+	if x != nil {
+		return x.ShardKeys
+	}
+	return nil
 }
 
 type DisableRecoveryRequest struct {
@@ -328,7 +463,7 @@ type DisableRecoveryRequest struct {
 
 func (x *DisableRecoveryRequest) Reset() {
 	*x = DisableRecoveryRequest{}
-	mi := &file_multiorchservice_proto_msgTypes[4]
+	mi := &file_multiorchservice_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -340,7 +475,7 @@ func (x *DisableRecoveryRequest) String() string {
 func (*DisableRecoveryRequest) ProtoMessage() {}
 
 func (x *DisableRecoveryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[4]
+	mi := &file_multiorchservice_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -353,7 +488,7 @@ func (x *DisableRecoveryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableRecoveryRequest.ProtoReflect.Descriptor instead.
 func (*DisableRecoveryRequest) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{4}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{6}
 }
 
 type DisableRecoveryResponse struct {
@@ -368,7 +503,7 @@ type DisableRecoveryResponse struct {
 
 func (x *DisableRecoveryResponse) Reset() {
 	*x = DisableRecoveryResponse{}
-	mi := &file_multiorchservice_proto_msgTypes[5]
+	mi := &file_multiorchservice_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +515,7 @@ func (x *DisableRecoveryResponse) String() string {
 func (*DisableRecoveryResponse) ProtoMessage() {}
 
 func (x *DisableRecoveryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[5]
+	mi := &file_multiorchservice_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +528,7 @@ func (x *DisableRecoveryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableRecoveryResponse.ProtoReflect.Descriptor instead.
 func (*DisableRecoveryResponse) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{5}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DisableRecoveryResponse) GetSuccess() bool {
@@ -418,7 +553,7 @@ type EnableRecoveryRequest struct {
 
 func (x *EnableRecoveryRequest) Reset() {
 	*x = EnableRecoveryRequest{}
-	mi := &file_multiorchservice_proto_msgTypes[6]
+	mi := &file_multiorchservice_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +565,7 @@ func (x *EnableRecoveryRequest) String() string {
 func (*EnableRecoveryRequest) ProtoMessage() {}
 
 func (x *EnableRecoveryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[6]
+	mi := &file_multiorchservice_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +578,7 @@ func (x *EnableRecoveryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableRecoveryRequest.ProtoReflect.Descriptor instead.
 func (*EnableRecoveryRequest) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{6}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{8}
 }
 
 type EnableRecoveryResponse struct {
@@ -458,7 +593,7 @@ type EnableRecoveryResponse struct {
 
 func (x *EnableRecoveryResponse) Reset() {
 	*x = EnableRecoveryResponse{}
-	mi := &file_multiorchservice_proto_msgTypes[7]
+	mi := &file_multiorchservice_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -470,7 +605,7 @@ func (x *EnableRecoveryResponse) String() string {
 func (*EnableRecoveryResponse) ProtoMessage() {}
 
 func (x *EnableRecoveryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[7]
+	mi := &file_multiorchservice_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -483,7 +618,7 @@ func (x *EnableRecoveryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableRecoveryResponse.ProtoReflect.Descriptor instead.
 func (*EnableRecoveryResponse) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{7}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *EnableRecoveryResponse) GetSuccess() bool {
@@ -508,7 +643,7 @@ type GetRecoveryStatusRequest struct {
 
 func (x *GetRecoveryStatusRequest) Reset() {
 	*x = GetRecoveryStatusRequest{}
-	mi := &file_multiorchservice_proto_msgTypes[8]
+	mi := &file_multiorchservice_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +655,7 @@ func (x *GetRecoveryStatusRequest) String() string {
 func (*GetRecoveryStatusRequest) ProtoMessage() {}
 
 func (x *GetRecoveryStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[8]
+	mi := &file_multiorchservice_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +668,7 @@ func (x *GetRecoveryStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecoveryStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetRecoveryStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{8}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{10}
 }
 
 type GetRecoveryStatusResponse struct {
@@ -546,7 +681,7 @@ type GetRecoveryStatusResponse struct {
 
 func (x *GetRecoveryStatusResponse) Reset() {
 	*x = GetRecoveryStatusResponse{}
-	mi := &file_multiorchservice_proto_msgTypes[9]
+	mi := &file_multiorchservice_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -558,7 +693,7 @@ func (x *GetRecoveryStatusResponse) String() string {
 func (*GetRecoveryStatusResponse) ProtoMessage() {}
 
 func (x *GetRecoveryStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[9]
+	mi := &file_multiorchservice_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -571,7 +706,7 @@ func (x *GetRecoveryStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecoveryStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetRecoveryStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{9}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetRecoveryStatusResponse) GetEnabled() bool {
@@ -594,7 +729,7 @@ type TriggerRecoveryNowRequest struct {
 
 func (x *TriggerRecoveryNowRequest) Reset() {
 	*x = TriggerRecoveryNowRequest{}
-	mi := &file_multiorchservice_proto_msgTypes[10]
+	mi := &file_multiorchservice_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +741,7 @@ func (x *TriggerRecoveryNowRequest) String() string {
 func (*TriggerRecoveryNowRequest) ProtoMessage() {}
 
 func (x *TriggerRecoveryNowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[10]
+	mi := &file_multiorchservice_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +754,7 @@ func (x *TriggerRecoveryNowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRecoveryNowRequest.ProtoReflect.Descriptor instead.
 func (*TriggerRecoveryNowRequest) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{10}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TriggerRecoveryNowRequest) GetMaxCycles() uint32 {
@@ -639,7 +774,7 @@ type TriggerRecoveryNowResponse struct {
 
 func (x *TriggerRecoveryNowResponse) Reset() {
 	*x = TriggerRecoveryNowResponse{}
-	mi := &file_multiorchservice_proto_msgTypes[11]
+	mi := &file_multiorchservice_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +786,7 @@ func (x *TriggerRecoveryNowResponse) String() string {
 func (*TriggerRecoveryNowResponse) ProtoMessage() {}
 
 func (x *TriggerRecoveryNowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[11]
+	mi := &file_multiorchservice_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +799,7 @@ func (x *TriggerRecoveryNowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRecoveryNowResponse.ProtoReflect.Descriptor instead.
 func (*TriggerRecoveryNowResponse) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{11}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TriggerRecoveryNowResponse) GetRemainingProblemCodes() []string {
@@ -723,7 +858,7 @@ type ApplyCertifiedRuleChangeRequest struct {
 
 func (x *ApplyCertifiedRuleChangeRequest) Reset() {
 	*x = ApplyCertifiedRuleChangeRequest{}
-	mi := &file_multiorchservice_proto_msgTypes[12]
+	mi := &file_multiorchservice_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -735,7 +870,7 @@ func (x *ApplyCertifiedRuleChangeRequest) String() string {
 func (*ApplyCertifiedRuleChangeRequest) ProtoMessage() {}
 
 func (x *ApplyCertifiedRuleChangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[12]
+	mi := &file_multiorchservice_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -748,7 +883,7 @@ func (x *ApplyCertifiedRuleChangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyCertifiedRuleChangeRequest.ProtoReflect.Descriptor instead.
 func (*ApplyCertifiedRuleChangeRequest) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{12}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKey {
@@ -787,7 +922,7 @@ type ApplyCertifiedRuleChangeResponse struct {
 
 func (x *ApplyCertifiedRuleChangeResponse) Reset() {
 	*x = ApplyCertifiedRuleChangeResponse{}
-	mi := &file_multiorchservice_proto_msgTypes[13]
+	mi := &file_multiorchservice_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +934,7 @@ func (x *ApplyCertifiedRuleChangeResponse) String() string {
 func (*ApplyCertifiedRuleChangeResponse) ProtoMessage() {}
 
 func (x *ApplyCertifiedRuleChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchservice_proto_msgTypes[13]
+	mi := &file_multiorchservice_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -812,19 +947,19 @@ func (x *ApplyCertifiedRuleChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyCertifiedRuleChangeResponse.ProtoReflect.Descriptor instead.
 func (*ApplyCertifiedRuleChangeResponse) Descriptor() ([]byte, []int) {
-	return file_multiorchservice_proto_rawDescGZIP(), []int{13}
+	return file_multiorchservice_proto_rawDescGZIP(), []int{15}
 }
 
 var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n" +
+	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x13multiorchdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n" +
 	"\x12ShardStatusRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\"\x8d\x01\n" +
+	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\"\x96\x01\n" +
 	"\x13ShardStatusResponse\x126\n" +
-	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12>\n" +
-	"\x0epooler_healths\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\rpoolerHealths\"\xbf\x02\n" +
+	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12G\n" +
+	"\x0epooler_healths\x18\x02 \x03(\v2 .multiorchdata.PoolerHealthStateR\rpoolerHealths\"\xab\x05\n" +
 	"\x0fDetectedProblem\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
 	"\n" +
@@ -835,15 +970,23 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\bpriority\x18\x06 \x01(\x05R\bpriority\x12\x14\n" +
 	"\x05scope\x18\a \x01(\tR\x05scope\x12;\n" +
 	"\vdetected_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"detectedAt\"\x97\x02\n" +
-	"\fPoolerHealth\x120\n" +
-	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12)\n" +
-	"\x10stream_connected\x18\x02 \x01(\bR\x0fstreamConnected\x12)\n" +
-	"\x10postgres_running\x18\x03 \x01(\bR\x0fpostgresRunning\x12\x1f\n" +
-	"\vpooler_type\x18\x04 \x01(\tR\n" +
-	"poolerType\x127\n" +
-	"\tlast_seen\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12%\n" +
-	"\x0epostgres_ready\x18\x06 \x01(\bR\rpostgresReady\"\x18\n" +
+	"detectedAt\x12=\n" +
+	"\fbroken_since\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\vbrokenSince\x12A\n" +
+	"\x0eresolved_since\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\rresolvedSince\x12)\n" +
+	"\x10occurrence_count\x18\v \x01(\x05R\x0foccurrenceCount\x12%\n" +
+	"\x0etotal_attempts\x18\f \x01(\x05R\rtotalAttempts\x12A\n" +
+	"\x0frecent_attempts\x18\r \x03(\v2\x18.multiorch.AttemptRecordR\x0erecentAttempts\x12S\n" +
+	"\x18next_eligible_attempt_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x15nextEligibleAttemptAt\"\xb9\x01\n" +
+	"\rAttemptRecord\x12*\n" +
+	"\x02at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12'\n" +
+	"\x0ftriggering_code\x18\x02 \x01(\tR\x0etriggeringCode\x12=\n" +
+	"\fcompleted_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\x19\n" +
+	"\x17GetWatchedShardsRequest\"T\n" +
+	"\x18GetWatchedShardsResponse\x128\n" +
+	"\n" +
+	"shard_keys\x18\x01 \x03(\v2\x19.clustermetadata.ShardKeyR\tshardKeys\"\x18\n" +
 	"\x16DisableRecoveryRequest\"M\n" +
 	"\x17DisableRecoveryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
@@ -865,14 +1008,15 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12B\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\x04cert\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\"\"\n" +
-	" ApplyCertifiedRuleChangeResponse2\xd8\x04\n" +
+	" ApplyCertifiedRuleChangeResponse2\xb7\x05\n" +
 	"\x10MultiorchService\x12Q\n" +
 	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00\x12Z\n" +
 	"\x0fDisableRecovery\x12!.multiorch.DisableRecoveryRequest\x1a\".multiorch.DisableRecoveryResponse\"\x00\x12W\n" +
 	"\x0eEnableRecovery\x12 .multiorch.EnableRecoveryRequest\x1a!.multiorch.EnableRecoveryResponse\"\x00\x12`\n" +
 	"\x11GetRecoveryStatus\x12#.multiorch.GetRecoveryStatusRequest\x1a$.multiorch.GetRecoveryStatusResponse\"\x00\x12c\n" +
 	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00\x12u\n" +
-	"\x18ApplyCertifiedRuleChange\x12*.multiorch.ApplyCertifiedRuleChangeRequest\x1a+.multiorch.ApplyCertifiedRuleChangeResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
+	"\x18ApplyCertifiedRuleChange\x12*.multiorch.ApplyCertifiedRuleChangeRequest\x1a+.multiorch.ApplyCertifiedRuleChangeResponse\"\x00\x12]\n" +
+	"\x10GetWatchedShards\x12\".multiorch.GetWatchedShardsRequest\x1a#.multiorch.GetWatchedShardsResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
 
 var (
 	file_multiorchservice_proto_rawDescOnce sync.Once
@@ -886,57 +1030,67 @@ func file_multiorchservice_proto_rawDescGZIP() []byte {
 	return file_multiorchservice_proto_rawDescData
 }
 
-var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_multiorchservice_proto_goTypes = []any{
 	(*ShardStatusRequest)(nil),                            // 0: multiorch.ShardStatusRequest
 	(*ShardStatusResponse)(nil),                           // 1: multiorch.ShardStatusResponse
 	(*DetectedProblem)(nil),                               // 2: multiorch.DetectedProblem
-	(*PoolerHealth)(nil),                                  // 3: multiorch.PoolerHealth
-	(*DisableRecoveryRequest)(nil),                        // 4: multiorch.DisableRecoveryRequest
-	(*DisableRecoveryResponse)(nil),                       // 5: multiorch.DisableRecoveryResponse
-	(*EnableRecoveryRequest)(nil),                         // 6: multiorch.EnableRecoveryRequest
-	(*EnableRecoveryResponse)(nil),                        // 7: multiorch.EnableRecoveryResponse
-	(*GetRecoveryStatusRequest)(nil),                      // 8: multiorch.GetRecoveryStatusRequest
-	(*GetRecoveryStatusResponse)(nil),                     // 9: multiorch.GetRecoveryStatusResponse
-	(*TriggerRecoveryNowRequest)(nil),                     // 10: multiorch.TriggerRecoveryNowRequest
-	(*TriggerRecoveryNowResponse)(nil),                    // 11: multiorch.TriggerRecoveryNowResponse
-	(*ApplyCertifiedRuleChangeRequest)(nil),               // 12: multiorch.ApplyCertifiedRuleChangeRequest
-	(*ApplyCertifiedRuleChangeResponse)(nil),              // 13: multiorch.ApplyCertifiedRuleChangeResponse
-	(*clustermetadata.ShardKey)(nil),                      // 14: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),                            // 15: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil),                         // 16: google.protobuf.Timestamp
-	(*clustermetadata.RulePosition)(nil),                  // 17: clustermetadata.RulePosition
-	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 18: clustermetadata.ExternallyCertifiedRevocation
+	(*AttemptRecord)(nil),                                 // 3: multiorch.AttemptRecord
+	(*GetWatchedShardsRequest)(nil),                       // 4: multiorch.GetWatchedShardsRequest
+	(*GetWatchedShardsResponse)(nil),                      // 5: multiorch.GetWatchedShardsResponse
+	(*DisableRecoveryRequest)(nil),                        // 6: multiorch.DisableRecoveryRequest
+	(*DisableRecoveryResponse)(nil),                       // 7: multiorch.DisableRecoveryResponse
+	(*EnableRecoveryRequest)(nil),                         // 8: multiorch.EnableRecoveryRequest
+	(*EnableRecoveryResponse)(nil),                        // 9: multiorch.EnableRecoveryResponse
+	(*GetRecoveryStatusRequest)(nil),                      // 10: multiorch.GetRecoveryStatusRequest
+	(*GetRecoveryStatusResponse)(nil),                     // 11: multiorch.GetRecoveryStatusResponse
+	(*TriggerRecoveryNowRequest)(nil),                     // 12: multiorch.TriggerRecoveryNowRequest
+	(*TriggerRecoveryNowResponse)(nil),                    // 13: multiorch.TriggerRecoveryNowResponse
+	(*ApplyCertifiedRuleChangeRequest)(nil),               // 14: multiorch.ApplyCertifiedRuleChangeRequest
+	(*ApplyCertifiedRuleChangeResponse)(nil),              // 15: multiorch.ApplyCertifiedRuleChangeResponse
+	(*clustermetadata.ShardKey)(nil),                      // 16: clustermetadata.ShardKey
+	(*multiorchdata.PoolerHealthState)(nil),               // 17: multiorchdata.PoolerHealthState
+	(*clustermetadata.ID)(nil),                            // 18: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),                         // 19: google.protobuf.Timestamp
+	(*clustermetadata.RulePosition)(nil),                  // 20: clustermetadata.RulePosition
+	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 21: clustermetadata.ExternallyCertifiedRevocation
 }
 var file_multiorchservice_proto_depIdxs = []int32{
-	14, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
+	16, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
 	2,  // 1: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
-	3,  // 2: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
-	15, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	14, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
-	16, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
-	15, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
-	16, // 7: multiorch.PoolerHealth.last_seen:type_name -> google.protobuf.Timestamp
-	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
-	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
-	18, // 10: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
-	0,  // 11: multiorch.MultiorchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 12: multiorch.MultiorchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 13: multiorch.MultiorchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 14: multiorch.MultiorchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 15: multiorch.MultiorchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	12, // 16: multiorch.MultiorchService.ApplyCertifiedRuleChange:input_type -> multiorch.ApplyCertifiedRuleChangeRequest
-	1,  // 17: multiorch.MultiorchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 18: multiorch.MultiorchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 19: multiorch.MultiorchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 20: multiorch.MultiorchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 21: multiorch.MultiorchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	13, // 22: multiorch.MultiorchService.ApplyCertifiedRuleChange:output_type -> multiorch.ApplyCertifiedRuleChangeResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	17, // 2: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorchdata.PoolerHealthState
+	18, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
+	16, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
+	19, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
+	19, // 6: multiorch.DetectedProblem.broken_since:type_name -> google.protobuf.Timestamp
+	19, // 7: multiorch.DetectedProblem.resolved_since:type_name -> google.protobuf.Timestamp
+	3,  // 8: multiorch.DetectedProblem.recent_attempts:type_name -> multiorch.AttemptRecord
+	19, // 9: multiorch.DetectedProblem.next_eligible_attempt_at:type_name -> google.protobuf.Timestamp
+	19, // 10: multiorch.AttemptRecord.at:type_name -> google.protobuf.Timestamp
+	19, // 11: multiorch.AttemptRecord.completed_at:type_name -> google.protobuf.Timestamp
+	16, // 12: multiorch.GetWatchedShardsResponse.shard_keys:type_name -> clustermetadata.ShardKey
+	16, // 13: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
+	20, // 14: multiorch.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
+	21, // 15: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
+	0,  // 16: multiorch.MultiorchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	6,  // 17: multiorch.MultiorchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	8,  // 18: multiorch.MultiorchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	10, // 19: multiorch.MultiorchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	12, // 20: multiorch.MultiorchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	14, // 21: multiorch.MultiorchService.ApplyCertifiedRuleChange:input_type -> multiorch.ApplyCertifiedRuleChangeRequest
+	4,  // 22: multiorch.MultiorchService.GetWatchedShards:input_type -> multiorch.GetWatchedShardsRequest
+	1,  // 23: multiorch.MultiorchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	7,  // 24: multiorch.MultiorchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	9,  // 25: multiorch.MultiorchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	11, // 26: multiorch.MultiorchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	13, // 27: multiorch.MultiorchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	15, // 28: multiorch.MultiorchService.ApplyCertifiedRuleChange:output_type -> multiorch.ApplyCertifiedRuleChangeResponse
+	5,  // 29: multiorch.MultiorchService.GetWatchedShards:output_type -> multiorch.GetWatchedShardsResponse
+	23, // [23:30] is the sub-list for method output_type
+	16, // [16:23] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }
@@ -950,7 +1104,7 @@ func file_multiorchservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiorchservice_proto_rawDesc), len(file_multiorchservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

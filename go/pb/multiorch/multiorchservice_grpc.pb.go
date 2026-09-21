@@ -39,6 +39,7 @@ const (
 	MultiorchService_GetRecoveryStatus_FullMethodName        = "/multiorch.MultiorchService/GetRecoveryStatus"
 	MultiorchService_TriggerRecoveryNow_FullMethodName       = "/multiorch.MultiorchService/TriggerRecoveryNow"
 	MultiorchService_ApplyCertifiedRuleChange_FullMethodName = "/multiorch.MultiorchService/ApplyCertifiedRuleChange"
+	MultiorchService_GetWatchedShards_FullMethodName         = "/multiorch.MultiorchService/GetWatchedShards"
 )
 
 // MultiorchServiceClient is the client API for MultiorchService service.
@@ -75,6 +76,11 @@ type MultiorchServiceClient interface {
 	// leader, cohort, and durability policy, plus a cert that attests to which
 	// outgoing rule and WAL position the absent cohort members are frozen at.
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
+	// GetWatchedShards returns the concrete shard keys this orch instance
+	// currently has live pooler data for (derived from its pooler cache), not
+	// its configured watch-target patterns (which may be wildcarded, e.g. a
+	// whole database).
+	GetWatchedShards(ctx context.Context, in *GetWatchedShardsRequest, opts ...grpc.CallOption) (*GetWatchedShardsResponse, error)
 }
 
 type multiorchServiceClient struct {
@@ -145,6 +151,16 @@ func (c *multiorchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, i
 	return out, nil
 }
 
+func (c *multiorchServiceClient) GetWatchedShards(ctx context.Context, in *GetWatchedShardsRequest, opts ...grpc.CallOption) (*GetWatchedShardsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetWatchedShardsResponse)
+	err := c.cc.Invoke(ctx, MultiorchService_GetWatchedShards_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiorchServiceServer is the server API for MultiorchService service.
 // All implementations must embed UnimplementedMultiorchServiceServer
 // for forward compatibility.
@@ -179,6 +195,11 @@ type MultiorchServiceServer interface {
 	// leader, cohort, and durability policy, plus a cert that attests to which
 	// outgoing rule and WAL position the absent cohort members are frozen at.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
+	// GetWatchedShards returns the concrete shard keys this orch instance
+	// currently has live pooler data for (derived from its pooler cache), not
+	// its configured watch-target patterns (which may be wildcarded, e.g. a
+	// whole database).
+	GetWatchedShards(context.Context, *GetWatchedShardsRequest) (*GetWatchedShardsResponse, error)
 	mustEmbedUnimplementedMultiorchServiceServer()
 }
 
@@ -206,6 +227,9 @@ func (UnimplementedMultiorchServiceServer) TriggerRecoveryNow(context.Context, *
 }
 func (UnimplementedMultiorchServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
+}
+func (UnimplementedMultiorchServiceServer) GetWatchedShards(context.Context, *GetWatchedShardsRequest) (*GetWatchedShardsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWatchedShards not implemented")
 }
 func (UnimplementedMultiorchServiceServer) mustEmbedUnimplementedMultiorchServiceServer() {}
 func (UnimplementedMultiorchServiceServer) testEmbeddedByValue()                          {}
@@ -336,6 +360,24 @@ func _MultiorchService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiorchService_GetWatchedShards_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWatchedShardsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiorchServiceServer).GetWatchedShards(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiorchService_GetWatchedShards_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiorchServiceServer).GetWatchedShards(ctx, req.(*GetWatchedShardsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiorchService_ServiceDesc is the grpc.ServiceDesc for MultiorchService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -366,6 +408,10 @@ var MultiorchService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyCertifiedRuleChange",
 			Handler:    _MultiorchService_ApplyCertifiedRuleChange_Handler,
+		},
+		{
+			MethodName: "GetWatchedShards",
+			Handler:    _MultiorchService_GetWatchedShards_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -52,6 +52,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 
@@ -1071,7 +1072,7 @@ func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName stri
 					established++
 					continue
 				}
-				missing = append(missing, ph.PoolerId.GetName())
+				missing = append(missing, ph.GetMultipooler().GetId().GetName())
 			}
 			if established == expected {
 				t.Logf("All %d health streams established on '%s'", expected, orchName)
@@ -2450,7 +2451,7 @@ func formatProblemsCompact(problems []*multiorchpb.DetectedProblem) string {
 }
 
 // formatPoolerHealth creates a detailed status: 3/3 reachable (pooler-1:PRIMARY/up, pooler-2:REPLICA/up, pooler-3:REPLICA/up)
-func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
+func formatPoolerHealth(healthList []*multiorchdatapb.PoolerHealthState) string {
 	if len(healthList) == 0 {
 		return "0 poolers"
 	}
@@ -2458,7 +2459,7 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 	// Count reachable poolers
 	reachableCount := 0
 	for _, h := range healthList {
-		if h.StreamConnected {
+		if h.GetStreamConnected() {
 			reachableCount++
 		}
 	}
@@ -2466,18 +2467,15 @@ func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
 	// Build individual pooler status strings
 	poolerStatuses := make([]string, 0, len(healthList))
 	for _, h := range healthList {
-		poolerName := ""
-		if h.PoolerId != nil {
-			poolerName = h.PoolerId.Name
-		}
+		poolerName := h.GetMultipooler().GetId().GetName()
 
 		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
 		status := "down"
-		if h.StreamConnected && h.PostgresReady {
+		if h.GetStreamConnected() && h.GetStatus().GetPostgresReady() {
 			status = "up"
 		}
 
-		poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s:%s/%s", poolerName, h.PoolerType, status))
+		poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s:%s/%s", poolerName, h.GetStatus().GetPoolerType(), status))
 	}
 
 	return fmt.Sprintf("%d/%d reachable (%s)", reachableCount, len(healthList), strings.Join(poolerStatuses, ", "))
