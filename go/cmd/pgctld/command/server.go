@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -238,21 +237,10 @@ type PgCtldService struct {
 	pgbackrestCertDir string
 	pgConfig          *pgctld.PostgresCtlConfig
 
-	// maxConnsCache caches the postgres -C max_connections result reported on
-	// Status (the pooler polls Status every few seconds; forking postgres each
-	// time would be wasteful). 0 = not computed / unknown. Invalidated (reset
-	// to 0) by every operation that can change the effective config:
-	// InitDataDir, Start, Restart, ReloadConfig, PgRewind.
-	//
-	// maxConnsGen (guarded by maxConnsMu) orders probe publication against
-	// invalidation: a probe captures the generation before forking postgres
-	// and publishes only if no invalidation happened in between — otherwise a
-	// probe overlapping e.g. a Restart could store the pre-restart value
-	// after the restart's invalidation ran, pinning a stale result until the
-	// next mutation. Reads stay lock-free via the atomic.
-	maxConnsCache atomic.Int32
-	maxConnsMu    sync.Mutex
-	maxConnsGen   uint64
+	// gucCache caches effective GUC values probed via postgres -C for
+	// Status reporting (max_connections today; see gucProbeCache for the
+	// caching, invalidation, and probe-ordering semantics).
+	gucCache *gucProbeCache
 
 	// pgBackRest management
 	ctx              context.Context
@@ -367,6 +355,7 @@ func NewPgCtldService(
 
 	return &PgCtldService{
 		logger:            logger,
+		gucCache:          newGucProbeCache(logger),
 		ctldConfig:        cfg,
 		timeout:           timeout,
 		poolerDir:         poolerDir,
@@ -582,7 +571,7 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	defer s.invalidateMaxConnections()
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
@@ -700,7 +689,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
-	defer s.invalidateMaxConnections()
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
 
 	// Check if data directory is initialized
@@ -730,7 +719,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 }
 
 func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
-	defer s.invalidateMaxConnections()
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC ReloadConfig request")
 
 	// Check if data directory is initialized
@@ -748,64 +737,6 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	return &pb.ReloadConfigResponse{
 		Message: result.Message,
 	}, nil
-}
-
-// effectiveMaxConnections returns the effective configured max_connections,
-// resolved the way postgres itself resolves it — `postgres -C` follows
-// include directives and postgresql.auto.conf, and works whether or not the
-// server is running. Returns 0 (unknown) before the data directory is
-// initialized or when the value cannot be determined. Cached because the
-// multipooler polls Status every few seconds; invalidated by every operation
-// that can change the effective config.
-func (s *PgCtldService) effectiveMaxConnections(ctx context.Context) int32 {
-	// Positive = cached value; negative = cached failure (do not re-fork until
-	// the next invalidation). Status sits on the multipooler's monitoring path,
-	// so a persistent failure must not fork postgres on every 5s poll, and a
-	// hung probe (e.g. a stuck volume) must not wedge the Status RPC: the probe
-	// gets its own short deadline independent of the caller's context.
-	if v := s.maxConnsCache.Load(); v != 0 {
-		return max(v, 0)
-	}
-	if !pgctld.IsDataDirInitialized() {
-		return 0
-	}
-	s.maxConnsMu.Lock()
-	gen := s.maxConnsGen
-	s.maxConnsMu.Unlock()
-
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	result := int32(-1)
-	out, err := executil.Command(probeCtx, "postgres", "-C", "max_connections", "-D", pgctld.PostgresDataDir()).Output()
-	if err != nil {
-		s.logger.WarnContext(ctx, "could not determine effective max_connections; reporting unknown until the next start/restart/reload", "error", err)
-	} else if v, perr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 32); perr != nil || v <= 0 {
-		s.logger.WarnContext(ctx, "unexpected postgres -C max_connections output; reporting unknown until the next start/restart/reload", "output", string(out), "error", perr)
-	} else {
-		result = int32(v)
-	}
-
-	// Publish only if no invalidation ran while the probe was in flight; a
-	// discarded result leaves the cache empty for the next poll to retry.
-	s.maxConnsMu.Lock()
-	if s.maxConnsGen == gen {
-		s.maxConnsCache.Store(result)
-	}
-	s.maxConnsMu.Unlock()
-	return max(result, 0)
-}
-
-// invalidateMaxConnections drops the cached max_connections so the next
-// Status recomputes it. Deferred (so it runs after the operation completes,
-// not before — a Status racing the operation must not re-cache a mid-flight
-// value) by every operation that can change the effective config: InitDataDir,
-// Start, Restart, ReloadConfig, and PgRewind (which copies the source
-// cluster's postgresql.conf).
-func (s *PgCtldService) invalidateMaxConnections() {
-	s.maxConnsMu.Lock()
-	defer s.maxConnsMu.Unlock()
-	s.maxConnsGen++
-	s.maxConnsCache.Store(0)
 }
 
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
@@ -887,7 +818,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		Message:           result.Message,
 		PgbackrestStatus:  s.getPgBackRestStatus(),
 		PoolerDir:         s.poolerDir,
-		MaxConnections:    s.effectiveMaxConnections(ctx),
+		MaxConnections:    s.gucCache.get(ctx, "max_connections"),
 		PgbackrestPort:    pgbackrestPort,
 		PgbackrestCertDir: pgbackrestCertDir,
 	}, nil
@@ -907,7 +838,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
-	defer s.invalidateMaxConnections()
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
@@ -922,7 +853,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 }
 
 func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
-	defer s.invalidateMaxConnections()
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC PgRewind request",
 		"source_host", req.GetSourceHost(),
 		"source_port", req.GetSourcePort(),
