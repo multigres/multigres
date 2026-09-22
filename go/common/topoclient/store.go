@@ -75,6 +75,7 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -541,7 +542,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// We can use the GlobalReadOnlyCell for this call.
 	ci, err := ts.GetCell(ctx, cell)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.Wrapf(err, "failed to look up cell %q definition from global topology", cell)
 	}
 
 	ts.cellConnsMu.Lock()
