@@ -43,6 +43,10 @@ import (
 // the monitor should back off and retry. Returns (false, true, nil) if a backup was found
 // (created by another pooler) — the caller should restore immediately.
 func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.Context) (busy bool, backupFound bool, retErr error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return false, false, err
+	}
+
 	pm.logger.InfoContext(ctx, "creating first backup for shard", "shard", pm.getShardID())
 
 	if pm.pgctldClient == nil {
@@ -115,14 +119,15 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		// Detached so an already-expired ctx (e.g. the monitor tick's timeout)
 		// doesn't fail Stop for an unrelated reason; CarryLock preserves the
 		// action-lock ownership Detach drops, which protectedPgctldClient.Stop
-		// requires. Removing the data directory regardless of Stop's outcome is
-		// safe: Recruit/Promote (the only ways this pooler could become a real
-		// leader) need this same action lock, held until this defer returns.
+		// requires.
 		stopCtx, stopCancel := context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), 30*time.Second)
 		defer stopCancel()
 		if _, err := pm.pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
 			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)
 		}
+		// Removing the data directory regardless of Stop's outcome is safe:
+		// Recruit/Promote (the only ways this pooler could become a real
+		// leader) need this same action lock, held until this defer returns.
 		if err := pm.removeDataDirectory(); err != nil {
 			pm.logger.WarnContext(ctx, "failed to remove data directory during first backup cleanup", "error", err)
 			if retErr == nil {
