@@ -229,11 +229,18 @@ type PgCtldServiceConfig struct {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger     *slog.Logger
-	ctldConfig PgCtldServiceConfig
-	timeout    int
-	poolerDir  string
-	pgConfig   *pgctld.PostgresCtlConfig
+	logger            *slog.Logger
+	ctldConfig        PgCtldServiceConfig
+	timeout           int
+	poolerDir         string
+	pgbackrestPort    int
+	pgbackrestCertDir string
+	pgConfig          *pgctld.PostgresCtlConfig
+
+	// gucCache caches effective GUC values probed via postgres -C for
+	// Status reporting (max_connections today; see gucProbeCache for the
+	// caching, invalidation, and probe-ordering semantics).
+	gucCache *gucProbeCache
 
 	// pgBackRest management
 	ctx              context.Context
@@ -318,6 +325,10 @@ func NewPgCtldService(
 	pgConfig.Password = cfg.Password
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
+	if (pgbackrestPort > 0) != (pgbackrestCertDir != "") {
+		logger.Warn("pgBackRest is half-configured and will be disabled: --pgbackrest-port and --pgbackrest-cert-dir must be set together",
+			"pgbackrest_port", pgbackrestPort, "pgbackrest_cert_dir", pgbackrestCertDir)
+	}
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
 		configPath, err := backup.WriteServerConfig(backup.ServerConfigOpts{
 			PoolerDir:     poolerDir,
@@ -343,14 +354,17 @@ func NewPgCtldService(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &PgCtldService{
-		logger:     logger,
-		ctldConfig: cfg,
-		timeout:    timeout,
-		poolerDir:  poolerDir,
-		pgConfig:   pgConfig,
-		ctx:        ctx,
-		cancel:     cancel,
-		metrics:    metrics,
+		logger:            logger,
+		gucCache:          newGucProbeCache(logger),
+		ctldConfig:        cfg,
+		timeout:           timeout,
+		poolerDir:         poolerDir,
+		pgbackrestPort:    pgbackrestPort,
+		pgbackrestCertDir: pgbackrestCertDir,
+		pgConfig:          pgConfig,
+		ctx:               ctx,
+		cancel:            cancel,
+		metrics:           metrics,
 		pgBackRestStatus: &pb.PgBackRestStatus{
 			Running: false,
 		},
@@ -557,6 +571,7 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
@@ -674,6 +689,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
 
 	// Check if data directory is initialized
@@ -703,6 +719,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 }
 
 func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC ReloadConfig request")
 
 	// Check if data directory is initialized
@@ -725,6 +742,25 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	s.logger.DebugContext(ctx, "gRPC Status request")
 
+	// Hostname of the machine postgres runs on (postgres is colocated with
+	// pgctld). Best-effort: empty when unavailable.
+	host, _ := os.Hostname()
+
+	// pgBackRest is configured only when BOTH port and cert dir are set —
+	// NewPgCtldService generates no server config otherwise. Report the pair
+	// all-or-nothing so a half-configured pgctld cannot advertise a port it
+	// is not serving (an adopting multipooler would marry it to default cert
+	// paths and publish a nonexistent endpoint).
+	var pgbackrestPort int32
+	pgbackrestCertDir := ""
+	if s.pgbackrestPort > 0 && s.pgbackrestCertDir != "" {
+		var err error
+		if pgbackrestPort, err = intToInt32(s.pgbackrestPort); err != nil {
+			return nil, fmt.Errorf("invalid pgbackrest port: %w", err)
+		}
+		pgbackrestCertDir = s.pgbackrestCertDir
+	}
+
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
 		port, err := intToInt32(s.ctldConfig.Port)
@@ -732,11 +768,15 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			return nil, fmt.Errorf("invalid port: %w", err)
 		}
 		return &pb.StatusResponse{
-			Status:           pb.ServerStatus_NOT_INITIALIZED,
-			DataDir:          pgctld.PostgresDataDir(),
-			Port:             port,
-			Message:          "Data directory is not initialized",
-			PgbackrestStatus: s.getPgBackRestStatus(),
+			Status:            pb.ServerStatus_NOT_INITIALIZED,
+			DataDir:           pgctld.PostgresDataDir(),
+			Port:              port,
+			Host:              host,
+			Message:           "Data directory is not initialized",
+			PgbackrestStatus:  s.getPgBackRestStatus(),
+			PoolerDir:         s.poolerDir,
+			PgbackrestPort:    pgbackrestPort,
+			PgbackrestCertDir: pgbackrestCertDir,
 		}, nil
 	}
 
@@ -767,15 +807,20 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	return &pb.StatusResponse{
-		Status:           status,
-		Pid:              pid,
-		Version:          result.Version,
-		Uptime:           durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
-		DataDir:          result.DataDir,
-		Port:             port,
-		Ready:            result.Ready,
-		Message:          result.Message,
-		PgbackrestStatus: s.getPgBackRestStatus(),
+		Status:            status,
+		Pid:               pid,
+		Version:           result.Version,
+		Uptime:            durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
+		DataDir:           result.DataDir,
+		Port:              port,
+		Host:              host,
+		Ready:             result.Ready,
+		Message:           result.Message,
+		PgbackrestStatus:  s.getPgBackRestStatus(),
+		PoolerDir:         s.poolerDir,
+		MaxConnections:    s.gucCache.get(ctx, "max_connections"),
+		PgbackrestPort:    pgbackrestPort,
+		PgbackrestCertDir: pgbackrestCertDir,
 	}, nil
 }
 
@@ -793,6 +838,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
@@ -807,6 +853,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 }
 
 func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	defer s.gucCache.invalidate()
 	s.logger.InfoContext(ctx, "gRPC PgRewind request",
 		"source_host", req.GetSourceHost(),
 		"source_port", req.GetSourcePort(),

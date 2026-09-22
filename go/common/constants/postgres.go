@@ -272,3 +272,13 @@ func PostgresSocketDir(poolerDir string) string {
 func PostgresSocketFilePath(poolerDir string, pgPort int) string {
 	return filepath.Join(PostgresSocketDir(poolerDir), fmt.Sprintf(".s.PGSQL.%d", pgPort))
 }
+
+// PgBackRestCertFiles returns the fixed pgBackRest TLS material paths inside
+// a cert directory: pgbackrest.crt, pgbackrest.key, ca.crt. This is the
+// contract between pgctld's --pgbackrest-cert-dir and every consumer of the
+// material (the pgbackrest-server.conf template, the local provisioner's cert
+// generator, and the multipooler when it adopts cert paths from pgctld's
+// Status).
+func PgBackRestCertFiles(dir string) (certFile, keyFile, caFile string) {
+	return filepath.Join(dir, "pgbackrest.crt"), filepath.Join(dir, "pgbackrest.key"), filepath.Join(dir, "ca.crt")
+}

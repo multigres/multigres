@@ -361,6 +361,14 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("pgctld status: %w", err)
 	}
 
+	// Keep the pool-capacity fallback seed fresh from pgctld's conf-derived
+	// max_connections. Refreshed on every monitor tick (not just at startup)
+	// because on a fresh cluster the data dir — and therefore the value —
+	// only exists after multiorch bootstraps it, well after Init.
+	if mc := statusResp.GetMaxConnections(); mc > 0 && pm.config.ConnPoolConfig != nil {
+		pm.config.ConnPoolConfig.SetSeedMaxConnections(int64(mc))
+	}
+
 	// Check if directory is initialized
 	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)
 

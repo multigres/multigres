@@ -312,9 +312,7 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 	defer cancel()
 	pooled, err := m.adminPool.Get(queryCtx)
 	if err != nil {
-		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
-			"error", err, "global_capacity", configured)
-		return configured
+		return m.fallbackGlobalCapacity(ctx, err)
 	}
 	defer pooled.Recycle()
 	results, err := pooled.Conn.QueryWithRetry(queryCtx, globalCapacityQuery)
@@ -330,9 +328,7 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 		}
 	}
 	if err != nil {
-		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
-			"error", err, "global_capacity", configured)
-		return configured
+		return m.fallbackGlobalCapacity(ctx, err)
 	}
 	maxConns, superuserReserved, reservedConns := settings[0], settings[1], settings[2]
 	derived := deriveGlobalCapacity(maxConns, superuserReserved, reservedConns, m.config.AdminCapacity())
@@ -343,6 +339,31 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 		"reserved_connections", reservedConns,
 		"admin_capacity", m.config.AdminCapacity(),
 	)
+	return derived
+}
+
+// fallbackGlobalCapacity picks the budget when the live SQL derivation fails:
+// a pgctld-reported max_connections seed (from the conf, so it cannot see a
+// pending-restart divergence — hence never preferred over the live query)
+// beats the flag default, which matches nothing in particular. PostgreSQL's
+// default superuser_reserved_connections (3) stands in for the value the
+// query would have read; reserved_connections defaults to 0.
+func (m *Manager) fallbackGlobalCapacity(ctx context.Context, cause error) int64 {
+	configured := m.config.GlobalCapacity()
+	seed := m.config.SeedMaxConnections()
+	if seed <= 0 {
+		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
+			"error", cause, "global_capacity", configured)
+		return configured
+	}
+	// The seed cannot see the server's actual reserved-slot GUCs (PostgreSQL's
+	// default of 3 stands in), so cap the result at the configured value: the
+	// fallback fires when postgres is already unqueryable, and the seed's job
+	// is to shrink the budget on small servers, never to grow it on big ones.
+	const pgDefaultSuperuserReserved = 3
+	derived := min(deriveGlobalCapacity(seed, pgDefaultSuperuserReserved, 0, m.config.AdminCapacity()), configured)
+	m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using pgctld-reported max_connections seed",
+		"error", cause, "global_capacity", derived, "seed_max_connections", seed)
 	return derived
 }
 
