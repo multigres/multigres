@@ -226,6 +226,28 @@ func TestBuildServerTLSConfig_InvalidServerCA(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to read server CA file")
 }
 
+func TestBuildServerTLSConfigWithClientAuth_VerifyIfGiven(t *testing.T) {
+	caCert, _, cert, key := generateTestCerts(t, "server")
+
+	cfg, err := BuildServerTLSConfigWithClientAuth(cert, key, caCert, "", tls.VerifyClientCertIfGiven)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, tls.VerifyClientCertIfGiven, cfg.ClientAuth)
+	assert.NotNil(t, cfg.ClientCAs)
+}
+
+func TestBuildServerTLSConfigWithClientAuth_NoCAIgnoresClientAuthParam(t *testing.T) {
+	_, _, cert, key := generateTestCerts(t, "server")
+
+	// With no caFile, ClientAuth is never touched (stays the zero value,
+	// tls.NoClientCert) regardless of what's asked for - there's no CA pool
+	// to verify against.
+	cfg, err := BuildServerTLSConfigWithClientAuth(cert, key, "", "", tls.VerifyClientCertIfGiven)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, tls.NoClientCert, cfg.ClientAuth)
+}
+
 // --- Client TLS Config tests ---
 
 func TestBuildClientTLSConfig_NoTLS(t *testing.T) {
