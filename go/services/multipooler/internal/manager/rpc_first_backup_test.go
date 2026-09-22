@@ -133,6 +133,61 @@ func (s *successStubPgctldClient) StopRestoreCommand(context.Context, *pgctldpb.
 
 var _ pgctldpb.PgCtldClient = (*successStubPgctldClient)(nil)
 
+// stopFailsPgctldClient behaves like successStubPgctldClient but Stop always
+// fails - used to verify that a failed Stop blocks data-directory removal
+// during first-backup cleanup, rather than being logged and ignored.
+type stopFailsPgctldClient struct {
+	successStubPgctldClient
+}
+
+func (s *stopFailsPgctldClient) Stop(context.Context, *pgctldpb.StopRequest, ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: stop failed")
+}
+
+var _ pgctldpb.PgCtldClient = (*stopFailsPgctldClient)(nil)
+
+// ctxCapturingPgctldClient behaves like successStubPgctldClient but records
+// the ctx.Err() of whatever context Stop was called with, and optionally
+// calls cancelOuter (simulating the caller's own context expiring, e.g. a
+// monitor tick timeout) right after Start returns - before cleanup runs.
+type ctxCapturingPgctldClient struct {
+	successStubPgctldClient
+	cancelOuter context.CancelFunc
+	stopCtxErr  error
+}
+
+func (s *ctxCapturingPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	resp, err := s.successStubPgctldClient.Start(ctx, req, opts...)
+	if s.cancelOuter != nil {
+		s.cancelOuter()
+	}
+	return resp, err
+}
+
+func (s *ctxCapturingPgctldClient) Stop(ctx context.Context, req *pgctldpb.StopRequest, opts ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	s.stopCtxErr = ctx.Err()
+	return s.successStubPgctldClient.Stop(ctx, req, opts...)
+}
+
+var _ pgctldpb.PgCtldClient = (*ctxCapturingPgctldClient)(nil)
+
+// lockCheckingPgctldClient behaves like successStubPgctldClient but its Stop
+// independently verifies the action lock is present in ctx, mirroring
+// protectedPgctldClient.Stop's real requirement (production wraps every
+// pgctld client with it) - this is the check a context that merely looks
+// "fresh" can still fail if it doesn't carry the lock value forward.
+type lockCheckingPgctldClient struct {
+	successStubPgctldClient
+	stopLockErr error
+}
+
+func (s *lockCheckingPgctldClient) Stop(ctx context.Context, req *pgctldpb.StopRequest, opts ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	s.stopLockErr = actionlock.AssertActionLockHeld(ctx)
+	return s.successStubPgctldClient.Stop(ctx, req, opts...)
+}
+
+var _ pgctldpb.PgCtldClient = (*lockCheckingPgctldClient)(nil)
+
 // TestLoadDurabilityPolicy verifies that loadDurabilityPolicy returns the
 // bootstrap_durability_policy from the topology database record.
 func TestLoadDurabilityPolicy(t *testing.T) {
@@ -454,6 +509,192 @@ func TestCreateFirstBackupAndInitialize_StartFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to start PostgreSQL")
 	// The cleanup defer should have removed the data dir InitDataDir created.
 	assert.NoDirExists(t, dataDir, "data directory should be removed after Start failure")
+}
+
+// TestCreateFirstBackupAndInitialize_StopFailureStillRemovesDataDir verifies
+// that a failed Stop does not block data-directory removal during cleanup.
+// This is safe specifically because the whole call runs under pm.actionLock,
+// and Recruit/Promote - the only ways this pooler could become a real,
+// externally-recognized leader - both acquire that same lock first, so
+// nothing outside this call can be relying on this bootstrap postgres.
+func TestCreateFirstBackupAndInitialize_StopFailureStillRemovesDataDir(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+	// InitDataDir succeeds (creates dataDir); Start fails, triggering cleanup;
+	// Stop (called by cleanup) also fails.
+	pgctld := &stopFailsPgctldClient{successStubPgctldClient: successStubPgctldClient{
+		pgDataDir: dataDir,
+		startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
+	}}
+
+	pm := &MultipoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   actionlock.NewActionLock(),
+		pgctldClient: pgctld,
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}),
+		config: &Config{},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup.SetConfigPath(configPath)
+	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(backupCfg)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	_, _, err = pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+
+	assert.NoDirExists(t, dataDir,
+		"cleanup must still remove the data directory even when Stop fails")
+}
+
+// TestCreateFirstBackupAndInitialize_CleanupUsesFreshContextForStop is a
+// regression test: the caller's ctx may already be canceled/expired by the
+// time cleanup runs (e.g. the monitor tick's own timeout), but Stop must
+// still be given a fresh, non-canceled context so it has a fair chance at a
+// graceful shutdown rather than failing immediately for an unrelated reason.
+func TestCreateFirstBackupAndInitialize_CleanupUsesFreshContextForStop(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+	pgctld := &ctxCapturingPgctldClient{successStubPgctldClient: successStubPgctldClient{pgDataDir: dataDir}}
+
+	pm := &MultipoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   actionlock.NewActionLock(),
+		pgctldClient: pgctld,
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}),
+		config: &Config{},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup.SetConfigPath(configPath)
+	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(backupCfg)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	// actionCtx mirrors the monitor's own per-action bound (context.WithTimeout
+	// derived from lockCtx) - separate from lockCtx itself, which stays valid
+	// for Release regardless of what happens to the action's own bound.
+	actionCtx, cancelAction := context.WithCancel(lockCtx)
+	defer cancelAction()
+	pgctld.cancelOuter = cancelAction // simulates the tick's own timeout firing right after Start returns
+
+	_, _, err = pm.createFirstBackupAndInitializeLocked(actionCtx)
+	require.Error(t, err, "waitForDatabaseConnection must fail once actionCtx is canceled")
+
+	require.NoError(t, pgctld.stopCtxErr,
+		"Stop must receive a fresh context, not the already-canceled actionCtx")
+	assert.NoDirExists(t, dataDir, "cleanup must still complete even though actionCtx had expired")
+}
+
+// TestCreateFirstBackupAndInitialize_CleanupStopCarriesActionLock is a
+// regression test: production wraps every pgctld client in
+// protectedPgctldClient, whose Stop requires actionlock.AssertActionLockHeld
+// to pass. A cleanup context that merely detaches from cancellation but
+// forgets to carry the lock value forward would make every real Stop call
+// during cleanup fail with "requires action lock to be held".
+func TestCreateFirstBackupAndInitialize_CleanupStopCarriesActionLock(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+	pgctld := &lockCheckingPgctldClient{successStubPgctldClient: successStubPgctldClient{
+		pgDataDir: dataDir,
+		startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
+	}}
+
+	pm := &MultipoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   actionlock.NewActionLock(),
+		pgctldClient: pgctld,
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}),
+		config: &Config{},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup.SetConfigPath(configPath)
+	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(backupCfg)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	_, _, err = pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+
+	require.NoError(t, pgctld.stopLockErr,
+		"cleanup's Stop call must carry the action lock forward, or protectedPgctldClient.Stop would reject it in production")
 }
 
 // TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir verifies the
