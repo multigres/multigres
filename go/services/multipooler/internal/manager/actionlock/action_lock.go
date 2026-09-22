@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // actionLockKey is the context key for storing action lock information
@@ -184,7 +185,7 @@ func AssertActionLockHeld(ctx context.Context) error {
 	return nil
 }
 
-// CarryLock copies the action-lock ownership marker from src onto dst (if src
+// carryLock copies the action-lock ownership marker from src onto dst (if src
 // holds one) and returns the augmented context; it is a no-op returning dst when
 // src holds no lock.
 //
@@ -196,9 +197,23 @@ func AssertActionLockHeld(ctx context.Context) error {
 // underneath it) while running deadline-immune. The same *actionLockValue is
 // shared between the two contexts, so the caller's Release still releases the one
 // lock and AssertActionLockHeld observes the release on both.
-func CarryLock(dst, src context.Context) context.Context {
+func carryLock(dst, src context.Context) context.Context {
 	if val, ok := src.Value(actionLockKey{}).(*actionLockValue); ok {
 		return context.WithValue(dst, actionLockKey{}, val)
 	}
 	return dst
+}
+
+// Detach returns a context detached from ctx's cancellation (ctxutil.Detach)
+// but still carrying ctx's action-lock ownership (carryLock) and telemetry.
+// This is carryLock's only real use case in practice — a context detached
+// from the caller's cancellation needs a way to keep proving lock ownership —
+// so callers should reach for this rather than composing the two themselves,
+// which risks detaching without remembering to carry the lock forward too.
+//
+// Wrap the result in context.WithTimeout for a bounded, must-complete
+// operation (e.g. a destructive sequence that must survive an expired
+// caller ctx, or a finishing step that must run after one).
+func Detach(ctx context.Context) context.Context {
+	return carryLock(ctxutil.Detach(ctx), ctx)
 }

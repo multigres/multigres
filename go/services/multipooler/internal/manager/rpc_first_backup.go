@@ -28,7 +28,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -116,11 +115,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Ordering matters: only clear the sentinel after the data directory is
 	// gone, to preserve the "data dir present ⇒ sentinel present" invariant.
 	defer func() {
-		// Detached so an already-expired ctx (e.g. the monitor tick's timeout)
-		// doesn't fail Stop for an unrelated reason; CarryLock preserves the
-		// action-lock ownership Detach drops, which protectedPgctldClient.Stop
-		// requires.
-		stopCtx, stopCancel := context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), 30*time.Second)
+		// Detached (actionlock.Detach) so an already-expired ctx (e.g. the
+		// monitor tick's timeout) doesn't fail Stop for an unrelated reason,
+		// while still satisfying protectedPgctldClient.Stop's action-lock
+		// requirement.
+		stopCtx, stopCancel := context.WithTimeout(actionlock.Detach(ctx), 30*time.Second)
 		defer stopCancel()
 		if _, err := pm.pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
 			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)

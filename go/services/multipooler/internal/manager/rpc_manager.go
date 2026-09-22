@@ -36,7 +36,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // rewindOperationTimeout bounds the detached stop -> pg_rewind ->
@@ -51,13 +50,12 @@ const rewindOperationTimeout = 30 * time.Minute
 
 // detachRewindOpContext returns the context for the destructive stop -> pg_rewind
 // -> restart-as-standby sequence: detached from the caller's cancellation
-// (ctxutil.Detach) so a started rewind is not aborted when an RPC deadline fires,
-// yet still carrying the caller's action-lock ownership (actionlock.CarryLock,
-// since Detach drops context values) and telemetry, bounded by
-// rewindOperationTimeout as a backstop against a hung operation. The caller must
-// hold the action lock and must call the returned cancel func.
+// (actionlock.Detach) so a started rewind is not aborted when an RPC deadline
+// fires, bounded by rewindOperationTimeout as a backstop against a hung
+// operation. The caller must hold the action lock and must call the returned
+// cancel func.
 func (pm *MultipoolerManager) detachRewindOpContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(actionlock.CarryLock(ctxutil.Detach(ctx), ctx), rewindOperationTimeout)
+	return context.WithTimeout(actionlock.Detach(ctx), rewindOperationTimeout)
 }
 
 // broadcastHealth broadcasts the current health state to all subscribers.
@@ -1023,12 +1021,12 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// incoming SetPrimary RPC whose context carries multiorch's action budget (e.g.
 	// FixReplication's 45s), and a rewind can outlive that budget because its
 	// runtime scales with retained pg_wal. So detach the destructive sequence from
-	// the caller's cancellation — keeping the action lock (via CarryLock, since
-	// Detach drops context values) so the monitor still cannot start postgres
-	// underneath us, and preserving telemetry — under our own generous timeout. If
-	// the caller's deadline fires, its RPC returns while this sequence keeps running
-	// to a valid standby (or a definitive failure); the caller simply retries and
-	// finds the node already healed.
+	// the caller's cancellation (actionlock.Detach) — keeping the action lock so
+	// the monitor still cannot start postgres underneath us, and preserving
+	// telemetry — under our own generous timeout. If the caller's deadline
+	// fires, its RPC returns while this sequence keeps running to a valid
+	// standby (or a definitive failure); the caller simply retries and finds
+	// the node already healed.
 	opCtx, cancel := pm.detachRewindOpContext(ctx)
 	defer cancel()
 	ctx = opCtx
