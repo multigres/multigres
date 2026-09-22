@@ -26,9 +26,8 @@ import (
 )
 
 // tryUnwrapWrappedExecute detects statements of the form `EXPLAIN EXECUTE p`
-// or `CREATE [TEMP] TABLE t AS EXECUTE p` and turns them into a plan that
-// carries a SQL EXECUTE prefix/suffix template plus the gateway-managed
-// prepared statement metadata.
+// or `CREATE [TEMP] TABLE t AS EXECUTE p` and turns them into a plan that runs
+// the substituted prepared body as an ordinary query.
 //
 // Background: multigateway stores SQL-level `PREPARE p AS ...` only in the
 // gateway's consolidator keyed by the user name `p`. The backend session never
@@ -37,17 +36,15 @@ import (
 // raw StreamExecute, and the backend would reject them with `prepared statement
 // "p" does not exist`.
 //
-// The fix: the gateway deparses the statement into SQL prefix/suffix around the
-// inner ExecuteStmt.Name and attaches the PreparedStatement metadata. The
-// multipooler's StreamExecute path resolves that metadata through its own
-// pooler-level consolidator (ppstmt*) and materializes the final SQL before
-// running it — so PostgreSQL evaluates the SQL EXECUTE wrapper normally while
-// preserving prepared-statement consolidation across gateways.
+// The fix: substitute the EXECUTE arguments into the prepared body (cast to the
+// resolved parameter types) and splice the result in place of the ExecuteStmt
+// node, so `EXPLAIN EXECUTE p(5)` becomes `EXPLAIN SELECT ...`. Unlike the old
+// prefix/suffix template approach this works identically on the simple and
+// extended protocols.
 //
 // PostgreSQL grammar guarantees at most one EXECUTE reference per parsed
-// statement (ExecuteStmt is a top-level production reachable only as the
-// statement itself, as ExplainStmt.Query, or in CreateTableAsStmt.Query),
-// so a single prefix/suffix pair covers every legal wrapped shape.
+// statement (ExecuteStmt is reachable only as the statement itself, as
+// ExplainStmt.Query, or in CreateTableAsStmt.Query).
 //
 // Returns:
 //   - (plan, nil) if the statement was a wrapped EXECUTE and was rewritten;
@@ -60,14 +57,13 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 	}
 
 	// Look up the user-visible prepared statement name via the Handler
-	// interface. The handler's consolidator maps the user name to a
-	// canonical name and the associated PreparedStatementInfo.
+	// interface. The handler's consolidator maps the user name to the
+	// associated PreparedStatementInfo (carrying the resolved parameter types).
 	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), execStmt.Name)
 	if psi == nil {
 		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
 	}
 
-	preparedStatement := psi.PreparedStatement
 	var execInfo engine.PlanExecInfo
 	if executes {
 		// Re-analyzed here, not just at PREPARE time, because this statement
@@ -83,16 +79,15 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		execInfo = preparedBodyExecInfo(analysis, psi.AstStmt())
 
 		// A tracked set_config in the body is refused rather than half-handled.
-		// This route carries the body to the multipooler as an
-		// ExecuteSqlPreparedStatement, which has no channel for session-state
-		// tracking the way plain EXECUTE's PreparedStatementPrimitive does
-		// (see NewExecutePrimitive's setConfigs). Both ways of proceeding are
-		// wrong: running the body verbatim persists the change on a pooled
-		// backend, leaking it to whichever unrelated client checks out that
-		// connection next, while rewriting it to revert (what planExecuteStmt
-		// does, safely, because it *can* record the value) would make the
-		// client's set_config a silent no-op — reverted on the backend and
-		// recorded nowhere. Failing closed keeps the two forms honest: the
+		// This route runs the substituted body as an ordinary query and, unlike
+		// plain EXECUTE's PreparedStatementPrimitive (see NewExecutePrimitive's
+		// setConfigs), has no channel for session-state tracking. Both ways of
+		// proceeding are wrong: running the body verbatim persists the change on
+		// a pooled backend, leaking it to whichever unrelated client checks out
+		// that connection next, while rewriting it to revert (what
+		// planExecuteStmt does, safely, because it *can* record the value) would
+		// make the client's set_config a silent no-op — reverted on the backend
+		// and recorded nowhere. Failing closed keeps the two forms honest: the
 		// same body under a plain EXECUTE still works.
 		if len(analysis.SetConfigs) > 0 || analysis.DynamicSetConfig {
 			return nil, mterrors.NewFeatureNotSupported(
@@ -100,20 +95,17 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		}
 	}
 
-	executeSQLPreparedStatement, err := engine.BuildExecuteSQLPreparedStatement(stmt, execStmt, preparedStatement)
+	substituted, err := engine.MaterializeWrappedExecute(stmt, execStmt, psi, nil)
 	if err != nil {
 		return nil, err
 	}
-	deparsedSQL := stmt.SqlString()
+	deparsedSQL := substituted.SqlString()
 	p.logger.Debug("unwrapped wrapped EXECUTE",
 		"user_name", execStmt.Name,
-		"gateway_canonical_name", psi.Name,
 		"original", sql,
-		"deparsed", deparsedSQL,
-		"sql_prefix", executeSQLPreparedStatement.SqlPrefix,
-		"sql_suffix", executeSQLPreparedStatement.SqlSuffix)
+		"deparsed", deparsedSQL)
 
-	// Build a Route carrying the SQL EXECUTE template. ExecInfo composes two
+	// Run the substituted body as an ordinary query. ExecInfo composes two
 	// independent reservation needs, both already false when the body never
 	// runs (execInfo is the zero value, and findWrappedExecute never sets
 	// isTemp for a non-executing shape — see its own doc comment): execInfo
@@ -123,7 +115,7 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 	// need — `CREATE TEMP TABLE t AS EXECUTE p` materializes its own temp
 	// table regardless of what the body does.
 	plan := engine.NewPlan(deparsedSQL,
-		engine.NewRouteWithExecuteSQLPreparedStatement(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, executeSQLPreparedStatement))
+		engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, substituted))
 	plan.ExecInfo = execInfo
 	if isTemp {
 		plan.ExecInfo.TempTable = true

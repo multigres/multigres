@@ -420,8 +420,11 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 }
 
 // PrepareInTransaction materializes a fresh named backend statement at client
-// Parse time. The StreamExecute reservation path replays any deferred BEGIN
-// before preparing, so validation and locks belong to the client's transaction.
+// Parse time. The carrier is the StreamExecute reservation path with
+// eager_parse_prepared_statement set; the multipooler replays any deferred
+// BEGIN and then prepares the consolidated statement, so validation and locks
+// belong to the client's transaction. ForceReparse re-Parses a stale shared
+// backend statement so a fresh client Parse reflects the current catalog.
 func (e *Executor) PrepareInTransaction(
 	ctx context.Context,
 	conn *server.Conn,
@@ -429,13 +432,10 @@ func (e *Executor) PrepareInTransaction(
 	queryStr string,
 	paramTypes []uint32,
 ) error {
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{
-			Query:        queryStr,
-			ParamTypes:   paramTypes,
-			ForceReparse: true,
-		},
-		PrepareOnly: true,
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
+		Query:        queryStr,
+		ParamTypes:   paramTypes,
+		ForceReparse: true,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 
