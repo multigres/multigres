@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
@@ -158,8 +159,8 @@ const defaultRemedialActionTimeout = 30 * time.Second
 
 // longRemedialActionTimeout is the override in remedialActionTimeouts for
 // actions where truncating early has no benefit, or could leave things worse:
-//   - Restoring/bootstrapping a not-yet-serving pooler: nothing else depends
-//     on it yet, so there's no disruption risk in letting it take a while.
+//   - Demoting a stale primary: nothing else depends on this pooler's
+//     timeliness here, so there's no disruption risk in letting it take a while.
 //   - Restarting-as-standby when a rewind may be involved: the destructive
 //     stop -> pg_rewind -> restart sequence already gets its own generous
 //     backstop once it actually starts (detachRewindOpContext /
@@ -171,15 +172,23 @@ const defaultRemedialActionTimeout = 30 * time.Second
 //     so this stays generous rather than fighting the operation for time.
 const longRemedialActionTimeout = 15 * time.Minute
 
-// remedialActionTimeouts overrides defaultRemedialActionTimeout for the
-// specific actions documented under longRemedialActionTimeout above. An
-// action absent from this map gets defaultRemedialActionTimeout — the safe,
-// zero-effort default for a newly added action. See remedialActionTimeout.
+// remedialActionTimeouts overrides defaultRemedialActionTimeout for specific
+// actions. An action absent from this map gets defaultRemedialActionTimeout —
+// the safe, zero-effort default for a newly added action. See
+// remedialActionTimeout.
+//
+// Restore/first-backup use their own operation-level budgets
+// (commonbackup.RestoreTimeout/BackupTimeout) rather than
+// longRemedialActionTimeout: Backup()/Restore() apply that same duration via
+// their own context.WithTimeout, and a context's deadline can never be later
+// than its parent's, so wrapping them in a shorter, independently-chosen
+// outer bound would silently truncate their documented budget. Reusing the
+// same constant here means the two can't drift apart again.
 var remedialActionTimeouts = map[remedialAction]time.Duration{
 	remedialActionDemoteStalePrimary: longRemedialActionTimeout,
 	remedialActionRewindToLeader:     longRemedialActionTimeout,
-	remedialActionRestoreFromBackup:  longRemedialActionTimeout,
-	remedialActionCreateFirstBackup:  longRemedialActionTimeout,
+	remedialActionRestoreFromBackup:  commonbackup.RestoreTimeout,
+	remedialActionCreateFirstBackup:  commonbackup.BackupTimeout,
 }
 
 // remedialActionTimeout returns the timeout budget monitorPostgresIteration
