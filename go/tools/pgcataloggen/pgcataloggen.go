@@ -798,6 +798,21 @@ func (r *resolver) resolveCasts(entries []Entry) ([]CastRow, error) {
 	return rows, nil
 }
 
+// FormTypeSymbol ports form_pg_type_symbol - genbki.pl:1110: "foo_bar"
+// becomes FOO_BAROID and "_foo_bar" becomes FOO_BARARRAYOID. The bootstrap
+// catalog rowtypes have their own naming convention defined elsewhere and
+// get no symbol (their array types do).
+func FormTypeSymbol(typname string) string {
+	switch typname {
+	case "pg_type", "pg_proc", "pg_attribute", "pg_class":
+		return ""
+	}
+	if rest, ok := strings.CutPrefix(typname, "_"); ok {
+		return strings.ToUpper(rest) + "ARRAYOID"
+	}
+	return strings.ToUpper(typname) + "OID"
+}
+
 func parseOid(s string) (uint32, error) {
 	if s == "" {
 		return 0, errors.New("missing oid")
