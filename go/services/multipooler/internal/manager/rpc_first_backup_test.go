@@ -85,8 +85,9 @@ var _ pgctldpb.PgCtldClient = (*stubPgctldClient)(nil)
 // successStubPgctldClient is a pgctld stub that succeeds for all calls.
 // InitDataDir creates the pg_data directory to simulate what real pgctld does.
 type successStubPgctldClient struct {
-	pgDataDir string // set by test; InitDataDir creates this directory
-	startErr  error  // when set, Start returns this error (InitDataDir still succeeds)
+	pgDataDir   string // set by test; InitDataDir creates this directory
+	startErr    error  // when set, Start returns this error (InitDataDir still succeeds)
+	lastStopReq *pgctldpb.StopRequest
 }
 
 func (s *successStubPgctldClient) Start(context.Context, *pgctldpb.StartRequest, ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
@@ -96,7 +97,8 @@ func (s *successStubPgctldClient) Start(context.Context, *pgctldpb.StartRequest,
 	return &pgctldpb.StartResponse{}, nil
 }
 
-func (s *successStubPgctldClient) Stop(context.Context, *pgctldpb.StopRequest, ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+func (s *successStubPgctldClient) Stop(_ context.Context, req *pgctldpb.StopRequest, _ ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	s.lastStopReq = req
 	return &pgctldpb.StopResponse{}, nil
 }
 
@@ -434,6 +436,12 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	// The sentinel should also be cleared since data-dir cleanup succeeded.
 	assert.NoFileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile),
 		"sentinel should be removed after successful defer cleanup")
+	// Cleanup should stop postgres with Mode "immediate" rather than the
+	// escalation ladder used elsewhere: this bootstrap instance has no real
+	// client traffic to drain and its data is about to be deleted regardless,
+	// so there's nothing a graceful stop buys here worth waiting for.
+	require.NotNil(t, pgctld.lastStopReq, "cleanup must call Stop")
+	assert.Equal(t, "immediate", pgctld.lastStopReq.Mode)
 }
 
 // writeMockPgBackRestConfig writes a minimal pgbackrest.conf so that

@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -118,10 +120,14 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		// Detached (actionlock.Detach) so an already-expired ctx (e.g. the
 		// monitor tick's timeout) doesn't fail Stop for an unrelated reason,
 		// while still satisfying protectedPgctldClient.Stop's action-lock
-		// requirement.
-		stopCtx, stopCancel := context.WithTimeout(actionlock.Detach(ctx), 30*time.Second)
+		// requirement. Mode "immediate" (not the escalation ladder used
+		// elsewhere): this instance has no real client traffic to drain and
+		// its data is about to be deleted regardless, so there's nothing a
+		// graceful stop buys here that's worth waiting for.
+		const stopTimeout = 10 * time.Second
+		stopCtx, stopCancel := context.WithTimeout(actionlock.Detach(ctx), stopTimeout)
 		defer stopCancel()
-		if _, err := pm.pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
+		if _, err := pm.pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "immediate", Timeout: durationpb.New(stopTimeout)}); err != nil {
 			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)
 		}
 		// Removing the data directory regardless of Stop's outcome is safe:
