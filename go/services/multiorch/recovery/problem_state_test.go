@@ -185,6 +185,60 @@ func TestProblemTracker_Eviction_ResolvedProblemsCapped(t *testing.T) {
 	require.Len(t, tr.activeProblems(), 1, "the still-active problem must never be evicted")
 }
 
+// TestProblemTracker_Eviction_AllActiveSkipsEviction covers
+// evictProblemStatesLocked's "nothing resolved to evict" guard: without it,
+// exceeding maxTrackedProblems with only active (never-resolved) entries
+// would loop forever, since the outer loop condition never stops being true.
+func TestProblemTracker_Eviction_AllActiveSkipsEviction(t *testing.T) {
+	tr := newProblemTracker()
+
+	var problems []types.Problem
+	for i := range maxTrackedProblems + 5 {
+		p := testProblem(types.ProblemCode(fmt.Sprintf("Code%d", i)), "SomeAction")
+		p.PoolerID = testPoolerID(fmt.Sprintf("pooler-%d", i))
+		problems = append(problems, p)
+	}
+	tr.reconcile(problems)
+
+	require.Len(t, tr.allStates(), maxTrackedProblems+5,
+		"eviction must not remove active problems even over the cap")
+}
+
+// TestProblemTracker_AttemptComplete_UnknownActionIsNoop covers
+// recordAttemptComplete's "no history for this action+entity" guard.
+func TestProblemTracker_AttemptComplete_UnknownActionIsNoop(t *testing.T) {
+	tr := newProblemTracker()
+	p := testProblem("LeaderUnhealthy", "NeverStarted")
+
+	require.NotPanics(t, func() {
+		tr.recordAttemptComplete(p, time.Now(), nil)
+	})
+	_, ok := tr.actionHistoryFor("NeverStarted", p.EntityID())
+	require.False(t, ok, "completing an attempt that was never started must not create a history entry")
+}
+
+// TestProblemTracker_AttemptComplete_AlreadyCompletedIsNoop covers
+// recordAttemptComplete's "already completed" guard: a second completion
+// call for the same attempt must not overwrite the first outcome.
+func TestProblemTracker_AttemptComplete_AlreadyCompletedIsNoop(t *testing.T) {
+	tr := newProblemTracker()
+	p := testProblem("LeaderUnhealthy", "AppointLeader")
+
+	tr.recordAttemptStart(p, time.Now())
+	firstCompletion := time.Now()
+	tr.recordAttemptComplete(p, firstCompletion, errors.New("first error"))
+
+	tr.recordAttemptComplete(p, firstCompletion.Add(time.Hour), errors.New("second error"))
+
+	hist, ok := tr.actionHistoryFor("AppointLeader", p.EntityID())
+	require.True(t, ok)
+	require.Len(t, hist.RecentAttempts, 1)
+	require.True(t, hist.RecentAttempts[0].CompletedAt.Equal(firstCompletion),
+		"a second completion call must not overwrite the first")
+	require.Equal(t, "first error", hist.RecentAttempts[0].Error,
+		"a second completion call must not overwrite the first error")
+}
+
 func TestProblemTracker_Eviction_ActionHistoryCapped(t *testing.T) {
 	tr := newProblemTracker()
 

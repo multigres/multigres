@@ -15,15 +15,81 @@
 package grpcserver
 
 import (
+	"context"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
+	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
+
+// newTestEngine builds a real Engine watching exactly one database, with an
+// empty pooler cache - enough to exercise GetShardStatus's validation and
+// watch-target logic without needing cache seeding (which the recovery
+// package keeps unexported; full happy-path coverage with real problems is
+// integration-test territory, see /mt-dev integration multiorch).
+func newTestEngine(t *testing.T, watchTargets []config.WatchTarget) *recovery.Engine {
+	t.Helper()
+	ts := memorytopo.NewServer(context.Background(), "zone1")
+	t.Cleanup(func() { ts.Close() })
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
+	fakeClient := &rpcclient.FakeClient{}
+	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "test-coordinator"}
+	coordinator := consensus.NewCoordinator(coordID, ts, fakeClient, logger)
+	return recovery.NewEngine(ts, logger, cfg, watchTargets, fakeClient, coordinator)
+}
+
+func TestGetShardStatus_RequiresShardKey(t *testing.T) {
+	engine := newTestEngine(t, []config.WatchTarget{{Database: "db"}})
+	s := NewMultiorchServer(engine, nil, slog.Default())
+
+	_, err := s.GetShardStatus(t.Context(), &multiorchpb.ShardStatusRequest{})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestGetShardStatus_NotFoundForUnwatchedShard(t *testing.T) {
+	engine := newTestEngine(t, []config.WatchTarget{{Database: "other-db"}})
+	s := NewMultiorchServer(engine, nil, slog.Default())
+
+	_, err := s.GetShardStatus(t.Context(), &multiorchpb.ShardStatusRequest{
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+	})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestGetShardStatus_EmptyForWatchedShardWithNoProblems(t *testing.T) {
+	engine := newTestEngine(t, []config.WatchTarget{{Database: "db"}})
+	s := NewMultiorchServer(engine, nil, slog.Default())
+
+	resp, err := s.GetShardStatus(t.Context(), &multiorchpb.ShardStatusRequest{
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Problems)
+	require.Empty(t, resp.PoolerHealths)
+}
+
+func TestGetWatchedShards_DelegatesToEngine(t *testing.T) {
+	engine := newTestEngine(t, []config.WatchTarget{{Database: "db"}})
+	s := NewMultiorchServer(engine, nil, slog.Default())
+
+	resp, err := s.GetWatchedShards(t.Context(), &multiorchpb.GetWatchedShardsRequest{})
+	require.NoError(t, err)
+	require.Empty(t, resp.ShardKeys, "no poolers seeded, so no shards are known yet")
+}
 
 func testProblemState(resolved bool) recovery.ProblemState {
 	now := time.Now()
