@@ -954,7 +954,7 @@ var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x13multiorchdata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n" +
+	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13multiorchdata.proto\"L\n" +
 	"\x12ShardStatusRequest\x126\n" +
 	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\"\x96\x01\n" +
 	"\x13ShardStatusResponse\x126\n" +
