@@ -419,6 +419,18 @@ func (cm *ConsensusManager) ResignedLeaderAtTerm() int64 {
 	return cm.resignedLeaderAtTerm.Load()
 }
 
+// NeedsResignation reports whether this node has not yet signaled resignation
+// for currentTerm (or a higher one). resignedLeaderAtTerm only records the
+// term of the most recent resignation, not "resigned at every term up to
+// now" — comparing it to 0 (or checking it's merely nonzero) conflates "never
+// resigned" with "resigned once, long ago, at a since-superseded term," which
+// would let a stale resignation mask the need to resign again from a newer
+// leadership claim. Callers must use this instead of comparing
+// ResignedLeaderAtTerm directly against 0.
+func (cm *ConsensusManager) NeedsResignation(currentTerm int64) bool {
+	return currentTerm > 0 && cm.ResignedLeaderAtTerm() < currentTerm
+}
+
 // SetResignedLeaderAtTerm records that this node is requesting demotion as
 // primary at the given rule position. When the value changes it pushes an
 // immediate health broadcast so the coordinator can trigger an election
