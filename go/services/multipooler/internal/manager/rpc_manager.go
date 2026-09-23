@@ -658,9 +658,9 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	// to relay the replicated row.
 	if pm.replTracker != nil {
 		if writer := pm.replTracker.HeartbeatWriter(); writer != nil {
-			if lsn, tsNano, ok := writer.LastProven(); ok {
+			if lsn, ts, ok := writer.LastProven(); ok {
 				status.QuorumCommitLsn = lsn.String()
-				status.QuorumCommitTs = timestamppb.New(time.Unix(0, tsNano))
+				status.QuorumCommitTs = timestamppb.New(ts)
 			}
 		}
 	}

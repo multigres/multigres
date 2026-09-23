@@ -37,8 +37,8 @@ var (
 // provenWatermark is an (LSN, ts) pair captured pre-commit by a successful
 // write, held for one tick before being embedded in the next write's row.
 type provenWatermark struct {
-	lsn    pgutil.LSN
-	tsNano int64
+	lsn pgutil.LSN
+	ts  time.Time
 }
 
 // Writer runs on primary databases and writes heartbeats to the heartbeat
@@ -135,35 +135,35 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 // the write embedding it began. Nil (and thus a NULL row) until the second
 // successful write, e.g. right after a promotion.
 func (w *Writer) write(ctx context.Context) error {
-	tsNano := w.now().UnixNano()
+	now := w.now()
 
 	var lsnArg, provenTsArg any
 	if lastProven := w.lastProven.Load(); lastProven != nil {
 		lsnArg = lastProven.lsn.String()
-		provenTsArg = lastProven.tsNano
+		provenTsArg = lastProven.ts
 	}
 
 	result, err := w.queryService.QueryAdminArgs(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, quorum_commit_lsn, quorum_commit_ts)
-		VALUES ($1, $2, $3, $4::pg_lsn, $5)
+		VALUES ($1, $2, $3, $4::pg_lsn, $5::timestamptz)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts,
 		    quorum_commit_lsn = EXCLUDED.quorum_commit_lsn,
 		    quorum_commit_ts = EXCLUDED.quorum_commit_ts
 		RETURNING pg_current_wal_lsn()::text
-	`, w.shardID, w.poolerID, tsNano, lsnArg, provenTsArg)
+	`, w.shardID, w.poolerID, now.UnixNano(), lsnArg, provenTsArg)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
 
 	// Candidate for the NEXT write's quorum_commit_lsn/quorum_commit_ts, paired
-	// with tsNano (also captured pre-commit, above). Best-effort: on failure,
+	// with now (also captured pre-commit, above). Best-effort: on failure,
 	// keep the previous candidate and retry next tick.
 	if result != nil && len(result.StructuredRows()) > 0 {
 		if raw, rawErr := executor.GetString(result.StructuredRows()[0], 0); rawErr == nil && raw != "" {
 			if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr == nil {
-				w.lastProven.Store(&provenWatermark{lsn: lsn, tsNano: tsNano})
+				w.lastProven.Store(&provenWatermark{lsn: lsn, ts: now})
 			} else {
 				w.logger.DebugContext(ctx, "failed to parse pg_current_wal_lsn", "value", raw, "error", lsnErr)
 			}
@@ -177,12 +177,12 @@ func (w *Writer) write(ctx context.Context) error {
 // recent successful write, and whether one has been observed yet. This is
 // the leader's own first-hand view -- available even when no follower is
 // reachable to relay the replicated row.
-func (w *Writer) LastProven() (lsn pgutil.LSN, tsNano int64, have bool) {
+func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	lastProven := w.lastProven.Load()
 	if lastProven == nil {
-		return 0, 0, false
+		return 0, time.Time{}, false
 	}
-	return lastProven.lsn, lastProven.tsNano, true
+	return lastProven.lsn, lastProven.ts, true
 }
 
 // Writes returns the number of successful heartbeat writes.

@@ -162,7 +162,7 @@ func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 		leader_id TEXT NOT NULL,
 		ts BIGINT NOT NULL,
 		quorum_commit_lsn pg_lsn,
-		quorum_commit_ts BIGINT
+		quorum_commit_ts TIMESTAMPTZ
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}

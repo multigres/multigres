@@ -83,7 +83,7 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 // TestWriteQuorumCommitLSNDeferredByOneTick verifies the deferred-write
 // invariant: lastProven only ever advances to the value captured (via
 // RETURNING) by the write that just succeeded, never the write's own not-yet-
-// committed candidate. It also carries the tsNano captured on that same tick.
+// committed candidate. It also carries the ts captured on that same tick.
 func TestWriteQuorumCommitLSNDeferredByOneTick(t *testing.T) {
 	queryService := mock.NewQueryService()
 	clock := time.Now()
@@ -98,10 +98,10 @@ func TestWriteQuorumCommitLSNDeferredByOneTick(t *testing.T) {
 		[][]any{{"0/100"}},
 	))
 	require.NoError(t, tw.write(t.Context()))
-	lsn, tsNano, have := tw.LastProven()
+	lsn, ts, have := tw.LastProven()
 	require.True(t, have, "first write's RETURNING value becomes the candidate")
 	assert.Equal(t, "0/100", lsn.String())
-	assert.Equal(t, clock.UnixNano(), tsNano, "paired ts is this tick's own capture time")
+	assert.Equal(t, clock, ts, "paired ts is this tick's own capture time")
 
 	clock = clock.Add(1 * time.Second)
 	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
@@ -109,10 +109,10 @@ func TestWriteQuorumCommitLSNDeferredByOneTick(t *testing.T) {
 		[][]any{{"0/200"}},
 	))
 	require.NoError(t, tw.write(t.Context()))
-	lsn, tsNano, have = tw.LastProven()
+	lsn, ts, have = tw.LastProven()
 	require.True(t, have)
 	assert.Equal(t, "0/200", lsn.String(), "second write's own RETURNING value replaces the candidate")
-	assert.Equal(t, clock.UnixNano(), tsNano, "paired ts advances to the second tick's capture time")
+	assert.Equal(t, clock, ts, "paired ts advances to the second tick's capture time")
 }
 
 // TestWriteKeepsPreviousCandidateOnUnparsableReturning covers the best-effort

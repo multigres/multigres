@@ -33,11 +33,11 @@ func TestReaderReadHeartbeat(t *testing.T) {
 	tr := newTestReader(t, queryService, &now)
 	defer tr.Close()
 
-	quorumCommitTsNano := now.Add(-11 * time.Second).UnixNano()
+	quorumCommitTs := now.Add(-11 * time.Second)
 	// Add query result for heartbeat read
 	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts", "receive_lsn", "quorum_commit_lsn", "quorum_commit_ts"},
-		[][]any{{now.Add(-10 * time.Second).UnixNano(), "0/16E5D38", "0/16E5D00", quorumCommitTsNano}},
+		[][]any{{now.Add(-10 * time.Second).UnixNano(), "0/16E5D38", "0/16E5D00", quorumCommitTs.UTC().Format("2006-01-02 15:04:05.999999-07")}},
 	))
 
 	tr.readHeartbeat(t.Context())
@@ -61,7 +61,10 @@ func TestReaderReadHeartbeat(t *testing.T) {
 
 	commitTs, ok := tr.QuorumCommitTs()
 	require.True(t, ok, "should have observed a quorum commit ts")
-	assert.Equal(t, time.Unix(0, quorumCommitTsNano), commitTs)
+	// timestamptz round-trips through Postgres text at microsecond precision,
+	// so truncate the expected value before comparing.
+	assert.True(t, quorumCommitTs.Truncate(time.Microsecond).Equal(commitTs),
+		"expected %v, got %v", quorumCommitTs, commitTs)
 }
 
 // TestReaderTracksReceiveLSNAdvance verifies the WAL-receive progress tracking:

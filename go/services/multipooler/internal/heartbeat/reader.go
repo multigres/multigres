@@ -151,7 +151,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTsNano, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
+	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
 		r.recordError(err)
 		return
@@ -181,7 +181,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 		r.haveQuorumCommitLSN = true
 	}
 	if haveQuorumCommitTs {
-		r.quorumCommitTs = time.Unix(0, quorumCommitTsNano)
+		r.quorumCommitTs = quorumCommitTs
 		r.haveQuorumCommitTs = true
 	}
 	r.lagMu.Unlock()
@@ -204,21 +204,21 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // are written by the primary itself and ride that same replication, so their
 // advancement is a distinct "the primary is durably committing with quorum"
 // signal.
-func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTsNano int64, haveQuorumCommitTs bool, err error) {
+func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTs time.Time, haveQuorumCommitTs bool, err error) {
 	result, err := r.queryService.QueryAdminArgs(ctx,
 		"SELECT ts, pg_last_wal_receive_lsn()::text, quorum_commit_lsn::text, quorum_commit_ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
-		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
-		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
 	}
 	row := result.StructuredRows()[0]
 
 	tsNano, err = executor.GetInt64(row, 0)
 	if err != nil {
-		return 0, 0, false, 0, false, 0, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
 	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
@@ -238,17 +238,15 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 			quorumCommitLSN, haveQuorumCommitLSN = lsn, true
 		}
 	}
-	// And for quorum_commit_ts: NULL until the second successful write. Read as
-	// text first so NULL (empty) is distinguishable from a genuine 0 -- GetInt64
-	// on a NULL column silently leaves the destination at its zero value.
-	if raw, rawErr := executor.GetString(row, 3); rawErr == nil && raw != "" {
-		if ts, tsErr := strconv.ParseInt(raw, 10, 64); tsErr != nil {
-			r.logger.DebugContext(ctx, "failed to parse quorum_commit_ts", "value", raw, "error", tsErr)
-		} else {
-			quorumCommitTsNano, haveQuorumCommitTs = ts, true
-		}
+	// quorum_commit_ts is NULL until the second successful write; GetTime
+	// leaves it at its zero value (IsZero) in that case, best-effort like the
+	// LSN columns above.
+	if ts, tsErr := executor.GetTime(row, 3); tsErr != nil {
+		r.logger.DebugContext(ctx, "failed to parse quorum_commit_ts", "error", tsErr)
+	} else if !ts.IsZero() {
+		quorumCommitTs, haveQuorumCommitTs = ts, true
 	}
-	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTsNano, haveQuorumCommitTs, nil
+	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, nil
 }
 
 // LastReceiveLSNAdvance returns when pg_last_wal_receive_lsn() was last observed

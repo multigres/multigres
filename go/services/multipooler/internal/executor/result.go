@@ -251,6 +251,14 @@ func GetInt64(row *sqltypes.Row, col int) (int64, error) {
 	return getValue[int64](row, col)
 }
 
+// GetTime extracts a time.Time value from a row at the given column index.
+// A NULL column leaves the result at its zero value -- unlike GetInt64/GetString,
+// time.Time's zero value can never collide with a real timestamp, so callers can
+// check IsZero() directly instead of reading as text first.
+func GetTime(row *sqltypes.Row, col int) (time.Time, error) {
+	return getValue[time.Time](row, col)
+}
+
 // ParseFloat64 parses a string as a float64.
 // This is useful for parsing numeric values that were cast to text in SQL.
 func ParseFloat64(s string) (float64, error) {
