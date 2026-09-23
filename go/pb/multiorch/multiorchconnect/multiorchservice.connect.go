@@ -65,6 +65,9 @@ const (
 	// MultiorchServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
 	// MultiorchService's ApplyCertifiedRuleChange RPC.
 	MultiorchServiceApplyCertifiedRuleChangeProcedure = "/multiorch.MultiorchService/ApplyCertifiedRuleChange"
+	// MultiorchServiceGetWatchedShardsProcedure is the fully-qualified name of the MultiorchService's
+	// GetWatchedShards RPC.
+	MultiorchServiceGetWatchedShardsProcedure = "/multiorch.MultiorchService/GetWatchedShards"
 )
 
 // MultiorchServiceClient is a client for the multiorch.MultiorchService service.
@@ -95,6 +98,11 @@ type MultiorchServiceClient interface {
 	// leader, cohort, and durability policy, plus a cert that attests to which
 	// outgoing rule and WAL position the absent cohort members are frozen at.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
+	// GetWatchedShards returns the concrete shard keys this orch instance
+	// currently has live pooler data for (derived from its pooler cache), not
+	// its configured watch-target patterns (which may be wildcarded, e.g. a
+	// whole database).
+	GetWatchedShards(context.Context, *connect.Request[multiorch.GetWatchedShardsRequest]) (*connect.Response[multiorch.GetWatchedShardsResponse], error)
 }
 
 // NewMultiorchServiceClient constructs a client for the multiorch.MultiorchService service. By
@@ -144,6 +152,12 @@ func NewMultiorchServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(multiorchServiceMethods.ByName("ApplyCertifiedRuleChange")),
 			connect.WithClientOptions(opts...),
 		),
+		getWatchedShards: connect.NewClient[multiorch.GetWatchedShardsRequest, multiorch.GetWatchedShardsResponse](
+			httpClient,
+			baseURL+MultiorchServiceGetWatchedShardsProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("GetWatchedShards")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -155,6 +169,7 @@ type multiorchServiceClient struct {
 	getRecoveryStatus        *connect.Client[multiorch.GetRecoveryStatusRequest, multiorch.GetRecoveryStatusResponse]
 	triggerRecoveryNow       *connect.Client[multiorch.TriggerRecoveryNowRequest, multiorch.TriggerRecoveryNowResponse]
 	applyCertifiedRuleChange *connect.Client[multiorch.ApplyCertifiedRuleChangeRequest, multiorch.ApplyCertifiedRuleChangeResponse]
+	getWatchedShards         *connect.Client[multiorch.GetWatchedShardsRequest, multiorch.GetWatchedShardsResponse]
 }
 
 // GetShardStatus calls multiorch.MultiorchService.GetShardStatus.
@@ -187,6 +202,11 @@ func (c *multiorchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, r
 	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
+// GetWatchedShards calls multiorch.MultiorchService.GetWatchedShards.
+func (c *multiorchServiceClient) GetWatchedShards(ctx context.Context, req *connect.Request[multiorch.GetWatchedShardsRequest]) (*connect.Response[multiorch.GetWatchedShardsResponse], error) {
+	return c.getWatchedShards.CallUnary(ctx, req)
+}
+
 // MultiorchServiceHandler is an implementation of the multiorch.MultiorchService service.
 type MultiorchServiceHandler interface {
 	// GetShardStatus returns diagnostic information for a specific shard
@@ -215,6 +235,11 @@ type MultiorchServiceHandler interface {
 	// leader, cohort, and durability policy, plus a cert that attests to which
 	// outgoing rule and WAL position the absent cohort members are frozen at.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
+	// GetWatchedShards returns the concrete shard keys this orch instance
+	// currently has live pooler data for (derived from its pooler cache), not
+	// its configured watch-target patterns (which may be wildcarded, e.g. a
+	// whole database).
+	GetWatchedShards(context.Context, *connect.Request[multiorch.GetWatchedShardsRequest]) (*connect.Response[multiorch.GetWatchedShardsResponse], error)
 }
 
 // NewMultiorchServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -260,6 +285,12 @@ func NewMultiorchServiceHandler(svc MultiorchServiceHandler, opts ...connect.Han
 		connect.WithSchema(multiorchServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiorchServiceGetWatchedShardsHandler := connect.NewUnaryHandler(
+		MultiorchServiceGetWatchedShardsProcedure,
+		svc.GetWatchedShards,
+		connect.WithSchema(multiorchServiceMethods.ByName("GetWatchedShards")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiorch.MultiorchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiorchServiceGetShardStatusProcedure:
@@ -274,6 +305,8 @@ func NewMultiorchServiceHandler(svc MultiorchServiceHandler, opts ...connect.Han
 			multiorchServiceTriggerRecoveryNowHandler.ServeHTTP(w, r)
 		case MultiorchServiceApplyCertifiedRuleChangeProcedure:
 			multiorchServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
+		case MultiorchServiceGetWatchedShardsProcedure:
+			multiorchServiceGetWatchedShardsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -305,4 +338,8 @@ func (UnimplementedMultiorchServiceHandler) TriggerRecoveryNow(context.Context, 
 
 func (UnimplementedMultiorchServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.ApplyCertifiedRuleChange is not implemented"))
+}
+
+func (UnimplementedMultiorchServiceHandler) GetWatchedShards(context.Context, *connect.Request[multiorch.GetWatchedShardsRequest]) (*connect.Response[multiorch.GetWatchedShardsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.GetWatchedShards is not implemented"))
 }

@@ -79,7 +79,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	re.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Update detected problems metric
-	re.updateDetectedProblems(problems)
+	re.reconcileProblemStates(problems)
 
 	if len(problems) == 0 {
 		return // no problems detected
@@ -366,9 +366,11 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	defer cancel()
 
 	startTime := time.Now()
+	re.problems.recordAttemptStart(problem, startTime)
 
 	err = problem.RecoveryAction.Execute(ctx, *rechecked)
 	durationMs := float64(time.Since(startTime).Milliseconds())
+	re.problems.recordAttemptComplete(problem, time.Now(), err)
 
 	if err != nil {
 		span.SetAttributes(attribute.String("result", "action_failed"))
