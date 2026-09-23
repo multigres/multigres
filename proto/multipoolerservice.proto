@@ -21,8 +21,8 @@ syntax = "proto3";
 package multipoolerservice;
 
 import "clustermetadata.proto";
-import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
+import "google/rpc/status.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -178,16 +178,9 @@ message ExecuteStreamRequest {
 message ExecuteStreamResponse {
   bool ready = 1;
   StreamExecuteResponse response = 2;
-  // Terminal frame for this operation. Status includes PostgreSQL diagnostics.
-  ExecuteStreamCompletion completion = 3;
-}
-
-// Wire-equivalent status fields preserve gRPC error details without importing
-// another service's status schema into the vendored proto tree.
-message ExecuteStreamCompletion {
-  int32 code = 1;
-  string message = 2;
-  repeated google.protobuf.Any details = 3;
+  // Terminal frame for this operation: the operation's gRPC status, including
+  // PostgreSQL diagnostics in details. Code OK means the operation succeeded.
+  google.rpc.Status completion = 3;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results

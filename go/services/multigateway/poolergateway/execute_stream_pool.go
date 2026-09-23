@@ -1,7 +1,18 @@
 // Copyright 2026 Supabase, Inc.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-package queryrpc
+package poolergateway
 
 import (
 	"context"
@@ -11,12 +22,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/queryrpc"
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
@@ -27,50 +38,50 @@ const (
 	maxStreamRequests = 1024
 )
 
-// Pool retains only idle transport streams, never PostgreSQL connections.
+// streamPool retains only idle transport streams, never PostgreSQL connections.
 // Each lease is exclusive; reservations and callers remain request fields.
-type Pool struct {
+type streamPool struct {
 	client      pb.MultipoolerServiceClient
 	ctx         context.Context
 	cancel      context.CancelFunc
-	m           *poolMetrics
+	m           *streamPoolMetrics
 	mu          sync.Mutex
-	idle        []*lease
+	idle        []*streamLease
 	closed      bool
 	unsupported atomic.Bool
 }
 
-type lease struct {
+type streamLease struct {
 	stream   pb.MultipoolerService_ExecuteStreamClient
 	cancel   context.CancelFunc
 	timer    *time.Timer
 	requests uint32
 }
 
-// StateConn is the connectivity view of the *grpc.ClientConn carrying the
+// streamStateConn is the connectivity view of the *grpc.ClientConn carrying the
 // streams. An idle stream whose transport has died is indistinguishable from a
 // healthy one until Send fails, and a failed Send is a post-submission error
 // that must not be retried. Dropping idle streams as soon as the connection
 // leaves READY keeps that window to the state-notification latency so the
 // next operation opens a fresh stream and, if the peer is still down, takes
 // the retryable pre-execution failure path instead.
-type StateConn interface {
+type streamStateConn interface {
 	GetState() connectivity.State
 	WaitForStateChange(context.Context, connectivity.State) bool
 }
 
-func NewPool(client pb.MultipoolerServiceClient, conn StateConn) *Pool {
+func newStreamPool(client pb.MultipoolerServiceClient, conn streamStateConn) *streamPool {
 	// The transport has an explicit Close lifecycle and must not inherit any
 	// caller's values, credentials, deadline or cancellation after lease return.
 	ctx, cancel := context.WithCancel(context.Background()) //nolint:gocritic // pool-owned lifecycle, not a detached request
-	p := &Pool{client: client, ctx: ctx, cancel: cancel, m: metrics()}
+	p := &streamPool{client: client, ctx: ctx, cancel: cancel, m: streamMetrics()}
 	if conn != nil {
 		go p.watch(conn)
 	}
 	return p
 }
 
-func (p *Pool) watch(conn StateConn) {
+func (p *streamPool) watch(conn streamStateConn) {
 	for {
 		s := conn.GetState()
 		if s != connectivity.Ready {
@@ -83,7 +94,7 @@ func (p *Pool) watch(conn StateConn) {
 }
 
 // Close cancels active and idle streams, including queries awaiting responses.
-func (p *Pool) Close() {
+func (p *streamPool) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
@@ -94,13 +105,13 @@ func (p *Pool) Close() {
 	p.cancel()
 }
 
-func (p *Pool) dropAllIdle(reason string) {
+func (p *streamPool) dropAllIdle(reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.dropAllIdleLocked(reason)
 }
 
-func (p *Pool) dropAllIdleLocked(reason string) {
+func (p *streamPool) dropAllIdleLocked(reason string) {
 	for _, l := range p.idle {
 		// A timer whose callback already started will not find l in p.idle
 		// and does nothing, so the discard is always ours.
@@ -111,13 +122,13 @@ func (p *Pool) dropAllIdleLocked(reason string) {
 }
 
 // dropIdle cancels an idle lease. Caller holds p.mu and removes l from p.idle.
-func (p *Pool) dropIdle(l *lease, reason string) {
+func (p *streamPool) dropIdle(l *streamLease, reason string) {
 	l.cancel()
 	p.m.idle.Add(p.ctx, -1)
 	p.m.discards.Add(p.ctx, 1, discardAttr[reason])
 }
 
-func (p *Pool) take() *lease {
+func (p *streamPool) take() *streamLease {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for len(p.idle) > 0 {
@@ -140,7 +151,7 @@ func (p *Pool) take() *lease {
 	return nil
 }
 
-func (p *Pool) put(l *lease) {
+func (p *streamPool) put(l *streamLease) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// Periodic retirement bounds the lifetime of enclosing RPC state. Never
@@ -186,18 +197,18 @@ func (p *Pool) put(l *lease) {
 	p.m.idle.Add(p.ctx, 1)
 }
 
-// Responses exposes the same receive contract as the old server-streaming RPC.
+// streamResponses exposes the same receive contract as the old server-streaming RPC.
 // A completion frame is translated to EOF or its original gRPC status/details.
-type Responses struct {
-	lease    *lease
+type streamResponses struct {
+	lease    *streamLease
 	done     bool
 	stop     func() bool
-	pool     *Pool
+	pool     *streamPool
 	ctx      context.Context
 	released bool
 }
 
-func (r *Responses) Recv() (*pb.StreamExecuteResponse, error) {
+func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
 	if r.done || r.released {
 		return nil, io.EOF
 	}
@@ -212,14 +223,14 @@ func (r *Responses) Recv() (*pb.StreamExecuteResponse, error) {
 		return f.Response, nil
 	}
 	r.done = true
-	if c := f.Completion; c.Code != int32(codes.OK) {
-		return nil, status.FromProto(&statuspb.Status{Code: c.Code, Message: c.Message, Details: c.Details}).Err()
+	if c := f.Completion; c.GetCode() != int32(codes.OK) {
+		return nil, status.FromProto(c).Err()
 	}
 	return nil, io.EOF
 }
 
 // Release must run after the final callback, even on callback/transport error.
-func (r *Responses) Release() {
+func (r *streamResponses) Release() {
 	if r.released {
 		return
 	}
@@ -244,7 +255,7 @@ func (r *Responses) Release() {
 // Open returns used=false only when falling back is provably safe: no SQL was
 // sent. The caller must NOT retry a returned error after used=true. In
 // particular, even Send returning EOF is ambiguous and cannot be replayed.
-func (p *Pool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*Responses, bool, error) {
+func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*streamResponses, bool, error) {
 	if p.unsupported.Load() {
 		p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
 		return nil, false, nil
@@ -255,7 +266,7 @@ func (p *Pool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*Respons
 		p.m.operations.Add(p.ctx, 1, attrLegacyMetadata)
 		return nil, false, nil
 	}
-	carrier, ok := Propagation(ctx)
+	carrier, ok := queryrpc.Propagation(ctx)
 	if !ok {
 		p.m.operations.Add(p.ctx, 1, attrLegacyPropagation)
 		return nil, false, nil
@@ -296,14 +307,14 @@ func (p *Pool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*Respons
 			// No SQL has been sent, but leave classification to the caller.
 			return nil, false, err
 		}
-		l = &lease{stream: stream, cancel: cancel}
+		l = &streamLease{stream: stream, cancel: cancel}
 	} else {
 		stop = context.AfterFunc(ctx, l.cancel)
 	}
 	l.requests++
 	p.m.operations.Add(p.ctx, 1, transport)
 	p.m.active.Add(p.ctx, 1)
-	r := &Responses{lease: l, stop: stop, pool: p, ctx: ctx}
+	r := &streamResponses{lease: l, stop: stop, pool: p, ctx: ctx}
 	if err := l.stream.Send(requestFrame(ctx, req, carrier)); err != nil {
 		r.Release()
 		return nil, true, incompleteOperation(err)

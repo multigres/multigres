@@ -26,7 +26,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/common/queryrpc"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -41,7 +40,7 @@ import (
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
 // This is a private implementation used internally by PoolerGateway.
 type grpcQueryService struct {
-	executeStreams *queryrpc.Pool
+	executeStreams *streamPool
 	// conn is the gRPC connection to the multipooler
 	conn *grpc.ClientConn
 
@@ -70,9 +69,9 @@ func newGRPCQueryService(
 	reuseQueryStreams bool,
 ) queryservice.QueryService {
 	client := multipoolerservice.NewMultipoolerServiceClient(conn)
-	var streams *queryrpc.Pool
+	var streams *streamPool
 	if reuseQueryStreams {
-		streams = queryrpc.NewPool(client, conn)
+		streams = newStreamPool(client, conn)
 	}
 	return &grpcQueryService{
 		executeStreams: streams,

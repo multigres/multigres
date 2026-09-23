@@ -1,8 +1,22 @@
 // Copyright 2026 Supabase, Inc.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-// Package queryrpc implements the sequential, reusable SQL RPC transport.
-// It does not own database sessions or reserved connections.
+// Package queryrpc holds the wire contract of the reusable ExecuteStream SQL
+// transport shared by multigateway (client pool, see poolergateway) and
+// multipooler (server loop below): frame validation, propagation rules and the
+// server-side adaptation onto the ordinary StreamExecute handler. It does not
+// own database sessions or reserved connections.
 package queryrpc
 
 import (
@@ -15,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -28,10 +43,12 @@ import (
 func Propagation(ctx context.Context) (map[string]string, bool) {
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	return carrier, validPropagation(carrier)
+	return carrier, ValidPropagation(carrier)
 }
 
-func validPropagation(carrier map[string]string) bool {
+// ValidPropagation reports whether a propagation carrier holds only the
+// standard trace/baggage keys within the size the server accepts.
+func ValidPropagation(carrier map[string]string) bool {
 	size := 0
 	for k, v := range carrier {
 		switch k {
@@ -66,7 +83,7 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, execute func(*pb.St
 		if err != nil {
 			return err
 		}
-		if req.GetRequest() == nil || req.TimeoutNanos < 0 || !validPropagation(req.GetPropagation()) {
+		if req.GetRequest() == nil || req.TimeoutNanos < 0 || !ValidPropagation(req.GetPropagation()) {
 			return status.Error(codes.InvalidArgument, "invalid execute stream request")
 		}
 		// The enclosing RPC has no SQL session identity. Reconstruct each
@@ -86,10 +103,11 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, execute func(*pb.St
 		if adapter.sendErr != nil {
 			return adapter.sendErr
 		}
-		s := status.Convert(err).Proto()
-		completion := &pb.ExecuteStreamCompletion{}
-		if s != nil {
-			completion.Code, completion.Message, completion.Details = s.Code, s.Message, s.Details
+		// status.Convert(nil) yields a nil *Status, so build the OK frame
+		// explicitly: success must be an explicit completion too.
+		completion := status.Convert(err).Proto()
+		if completion == nil {
+			completion = &statuspb.Status{Code: int32(codes.OK)}
 		}
 		if err := stream.Send(&pb.ExecuteStreamResponse{Completion: completion}); err != nil {
 			return err
