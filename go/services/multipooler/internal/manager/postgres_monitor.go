@@ -790,7 +790,8 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// postgres) from promote (newly elected). Embedding the leader host/port in the
 	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
 	if role == commonconsensus.ConsensusRoleLeader && !state.pgMode.OutOfRecovery() {
-		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
+		currentTerm := commonconsensus.PossiblyUndecidedRule(pm.highestKnownPosition()).GetRuleNumber().GetCoordinatorTerm()
+		if pm.consensusMgr.NeedsResignation(currentTerm) {
 			return remedialActionResignLeadership
 		}
 		return remedialActionNone
@@ -1115,7 +1116,8 @@ func (pm *MultipoolerManager) shouldMarkRewindReady(state postgresState, role co
 	if !state.rewindSourceReady || role != commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if pm.consensusMgr.ResignedLeaderAtTerm() != 0 {
+	currentTerm := commonconsensus.PossiblyUndecidedRule(pm.highestKnownPosition()).GetRuleNumber().GetCoordinatorTerm()
+	if !pm.consensusMgr.NeedsResignation(currentTerm) {
 		return false
 	}
 	return !pm.consensusMgr.GetReplicationPrimary().GetRewindReady()

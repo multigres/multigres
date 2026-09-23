@@ -590,8 +590,14 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// The hook above clears resignation optimistically before promotion is
 	// confirmed, to shrink the window where other coordinators still see this
 	// node as needing replacement. If promotion then fails, re-establish it
-	// here — otherwise this node is stuck silently unpromoted and no longer
-	// signaling for replacement either.
+	// here — at beforeStatus's term (this node's own unchanged rule-store
+	// position; the failed write never landed), not the term this promote
+	// attempt was for. multiorch's LeaderNeedsReplacement correlates this
+	// signal against this same pooler's self-reported CurrentPosition term,
+	// so reporting the attempted (unwritten) term would desync from what
+	// multiorch reads and the signal would never match — otherwise this node
+	// is stuck silently unpromoted and no longer signaling for replacement
+	// either.
 	defer func() {
 		if err != nil {
 			if resignErr := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, beforeStatus.GetCurrentPosition().GetPosition()); resignErr != nil {

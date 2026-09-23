@@ -37,6 +37,37 @@ func actionLockCtx(t *testing.T) context.Context {
 	return ctx
 }
 
+func TestNeedsResignation(t *testing.T) {
+	tests := []struct {
+		name               string
+		resignedLeaderTerm int64
+		currentTerm        int64
+		want               bool
+	}{
+		{name: "never resigned", resignedLeaderTerm: 0, currentTerm: 5, want: true},
+		{name: "resigned at exactly the current term", resignedLeaderTerm: 5, currentTerm: 5, want: false},
+		{name: "resigned at a higher term already", resignedLeaderTerm: 8, currentTerm: 5, want: false},
+		{
+			// The core bug this guards against: a resignation from an earlier,
+			// already-superseded term must not mask the need to resign again
+			// from a fresh, higher leadership claim.
+			name:               "stale resignation from a lower term does not mask a new claim",
+			resignedLeaderTerm: 5, currentTerm: 8, want: true,
+		},
+		{name: "no known current term", resignedLeaderTerm: 0, currentTerm: 0, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := NewManagerForTesting(t, nil, nil, nil, nil)
+			ctx := actionLockCtx(t)
+			require.NoError(t, cm.SetResignedLeaderAtTerm(ctx, &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: tt.resignedLeaderTerm}},
+			}))
+			assert.Equal(t, tt.want, cm.NeedsResignation(tt.currentTerm))
+		})
+	}
+}
+
 func ruleAt(term, subterm int64) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{

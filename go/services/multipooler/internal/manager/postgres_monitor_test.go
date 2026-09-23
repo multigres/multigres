@@ -261,6 +261,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
 	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
 	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	selfAddr := &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}
 
 	// selfPos builds a cached position whose rule names the given leader at the
 	// given term.
@@ -381,6 +382,26 @@ func TestDetermineRemedialAction(t *testing.T) {
 			cachedPos:          selfPos(5, selfID),
 			resignedLeaderTerm: 5,
 			expectedAction:     remedialActionNone,
+		},
+		{
+			// A stale resignation from an earlier term must not mask a fresh one:
+			// ReplicationPrimary now claims a higher term naming self leader (e.g.
+			// a later promote attempt's RecordTermPrimary succeeded before the
+			// rule write itself failed), postgres never left recovery, but
+			// resignedLeaderTerm is still the term of an earlier, already-superseded
+			// resignation. The monitor must resign again for the new term, not
+			// treat "resigned at some term" as "resigned at this term."
+			name: "stale_resignation_does_not_mask_higher_leader_claim",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				pgMode:          pgmode.InRecovery,
+			},
+			poolerType:         clustermetadatapb.PoolerType_PRIMARY,
+			cachedPos:          selfPos(5, selfID),
+			seedPrimary:        recordedPrimary(8, selfID, selfAddr),
+			resignedLeaderTerm: 5,
+			expectedAction:     remedialActionResignLeadership,
 		},
 		{
 			// Rule names us leader but postgres is a standby and the label still
@@ -870,13 +891,17 @@ func TestShouldMarkRewindReady(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
 	// newMgr builds a manager whose consensus state controls the two inputs
 	// shouldMarkRewindReady reads beyond (rewindSourceReady, role): the resigned
-	// term and the recorded ReplicationPrimary's rewind-ready flag.
+	// term and the recorded ReplicationPrimary's rewind-ready flag. A rule-store
+	// position is seeded (rule-number unset) so CachedConsensusStatus isn't nil
+	// and rp's term surfaces via HighestKnownRule, matching how this is only
+	// ever reached in production once a real position is known.
 	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultipoolerManager {
 		return newTestManager(
 			t,
 			withServiceID(selfID),
 			withResignedLeaderAtTerm(resignedTerm),
 			withReplicationPrimary(rp),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{}}}),
 		)
 	}
 	rewindReadyState := postgresState{rewindSourceReady: true}
@@ -888,7 +913,11 @@ func TestShouldMarkRewindReady(t *testing.T) {
 		assert.False(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleFollower))
 	})
 	t.Run("leadership resigned", func(t *testing.T) {
-		assert.False(t, newMgr(5, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+		// Resigned at exactly the term this pooler is currently the leader of.
+		rp := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}}},
+		}
+		assert.False(t, newMgr(5, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
 	})
 	t.Run("already advertised as rewind-ready", func(t *testing.T) {
 		// RecordTermPrimary only records an rp that carries a rule, so give it one.
@@ -899,7 +928,10 @@ func TestShouldMarkRewindReady(t *testing.T) {
 		assert.False(t, newMgr(0, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
 	})
 	t.Run("leader, checkpointed, not yet advertised", func(t *testing.T) {
-		assert.True(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+		rp := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
+		}
+		assert.True(t, newMgr(0, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
 	})
 }
 
