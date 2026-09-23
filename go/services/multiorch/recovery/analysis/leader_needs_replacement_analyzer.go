@@ -415,6 +415,13 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// primary is promoted. Placed before both healthy verdicts to guard the whole
 	// live-leader path. (PROMOTING is handled upstream by inPromotionGrace; transient
 	// non-ready states are handled by the anti-flap timeout — see leaderInRecovery.)
+	//
+	// TODO: this is a tactical guard. We are not yet verifying that the leader is
+	// non-revoked on the highest-known coordinator term, so this protects against a
+	// Promote() RPC that was never received. The durable fix is on the pooler side: a
+	// pooler that knows it should be acting as leader would detect in its postgres
+	// monitor that it is in recovery mode and publish that it needs to resign
+	// leadership — replace this guard once that lands.
 	if leaderLive && leaderInRecovery(sa) {
 		return types.ProblemLeaderUnhealthy,
 			fmt.Sprintf("Leader for shard %s is reachable but its postgres is in recovery (not a primary)", sa.ShardKey), false
