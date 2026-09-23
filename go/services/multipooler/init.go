@@ -41,13 +41,23 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// defaultPostgresUnrecoverableTimeout defaults the unrecoverable-postgres
-// classifier to OFF (0). Quarantining a pooler disables its restarts and marks
-// it cohort-INELIGIBLE, so it is only safe to enable once an actor exists to
-// replace the node (the operator-side Layer 2 remediation). Until then the
-// operator's manifests opt in explicitly (a good value is ~5m of continuous
-// FATAL-looping — long enough that transient faults self-heal first).
-const defaultPostgresUnrecoverableTimeout time.Duration = 0
+// defaultPostgresUnrecoverableTimeout enables the unrecoverable-postgres
+// classifier by default with a 5m budget: postgres must fail to
+// start/rewind/restore continuously for this long (and across at least
+// defaultPostgresUnrecoverableMinAttempts attempts) before the pooler
+// quarantines itself for replacement. 5m is long enough that transient faults
+// self-heal first, but short enough that a genuinely unrecoverable node (e.g. a
+// diverged standby left with an invalid checkpoint that PANICs on every start)
+// stops FATAL-looping and signals for replacement instead of silently running
+// the shard one member short of durability.
+//
+// Quarantining disables the node's restarts and marks it cohort-INELIGIBLE, so
+// it is only fully resolved where an actor provisions a replacement (the
+// operator-side Layer 2 remediation). A deployment without such an actor still
+// benefits — the node stops looping and raises a clear terminal signal — but the
+// shard sits short until a human re-seeds it; such deployments can opt out by
+// setting --postgres-unrecoverable-timeout=0.
+const defaultPostgresUnrecoverableTimeout = 5 * time.Minute
 
 // Bounds for --postgres-unrecoverable-min-attempts: must be at least 2 (a floor
 // of 1 would defeat its purpose) and less than 10 (the timeout is the real gate;
@@ -279,7 +289,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
-	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement (e.g. 5m). 0 (default) disables it; enable only where an actor replaces quarantined nodes.")
+	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement. Default 5m; set 0 to disable (do so where no actor replaces quarantined nodes).")
 	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
 	flags.Bool("enable-slot-based-replication", mp.slotBasedReplicationEnabled.Default(), "Enable slot-based physical replication (per-follower physical replication slots, primary_slot_name, synchronized_standby_slots) for logical-slot failover. Dynamic (runtime-toggleable); default off keeps the slot-less posture.")
 

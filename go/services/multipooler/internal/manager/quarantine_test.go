@@ -211,6 +211,41 @@ func TestMonitor_StartFatalLoopQuarantines_NoSentinel(t *testing.T) {
 	assert.True(t, pm.postgresRestartsDisabled.Load(), "restarts should be disabled after quarantine")
 }
 
+// TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled is the mirror of
+// TestMonitor_StartFatalLoopQuarantines_NoSentinel: with the classifier disabled
+// (--postgres-unrecoverable-timeout=0), the same unstartable data dir must keep
+// retrying forever and never quarantine. This preserves the pre-classifier
+// behavior for deployments that opt out — e.g. those without a Layer-2
+// replacement actor, where quarantining would strand the node with no replacement.
+func TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled(t *testing.T) {
+	pm, clock := newQuarantineTestManager(t, 0) // 0 => classifier disabled
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
+		startError:     errors.New("could not locate a valid checkpoint record at 0/4D000028"),
+	}
+
+	withLock(t, pm, func(ctx context.Context) {
+		// Far more attempts and elapsed time than any enabled budget would tolerate.
+		for range 50 {
+			state, err := pm.discoverPostgresState(ctx)
+			require.NoError(t, err)
+			action := pm.determineRemedialAction(ctx, state)
+			require.Equal(t, remedialActionStartPostgres, action)
+			actionErr := pm.takeRemedialAction(ctx, action, state)
+			pm.trackRecoveryOutcome(ctx, action, state, actionErr)
+			clock.advance(time.Minute)
+		}
+	})
+
+	quarantined, _, _ := quarantineState(pm)
+	assert.False(t, quarantined,
+		"a disabled classifier (timeout 0) must never quarantine, even after prolonged FATAL-looping")
+	assert.False(t, pm.postgresRestartsDisabled.Load(),
+		"restarts must stay enabled while the classifier is disabled")
+	assert.Equal(t, 0, pm.unrecoverableFailedAttempts,
+		"a disabled classifier must not even accrue the failure streak")
+}
+
 func TestTrackRecoveryOutcome_TimeoutGateHolds(t *testing.T) {
 	// Many attempts but the timeout never elapses: must not quarantine.
 	pm, clock := newQuarantineTestManager(t, time.Hour)
