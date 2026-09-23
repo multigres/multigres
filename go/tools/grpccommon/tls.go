@@ -32,6 +32,13 @@ import (
 // When serverCAFile is provided, the intermediate CA certificate is appended
 // to the server's certificate chain so clients receive the full chain.
 func BuildServerTLSConfig(certFile, keyFile, caFile, serverCAFile string) (*tls.Config, error) {
+	return BuildServerTLSConfigWithClientAuth(certFile, keyFile, caFile, serverCAFile, tls.RequireAndVerifyClientCert)
+}
+
+// BuildServerTLSConfigWithClientAuth is BuildServerTLSConfig with the
+// client-auth mode (applied only when caFile is set) as a parameter, for
+// listeners shared with callers that cannot present a client certificate.
+func BuildServerTLSConfigWithClientAuth(certFile, keyFile, caFile, serverCAFile string, clientAuth tls.ClientAuthType) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		// Reject ca/serverCA-only configurations: a user that set them
 		// likely intended TLS/mTLS and would otherwise silently get plaintext.
@@ -97,7 +104,7 @@ func BuildServerTLSConfig(certFile, keyFile, caFile, serverCAFile string) (*tls.
 			return nil, errors.New("failed to parse CA certificate")
 		}
 		tlsConfig.ClientCAs = caPool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		tlsConfig.ClientAuth = clientAuth
 	}
 
 	return tlsConfig, nil

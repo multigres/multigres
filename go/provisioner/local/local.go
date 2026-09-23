@@ -553,6 +553,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	if err := multigatewayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
+	// TODO: multigatewayCmd is never Wait()'d, so can become a zombie that
+	// appears to be running when it's not. Spawning a background Wait() here would help
+	// (should be safe, no Stdout/Stderr pipes).
 
 	// Validate process is running
 	if err := p.validateProcessRunning(multigatewayCmd.Process.Pid); err != nil {
@@ -807,18 +810,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		logLevel = level
 	}
 
-	// Get pooler directory
-	poolerDir := ""
-	if val, ok := multipoolerConfig["pooler_dir"].(string); ok && val != "" {
-		poolerDir = val
-	}
-
-	// Get PostgreSQL port from config or use default
-	pgPort := ports.DefaultLocalPostgresPort
-	if port, ok := multipoolerConfig["pg_port"].(int); ok && port > 0 {
-		pgPort = port
-	}
-
 	// Get gRPC socket file if configured
 	socketFile, err := getGRPCSocketFile(multipoolerConfig)
 	if err != nil {
@@ -854,9 +845,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("failed to provision pgctld for multipooler: %w", err)
 	}
 
-	// Construct the PostgreSQL socket file path: <poolerDir>/pg_sockets/.s.PGSQL.<port>
-	pgSocketFile := filepath.Join(poolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
-
 	// Build command arguments with pgctld-addr
 	args := []string{
 		"--http-port", strconv.Itoa(httpPort),
@@ -871,10 +859,10 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
 		"--log-output", logFile,
-		"--pooler-dir", poolerDir,
-		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
+		// No --pooler-dir or --pg-port: the multipooler adopts both from
+		// pgctld's Status RPC. No --socket-file either: it derives the
+		// postgres Unix socket path (for trust auth) from the adopted values.
 	}
 
 	// Add socket file if configured
@@ -885,23 +873,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// Get pgbackrest port from pgctld config (pgbackrest is now managed by pgctld)
-	pgctldConfig, err := p.getCellServiceConfig(cell, constants.ServicePgctld)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
-	}
-	pgbackrestPort := ports.DefaultPgbackRestPort
-	if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
-		pgbackrestPort = port
-	}
-
-	// Add pgbackrest TLS certificate paths and port
-	args = append(args,
-		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
-		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
-		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
-		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
-	)
+	// No --pgbackrest-port or --pgbackrest-{cert,key,ca}-file: the multipooler
+	// adopts them from pgctld's Status RPC (pgctld serves the pgBackRest
+	// endpoint and owns the cert directory).
 
 	// When backup encryption is enabled, point the multipooler at the shared
 	// cipher key file so it renders the initial repository encrypted.
@@ -918,7 +892,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// without it (pg_hba.conf uses scram-sha-256 for every connection).
 	multipoolerCmd.Env = append(os.Environ(),
 		constants.PgPasswordFileEnvVar+"="+pgctldResult.PasswordFile,
-		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(pgctldResult.PoolerDir, "pg_data"),
 	)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
@@ -977,6 +951,11 @@ type PgctldProvisionResult struct {
 	Address string
 	Port    int
 	LogFile string
+	// PoolerDir is the pooler directory pgctld was provisioned with. The
+	// multipooler in the same cell adopts it via pgctld's Status RPC at
+	// runtime; the provisioner uses this copy only to point the pooler's
+	// PGDATA env at <PoolerDir>/pg_data, keeping the two on one source.
+	PoolerDir string
 	// PasswordFile is the path to the postgres password file written under the
 	// pooler directory. Both pgctld (already running with POSTGRES_PASSWORD_FILE
 	// pointing here) and the multipooler in the same cell read from it.
@@ -2087,15 +2066,10 @@ func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisioner
 	// Path structure: <rootWorkingDir>/data/pooler_<serviceID>/pg_sockets/.s.PGSQL.5432
 	// We use a worst-case service ID length (8 chars) to be safe
 	maxServiceIDLength := 8
-	worstCasePoolerSocketPath := []string{
-		"data",
-		"pooler_" + strings.Repeat("x", maxServiceIDLength),
-		"pg_sockets",
-		".s.PGSQL.5432",
-	}
-	worstCaseCurrentSocketPath := filepath.Join(append([]string{absRootWorkingDir}, worstCasePoolerSocketPath...)...)
+	worstCasePoolerDir := filepath.Join("data", "pooler_"+strings.Repeat("x", maxServiceIDLength))
+	worstCaseCurrentSocketPath := constants.PostgresSocketFilePath(filepath.Join(absRootWorkingDir, worstCasePoolerDir), 5432)
 
-	worstCaseProposedSocketPath := filepath.Join(append([]string{"/tmp/mt"}, worstCasePoolerSocketPath...)...)
+	worstCaseProposedSocketPath := constants.PostgresSocketFilePath(filepath.Join("/tmp/mt", worstCasePoolerDir), 5432)
 
 	if len(worstCaseCurrentSocketPath) > maxSocketPathLength {
 		return fmt.Errorf("unix socket path would exceed system limit (%d bytes): %s\n\n"+

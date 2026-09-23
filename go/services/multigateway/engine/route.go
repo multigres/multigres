@@ -162,17 +162,12 @@ func (r *Route) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// The portal path normally reissues the client's original prepared statement.
-	// But when this route carries a REWRITTEN query — e.g. a SessionStateBranch's
-	// unpinned is_local:=true revert — reissuing the original portal would drop
-	// the rewrite (the set_config would run is_local=false and persist on the
-	// pooled backend, leaking across clients). r.Query holds the rewritten SQL
-	// (== r.Query on a plain route, or the normalized/reverted form here); when it
-	// differs from the portal's prepared statement, run the rewritten query with
-	// the client's bind values instead. The rewrite keeps every $N in place, so
-	// the portal's binds still apply.
+	// Preserve the received SQL when the route differs only by normalization:
+	// Parse, Describe and Execute must address the same cached backend statement.
+	// Semantic rewrites (for example set_config's is_local:=true revert) still
+	// use the route SQL, retaining the client's $N placeholders and Bind values.
 	pi := portalInfo
-	if psi := portalInfo.PreparedStatementInfo; psi != nil && r.Query != "" && r.Query != psi.GetQuery() {
+	if psi := portalInfo.PreparedStatementInfo; psi != nil && r.Query != "" && r.Query != psi.GetQuery() && r.Query != psi.AstStmt().SqlString() {
 		rewrittenPSI, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{
 			Name:       psi.GetName(),
 			Query:      r.Query,
@@ -181,6 +176,10 @@ func (r *Route) PortalStreamExecute(
 		if err != nil {
 			return err
 		}
+		// This is a different backend statement from the one prepared at Parse
+		// time. Refresh it once after a client Parse, even if Describe already
+		// materialized the original statement.
+		rewrittenPSI.ForceReparse = state.ConsumeReparsePending(psi.GetName())
 		pi = preparedstatement.NewPortalInfo(rewrittenPSI, portalInfo.Portal)
 	}
 	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, pi, maxRows, includeDescribe, info, r.KeepStructured, captureReportedSettings(info, callback))

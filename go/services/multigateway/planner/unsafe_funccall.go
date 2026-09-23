@@ -75,9 +75,10 @@ var funcBlocklist = map[string]string{
 }
 
 // replicationSlotFuncs lists the pg_create_*_replication_slot builtins and
-// the zero-based argument index of their `temporary` parameter. Multigres
-// cannot yet transition a replication slot's position across a primary
-// failover, so only TEMPORARY (session-scoped) slots are safe — see
+// the zero-based argument index of their `temporary` parameter. Outside a
+// TEMPORARY (session-scoped) slot, only a logical slot registered for
+// failover (see ast.ReplicationSlotFuncFailoverArgIndex) is safe, and only
+// once slot-based replication is enabled — see
 // rejectNonTemporaryReplicationSlot. This is the same map
 // ast.FindNonTemporaryReplicationSlotCall uses for the equivalent check on
 // arbitrary SQL sent over a replication=database connection (see
@@ -89,22 +90,49 @@ var funcBlocklist = map[string]string{
 var replicationSlotFuncs = ast.ReplicationSlotFuncTemporaryArgIndex
 
 // rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
-// is missing (the default is false) or isn't a literal boolean true, reject.
-// A non-literal/bound argument is rejected too — this is a safety
-// constraint, not a convenience one, so we don't guess.
+// is missing (the default is false) or isn't a literal boolean true, reject
+// — unless admitFailoverSlots is true and the call spells out a literal
+// failover=true, which multigres keeps in sync with the standbys and can
+// carry across a primary failover (see
+// go/services/multipooler/internal/manager/logical_slots.go).
 //
-// Known gap: this matches positional arguments only. Named-argument calls
-// (temporary => true) aren't handled — same class of limitation this file
-// already documents for advisory locks hidden in function bodies (see
-// AcquiresSessionAdvisoryLock's doc comment).
-func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall) error {
-	if fc.Args == nil || fc.Args.Len() <= temporaryArgIndex {
+// The failover argument must be explicit. An omitted one is rejected like
+// any other non-temporary call with the feature off, deliberately: the
+// alternative — admitting it and having the caller inject failover=true
+// into the SQL before it reaches postgres — makes admission a promise about
+// a rewrite some later code path has to remember to perform, which every
+// plan-construction path can silently break, and which freezes into any
+// definition postgres stores and re-invokes later (a view body, a column
+// DEFAULT, a CHECK constraint). Requiring the client to write
+// `failover => true` keeps this a pure predicate: what postgres runs is
+// exactly what the client wrote, and this function's answer is the whole
+// decision rather than half of one. The walsender CREATE_REPLICATION_SLOT
+// command form does auto-mark (see the replication preamble's
+// rewriteCreateReplicationSlotAddFailover) because its grammar is fixed and
+// small enough to patch as text, and because a real subscriber sends it
+// without ever seeing this planner.
+//
+// A non-literal/bound temporary or failover argument is rejected too — this
+// is a safety constraint, not a convenience one, so we don't guess: a bound
+// temporary could resolve to true at execute time, and PostgreSQL rejects a
+// slot created with both temporary=true and failover=true.
+func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall, admitFailoverSlots bool) error {
+	isTemp, temporaryIsLiteral, temporaryGiven := funcCallBoolArg(fc, temporaryArgIndex, ast.ReplicationSlotTemporaryParamName)
+	if temporaryIsLiteral && isTemp {
+		return nil
+	}
+	if temporaryGiven && !temporaryIsLiteral {
 		return replicationSlotNotTemporaryError(name)
 	}
-	if isTemp, ok := constBoolArg(fc.Args.Items[temporaryArgIndex]); !ok || !isTemp {
-		return replicationSlotNotTemporaryError(name)
+	if admitFailoverSlots {
+		if failoverArgIndex, ok := ast.ReplicationSlotFuncFailoverArgIndex[name]; ok {
+			isFailover, isLiteral, _ := funcCallBoolArg(fc, failoverArgIndex, ast.ReplicationSlotFailoverParamName)
+			if isLiteral && isFailover {
+				return nil
+			}
+		}
 	}
-	return nil
+	return replicationSlotNotTemporaryError(name)
 }
 
 func replicationSlotNotTemporaryError(name string) error {
@@ -220,19 +248,21 @@ var logicalReplicationSlotCreateFuncs = map[string]struct{}{
 // persistent (non-temporary) slot is visible from any backend and survives
 // independently of the connection that created it, so it doesn't need one.
 //
-// `temporary` defaults to false when omitted, so a bare two-argument call is
-// definitively persistent. When the argument is present but isn't a literal
-// boolean (e.g. a bound parameter), its value can't be resolved at plan time;
-// this conservatively treats that case as temporary so a slot that turns out
-// temporary at execute time is never left unpinned — the cost of an
-// unnecessary pin is a held connection, not the data-unavailability bug this
-// detection exists to prevent.
+// `temporary` defaults to false when omitted — whether left out entirely or
+// (with a failover-registered slot) only its sibling `failover` argument was
+// given by name — so an omitted temporary is definitively persistent. When
+// the argument is given but isn't a literal boolean (e.g. a bound
+// parameter), its value can't be resolved at plan time; this conservatively
+// treats that case as temporary so a slot that turns out temporary at
+// execute time is never left unpinned — the cost of an unnecessary pin is a
+// held connection, not the data-unavailability bug this detection exists to
+// prevent.
 func isTemporarySlotCreate(fc *ast.FuncCall) bool {
-	if fc.Args == nil || fc.Args.Len() < 3 {
+	isTemp, isLiteral, given := funcCallBoolArg(fc, 2, ast.ReplicationSlotTemporaryParamName)
+	if !given {
 		return false
 	}
-	isTemp, ok := constBoolArg(fc.Args.Items[2])
-	if !ok {
+	if !isLiteral {
 		return true
 	}
 	return isTemp
@@ -352,7 +382,19 @@ type statementAnalysis struct {
 // The planning signals — tracked set_config calls, advisory-lock pinning,
 // current_setting rewrites — are still gathered, so routing stays correct; only
 // the "reject this statement" behavior is relaxed.
-func analyzeStatement(stmt ast.Stmt, unsafeConnection bool) (*statementAnalysis, error) {
+//
+// admitFailoverSlots reports whether the slot-based-replication feature is on
+// (see Planner.SetSlotBasedReplicationEnabled); it is not affected by
+// unsafeConnection — see rejectNonTemporaryReplicationSlot. It is forced
+// false unless isImmediatelyExecutedForFailoverAdmission(stmt) confirms this
+// exact analysis pass is the one deciding what postgres runs — see that
+// function's doc comment for why an allowlist, not a blocklist, is the only
+// version of this check that stays correct as the grammar this planner
+// supports grows.
+func analyzeStatement(stmt ast.Stmt, unsafeConnection bool, admitFailoverSlots bool) (*statementAnalysis, error) {
+	if !isImmediatelyExecutedForFailoverAdmission(stmt) {
+		admitFailoverSlots = false
+	}
 	if !unsafeConnection {
 		if err := rejectUnsupportedStatement(stmt); err != nil {
 			return nil, err
@@ -368,17 +410,61 @@ func analyzeStatement(stmt ast.Stmt, unsafeConnection bool) (*statementAnalysis,
 		return nil, err
 	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
-		if _, err := analyzeSQLPreparedBody(ps.Query, unsafeConnection); err != nil {
+		if _, err := analyzeSQLPreparedBody(ps.Query, unsafeConnection, admitFailoverSlots); err != nil {
 			return nil, err
 		}
 		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
 		// effects are applied later by SQL EXECUTE.
 		return &statementAnalysis{}, nil
 	}
-	return analyzeFunctionCalls(stmt, !unsafeConnection)
+	return analyzeFunctionCalls(stmt, !unsafeConnection, admitFailoverSlots)
 }
 
-func analyzeSQLPreparedBody(query ast.Node, unsafeConnection bool) (*statementAnalysis, error) {
+// isImmediatelyExecutedForFailoverAdmission reports whether stmt's
+// pg_create_logical_replication_slot(...) calls, if any, are guaranteed to
+// run under the enable-slot-based-replication value this exact analysis
+// pass observed — the precondition for admitting one via the failover path
+// at all (see rejectNonTemporaryReplicationSlot). That holds two ways:
+//
+//   - The statement runs its own query to completion as part of executing:
+//     an ordinary DML statement, COPY (including COPY (query) TO ...), or
+//     an EXECUTE whose own argument expressions (not its referenced body)
+//     embed the call.
+//   - The statement is a PREPARE: its body doesn't execute yet, but every
+//     future EXECUTE of it independently re-runs this same analysis with a
+//     freshly-read flag value (see planExecuteStmt and the wrapped-EXECUTE
+//     unwrapper, tryUnwrapWrappedExecute) before ever sending it to
+//     postgres — so a flag flip between PREPARE and EXECUTE is still
+//     correctly observed at the point that matters.
+//
+// Everything else defaults to false, deliberately not enumerated by name.
+// Two distinct families land there, for the same underlying reason:
+//
+//   - Definitions PostgreSQL stores and re-invokes indefinitely — a view or
+//     materialized view body, a column DEFAULT or CHECK constraint, a
+//     GENERATED ALWAYS AS expression, an index expression, a rule, a
+//     row-level-security policy, a SQL-language function or trigger body.
+//   - Statements that defer their own query to a later command in the same
+//     session: DECLARE ... CURSOR evaluates its query at FETCH, and WITH
+//     HOLD at COMMIT, both arbitrarily long after this analysis ran.
+//
+// In every case the admission decision would be made under a flag reading
+// that no longer has to hold when the call actually executes, with no
+// further text for this planner to ever re-examine. Naming each such shape
+// individually would only ever cover the ones already thought of, so
+// anything not on the short list above is presumed deferred and gets the
+// same literal-temporary=true-only policy the feature has when disabled,
+// mirroring analyzeBodyFragment's identical treatment of PL/pgSQL bodies.
+func isImmediatelyExecutedForFailoverAdmission(stmt ast.Stmt) bool {
+	switch stmt.NodeTag() {
+	case ast.T_SelectStmt, ast.T_InsertStmt, ast.T_UpdateStmt, ast.T_DeleteStmt,
+		ast.T_CopyStmt, ast.T_ExecuteStmt, ast.T_PrepareStmt:
+		return true
+	}
+	return false
+}
+
+func analyzeSQLPreparedBody(query ast.Node, unsafeConnection bool, admitFailoverSlots bool) (*statementAnalysis, error) {
 	stmt, ok := query.(ast.Stmt)
 	if !ok || stmt == nil {
 		return &statementAnalysis{}, nil
@@ -397,7 +483,7 @@ func analyzeSQLPreparedBody(query ast.Node, unsafeConnection bool) (*statementAn
 	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
-	analysis, err := analyzeFunctionCalls(stmt, !unsafeConnection)
+	analysis, err := analyzeFunctionCalls(stmt, !unsafeConnection, admitFailoverSlots)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +554,9 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 // unsafe-connection opt-out — those are skipped and the offending call simply
 // goes untracked, while the planning signals (accepted set_config, advisory
 // locks, current_setting) are still gathered so routing stays correct.
-func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error) {
+// admitFailoverSlots is independent of reject — see
+// rejectNonTemporaryReplicationSlot.
+func analyzeFunctionCalls(stmt ast.Stmt, reject bool, admitFailoverSlots bool) (*statementAnalysis, error) {
 	if stmt == nil {
 		return &statementAnalysis{}, nil
 	}
@@ -506,12 +594,18 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 			return true
 		}
 		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
-			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
+			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc, admitFailoverSlots); err != nil {
 				walkErr = err
 				return false
 			}
-			// Accepted: only a literal temporary=true survives the check
-			// above, so this call is confirmed temporary. A temporary
+			// Accepted: either a literal temporary=true, or (with
+			// admitFailoverSlots) a persistent logical slot with an explicit
+			// literal failover=true, survived the check above.
+			// isTemporarySlotCreate below independently re-derives temporary
+			// from fc, so a call accepted via the failover path correctly
+			// reads as not-temporary here and skips pinning — a failover slot
+			// is visible from any backend, like any other persistent slot. A
+			// temporary
 			// logical replication slot only exists on the backend that
 			// created it, so pin the connection for the session's lifetime
 			// (see logicalReplicationSlotCreateFuncs/CreatesLogicalReplicationSlot).
@@ -1303,4 +1397,29 @@ func constBoolArg(n ast.Node) (bool, bool) {
 		return sqltypes.ParseBool(v.SVal)
 	}
 	return false, false
+}
+
+// funcCallBoolArg resolves fc's paramName parameter, however the caller
+// passed it: positionally (at positionalIndex) or with name => value syntax.
+// given reports whether the parameter was specified at all, positionally or
+// by name; when it's false, the caller gave neither form and the
+// parameter's default applies. isLiteral reports whether a given argument
+// resolved to a literal boolean (isTrue); a given argument that isn't
+// literal is bound, and its value can't be known at plan time — that's a
+// different case from omitted and callers that care about the default (e.g.
+// isTemporarySlotCreate) must not conflate the two.
+//
+// Argument location is delegated to ast.FuncCallArg, shared with the
+// replication preamble's equivalent check, so the two enforcement points can
+// never resolve a positional-vs-named argument differently — only the
+// literal-parsing step below is planner-specific (constBoolArg supports a
+// broader set of string spellings than the ast package can, per
+// literalBoolArg's doc comment).
+func funcCallBoolArg(fc *ast.FuncCall, positionalIndex int, paramName string) (isTrue bool, isLiteral bool, given bool) {
+	arg, given := ast.FuncCallArg(fc, positionalIndex, paramName)
+	if !given {
+		return false, false, false
+	}
+	isTrue, isLiteral = constBoolArg(arg)
+	return isTrue, isLiteral, true
 }

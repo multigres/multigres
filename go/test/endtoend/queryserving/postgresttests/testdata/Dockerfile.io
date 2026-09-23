@@ -14,8 +14,8 @@
 # (PGDATABASE/PGHOST/PGUSER only — see test/io/conftest.py::baseenv), so to
 # repoint them at the gateway over TCP with a password we install a tiny
 # `postgrest` shim that sources extra libpq vars (PGPORT/PGPASSWORD/PGSSLMODE)
-# the harness passes in at `docker run` time. This keeps the upstream test files
-# pristine (no patching).
+# the harness passes in at `docker run` time. The only upstream source change
+# is the default startup timeout below; test assertions stay unchanged.
 #
 # Built and run as linux/amd64 (the harness passes `--platform linux/amd64` to
 # both `docker build` and `docker run`; emulated on Apple Silicon, native on CI):
@@ -81,6 +81,13 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /src
 COPY . /src
+
+# Cold schema-cache initialization (notably pg_timezone_names) can exhaust
+# upstream's one-second startup allowance on CI before any assertions run.
+# Allow five seconds by default for both gateway and direct-PG runs. Explicit
+# per-test timeouts still win. Fail the build if the upstream default changes
+# so a version bump cannot silently drop this adjustment.
+RUN python -c 'from pathlib import Path; p = Path("test/io/postgrest.py"); s = p.read_text(); old = "    wait_max_seconds=1,\n"; assert s.count(old) == 1, "upstream startup timeout changed"; p.write_text(s.replace(old, "    wait_max_seconds=5,\n"))'
 
 # Entrypoint: materialize the connection extras the shim sources, then run
 # pytest with whatever args the harness passes (test selection + flags). The

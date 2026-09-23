@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
@@ -144,6 +145,95 @@ func TestUnwrapCreateTableAsExecute(t *testing.T) {
 	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
+// TestUnwrapCreateTableAsExecute_RevalidatesFailoverSlotAdmission proves that
+// CREATE TABLE ... AS EXECUTE, which runs the prepared body as a side
+// effect, re-derives admission from the live flag rather than trusting
+// whatever held at PREPARE time: a body whose slot creation omits failover
+// is rejected here even though PREPARE registered it while the feature was
+// on, because the check is re-run against the flag as of this statement.
+func TestUnwrapCreateTableAsExecute_RevalidatesFailoverSlotAdmission(t *testing.T) {
+	s := newTestSetup(t)
+	enabled := true
+	s.p.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+
+	_, err := planAndExecute(t, s, "PREPARE p AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', failover => true)")
+	require.NoError(t, err)
+
+	// Still enabled: the explicitly-marked body is admitted and its SQL
+	// reaches the multipooler exactly as the client wrote it.
+	_, err = planAndExecute(t, s, "CREATE TABLE t AS EXECUTE p")
+	require.NoError(t, err)
+	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	body := strings.ToLower(call.executeSQLPreparedStatement.PreparedStatement.GetQuery())
+	assert.Contains(t, body, "failover => true")
+
+	// Disabled after PREPARE: the same wrapped EXECUTE is now rejected,
+	// because this path re-runs the admission check instead of inheriting
+	// the decision PREPARE made.
+	enabled = false
+	_, err = planAndExecute(t, s, "CREATE TABLE t2 AS EXECUTE p")
+	require.ErrorContains(t, err, "requires temporary=true")
+}
+
+// TestUnwrapCreateTableAsExecute_CarriesPreparedBodyReservations proves that
+// CREATE TABLE ... AS EXECUTE, which materializes and runs the prepared
+// body's own side effects, reserves a connection for whatever the body
+// itself needs — a temporary logical replication slot, a session advisory
+// lock, or setseed(...) — the same way plain EXECUTE does (see
+// TestPlanExecuteStmtCarriesPreparedBodyLogicalReplicationSlot,
+// TestPlanExecuteStmtCarriesPreparedBodySetSeed,
+// TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock). Before
+// preparedBodyExecInfo unified the two call sites, tryUnwrapWrappedExecute
+// only ever set ExecInfo.TempTable from the wrapper's own CREATE TEMP TABLE
+// keyword, silently dropping every signal the prepared body's own analysis
+// produced — this wrapper would then release the connection the body's
+// side effect actually needed pinned.
+func TestUnwrapCreateTableAsExecute_CarriesPreparedBodyReservations(t *testing.T) {
+	tests := []struct {
+		name       string
+		prepareSQL string
+		check      func(t *testing.T, info engine.PlanExecInfo)
+	}{
+		{
+			name:       "temporary logical replication slot",
+			prepareSQL: "PREPARE p AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', true)",
+			check: func(t *testing.T, info engine.PlanExecInfo) {
+				assert.True(t, info.LogicalReplicationSlot)
+			},
+		},
+		{
+			name:       "setseed",
+			prepareSQL: "PREPARE p AS SELECT setseed(0.5)",
+			check: func(t *testing.T, info engine.PlanExecInfo) {
+				assert.True(t, info.SetSeed)
+			},
+		},
+		{
+			name:       "session advisory lock",
+			prepareSQL: "PREPARE p AS SELECT pg_advisory_lock(0)",
+			check: func(t *testing.T, info engine.PlanExecInfo) {
+				assert.True(t, info.AdvisoryLock)
+				assert.True(t, info.RecheckAdvisoryLocks)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestSetup(t)
+
+			_, err := planAndExecute(t, s, tt.prepareSQL)
+			require.NoError(t, err)
+
+			_, err = planAndExecute(t, s, "CREATE TABLE t AS EXECUTE p")
+			require.NoError(t, err)
+
+			call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+			tt.check(t, call.info)
+		})
+	}
+}
+
 // TestUnwrapCreateTempTableAsExecute verifies that CREATE TEMP TABLE ... AS
 // EXECUTE p is unwrapped and routed through TempTableRoute (which sets the
 // temp-table reservation flag) while still carrying the PS metadata.
@@ -244,9 +334,42 @@ func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 	assert.Contains(t, route.ExecuteSQLPreparedStatement.SqlPrefix, "CREATE TABLE")
 }
 
-// TestUnwrapExplainCreateTempTableAsExecute verifies that EXPLAIN wrapping
-// CREATE TEMP TABLE AS EXECUTE uses the TempTableRoute primitive (since
-// EXPLAIN ANALYZE can actually materialize the temp table).
+// TestUnwrapExplainAnalyzeCreateTempTableAsExecute verifies that EXPLAIN
+// ANALYZE wrapping CREATE TEMP TABLE AS EXECUTE uses the TempTableRoute
+// primitive: ANALYZE is what makes EXPLAIN actually execute and materialize
+// the temp table (see explainAnalyzes) — without it, nothing runs and
+// nothing needs reserving (see TestUnwrapExplainCreateTempTableAsExecute,
+// the bare-EXPLAIN sibling of this test).
+func TestUnwrapExplainAnalyzeCreateTempTableAsExecute(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE p_nested_temp AS SELECT 1")
+	require.NoError(t, err)
+
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p_nested_temp")
+	require.NotNil(t, psi)
+	canonical := psi.Name
+
+	const sql = "EXPLAIN ANALYZE CREATE TEMP TABLE tmp_nested AS EXECUTE p_nested_temp"
+	asts, err := parser.ParseSQL(sql)
+	require.NoError(t, err)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
+	require.NoError(t, err)
+
+	route, ok := plan.Primitive.(*engine.Route)
+	require.True(t, ok, "expected Route primitive for EXPLAIN ANALYZE CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
+	assert.True(t, plan.ExecInfo.TempTable, "EXPLAIN ANALYZE CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
+	assert.Contains(t, route.Query, "EXECUTE p_nested_temp")
+	require.NotNil(t, route.ExecuteSQLPreparedStatement)
+	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+}
+
+// TestUnwrapExplainCreateTempTableAsExecute verifies that a bare EXPLAIN
+// (no ANALYZE) wrapping CREATE TEMP TABLE AS EXECUTE does NOT reserve a
+// connection: without ANALYZE, EXPLAIN only plans the statement and never
+// actually runs it, so no temp table is ever materialized (see
+// explainAnalyzes). Reserving anyway would strand a pooled connection for a
+// side effect that never happens.
 func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -265,10 +388,93 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive for EXPLAIN CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
-	assert.True(t, plan.ExecInfo.TempTable, "EXPLAIN CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
+	assert.False(t, plan.ExecInfo.TempTable, "a bare EXPLAIN never executes, so it must not reserve for a temp table that is never created")
 	assert.Contains(t, route.Query, "EXECUTE p_nested_temp")
 	require.NotNil(t, route.ExecuteSQLPreparedStatement)
 	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+}
+
+// TestExplainAnalyzes covers the option forms that decide whether a wrapped
+// EXECUTE actually runs its body. Presence alone is not the answer: the
+// option takes an explicit boolean, and `EXPLAIN (ANALYZE FALSE)` plans
+// without executing, so treating the option's mere presence as ANALYZE would
+// reserve a backend (and re-check admission) for side effects that never
+// happen.
+func TestExplainAnalyzes(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want bool
+	}{
+		{"EXPLAIN SELECT 1", false},
+		{"EXPLAIN ANALYZE SELECT 1", true},
+		{"EXPLAIN (ANALYZE) SELECT 1", true},
+		{"EXPLAIN (ANALYZE TRUE) SELECT 1", true},
+		{"EXPLAIN (ANALYZE FALSE) SELECT 1", false},
+		{"EXPLAIN (ANALYZE off) SELECT 1", false},
+		{"EXPLAIN (ANALYZE on) SELECT 1", true},
+		{"EXPLAIN (VERBOSE) SELECT 1", false},
+		{"EXPLAIN (VERBOSE, ANALYZE FALSE) SELECT 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			es, ok := parseOne(t, tt.sql).(*ast.ExplainStmt)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, explainAnalyzes(es))
+		})
+	}
+}
+
+// TestUnwrapBareExplainExecuteReservesNothing proves a bare EXPLAIN EXECUTE
+// reserves no connection even when the prepared body would need one had it
+// run: without ANALYZE the body is only planned, so pinning the backend for
+// a slot or seed that is never created would strand a pooled connection for
+// the rest of the session.
+func TestUnwrapBareExplainExecuteReservesNothing(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE p AS SELECT setseed(0.5)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXPLAIN EXECUTE p")
+	require.NoError(t, err)
+
+	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
+	assert.False(t, call.info.SetSeed, "a bare EXPLAIN never runs the body, so it must reserve nothing")
+	assert.False(t, engine.StatementReservesBackend(call.info))
+}
+
+// TestUnwrapWrappedExecuteRejectsPreparedSetConfig proves a wrapped EXECUTE
+// refuses a prepared body carrying a tracked set_config rather than
+// half-handling it. This route hands the body to the multipooler as an
+// ExecuteSqlPreparedStatement, which has no session-state channel: running
+// it verbatim would leak the setting to the next client on that pooled
+// backend, and rewriting it to revert would make the client's set_config a
+// silent no-op. The same body under a plain EXECUTE still works, which is
+// what the error tells the caller to use.
+func TestUnwrapWrappedExecuteRejectsPreparedSetConfig(t *testing.T) {
+	for _, sql := range []string{
+		"CREATE TABLE t AS EXECUTE p",
+		"EXPLAIN ANALYZE EXECUTE p",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			s := newTestSetup(t)
+			_, err := planAndExecute(t, s, "PREPARE p AS SELECT set_config('application_name', 'x', false)")
+			require.NoError(t, err)
+
+			_, err = planAndExecute(t, s, sql)
+			require.ErrorContains(t, err, "set_config inside a prepared statement is not supported")
+		})
+	}
+
+	// A bare EXPLAIN never runs the body, so it has nothing to refuse.
+	t.Run("bare EXPLAIN EXECUTE is unaffected", func(t *testing.T) {
+		s := newTestSetup(t)
+		_, err := planAndExecute(t, s, "PREPARE p AS SELECT set_config('application_name', 'x', false)")
+		require.NoError(t, err)
+
+		_, err = planAndExecute(t, s, "EXPLAIN EXECUTE p")
+		require.NoError(t, err)
+	})
 }
 
 // TestUnwrapMissingPreparedStatement verifies that EXPLAIN EXECUTE of an

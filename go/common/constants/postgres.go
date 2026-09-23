@@ -14,7 +14,11 @@
 
 package constants
 
-import "time"
+import (
+	"fmt"
+	"path/filepath"
+	"time"
+)
 
 // PostgreSQL default values - semantically separate concepts.
 // These are distinct constants despite having the same string value because
@@ -230,6 +234,11 @@ const (
 		" UNION ALL SELECT 'role', pg_catalog.current_setting('role'), 'identity'" +
 		" UNION ALL SELECT 'session_authorization', session_user::text, 'identity'"
 
+	// PostgresSocketDirName is the directory under the pooler directory where
+	// pgctld points postgres's unix_socket_directories. Use PostgresSocketDir /
+	// PostgresSocketFilePath to build paths rather than joining this by hand.
+	PostgresSocketDirName = "pg_sockets"
+
 	// RestoreCommandPIDFile is the filename (joined onto the pooler directory)
 	// that `pgctld restore-wrapper` writes its own PID to, so pgctld's
 	// StopRestoreCommand RPC can check liveness or signal it. Shared between
@@ -247,3 +256,29 @@ const (
 	// among other fields. Fixed by PostgreSQL itself, not configurable.
 	PostmasterPIDFile = "postmaster.pid"
 )
+
+// PostgresSocketDir returns the Unix socket directory for a pooler directory:
+// <poolerDir>/pg_sockets. This is the value pgctld passes to postgres as
+// unix_socket_directories, so every component that dials the socket must build
+// paths from here. Shared by pgctld, multipooler, and the provisioner — the
+// canonical home for the formula, since services cannot import each other.
+func PostgresSocketDir(poolerDir string) string {
+	return filepath.Join(poolerDir, PostgresSocketDirName)
+}
+
+// PostgresSocketFilePath returns the full path of the socket file postgres
+// creates in PostgresSocketDir for the given port: .s.PGSQL.<port> (the name
+// is fixed by postgres, not configurable).
+func PostgresSocketFilePath(poolerDir string, pgPort int) string {
+	return filepath.Join(PostgresSocketDir(poolerDir), fmt.Sprintf(".s.PGSQL.%d", pgPort))
+}
+
+// PgBackRestCertFiles returns the fixed pgBackRest TLS material paths inside
+// a cert directory: pgbackrest.crt, pgbackrest.key, ca.crt. This is the
+// contract between pgctld's --pgbackrest-cert-dir and every consumer of the
+// material (the pgbackrest-server.conf template, the local provisioner's cert
+// generator, and the multipooler when it adopts cert paths from pgctld's
+// Status).
+func PgBackRestCertFiles(dir string) (certFile, keyFile, caFile string) {
+	return filepath.Join(dir, "pgbackrest.crt"), filepath.Join(dir, "pgbackrest.key"), filepath.Join(dir, "ca.crt")
+}

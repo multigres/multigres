@@ -31,6 +31,20 @@ import (
 // It only touches idle connections, so it adds no latency to the query path.
 // It is a sampler: it narrows the leak window and raises an alarm, but the
 // tracking gates remain the correctness boundary.
+//
+// Coverage: the scrubber works in passes. Each tick probes, from the next
+// non-empty stack, the topmost idle connection not yet probed in the current
+// pass, and marks it with the pass number; once every idle connection in
+// every stack carries the current pass number, the next pass begins. Simply
+// re-probing the top each tick would never reach the connections beneath
+// it, since clients also take and return connections at the top.
+//
+// A probed connection goes back at the depth it was taken from, with its
+// idle clock intact. Both matter for idle-timeout shrinking: pushing it on
+// top (or to the bottom, which rotates the stack) promotes a cold connection
+// into client traffic, real use refreshes its idle clock, and over a pass
+// every connection gets refreshed in turn — the pool would sit at its
+// maximum idle size instead of shrinking to its working set.
 
 // scrubProbeTimeout bounds one checker's probe; each checker gets its own
 // budget, so a slow early probe cannot starve later checkers into a timeout
@@ -52,46 +66,77 @@ func (pool *Pool[C]) scrubStack(i int) *connStack[C] {
 	return &pool.states[i-1]
 }
 
-// scrubPop pops an idle connection like pool.pop, but also returns the
-// connection's pre-borrow timeUsed value so the scrubber can restore it: a
-// scrub must not refresh the idle clock, or a small pool would have every
-// connection kept forever-fresh by scrubbing and the idle-timeout worker
-// could never shrink it. The stamp read before borrow is reliable: the only
-// concurrent writer for an in-stack connection is the expirer, and if it won
-// the race the borrow fails and the connection (already closed by the
-// expirer) is skipped.
-func (pool *Pool[C]) scrubPop(stack *connStack[C]) (*Pooled[C], time.Duration) {
-	for conn, ok := stack.Pop(); ok; conn, ok = stack.Pop() {
-		stamp := conn.timeUsed.get()
-		if conn.timeUsed.borrow() {
-			return conn, stamp
-		}
-	}
-	return nil, 0
+// scrubbed is an idle connection the scrubber has taken out of its stack,
+// with what it needs to put it back unchanged: the depth it was taken from
+// and its pre-borrow timeUsed value.
+type scrubbed[C Connection] struct {
+	conn  *Pooled[C]
+	depth int
+	stamp time.Duration
 }
 
-// scrubOne runs every registered checker against one idle connection,
-// rotating the starting stack across calls so every bucket gets coverage. A
-// clean connection returns to the pool with its idle clock intact; a
-// divergent one, or one whose state could not be verified, is closed and
-// replaced. The bool return keeps the runWorker signature; it is always true.
+// scrubPop takes the topmost idle connection in stack that has not been
+// probed in the current pass and marks it probed. The stamp it records lets
+// the scrubber restore the idle clock: a scrub must not refresh it, or a
+// small pool would have every connection kept forever-fresh by scrubbing and
+// the idle-timeout worker could never shrink it. The stamp read before
+// borrow is reliable: the only concurrent writer for an in-stack connection
+// is the expirer, and if it won the race the borrow fails and the connection
+// (already closed by the expirer) is left for pool.pop to discard. Returns
+// false when every idle connection in the stack has already been probed
+// this pass.
+func (pool *Pool[C]) scrubPop(stack *connStack[C]) (scrubbed[C], bool) {
+	var s scrubbed[C]
+	conn, depth, ok := stack.PopFirst(func(c *Pooled[C]) bool {
+		if c.scrubPass == pool.scrubPass {
+			return false
+		}
+		s.stamp = c.timeUsed.get()
+		return c.timeUsed.borrow()
+	})
+	if !ok {
+		return scrubbed[C]{}, false
+	}
+	conn.scrubPass = pool.scrubPass
+	s.conn, s.depth = conn, depth
+	return s, true
+}
+
+// scrubNext finds the next connection to probe: the first unprobed idle
+// connection in stack rotation order from *cursor. If every idle connection
+// has been probed this pass, it starts the next pass and looks once more, so
+// a tick only comes up empty when the pool has no idle connection at all.
+func (pool *Pool[C]) scrubNext(cursor *int) (scrubbed[C], bool) {
+	for range 2 {
+		for i := range scrubStackCount {
+			idx := (*cursor + i) % scrubStackCount
+			if s, ok := pool.scrubPop(pool.scrubStack(idx)); ok {
+				*cursor = (idx + 1) % scrubStackCount
+				return s, true
+			}
+		}
+		pool.scrubPass++
+	}
+	return scrubbed[C]{}, false
+}
+
+// scrubOne runs every registered checker against one idle connection: the
+// next one not yet probed in the current pass, rotating the starting stack
+// across calls so every bucket gets coverage (see scrubNext). A clean
+// connection returns to its stack at the depth it came from with its idle
+// clock intact; a divergent one, or one whose state could not be verified,
+// is closed and replaced. The bool return keeps the runWorker signature; it
+// is always true.
 func (pool *Pool[C]) scrubOne(cursor *int) bool {
 	if pool.Capacity() == 0 || len(pool.checkers) == 0 {
 		return true
 	}
 
-	var conn *Pooled[C]
-	var stamp time.Duration
-	for i := range scrubStackCount {
-		idx := (*cursor + i) % scrubStackCount
-		if conn, stamp = pool.scrubPop(pool.scrubStack(idx)); conn != nil {
-			*cursor = (idx + 1) % scrubStackCount
-			break
-		}
-	}
-	if conn == nil {
+	s, ok := pool.scrubNext(cursor)
+	if !ok {
 		return true
 	}
+	conn := s.conn
 	// The scrubber holds the connection like a borrower, so Available and
 	// the idle-limit math stay accurate while the probe is in flight.
 	pool.borrowed.Add(1)
@@ -167,8 +212,8 @@ func (pool *Pool[C]) scrubOne(cursor *int) bool {
 		pool.closedConn()
 		pool.scrubReplace()
 	default:
-		conn.timeUsed.set(stamp)
-		pool.tryReturnConn(conn)
+		conn.timeUsed.set(s.stamp)
+		pool.returnConnAt(conn, s.depth)
 	}
 	return true
 }

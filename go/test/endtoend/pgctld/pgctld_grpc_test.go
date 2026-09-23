@@ -67,10 +67,15 @@ func TestGRPCServerIntegration(t *testing.T) {
 	t.Run("complete_grpc_lifecycle", func(t *testing.T) {
 		ctx := context.Background()
 
-		// Step 1: Check initial status
+		// Step 1: Check initial status. Config-level fields (pooler dir, host)
+		// are reported even before the data directory exists, so colocated
+		// services can adopt them; max_connections is unknown (0) until initdb.
 		statusResp, err := client.Status(ctx, &pb.StatusRequest{})
 		require.NoError(t, err)
 		assert.Equal(t, pb.ServerStatus_NOT_INITIALIZED, statusResp.GetStatus())
+		assert.NotEmpty(t, statusResp.GetPoolerDir())
+		assert.NotEmpty(t, statusResp.GetHost())
+		assert.Zero(t, statusResp.GetMaxConnections())
 
 		// Step 2: Initialize data directory
 		_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{})
@@ -81,11 +86,15 @@ func TestGRPCServerIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, startResp.Message)
 
-		// Step 4: Check status - should be running
+		// Step 4: Check status - should be running, with the adoptable config
+		// fields populated (max_connections via `postgres -C`, mocked to 100).
 		statusResp, err = client.Status(ctx, &pb.StatusRequest{})
 		require.NoError(t, err)
 		assert.Equal(t, pb.ServerStatus_RUNNING, statusResp.GetStatus())
 		assert.NotZero(t, statusResp.GetPid())
+		assert.NotEmpty(t, statusResp.GetPoolerDir())
+		assert.NotEmpty(t, statusResp.GetHost())
+		assert.Equal(t, int32(100), statusResp.GetMaxConnections())
 
 		// Step 5: Get version
 		versionResp, err := client.Version(ctx, &pb.VersionRequest{})

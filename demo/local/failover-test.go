@@ -388,7 +388,7 @@ func getPoolerInfo(cell, serviceID string, config *Config) *PoolerInfo {
 	return &PoolerInfo{
 		Cell:      cell,
 		ServiceID: serviceID,
-		PoolerDir: cellConfig.Multipooler.PoolerDir,
+		PoolerDir: cellConfig.Pgctld.PoolerDir,
 		PgPort:    cellConfig.Pgctld.PgPort,
 		PgUser:    cellConfig.Pgctld.PgUser,
 	}
