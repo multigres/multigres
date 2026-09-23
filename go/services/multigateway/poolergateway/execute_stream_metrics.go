@@ -1,7 +1,18 @@
 // Copyright 2026 Supabase, Inc.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-package queryrpc
+package poolergateway
 
 import (
 	"log/slog"
@@ -17,7 +28,7 @@ import (
 // spans many SQL operations. These counters describe the operations and the
 // pool itself. Attribute values come from the fixed vocabularies below; never
 // SQL text, reservation, caller or stream identifiers.
-type poolMetrics struct {
+type streamPoolMetrics struct {
 	operations metric.Int64Counter       // transport=new|reused|legacy_*
 	discards   metric.Int64Counter       // reason=...
 	active     metric.Int64UpDownCounter // leased streams
@@ -54,13 +65,15 @@ func init() {
 	}
 }
 
-var metrics = sync.OnceValue(func() *poolMetrics {
-	return newPoolMetrics(otel.Meter("github.com/multigres/multigres/go/common/queryrpc"))
+var streamMetrics = sync.OnceValue(func() *streamPoolMetrics {
+	return newStreamPoolMetrics(otel.Meter("github.com/multigres/multigres/go/services/multigateway/poolergateway"))
 })
 
-func newPoolMetrics(meter metric.Meter) *poolMetrics {
-	m := &poolMetrics{operations: noop.Int64Counter{}, discards: noop.Int64Counter{}, active: noop.Int64UpDownCounter{}, idle: noop.Int64UpDownCounter{}}
-	warn := func(name string, err error) { slog.Warn("queryrpc metric unavailable", "metric", name, "error", err) }
+func newStreamPoolMetrics(meter metric.Meter) *streamPoolMetrics {
+	m := &streamPoolMetrics{operations: noop.Int64Counter{}, discards: noop.Int64Counter{}, active: noop.Int64UpDownCounter{}, idle: noop.Int64UpDownCounter{}}
+	warn := func(name string, err error) {
+		slog.Warn("query stream metric unavailable", "metric", name, "error", err)
+	}
 	if c, err := meter.Int64Counter("mg.gateway.query_stream.operations",
 		metric.WithDescription("Simple-query operations by transport: a new reusable stream, a reused one, or the legacy per-call StreamExecute RPC (legacy_* says why)"),
 		metric.WithUnit("{operation}")); err != nil {

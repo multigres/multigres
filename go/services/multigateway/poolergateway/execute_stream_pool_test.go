@@ -1,7 +1,18 @@
 // Copyright 2026 Supabase, Inc.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-package queryrpc
+package poolergateway
 
 import (
 	"context"
@@ -31,26 +42,29 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
+
+	"github.com/multigres/multigres/go/common/queryrpc"
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
-type testServer struct {
+type streamTestServer struct {
 	pb.UnimplementedMultipoolerServiceServer
 	execute func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error
 	streams atomic.Int32
 	custom  func(pb.MultipoolerService_ExecuteStreamServer) error
 }
 
-func (s *testServer) ExecuteStream(stream pb.MultipoolerService_ExecuteStreamServer) error {
+func (s *streamTestServer) ExecuteStream(stream pb.MultipoolerService_ExecuteStreamServer) error {
 	s.streams.Add(1)
 	if s.custom != nil {
 		return s.custom(stream)
 	}
-	return Serve(stream, s.execute)
+	return queryrpc.Serve(stream, s.execute)
 }
 
-func connect(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServiceClient, *Pool) {
+func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServiceClient, *streamPool) {
 	t.Helper()
 	l := bufconn.Listen(1 << 20)
 	s := grpc.NewServer()
@@ -59,16 +73,16 @@ func connect(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServ
 	cc, err := grpc.NewClient("passthrough:///test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() }))
 	require.NoError(t, err)
 	c := pb.NewMultipoolerServiceClient(cc)
-	p := NewPool(c, cc)
+	p := newStreamPool(c, cc)
 	t.Cleanup(func() { p.Close(); _ = cc.Close(); s.Stop(); _ = l.Close() })
-	stopServer = s.Stop
+	stopStreamServer = s.Stop
 	return c, p
 }
 
-// stopServer stops the most recently connected test server.
-var stopServer func()
+// stopStreamServer stops the most recently connected test server.
+var stopStreamServer func()
 
-func query(t testing.TB, p *Pool, ctx context.Context, sql string) error {
+func streamQuery(t testing.TB, p *streamPool, ctx context.Context, sql string) error {
 	t.Helper()
 	r, used, err := p.Open(ctx, &pb.StreamExecuteRequest{Query: sql})
 	if err != nil {
@@ -92,17 +106,17 @@ func TestReuseAndSQLStatusDetails(t *testing.T) {
 	diagnostic, err := status.New(codes.InvalidArgument, "SQL diagnostic").WithDetails(wrapperspb.String("original diagnostic"))
 	require.NoError(t, err)
 	var calls atomic.Int32
-	s := &testServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		calls.Add(1)
 		if req.Query == "error" {
 			return diagnostic.Err()
 		}
 		return stream.Send(&pb.StreamExecuteResponse{})
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	for range 4 {
-		require.NoError(t, query(t, p, t.Context(), "ok"))
-		err = query(t, p, t.Context(), "error")
+		require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
+		err = streamQuery(t, p, t.Context(), "error")
 		require.Equal(t, diagnostic.Proto(), status.Convert(err).Proto())
 	}
 	require.EqualValues(t, 8, calls.Load())
@@ -118,11 +132,11 @@ func TestPerOperationContext(t *testing.T) {
 		trace   trace.TraceID
 	}
 	seen := make(chan observed, 3)
-	s := &testServer{execute: func(_ *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(_ *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		seen <- observed{baggage.FromContext(stream.Context()).Member("request").Value(), trace.SpanContextFromContext(stream.Context()).TraceID()}
 		return nil
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	for i := byte(1); i <= 3; i++ {
 		ctx := t.Context()
 		var id trace.TraceID
@@ -135,7 +149,7 @@ func TestPerOperationContext(t *testing.T) {
 			id[0] = i
 			ctx = trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{TraceID: id, SpanID: trace.SpanID{1}}))
 		}
-		require.NoError(t, query(t, p, ctx, "ok"))
+		require.NoError(t, streamQuery(t, p, ctx, "ok"))
 		got := <-seen
 		require.Equal(t, id, got.trace)
 		if i < 3 {
@@ -151,7 +165,7 @@ func TestCancellationAndAbandonment(t *testing.T) {
 	for _, mode := range []string{"cancel", "abandon", "close"} {
 		t.Run(mode, func(t *testing.T) {
 			started, ended := make(chan struct{}), make(chan struct{})
-			s := &testServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+			s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 				if req.Query == "wait" {
 					close(started)
 					<-stream.Context().Done()
@@ -160,7 +174,7 @@ func TestCancellationAndAbandonment(t *testing.T) {
 				}
 				return nil
 			}}
-			_, p := connect(t, s)
+			_, p := connectStreamPool(t, s)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			r, used, err := p.Open(ctx, &pb.StreamExecuteRequest{Query: "wait"})
@@ -189,7 +203,7 @@ func TestCancellationAndAbandonment(t *testing.T) {
 				t.Fatal("cancellation did not reach executor")
 			}
 			if mode != "close" {
-				require.NoError(t, query(t, p, t.Context(), "ok"))
+				require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
 				require.EqualValues(t, 2, s.streams.Load())
 			}
 		})
@@ -197,10 +211,10 @@ func TestCancellationAndAbandonment(t *testing.T) {
 }
 
 func TestFallbackBeforeSendingSQL(t *testing.T) {
-	s := &testServer{custom: func(pb.MultipoolerService_ExecuteStreamServer) error {
+	s := &streamTestServer{custom: func(pb.MultipoolerService_ExecuteStreamServer) error {
 		return status.Error(codes.Unimplemented, "old server")
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	for range 3 {
 		r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{Query: "never sent"})
 		require.NoError(t, err)
@@ -211,8 +225,8 @@ func TestFallbackBeforeSendingSQL(t *testing.T) {
 }
 
 func TestMetadataAndInvalidPropagation(t *testing.T) {
-	s := &testServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
-	c, p := connect(t, s)
+	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
+	c, p := connectStreamPool(t, s)
 	ctx := metadata.AppendToOutgoingContext(t.Context(), "custom-credential", "value")
 	_, used, err := p.Open(ctx, &pb.StreamExecuteRequest{})
 	require.NoError(t, err)
@@ -223,7 +237,7 @@ func TestMetadataAndInvalidPropagation(t *testing.T) {
 	_, err = stream.Recv()
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 	for _, carrier := range []map[string]string{{"unknown": "x"}, {"baggage": strings.Repeat("x", 16*1024)}} {
-		require.False(t, validPropagation(carrier))
+		require.False(t, queryrpc.ValidPropagation(carrier))
 		ctx, cancel := context.WithCancel(t.Context())
 		stream, err := c.ExecuteStream(ctx)
 		require.NoError(t, err)
@@ -239,7 +253,7 @@ func TestMetadataAndInvalidPropagation(t *testing.T) {
 
 func TestTransportLossNotReplayed(t *testing.T) {
 	var received atomic.Int32
-	s := &testServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
 			return err
 		}
@@ -249,24 +263,24 @@ func TestTransportLossNotReplayed(t *testing.T) {
 		received.Add(1)
 		return status.Error(codes.Unavailable, "lost after execution")
 	}}
-	_, p := connect(t, s)
-	err := query(t, p, t.Context(), "write")
+	_, p := connectStreamPool(t, s)
+	err := streamQuery(t, p, t.Context(), "write")
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	require.EqualValues(t, 1, received.Load())
 	require.Empty(t, p.idle)
 }
 
 func TestConcurrentExclusiveLeases(t *testing.T) {
-	s := &testServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		return status.Error(codes.InvalidArgument, req.Query)
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	var wg sync.WaitGroup
 	for i := range 64 {
 		wg.Go(func() {
 			for j := range 10 {
 				sql := fmt.Sprintf("%d/%d", i, j)
-				err := query(t, p, t.Context(), sql)
+				err := streamQuery(t, p, t.Context(), sql)
 				require.Equal(t, sql, status.Convert(err).Message())
 			}
 		})
@@ -278,25 +292,25 @@ func TestConcurrentExclusiveLeases(t *testing.T) {
 }
 
 func TestRetirementAndLateCancellation(t *testing.T) {
-	s := &testServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
-	_, p := connect(t, s)
+	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
+	_, p := connectStreamPool(t, s)
 	ctx, cancel := context.WithCancel(t.Context())
-	require.NoError(t, query(t, p, ctx, "first"))
+	require.NoError(t, streamQuery(t, p, ctx, "first"))
 	cancel()
-	require.NoError(t, query(t, p, t.Context(), "second"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "second"))
 	require.EqualValues(t, 1, s.streams.Load())
 	p.mu.Lock()
 	p.idle[0].requests = maxStreamRequests - 1
 	p.mu.Unlock()
-	require.NoError(t, query(t, p, t.Context(), "retire"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "retire"))
 	require.Empty(t, p.idle)
-	require.NoError(t, query(t, p, t.Context(), "new"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "new"))
 	require.EqualValues(t, 2, s.streams.Load())
 }
 
 func TestMalformedFrames(t *testing.T) {
-	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Response: &pb.StreamExecuteResponse{}, Completion: &pb.ExecuteStreamCompletion{}}} {
-		s := &testServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Response: &pb.StreamExecuteResponse{}, Completion: &statuspb.Status{}}} {
+		s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
 				return err
 			}
@@ -305,31 +319,31 @@ func TestMalformedFrames(t *testing.T) {
 			}
 			return stream.Send(frame)
 		}}
-		_, p := connect(t, s)
-		require.Equal(t, codes.Internal, status.Code(query(t, p, t.Context(), "ok")))
+		_, p := connectStreamPool(t, s)
+		require.Equal(t, codes.Internal, status.Code(streamQuery(t, p, t.Context(), "ok")))
 		require.Empty(t, p.idle)
 	}
 }
 
 func TestOperationDeadline(t *testing.T) {
 	seen := make(chan bool, 1)
-	s := &testServer{execute: func(_ *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(_ *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		_, ok := stream.Context().Deadline()
 		seen <- ok
 		return nil
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	require.NoError(t, query(t, p, ctx, "deadline"))
+	require.NoError(t, streamQuery(t, p, ctx, "deadline"))
 	require.True(t, <-seen)
-	require.NoError(t, query(t, p, t.Context(), "no deadline"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "no deadline"))
 	require.False(t, <-seen)
 }
 
 func TestIdleExpirationAndRepeatedRelease(t *testing.T) {
-	s := &testServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
-	_, p := connect(t, s)
+	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
+	_, p := connectStreamPool(t, s)
 	r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{})
 	require.NoError(t, err)
 	require.True(t, used)
@@ -342,12 +356,12 @@ func TestIdleExpirationAndRepeatedRelease(t *testing.T) {
 	p.idle[0].timer.Reset(0)
 	p.mu.Unlock()
 	require.Eventually(t, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return len(p.idle) == 0 }, time.Second, time.Millisecond)
-	require.NoError(t, query(t, p, t.Context(), "new"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "new"))
 	require.EqualValues(t, 2, s.streams.Load())
 }
 
 func TestTransportEOFCannotReportSuccess(t *testing.T) {
-	s := &testServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
 			return err
 		}
@@ -358,23 +372,23 @@ func TestTransportEOFCannotReportSuccess(t *testing.T) {
 		// operation completed, even if it sent some rows first.
 		return stream.Send(&pb.ExecuteStreamResponse{Response: &pb.StreamExecuteResponse{}})
 	}}
-	_, p := connect(t, s)
-	require.Equal(t, codes.Unavailable, status.Code(query(t, p, t.Context(), "write")))
+	_, p := connectStreamPool(t, s)
+	require.Equal(t, codes.Unavailable, status.Code(streamQuery(t, p, t.Context(), "write")))
 	require.Empty(t, p.idle)
 }
 
 func TestPoolMetrics(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
-	s := &testServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		if req.Query == "wait" {
 			<-stream.Context().Done()
 		}
 		return nil
 	}}
-	_, p := connect(t, s)
-	p.m = newPoolMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	_, p := connectStreamPool(t, s)
+	p.m = newStreamPoolMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
 	for range 3 {
-		require.NoError(t, query(t, p, t.Context(), "ok"))
+		require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	r, used, err := p.Open(ctx, &pb.StreamExecuteRequest{Query: "wait"})
@@ -387,7 +401,7 @@ func TestPoolMetrics(t *testing.T) {
 	_, used, err = p.Open(metadata.AppendToOutgoingContext(t.Context(), "k", "v"), &pb.StreamExecuteRequest{})
 	require.NoError(t, err)
 	require.False(t, used)
-	require.NoError(t, query(t, p, t.Context(), "ok"))
+	require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
 	p.Close()
 
 	sums := map[string]int64{}
@@ -418,11 +432,11 @@ func TestPoolMetrics(t *testing.T) {
 }
 
 func TestHandshakeHonoursCallerDeadline(t *testing.T) {
-	s := &testServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 		<-stream.Context().Done()
 		return stream.Context().Err()
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -435,13 +449,13 @@ func TestHandshakeHonoursCallerDeadline(t *testing.T) {
 }
 
 func TestDeadTransportDropsIdleStreams(t *testing.T) {
-	s := &testServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
-	_, p := connect(t, s)
-	require.NoError(t, query(t, p, t.Context(), "ok"))
+	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
+	_, p := connectStreamPool(t, s)
+	require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
 	p.mu.Lock()
 	require.Len(t, p.idle, 1)
 	p.mu.Unlock()
-	stopServer()
+	stopStreamServer()
 	// The connectivity watcher discards the stale idle stream, so the next
 	// operation opens a fresh stream and fails before sending SQL (used=false)
 	// rather than failing a Send on the dead transport (used=true).
@@ -455,7 +469,7 @@ func TestDeadTransportDropsIdleStreams(t *testing.T) {
 }
 
 func TestResponseOrderAndEmptyResult(t *testing.T) {
-	s := &testServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		n, _ := strconv.Atoi(req.Query)
 		for i := range n {
 			if err := stream.Send(&pb.StreamExecuteResponse{ReservedState: &querypb.ReservedState{ReservedConnectionId: uint64(i + 1)}}); err != nil {
@@ -464,7 +478,7 @@ func TestResponseOrderAndEmptyResult(t *testing.T) {
 		}
 		return nil
 	}}
-	_, p := connect(t, s)
+	_, p := connectStreamPool(t, s)
 	for _, n := range []int{0, 3, 0, 1} {
 		r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{Query: strconv.Itoa(n)})
 		require.NoError(t, err)
