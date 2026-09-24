@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -98,6 +99,10 @@ type Config struct {
 	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
 	// tests that exercise only the env-var or file paths).
 	flagSet *pflag.FlagSet
+	// seedMaxConnections is a server-reported max_connections fallback seed
+	// (see SetSeedMaxConnections). Atomic: written at startup by init, read at
+	// every pool (re)open.
+	seedMaxConnections atomic.Int64
 	// reg is the registry the values below were configured against, saved so
 	// explicitness checks can ask whether a key was present in the loaded
 	// config file (Registry.InStaticConfig).
@@ -628,6 +633,18 @@ func (c *Config) SettingsCacheSize() int {
 // from the server when this one was not explicitly configured.
 func (c *Config) GlobalCapacity() int64 {
 	return c.globalCapacity.Get()
+}
+
+// SetSeedMaxConnections records a server-reported max_connections (e.g. from
+// pgctld's Status RPC at startup) used only as a fallback seed when the live
+// SQL derivation at pool open fails. 0 or negative clears/means unknown.
+func (c *Config) SetSeedMaxConnections(v int64) {
+	c.seedMaxConnections.Store(v)
+}
+
+// SeedMaxConnections returns the recorded seed; 0 when none was set.
+func (c *Config) SeedMaxConnections() int64 {
+	return c.seedMaxConnections.Load()
 }
 
 // GlobalCapacityExplicit reports whether the operator explicitly configured

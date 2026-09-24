@@ -639,8 +639,23 @@ type StatusResponse struct {
 	Message string `protobuf:"bytes,9,opt,name=message,proto3" json:"message,omitempty"`
 	// pgBackRest TLS server status
 	PgbackrestStatus *PgBackRestStatus `protobuf:"bytes,10,opt,name=pgbackrest_status,json=pgbackrestStatus,proto3" json:"pgbackrest_status,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Pooler directory pgctld was started with. Colocated services (multipooler)
+	// adopt this instead of redeclaring their own --pooler-dir.
+	PoolerDir string `protobuf:"bytes,11,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
+	// Effective configured max_connections, resolved the way postgres itself
+	// resolves it (includes and postgresql.auto.conf), available while postgres
+	// is stopped. 0 means unknown (data directory not initialized, or the value
+	// could not be determined). Consumers must treat this as a seed/fallback
+	// only — a running server's live setting is authoritative.
+	MaxConnections int32 `protobuf:"varint,12,opt,name=max_connections,json=maxConnections,proto3" json:"max_connections,omitempty"`
+	// pgBackRest TLS server port pgctld serves. 0 when pgBackRest is not
+	// configured.
+	PgbackrestPort int32 `protobuf:"varint,13,opt,name=pgbackrest_port,json=pgbackrestPort,proto3" json:"pgbackrest_port,omitempty"`
+	// Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
+	// pgbackrest.key). Empty when pgBackRest is not configured.
+	PgbackrestCertDir string `protobuf:"bytes,14,opt,name=pgbackrest_cert_dir,json=pgbackrestCertDir,proto3" json:"pgbackrest_cert_dir,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -741,6 +756,34 @@ func (x *StatusResponse) GetPgbackrestStatus() *PgBackRestStatus {
 		return x.PgbackrestStatus
 	}
 	return nil
+}
+
+func (x *StatusResponse) GetPoolerDir() string {
+	if x != nil {
+		return x.PoolerDir
+	}
+	return ""
+}
+
+func (x *StatusResponse) GetMaxConnections() int32 {
+	if x != nil {
+		return x.MaxConnections
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetPgbackrestPort() int32 {
+	if x != nil {
+		return x.PgbackrestPort
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetPgbackrestCertDir() string {
+	if x != nil {
+		return x.PgbackrestCertDir
+	}
+	return ""
 }
 
 // pgBackRest TLS server status
@@ -1323,7 +1366,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
-	"\rStatusRequest\"\xe5\x02\n" +
+	"\rStatusRequest\"\x86\x04\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
@@ -1335,7 +1378,12 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x18\n" +
 	"\amessage\x18\t \x01(\tR\amessage\x12L\n" +
 	"\x11pgbackrest_status\x18\n" +
-	" \x01(\v2\x1f.pgctldservice.PgBackRestStatusR\x10pgbackrestStatus\"\xb5\x01\n" +
+	" \x01(\v2\x1f.pgctldservice.PgBackRestStatusR\x10pgbackrestStatus\x12\x1d\n" +
+	"\n" +
+	"pooler_dir\x18\v \x01(\tR\tpoolerDir\x12'\n" +
+	"\x0fmax_connections\x18\f \x01(\x05R\x0emaxConnections\x12'\n" +
+	"\x0fpgbackrest_port\x18\r \x01(\x05R\x0epgbackrestPort\x12.\n" +
+	"\x13pgbackrest_cert_dir\x18\x0e \x01(\tR\x11pgbackrestCertDir\"\xb5\x01\n" +
 	"\x10PgBackRestStatus\x12\x18\n" +
 	"\arunning\x18\x01 \x01(\bR\arunning\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12#\n" +

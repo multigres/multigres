@@ -193,6 +193,25 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
 
+// leaderInRecovery reports whether the leader's last snapshot shows its postgres
+// genuinely in recovery as a STANDBY (pg_is_in_recovery() = true) — a node the
+// consensus rule names as leader but whose postgres never left recovery and so
+// cannot accept writes. Mirrors store.LeaderWritesProgressing's rule that recovery
+// mode is what actually precludes writes.
+//
+// This is deliberately the STANDBY state specifically, not "anything other than
+// PRIMARY": a standby answers pg_isready continuously, so it keeps postgres_ready
+// (and LastPostgresReadyTime) fresh and would otherwise pass both the healthy
+// fast-path and the anti-flap grace forever (see leaderReplacementCause). Transient
+// non-primary states (STARTING/UNKNOWN during a restart or a wedged postgres) lose
+// pg_isready, so the anti-flap timeout already fails them over — treating them as
+// "in recovery" here would instead fail over every primary restart. PROMOTING is
+// handled upstream by inPromotionGrace.
+func leaderInRecovery(sa *ShardAnalysis) bool {
+	return sa.Leader != nil &&
+		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+}
+
 // inPromotionGrace reports whether failover should be briefly suppressed because
 // the leader is mid-promotion: a freshly-created leadership rule needs a moment
 // for followers to reconnect and start streaming before "are followers vouching?"
@@ -385,6 +404,27 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	if leaderHasResigned(sa) || leaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
 			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
+	}
+
+	// A live leader whose postgres is in recovery (a STANDBY) cannot accept writes:
+	// the consensus rule names it leader but its postgres never left recovery. It
+	// answers pg_isready continuously, so without this guard it would pass BOTH the
+	// healthy fast-path below and the anti-flap grace (running + recently-ready)
+	// forever — masking the absence of a writable primary and emitting only an
+	// alert-only ShardAtRisk instead of routing to failover. Convict it so a real
+	// primary is promoted. Placed before both healthy verdicts to guard the whole
+	// live-leader path. (PROMOTING is handled upstream by inPromotionGrace; transient
+	// non-ready states are handled by the anti-flap timeout — see leaderInRecovery.)
+	//
+	// TODO: this is a tactical guard. We are not yet verifying that the leader is
+	// non-revoked on the highest-known coordinator term, so this protects against a
+	// Promote() RPC that was never received. The durable fix is on the pooler side: a
+	// pooler that knows it should be acting as leader would detect in its postgres
+	// monitor that it is in recovery mode and publish that it needs to resign
+	// leadership — replace this guard once that lands.
+	if leaderLive && leaderInRecovery(sa) {
+		return types.ProblemLeaderUnhealthy,
+			fmt.Sprintf("Leader for shard %s is reachable but its postgres is in recovery (not a primary)", sa.ShardKey), false
 	}
 
 	// Healthy and serving as a postgres primary — no replacement needed.

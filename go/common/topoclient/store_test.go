@@ -16,6 +16,7 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -305,8 +306,10 @@ func TestConnForCell_NonexistentCell(t *testing.T) {
 
 	// Try to get connection for nonexistent cell
 	conn, err := ts.ConnForCell(ctx, "nonexistent")
-	assert.Error(t, err, "ConnForCell should fail for nonexistent cell")
+	require.Error(t, err, "ConnForCell should fail for nonexistent cell")
 	assert.Nil(t, conn, "Connection should be nil")
+	assert.ErrorContains(t, err, `failed to look up cell "nonexistent" definition from global topology`)
+	assert.True(t, errors.Is(err, &TopoError{Code: NoNode}), "underlying error should still be NoNode")
 }
 
 func TestConnForCell_CanceledContext(t *testing.T) {

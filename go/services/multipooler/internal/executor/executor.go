@@ -970,7 +970,7 @@ func (e *Executor) PortalStreamExecute(
 	portalOptions *multipoolerpb.PortalExecuteOptions,
 	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (*query.ReservedState, error) {
+) (reservedState *query.ReservedState, err error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -980,6 +980,25 @@ func (e *Executor) PortalStreamExecute(
 	if portal == nil {
 		return nil, errors.New("portal is required")
 	}
+
+	// Record the portal execution in mg.pooler.query.* like the simple-query
+	// paths do. The extended protocol is what drivers use, so without this the
+	// pooler's own query metrics missed most traffic and the otelgrpc rpc.*
+	// metrics were the only per-statement signal. Rows are counted through the
+	// callback; pool_type is decided below once the branch is known.
+	poolType := poolTypeRegular
+	start := time.Now()
+	var rowsStreamed int64
+	origCallback := callback
+	callback = func(ctx context.Context, r *sqltypes.Result) error {
+		if r != nil {
+			rowsStreamed += int64(r.RowCount())
+		}
+		return origCallback(ctx, r)
+	}
+	defer func() {
+		e.metrics.recordQuery(ctx, poolType, time.Since(start), rowsStreamed, err)
+	}()
 
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
@@ -1013,6 +1032,7 @@ func (e *Executor) PortalStreamExecute(
 	// 3. reservationOptions carries reasons (caller wants this portal to reserve
 	//    a backend, e.g. it opens a transaction or temp table)
 	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 || reasons != 0 {
+		poolType = poolTypeReserved
 		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, reservationOptions, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
@@ -1070,10 +1090,12 @@ func (e *Executor) portalExecuteWithReserved(
 		// the validate hook (before any BEGIN below) is safe; the prepared
 		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
+		acqStart := time.Now()
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))...)
+		e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
 		if err != nil {
 			return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for user %s: %w", user, err))
 		}
@@ -1316,7 +1338,9 @@ func (e *Executor) portalExecuteWithRegular(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
+	acqStart := time.Now()
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
 		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}

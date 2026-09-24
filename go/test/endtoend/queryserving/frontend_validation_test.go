@@ -125,3 +125,66 @@ func TestFrontendValidationMatchesPostgres(t *testing.T) {
 		})
 	}
 }
+
+// TestGatewayManagedShowExtendedProtocolMatchesPostgres checks the wire response,
+// not just the returned value. pgx accepts a RowDescription during Execute, but
+// PostgreSQL does not send one: Describe owns it. A strict client such as
+// Postgrex rejects the extra message.
+func TestGatewayManagedShowExtendedProtocolMatchesPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+	parse := frontendPacket('P', []byte("s\x00SHOW statement_timeout\x00\x00\x00"))
+	bind := frontendPacket('B', []byte("p\x00s\x00\x00\x00\x00\x00\x00\x00"))
+	execute := frontendPacket('E', []byte("p\x00\x00\x00\x00\x00"))
+	sync := frontendPacket('S', nil)
+
+	tests := []struct {
+		name string
+		wire []byte
+	}{
+		{
+			name: "statement describe before execute",
+			wire: bytes.Join([][]byte{parse, frontendPacket('D', []byte{'S', 's', 0}), bind, execute, sync}, nil),
+		},
+		{
+			name: "portal describe flushed before execute",
+			wire: bytes.Join([][]byte{parse, bind, frontendPacket('D', []byte{'P', 'p', 0}), frontendPacket('H', nil), execute, sync}, nil),
+		},
+		{
+			name: "portal describe folded into execute",
+			wire: bytes.Join([][]byte{parse, bind, frontendPacket('D', []byte{'P', 'p', 0}), execute, sync}, nil),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var postgresTrace []string
+			for _, target := range setup.GetComparisonTargets(t) {
+				trace := frontendTrace(t, ctx, target.Port, tc.wire)
+				require.NotEmpty(t, trace)
+				require.Equal(t, "Ready(I)", trace[len(trace)-1], "%s must complete the query", target.Name)
+				rowDescriptions := 0
+				for _, message := range trace {
+					if message == "*pgproto3.RowDescription" {
+						rowDescriptions++
+					}
+				}
+				require.Equal(t, 1, rowDescriptions, "%s must describe the SHOW result exactly once", target.Name)
+				require.Contains(t, trace, "*pgproto3.DataRow")
+				if target.Name == "postgres" {
+					postgresTrace = trace
+					continue
+				}
+				require.Equal(t, postgresTrace, trace,
+					"gateway-managed SHOW must use the same extended-protocol message sequence as PostgreSQL")
+			}
+		})
+	}
+}
