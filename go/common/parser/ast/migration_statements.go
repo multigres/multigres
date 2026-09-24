@@ -214,12 +214,13 @@ func (n *CreateMigrationStmt) SqlString() string {
 	if n.ForAllTables {
 		b.WriteString(" FOR ALL TABLES")
 	} else if n.Objects != nil {
-		b.WriteString(" FOR ")
-		parts := make([]string, 0, len(n.Objects.Items))
-		for _, it := range n.Objects.Items {
-			parts = append(parts, it.SqlString())
+		// Reuse the CREATE PUBLICATION object-list renderer: PublicationObjSpec
+		// has no SqlString of its own (calling it panics), and this keeps the
+		// FOR clause identical to the publication grammar it mirrors.
+		if list := formatPubObjList(n.Objects); list != "" {
+			b.WriteString(" FOR ")
+			b.WriteString(list)
 		}
-		b.WriteString(strings.Join(parts, ", "))
 	}
 	if n.Options != nil {
 		b.WriteString(" WITH ")
