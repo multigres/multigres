@@ -203,6 +203,15 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		})
 	}
 
+	// setLeaderPGStandby marks the leader's postgres as genuinely in recovery (a
+	// STANDBY: pg_is_in_recovery() = true), i.e. a rule-designated leader whose
+	// postgres never left recovery and cannot accept writes.
+	setLeaderPGStandby := func(sa *ShardAnalysis) {
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+		})
+	}
+
 	// setLeaderResigned marks the leader as voluntarily wanting replacement via its
 	// AvailabilityStatus (cohort-eligibility INELIGIBLE), which LeaderNeedsReplacement
 	// treats as a resignation.
@@ -479,6 +488,48 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
+	})
+
+	t.Run("fails over a live, pg_isready leader whose postgres is a standby (in recovery)", func(t *testing.T) {
+		// The consensus rule names this pooler leader, but its postgres is a STANDBY
+		// (pg_is_in_recovery = true) — it answers pg_isready fine, yet cannot accept
+		// writes. It must NOT be judged a healthy serving primary (which would emit only
+		// an alert-only ShardAtRisk); it must route to failover so a real primary is
+		// promoted. Covers the healthy fast-path (postgres_ready = true).
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true) // a hot standby passes pg_isready
+			setLeaderPGStandby(sa)     // but postgres is in recovery
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnhealthy, problems[0].Code,
+			"a leader whose postgres is in recovery is not a healthy primary")
+		require.Equal(t, types.ScopeShard, problems[0].Scope)
+		require.Equal(t, leaderID, problems[0].PoolerID)
+	})
+
+	t.Run("fails over an in-recovery leader even within the anti-flap window", func(t *testing.T) {
+		// A standby keeps postgres_ready true continuously, so its LastPostgresReadyTime
+		// stays fresh and the anti-flap branch (postgres running + recently ready) would
+		// otherwise mask it forever. The in-recovery guard must fire before the anti-flap
+		// grace too — not only on the fast path.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGRunning(sa, true)                           // process alive
+			setLeaderPGReady(sa, false)                            // force the anti-flap branch
+			setLeaderLastReady(sa, time.Now().Add(-5*time.Second)) // recently ready → within grace
+			setLeaderPGStandby(sa)                                 // but postgres is in recovery
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnhealthy, problems[0].Code,
+			"the anti-flap grace must not mask a standby leader")
+		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
 	t.Run("ignores healthy leader with fresh quorum-commit watermark", func(t *testing.T) {

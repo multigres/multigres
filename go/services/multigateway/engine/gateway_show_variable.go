@@ -44,6 +44,37 @@ func NewGatewayShowVariable(sql string, variable string) *GatewayShowVariable {
 	}
 }
 
+// execute reads the variable's current value and returns it as a single-row result.
+// Fields are included for the simple protocol or when Describe is folded into Execute.
+func (g *GatewayShowVariable) execute(
+	ctx context.Context,
+	state *handler.MultigatewayConnectionState,
+	withFields bool,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// The planner validates the variable is gateway-managed before creating this
+	// primitive, so an unregistered name here is an internal error.
+	value, err := state.ShowGatewayManaged(g.variable)
+	if err != nil {
+		return err
+	}
+
+	result := &sqltypes.Result{
+		Rows: []*sqltypes.Row{
+			sqltypes.MakeRow([][]byte{[]byte(value)}),
+		},
+		CommandTag: "SHOW",
+	}
+	if withFields {
+		result.Fields = []*query.Field{{
+			Name:        g.variable,
+			Type:        "text",
+			DataTypeOid: 25, // text OID
+		}}
+	}
+	return callback(ctx, result)
+}
+
 // StreamExecute reads the variable's current value and returns it as a single-row result.
 func (g *GatewayShowVariable) StreamExecute(
 	ctx context.Context,
@@ -54,43 +85,25 @@ func (g *GatewayShowVariable) StreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// The planner validates the variable is gateway-managed before creating this
-	// primitive, so an unregistered name here is an internal error.
-	value, err := state.ShowGatewayManaged(g.variable)
-	if err != nil {
-		return err
-	}
-
-	return callback(ctx, &sqltypes.Result{
-		Fields: []*query.Field{
-			{
-				Name:        g.variable,
-				Type:        "text",
-				DataTypeOid: 25, // text OID
-			},
-		},
-		Rows: []*sqltypes.Row{
-			sqltypes.MakeRow([][]byte{[]byte(value)}),
-		},
-		CommandTag: "SHOW",
-	})
+	return g.execute(ctx, state, true, callback)
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. SHOW on a gateway-managed variable carries no
-// parameter binds; the value is read from gateway state. Delegate.
+// extended-protocol path. SHOW carries no parameter binds. Execute only includes
+// Fields when a portal Describe was folded into this call; otherwise a Describe
+// may already have sent RowDescription, or the client may have omitted Describe.
 func (g *GatewayShowVariable) PortalStreamExecute(
 	ctx context.Context,
-	exec IExecute,
-	conn *server.Conn,
+	_ IExecute,
+	_ *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
-	_ bool,
+	includeDescribe bool,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return g.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	return g.execute(ctx, state, includeDescribe, callback)
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.

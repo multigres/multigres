@@ -40,7 +40,13 @@ import (
 //     while its multipooler stays alive keeps self-claiming the consensus rule
 //     (Status falls back to the cached rule position), so without the postgres-ready
 //     check appoint_leader would treat such a dead-primary as healthy and skip the
-//     failover it was dispatched to perform.
+//     failover it was dispatched to perform, or
+//   - its postgres is in recovery (a STANDBY): SelfConsensusRole names a leader
+//     purely from the consensus rule, so a rule-named leader whose Promote never
+//     completed still self-claims leader AND answers pg_isready continuously.
+//     Without this check appoint_leader would treat an in-recovery standby as an
+//     existing writable primary and skip the failover — mirrors the analyzer's
+//     leaderInRecovery guard so a routed failover actually promotes a real primary.
 func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultipoolerClient, sl store.ShardMembers) (*store.Pooler, error) {
 	leader := sl.Leader
 	if leader == nil {
@@ -58,6 +64,10 @@ func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultipoolerClient
 	if !statusResp.GetStatus().GetPostgresReady() {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s postgres is not ready", leader.Health().GetMultipooler().GetId().GetName())
+	}
+	if statusResp.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus leader %s postgres is in recovery (standby), not a writable primary", leader.Health().GetMultipooler().GetId().GetName())
 	}
 	return leader, nil
 }
