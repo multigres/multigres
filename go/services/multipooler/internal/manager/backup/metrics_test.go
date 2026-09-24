@@ -352,7 +352,7 @@ func TestMetrics_HealthGauges_Populated(t *testing.T) {
 	tr := NewHealthTracker()
 	tr.applyRepoInfo(time.Now().Add(-time.Hour), 4)
 	tr.applyReadiness(true, ReadyReasonOK)
-	tr.applyArchiver(time.Now().Add(-30 * time.Second))
+	tr.applyArchiver(true, time.Now().Add(-30*time.Second), time.Now().Add(-45*time.Second), 2)
 	tr.BackupStarted() // sets inProgressStart
 	tr.SetLeaseHeld(true)
 	require.NoError(t, m.RegisterHealthCallback(tr))
@@ -370,7 +370,11 @@ func TestMetrics_HealthGauges_Populated(t *testing.T) {
 		assert.Equal(t, int64(1), v)
 	}
 	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "age emitted when a backup exists")
-	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "lag emitted when last-archived is set")
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.last_archive_age_seconds"), "wall-clock age emitted when last-archived is set")
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "archiving backlog emitted on a primary")
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.wal.pending_segments"); assert.True(t, ok, "pending segments emitted on a primary") {
+		assert.Equal(t, int64(2), v)
+	}
 }
 
 // TestMetrics_HealthGauges_Empty exercises the callback with a default tracker:
@@ -386,5 +390,8 @@ func TestMetrics_HealthGauges_Empty(t *testing.T) {
 		assert.Equal(t, int64(0), v)
 	}
 	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "no age without a backup")
-	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "no lag without last-archived")
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.last_archive_age_seconds"), "no wall-clock age without last-archived")
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "no archiving backlog off a primary")
+	_, pendingSegOK := gaugeInt64(t, reader, "pgbackrest.wal.pending_segments")
+	assert.False(t, pendingSegOK, "no pending segments off a primary")
 }

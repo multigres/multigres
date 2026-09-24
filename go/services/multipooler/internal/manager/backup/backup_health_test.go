@@ -352,8 +352,8 @@ func TestRefreshArchiver_ComputesLagOnPrimary(t *testing.T) {
 func TestRefreshArchiver_SkipsOnStandby(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	// Prime a stale value to ensure standby clears it.
-	e.Health().applyArchiver(time.Unix(1735984900, 0))
+	// Prime stale values to ensure standby clears them.
+	e.Health().applyArchiver(true, time.Unix(1735984900, 0), time.Unix(1735984900, 0), 3)
 	called := false
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		called = true
@@ -364,6 +364,9 @@ func TestRefreshArchiver_SkipsOnStandby(t *testing.T) {
 	assert.False(t, failing)
 	snap := e.Health().Snapshot()
 	assert.True(t, snap.LastArchived.IsZero(), "standby should report no archive lag")
+	assert.False(t, snap.ArchiverOnPrimary, "standby should not be marked as primary")
+	assert.True(t, snap.OldestPending.IsZero(), "standby should report no pending backlog")
+	assert.Zero(t, snap.PendingCount, "standby should report no pending segments")
 	assert.False(t, called, "archiver stats should not be queried on a standby")
 }
 
@@ -498,7 +501,7 @@ func TestCheckBackupSettings_DoesNotBlockOnNilOrError(t *testing.T) {
 func TestRefreshArchiver_QueryErrorKeepsCache(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 	primed := time.Unix(1735984900, 0)
-	e.Health().applyArchiver(primed)
+	e.Health().applyArchiver(true, primed, time.Time{}, 0)
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		return ArchiverStats{}, errors.New("query failed")
 	})
