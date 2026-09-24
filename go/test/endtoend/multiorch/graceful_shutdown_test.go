@@ -23,6 +23,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/testpoll"
@@ -59,12 +60,20 @@ func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.Multipool
 
 // TestPrimaryGracefulShutdownTriggersFailover verifies the end-to-end
 // graceful-shutdown contract on the primary side: SIGTERM on the primary
-// produces an explicit COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE signal on the
-// health stream, the LeaderResignedAnalyzer fires (via LeaderNeedsReplacement
-// treating INELIGIBLE as a resignation), multiorch promotes a surviving
-// standby, and the terminated pooler's topology entry ends up reporting
-// LifecycleStatus=SHUTDOWN. The failover must happen quickly because resignation
-// is an unambiguous signal — no follower-disconnect grace period.
+// stops postgres first, only then produces an explicit
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE signal on the health stream, the
+// LeaderResignedAnalyzer fires (via LeaderNeedsReplacement treating
+// INELIGIBLE as a resignation), multiorch promotes a surviving standby, and
+// the terminated pooler's topology entry ends up reporting
+// LifecycleStatus=SHUTDOWN.
+//
+// The old primary's postgres must actually stop — freezing its WAL position —
+// before INELIGIBLE is advertised: multiorch reacts to INELIGIBLE by
+// recruiting the surviving cohort, and recruiting a follower stops its
+// replication. If the leader were still producing WAL when that happened, it
+// could end up with WAL no follower ever received, forcing a pg_rewind when
+// it later rejoins. This test asserts that ordering directly (old primary
+// exits before a new one is observed) rather than just measuring latency.
 func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -100,10 +109,20 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
-	// Send SIGTERM but don't block on the old primary's exit — the orch
-	// promotion-side latency is what we want to measure, not the dying
-	// pooler's pgctld.Stop budget. We join the goroutine after the failover
-	// assertion to verify clean exit separately.
+	// Send SIGTERM and wait for the old primary's postgres to actually stop
+	// before looking for a new one. GracefulShutdown now advertises
+	// INELIGIBLE only once its own pgctld.Stop confirms postgres is down, so
+	// a new primary must never be observed before that — if it were, that
+	// would mean INELIGIBLE fired while the old primary might still be
+	// producing WAL, exactly the ordering this design is meant to prevent.
+	//
+	// Poll pgctld's own Status directly (it stays up independently after the
+	// multipooler process exits) rather than waiting for the whole
+	// multipooler process to exit: GracefulShutdown does more cleanup after
+	// advertising INELIGIBLE (closing the repl tracker/stats, servenv's
+	// OnClose chain, topology unregister) before the process actually exits,
+	// so gating this assertion on full process exit would be asserting a
+	// stronger guarantee than the code actually provides.
 	t.Logf("Sending SIGTERM to multipooler %s (PID %d)",
 		oldPrimary.Name, oldPrimary.Multipooler.Process.Process.Pid)
 	start := time.Now()
@@ -115,11 +134,39 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		_, _ = oldPrimary.Multipooler.Process.Stop(termCtx)
 	}()
 
-	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
-	// fires as soon as it sees INELIGIBLE on the leader, then
-	// AppointLeaderAction (Recruit + Promote) runs on the surviving cohort
-	// — concurrently with the old primary's pgctld.Stop, because runFailover
-	// excludes the resigned pooler from the cohort before recruit.
+	oldPgctldClient, err := shardsetup.NewPgctldClient(oldPrimary.Pgctld.GrpcPort)
+	require.NoError(t, err, "expected to connect to old primary's pgctld")
+	defer oldPgctldClient.Close()
+
+	// No new primary should appear while the old primary's postgres is still
+	// running. Poll alongside waiting for postgres to stop so a regression
+	// (INELIGIBLE advertised too early again) is caught directly instead of
+	// just measured as latency.
+	testpoll.WaitFor(t, func(ctx context.Context) bool {
+		statusResp, err := oldPgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
+		if err == nil && statusResp.GetStatus() == pgctldpb.ServerStatus_STOPPED {
+			return true
+		}
+		if current, ok := setup.TryFindPrimary(t); ok && current.Name != oldPrimaryName {
+			t.Fatalf("new primary %s observed before old primary %s's postgres stopped; "+
+				"INELIGIBLE must not be advertised until postgres has stopped",
+				current.Name, oldPrimaryName)
+		}
+		return false
+	}, 60*time.Second, 200*time.Millisecond,
+		"old primary %s's postgres did not stop", oldPrimaryName)
+	t.Logf("Old primary %s's postgres stopped in %s", oldPrimaryName, time.Since(start))
+
+	// The multipooler process itself has more cleanup to do after that (see
+	// above) before it actually exits; confirm it does so cleanly, with a
+	// generous bound rather than folding this into the race check above.
+	select {
+	case <-terminateDone:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("multipooler %s did not exit within 30s of its postgres stopping", oldPrimaryName)
+	}
+	t.Logf("Multipooler %s exited gracefully in %s", oldPrimaryName, time.Since(start))
+
 	t.Logf("Waiting for multiorch to elect a new primary...")
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	elapsed := time.Since(start)
@@ -127,28 +174,6 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	require.NotEqual(t, oldPrimaryName, newPrimaryName,
 		"new primary must be different from the terminated old primary")
 	t.Logf("New primary elected: %s (was: %s) in %s", newPrimaryName, oldPrimaryName, elapsed)
-
-	// Lock in a tight upper bound on orch-side failover latency: SIGTERM
-	// delivery → REQUESTING_DEMOTION broadcast → orch detects →
-	// LeaderResignedAnalyzer fires → AppointLeader completes → new primary
-	// visible. Regressions in any of those (e.g. Recruit still waiting on
-	// the resigned pooler) would blow past 5s.
-	require.Less(t, elapsed, 5*time.Second,
-		"graceful primary replacement took %s (expected well under 5s); "+
-			"likely a regression in INELIGIBLE delivery, LeaderResignedAnalyzer firing, "+
-			"or the appointment cohort still containing the resigned pooler", elapsed)
-
-	// Confirm the dying primary actually exited cleanly. Generous bound
-	// covers pgctld.Stop escalation (fast → immediate).
-	select {
-	case <-terminateDone:
-		t.Logf("Multipooler %s exited gracefully", oldPrimaryName)
-	case <-t.Context().Done():
-		t.Fatalf("test context cancelled while waiting for %s to exit: %v",
-			oldPrimaryName, t.Context().Err())
-	case <-time.After(60 * time.Second):
-		t.Fatalf("multipooler %s did not exit gracefully within 60s", oldPrimaryName)
-	}
 
 	// The terminated pooler must report LIFECYCLE_SHUTDOWN in topology. The
 	// pooler-side unregister hook (OnClose → tr.Unregister) writes this when the
