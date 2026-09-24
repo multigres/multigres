@@ -329,6 +329,12 @@ func gaugeInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) (int6
 
 // gaugeFloat64Present reports whether a Float64 observable gauge emitted a data point.
 func gaugeFloat64Present(t *testing.T, reader *sdkmetric.ManualReader, name string) bool {
+	_, ok := gaugeFloat64(t, reader, name)
+	return ok
+}
+
+// gaugeFloat64 returns the value of a Float64 observable gauge and whether it emitted.
+func gaugeFloat64(t *testing.T, reader *sdkmetric.ManualReader, name string) (float64, bool) {
 	t.Helper()
 	var data metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &data))
@@ -337,11 +343,14 @@ func gaugeFloat64Present(t *testing.T, reader *sdkmetric.ManualReader, name stri
 			if m.Name == name {
 				g, ok := m.Data.(metricdata.Gauge[float64])
 				require.True(t, ok, "expected Gauge[float64] for %s", name)
-				return len(g.DataPoints) > 0
+				if len(g.DataPoints) == 0 {
+					return 0, false
+				}
+				return g.DataPoints[0].Value, true
 			}
 		}
 	}
-	return false
+	return 0, false
 }
 
 // TestMetrics_HealthGauges_Populated exercises the gauge callback with a fully
@@ -370,10 +379,47 @@ func TestMetrics_HealthGauges_Populated(t *testing.T) {
 		assert.Equal(t, int64(1), v)
 	}
 	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "age emitted when a backup exists")
-	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.last_archive_age_seconds"), "wall-clock age emitted when last-archived is set")
-	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "archiving backlog emitted on a primary")
+
+	// archive_lag_seconds is the backlog, derived from OldestPending (45s ago);
+	// last_archive_age_seconds is wall-clock, derived from LastArchived (30s
+	// ago). Asserting values (not just presence) pins that each reads from the
+	// right timestamp — a swap would make both ~equal.
+	lastArchiveAge, ok := gaugeFloat64(t, reader, "pgbackrest.wal.last_archive_age_seconds")
+	if assert.True(t, ok, "wall-clock age emitted when last-archived is set") {
+		assert.InDelta(t, 30.0, lastArchiveAge, 10.0)
+	}
+	archiveLag, ok := gaugeFloat64(t, reader, "pgbackrest.wal.archive_lag_seconds")
+	if assert.True(t, ok, "archiving backlog emitted on a primary") {
+		assert.InDelta(t, 45.0, archiveLag, 10.0)
+		assert.Greater(t, archiveLag, lastArchiveAge, "backlog (oldest-pending age) must exceed the last-archive age")
+	}
 	if v, ok := gaugeInt64(t, reader, "pgbackrest.wal.pending_segments"); assert.True(t, ok, "pending segments emitted on a primary") {
 		assert.Equal(t, int64(2), v)
+	}
+}
+
+// TestMetrics_HealthGauges_CaughtUpPrimary is the idle-primary case this metric
+// exists to get right: a primary with nothing pending must report the backlog
+// as an explicit 0 (not a gap, not the wall-clock age), while last_archive_age
+// still tracks the wall-clock recency.
+func TestMetrics_HealthGauges_CaughtUpPrimary(t *testing.T) {
+	m, reader := setupMetrics(t)
+	tr := NewHealthTracker()
+	// On a primary, archived a while ago, but caught up now (no .ready files):
+	// OldestPending zero, PendingCount 0.
+	tr.applyArchiver(true, time.Now().Add(-3*time.Hour), time.Time{}, 0)
+	require.NoError(t, m.RegisterHealthCallback(tr))
+
+	lag, ok := gaugeFloat64(t, reader, "pgbackrest.wal.archive_lag_seconds")
+	if assert.True(t, ok, "backlog gauge emits an explicit 0 on a caught-up primary") {
+		assert.Equal(t, 0.0, lag, "caught up ⇒ no backlog, even though the last archive was hours ago")
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.wal.pending_segments"); assert.True(t, ok, "pending segments emits 0 on a caught-up primary") {
+		assert.Equal(t, int64(0), v)
+	}
+	age, ok := gaugeFloat64(t, reader, "pgbackrest.wal.last_archive_age_seconds")
+	if assert.True(t, ok, "wall-clock age still tracks recency") {
+		assert.Greater(t, age, 3600.0, "last archive was ~3h ago")
 	}
 }
 

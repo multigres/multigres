@@ -339,6 +339,26 @@ func TestRefreshArchiver_ComputesLagOnPrimary(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	archived := time.Unix(1735984900, 0)
+	oldestPending := time.Unix(1735984950, 0)
+	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
+		return ArchiverStats{LastArchived: archived, OldestPending: oldestPending, PendingCount: 2}, nil
+	})
+
+	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
+	assert.False(t, failing)
+	snap := e.Health().Snapshot()
+	assert.True(t, snap.ArchiverOnPrimary, "primary should be marked so the backlog gauge emits")
+	assert.Equal(t, archived, snap.LastArchived)
+	assert.Equal(t, oldestPending, snap.OldestPending, "primary should propagate the pending-backlog timestamp")
+	assert.Equal(t, int64(2), snap.PendingCount, "primary should propagate the pending-segment count")
+}
+
+func TestRefreshArchiver_CaughtUpPrimaryClearsPending(t *testing.T) {
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	archived := time.Unix(1735984900, 0)
+	// Caught up: pg_stat_archiver has a last-archived time, but archive_status
+	// has no .ready files, so OldestPending is zero and PendingCount is 0.
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		return ArchiverStats{LastArchived: archived}, nil
 	})
@@ -346,7 +366,10 @@ func TestRefreshArchiver_ComputesLagOnPrimary(t *testing.T) {
 	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
 	assert.False(t, failing)
 	snap := e.Health().Snapshot()
-	assert.Equal(t, archived, snap.LastArchived)
+	assert.True(t, snap.ArchiverOnPrimary)
+	assert.Equal(t, archived, snap.LastArchived, "wall-clock recency still tracked")
+	assert.True(t, snap.OldestPending.IsZero(), "caught up ⇒ no pending backlog")
+	assert.Zero(t, snap.PendingCount, "caught up ⇒ no pending segments")
 }
 
 func TestRefreshArchiver_SkipsOnStandby(t *testing.T) {
