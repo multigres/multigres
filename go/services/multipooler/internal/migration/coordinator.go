@@ -115,6 +115,11 @@ type CreateParams struct {
 	// SkipSchemaCopy skips the pg_dump --schema-only step.
 	SkipSchemaCopy bool
 	SequenceMargin int64
+	// QuiesceRoles are the optional application role names whose CONNECT on the
+	// source is revoked during the ACTIVATE cutover so they cannot write to the
+	// source once it becomes a subscriber (see Migration.QuiesceRoles). Validated at
+	// create time.
+	QuiesceRoles []string
 }
 
 // CreateMigration records a new migration (phase CREATED). It makes no changes
@@ -145,6 +150,11 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	}
 	for _, w := range warnings {
 		c.logger.WarnContext(ctx, "migration source validation warning", "warning", w)
+	}
+	// Validate any opt-in quiesce roles up front (each must exist; none may be the
+	// DSN's own role), so a bad role fails at create rather than mid-cutover.
+	if err := src.checkQuiesceRoles(p.QuiesceRoles); err != nil {
+		return nil, err
 	}
 	// EXPORT makes the source a subscriber; if it cannot create subscriptions
 	// (PG<16 without superuser), warn now so the operator knows fail-back is
@@ -180,6 +190,7 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 		CopyData:       p.CopyData,
 		SkipSchemaCopy: p.SkipSchemaCopy,
 		SequenceMargin: p.SequenceMargin,
+		QuiesceRoles:   p.QuiesceRoles,
 	}
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
@@ -560,15 +571,43 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // the subscriber has consumed past it (lag zero). Returns the captured LSN. dir is
 // the active direction, passed in because a drop may have already moved the phase
 // to PhaseCompleting (which carries no direction).
-func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction) (string, error) {
+//
+// hard selects a HARD quiesce for the IMPORT publisher (the external source): after
+// setting the source read-only it fences the opt-in quiesce roles (RevokeConnect)
+// and terminates every remaining client backend, THEN captures the LSN — so no
+// in-flight or reconnecting writer can commit past the barrier point, and the
+// captured LSN is final. hard is set only for the ACTIVATE cutover, where the
+// source is about to become a subscriber (a stray subscriber-side write would
+// diverge). The graceful-drop drain passes hard=false: there the source stays the
+// application's primary, so terminating its backends would be gratuitously
+// disruptive and read-only alone (later un-quiesced at teardown) suffices. hard has
+// no effect in the EXPORT branch (the source is not the publisher there).
+func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction, hard bool) (string, error) {
 	if dir == DirectionImport {
 		src, err := c.newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return "", err
 		}
 		defer src.close()
+		if hard {
+			// Fence the named app roles first, while this session is still writable:
+			// REVOKE is a catalog write and would be rejected once SetReadOnly flips the
+			// session read-only. Revoking before read-only also means a client the next
+			// step terminates cannot reconnect and slip a write in.
+			if err := src.RevokeConnect(m.QuiesceRoles); err != nil {
+				return "", err
+			}
+		}
 		if err := src.SetReadOnly(true); err != nil {
 			return "", err
+		}
+		if hard {
+			// Cut every remaining live client backend (a SELECT of pg_terminate_backend,
+			// allowed under the now read-only session) before capturing the LSN, so the
+			// barrier point is airtight — nothing in flight can still commit.
+			if err := src.TerminateClientBackends(); err != nil {
+				return "", err
+			}
 		}
 		lsn, err := src.CurrentLSN()
 		if err != nil {
@@ -595,7 +634,10 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 // sequences (the target in IMPORT, the source in EXPORT). dir is the active
 // direction (see drainCurrent).
 func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) error {
-	if _, err := c.drainCurrent(ctx, m, dir); err != nil {
+	// A graceful drop leaves the current publisher in place as a standalone
+	// database, so a soft quiesce (read-only, later un-quiesced at teardown) is
+	// enough — no need to terminate/fence its client backends.
+	if _, err := c.drainCurrent(ctx, m, dir, false); err != nil {
 		return err
 	}
 	if dir == DirectionImport {
@@ -839,6 +881,21 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 // the barrier already held), and switchTo skips objects it has already created,
 // so re-running converges. Caller holds c.mu; m.Phase is switchingPhase(target).
 func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Direction) (*Projection, error) {
+	// Switching to IMPORT makes the target a subscriber, so it must stop serving
+	// client writes before it starts applying replicated changes — otherwise a stray
+	// client write on the target-as-subscriber would diverge, the symmetric hazard to
+	// the source side. Drain the pooler to non-serving synchronously now rather than
+	// waiting for the async monitor tick to observe the IMPORTING phase. This is the
+	// mirror of the EXPORT cutover's synchronous releaseForExport, and cannot deadlock:
+	// the migrator's target-side ops run through the admin InternalQueryService, which
+	// bypasses the serving gate. Idempotent, so safe on a crash-resumed switch. A nil
+	// hook (unit tests without a manager) skips it, leaving the flip to the monitor.
+	if target == DirectionImport && c.drainForImport != nil {
+		if err := c.drainForImport(ctx); err != nil {
+			c.fail(ctx, m, err)
+			return nil, fmt.Errorf("drain to non-serving before deactivate switch: %w", err)
+		}
+	}
 	live, err := c.currentLinkLive(ctx, m)
 	if err != nil {
 		c.fail(ctx, m, err)
@@ -847,8 +904,10 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	if live {
 		// A switching phase still carries the current (pre-switch) direction, so
 		// derive it from the phase: SWITCHING_TO_EXPORT drains the import publisher,
-		// SWITCHING_TO_IMPORT drains the export publisher.
-		if _, err := c.drainCurrent(ctx, m, directionOf(m.Phase)); err != nil {
+		// SWITCHING_TO_IMPORT drains the export publisher. Switching TO export makes the
+		// source a subscriber, so drain it HARD (fence roles + terminate backends);
+		// switching back to import drains the target and does not touch the source.
+		if _, err := c.drainCurrent(ctx, m, directionOf(m.Phase), target == DirectionExport); err != nil {
 			c.fail(ctx, m, err)
 			return nil, err
 		}
@@ -1056,9 +1115,21 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		return nil
 	}
 
-	// EXPORT -> IMPORT: the external source becomes publisher/writer again. Its
-	// reverse subscription (below) dials the external source directly, not the
-	// gateway, so there is no serving-gate deadlock and it stays inline here.
+	// EXPORT -> IMPORT: the external source becomes publisher/writer again. The
+	// reverse subscription on the source (dropped below) has its publisher on the
+	// target, reached over the gateway replication tunnel — which the flip toward
+	// IMPORT has already gated. src.DropSubscription detaches the slot before
+	// dropping so it never dials that gated tunnel; the target-side reverse slot is
+	// dropped explicitly here (DropLogicalSlot), so nothing is orphaned.
+	//
+	// Restore the CONNECT privilege the ACTIVATE cutover revoked from the app roles:
+	// the source is a primary again, so applications must be able to reach it. The
+	// source is already writable — a switch to EXPORT un-quiesced it (SetReadOnly
+	// false) so DDL replication apply could run — so no read-only flip is needed
+	// here. Idempotent and a no-op when no roles were fenced.
+	if err := src.GrantConnect(m.QuiesceRoles); err != nil {
+		return err
+	}
 	if err := src.AdvanceSequences(m.Tables, m.SequenceMargin); err != nil {
 		return err
 	}
@@ -1149,6 +1220,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	if src != nil {
 		logErr("drop source subscription", src.DropSubscription(m.SubscriptionName()))
 		logErr("drop source DDL apply", teardownDDLApply(ctx, src.ddlConn()))
+		// The ACTIVATE cutover revoked CONNECT from the app roles; the migration is
+		// being torn down, so restore their access to the now-standalone source.
+		logErr("restore source connect", src.GrantConnect(m.QuiesceRoles))
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
 	// The reverse slot was pre-created on the target (create_slot=false), so the

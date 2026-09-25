@@ -82,8 +82,12 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 func (s *Store) Insert(ctx context.Context, m *Migration) error {
 	const insertMigrationSQL = `INSERT INTO multigres.migration
 		(migration_id, phase, name, source_dsn, target_database, target_shard,
-		 sequence_margin, copy_data, skip_schema_copy, direction)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
+		 sequence_margin, copy_data, skip_schema_copy, direction, quiesce_roles)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+	quiesceRolesJSON, err := marshalQuiesceRoles(m.QuiesceRoles)
+	if err != nil {
+		return err
+	}
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin insert migration: %w", err)
@@ -93,7 +97,7 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 		ctx, insertMigrationSQL,
 		m.ID, string(m.Phase), nullableName(m.Name), m.SourceDSN,
 		m.TargetDatabase, m.TargetShard, m.SequenceMargin, m.CopyData, m.SkipSchemaCopy,
-		string(m.effectiveDirection()),
+		string(m.effectiveDirection()), quiesceRolesJSON,
 	); err != nil {
 		return fmt.Errorf("insert migration: %w", err)
 	}
@@ -165,7 +169,7 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 // the CASE returns '[]' (rather than '[null]') when the group has no table rows.
 const selectMigrationSQL = `SELECT m.migration_id, m.phase, COALESCE(m.name, ''),
 	m.source_dsn, m.target_database, m.target_shard, m.sequence_margin,
-	m.copy_data, m.skip_schema_copy, m.direction, m.last_error,
+	m.copy_data, m.skip_schema_copy, m.direction, m.quiesce_roles, m.last_error,
 	m.created_at, m.streaming_since,
 	CASE WHEN count(t.table_name) = 0 THEN '[]'
 	     ELSE json_agg(t.schema_name || '.' || t.table_name)::text
@@ -216,6 +220,7 @@ func (s *Store) cacheStore(m *Migration) {
 	}
 	cp := *m
 	cp.Tables = append([]string(nil), m.Tables...)
+	cp.QuiesceRoles = append([]string(nil), m.QuiesceRoles...)
 	s.cache[m.ID] = &cp
 }
 
@@ -297,13 +302,14 @@ func (s *Store) List(ctx context.Context) ([]*Migration, error) {
 // Migration. The trailing tables column is a JSON array of "schema.table".
 func scanMigration(row *sqltypes.Row) (*Migration, error) {
 	var (
-		m          Migration
-		phase      string
-		direction  string
-		streaming  *time.Time
-		tablesJSON string
+		m                Migration
+		phase            string
+		direction        string
+		quiesceRolesJSON string
+		streaming        *time.Time
+		tablesJSON       string
 	)
-	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.SourceDSN, &m.TargetDatabase, &m.TargetShard, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.CreatedAt, &streaming, &tablesJSON)
+	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.SourceDSN, &m.TargetDatabase, &m.TargetShard, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &quiesceRolesJSON, &m.LastError, &m.CreatedAt, &streaming, &tablesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scan migration: %w", err)
 	}
@@ -315,7 +321,26 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 			return nil, fmt.Errorf("unmarshal tables: %w", err)
 		}
 	}
+	if quiesceRolesJSON != "" {
+		if err := json.Unmarshal([]byte(quiesceRolesJSON), &m.QuiesceRoles); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_roles: %w", err)
+		}
+	}
 	return &m, nil
+}
+
+// marshalQuiesceRoles encodes the quiesce-role list as the JSON array text stored
+// in multigres.migration.quiesce_roles. A nil/empty list encodes as "[]" (the
+// column default), so an unset option round-trips cleanly.
+func marshalQuiesceRoles(roles []string) (string, error) {
+	if len(roles) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(roles)
+	if err != nil {
+		return "", fmt.Errorf("marshal quiesce_roles: %w", err)
+	}
+	return string(b), nil
 }
 
 // nullableName maps an empty name to a SQL NULL so the partial-unique index on

@@ -74,6 +74,10 @@ type migrationSource interface {
 	CreateSubscription(name, conninfo, publication string, copyData bool, slotName string) error
 	DropSubscription(name string) error
 	SetReadOnly(ro bool) error
+	TerminateClientBackends() error
+	RevokeConnect(roles []string) error
+	GrantConnect(roles []string) error
+	checkQuiesceRoles(roles []string) error
 	CurrentLSN() (string, error)
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
 	SubscriptionExists(name string) (bool, error)

@@ -180,6 +180,15 @@ type Migration struct {
 	Tables         []string
 	SequenceMargin int64
 
+	// QuiesceRoles is the optional set of application role names whose CONNECT
+	// privilege on the source is revoked at the ACTIVATE cutover (and restored on a
+	// deactivate rollback or teardown), so they cannot reconnect and write once the
+	// source becomes a subscriber. Empty ⇒ the hard quiesce still freezes and
+	// terminates existing client backends, but does not fence reconnects by role.
+	// Immutable after create; validated at create time (each role must exist and
+	// none may be the DSN's own role). Persisted as a JSON array on the row.
+	QuiesceRoles []string
+
 	// CopyData is the initial-copy choice recorded at create time: true (the
 	// default) runs the stock tablesync initial COPY at subscription setup; false
 	// subscribes without a copy (target seeded out-of-band).
@@ -219,6 +228,7 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	copy_data BOOLEAN NOT NULL DEFAULT true,
 	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
 	direction TEXT NOT NULL DEFAULT 'IMPORT',
+	quiesce_roles TEXT NOT NULL DEFAULT '[]',
 	last_error TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	streaming_since TIMESTAMPTZ NULL
@@ -238,6 +248,7 @@ var alterMigrationAddColumnsSQL = []string{
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS copy_data BOOLEAN NOT NULL DEFAULT true`,
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS skip_schema_copy BOOLEAN NOT NULL DEFAULT false`,
 	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IMPORT'`,
+	`ALTER TABLE multigres.migration ADD COLUMN IF NOT EXISTS quiesce_roles TEXT NOT NULL DEFAULT '[]'`,
 }
 
 // CreateMigrationTablesSQL is the DDL for multigres.migration_tables, the normalized

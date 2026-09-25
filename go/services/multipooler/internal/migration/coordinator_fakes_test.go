@@ -288,6 +288,11 @@ type fakeSource struct {
 	waitSlotErr error
 	advSeqErr   error
 
+	terminateErr     error
+	revokeConnectErr error
+	grantConnectErr  error
+	checkRolesErr    error
+
 	closed int
 }
 
@@ -341,7 +346,35 @@ func (s *fakeSource) DropSubscription(string) error {
 	s.record("DropSubscription")
 	return s.dropSubErr
 }
-func (s *fakeSource) SetReadOnly(bool) error { return s.setROErr }
+
+func (s *fakeSource) SetReadOnly(ro bool) error {
+	if ro {
+		s.record("SetReadOnly(true)")
+	} else {
+		s.record("SetReadOnly(false)")
+	}
+	return s.setROErr
+}
+
+func (s *fakeSource) TerminateClientBackends() error {
+	s.record("TerminateClientBackends")
+	return s.terminateErr
+}
+
+func (s *fakeSource) RevokeConnect(roles []string) error {
+	if len(roles) > 0 {
+		s.record("RevokeConnect")
+	}
+	return s.revokeConnectErr
+}
+
+func (s *fakeSource) GrantConnect(roles []string) error {
+	if len(roles) > 0 {
+		s.record("GrantConnect")
+	}
+	return s.grantConnectErr
+}
+func (s *fakeSource) checkQuiesceRoles([]string) error { return s.checkRolesErr }
 func (s *fakeSource) CurrentLSN() (string, error) {
 	if s.currentLSN == "" {
 		return "0/0", s.currentLSNErr

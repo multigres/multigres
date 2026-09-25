@@ -569,8 +569,17 @@ type CreateMigrationRequest struct {
 	// publish_via_partition_root publishes changes through the partitioned-table
 	// root rather than leaves. NOT YET SUPPORTED.
 	PublishViaPartitionRoot bool `protobuf:"varint,13,opt,name=publish_via_partition_root,json=publishViaPartitionRoot,proto3" json:"publish_via_partition_root,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// quiesce_roles are optional application role names on the source whose CONNECT
+	// privilege is revoked during the ACTIVATE cutover (and restored on a deactivate
+	// rollback or teardown), so they cannot reconnect and write to the source once it
+	// becomes a subscriber. The hard quiesce always freezes and terminates existing
+	// client backends; naming roles here additionally fences reconnects that would
+	// otherwise diverge. Each role must exist on the source and must not be the DSN's
+	// own role (validated at create time). Empty leaves the terminate + read-only
+	// barrier as the only guard.
+	QuiesceRoles  []string `protobuf:"bytes,15,rep,name=quiesce_roles,json=quiesceRoles,proto3" json:"quiesce_roles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateMigrationRequest) Reset() {
@@ -678,6 +687,13 @@ func (x *CreateMigrationRequest) GetPublishViaPartitionRoot() bool {
 		return x.PublishViaPartitionRoot
 	}
 	return false
+}
+
+func (x *CreateMigrationRequest) GetQuiesceRoles() []string {
+	if x != nil {
+		return x.QuiesceRoles
+	}
+	return nil
 }
 
 type CreateMigrationResponse struct {
@@ -1442,7 +1458,7 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x04name\x18\x12 \x01(\tR\x04name\x12\x1b\n" +
 	"\tlag_bytes\x18\x13 \x01(\x04R\blagBytes\x12\x1f\n" +
 	"\vlag_seconds\x18\x14 \x01(\x01R\n" +
-	"lagSecondsJ\x04\b\x0f\x10\x10\"\x8a\x04\n" +
+	"lagSecondsJ\x04\b\x0f\x10\x10\"\xaf\x04\n" +
 	"\x16CreateMigrationRequest\x12\x1d\n" +
 	"\n" +
 	"source_dsn\x18\x01 \x01(\tR\tsourceDsn\x12'\n" +
@@ -1457,7 +1473,8 @@ const file_migratorservice_proto_rawDesc = "" +
 	" \x01(\bH\x00R\bcopyData\x88\x01\x01\x12(\n" +
 	"\x10skip_schema_copy\x18\v \x01(\bR\x0eskipSchemaCopy\x12-\n" +
 	"\x12source_publication\x18\f \x01(\tR\x11sourcePublication\x12;\n" +
-	"\x1apublish_via_partition_root\x18\r \x01(\bR\x17publishViaPartitionRootB\f\n" +
+	"\x1apublish_via_partition_root\x18\r \x01(\bR\x17publishViaPartitionRoot\x12#\n" +
+	"\rquiesce_roles\x18\x0f \x03(\tR\fquiesceRolesB\f\n" +
 	"\n" +
 	"_copy_dataJ\x04\b\x04\x10\x05J\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"R\x06tablesR\aschemasR\vtable_specs\"L\n" +

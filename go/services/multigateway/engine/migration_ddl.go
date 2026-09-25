@@ -616,6 +616,8 @@ func applyMigrationOptions(req *migratorpb.CreateMigrationRequest, list *ast.Nod
 			req.SourcePublication = val
 		case "publish_via_partition_root":
 			req.PublishViaPartitionRoot = isTruthy(val)
+		case "quiesce_roles":
+			req.QuiesceRoles = parseRoleList(val)
 		default:
 			return fmt.Errorf("unknown migration option %q", d.Defname)
 		}
@@ -649,6 +651,18 @@ func applyUpdateOptions(req *migratorpb.UpdateMigrationRequest, list *ast.NodeLi
 		}
 	}
 	return paths, nil
+}
+
+// parseRoleList splits a comma-separated quiesce_roles option value into trimmed,
+// non-empty role names (e.g. "app, reporting" -> ["app","reporting"]).
+func parseRoleList(v string) []string {
+	var roles []string
+	for r := range strings.SplitSeq(v, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }
 
 func isTruthy(v string) bool {

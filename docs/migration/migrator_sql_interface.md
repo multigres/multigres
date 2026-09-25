@@ -96,6 +96,7 @@ skip_schema_copy [ = boolean ]
 sequence_margin [ = integer ]
 source_publication [ = string ]
 publish_via_partition_root [ = boolean ]
+quiesce_roles [ = string ]
 ```
 
 - `migration_name` and `connection_name` are Postgres identifiers.
@@ -119,6 +120,7 @@ Notes:
 - `ALTER MIGRATION … START` begins the migration (validate → schema copy → publication → subscription → catch-up); maps to `StartMigration`.
 - `ALTER MIGRATION … ACTIVATE` is the go-live cutover — it drains to a consistent point, flips the active direction (IMPORT→EXPORT), and starts serving from the target.
 - `ALTER MIGRATION … DEACTIVATE` stops serving and flips back (EXPORT→IMPORT), the rollback. Both are **serving-coupled** — they move where client traffic is served, not just the replication direction — and map to the `ActivateMigration` / `DeactivateMigration` RPCs.
+- `quiesce_roles` names the source application role(s) (comma-separated) whose `CONNECT` is revoked during `ACTIVATE`, so they cannot reconnect and write to the source once it becomes a subscriber (a stray write there would diverge). The cutover always freezes and terminates live client backends; naming roles additionally fences reconnects. Restored on `DEACTIVATE` / `DROP`. Each role must exist and must not be the connection's own role.
 - `ALTER MIGRATION … SET ( … )` updates configuration and `ALTER MIGRATION … CONNECTION connection_name` re-points the source; both map to `UpdateMigration`.
 - These configuration/source changes (`SET`, `CONNECTION`) are only allowed while the migration is **not running** — the `CREATED` phase, before `START`. Applying them to a running migration (streaming in either direction) raises an object-in-use error (SQLSTATE `55006`). Editing config before start is the intended workflow; a live source re-point after a source failover is handled internally, not through this statement. (The lifecycle actions `START` / `ACTIVATE` / `DEACTIVATE` are the state transitions themselves and apply in their own phases.)
 - `DROP MIGRATION` tears the migration down.

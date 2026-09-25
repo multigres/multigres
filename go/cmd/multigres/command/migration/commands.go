@@ -85,6 +85,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 			name, _ := f.GetString("name")
 			tables, _ := f.GetStringSlice("tables")
 			skipSchemaCopy, _ := f.GetBool("skip-schema-copy")
+			quiesceRoles, _ := f.GetStringSlice("quiesce-roles")
 
 			client, err := admin.NewClient(cmd)
 			if err != nil {
@@ -101,6 +102,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 				AllTables:      allTables,
 				Objects:        objects,
 				SkipSchemaCopy: skipSchemaCopy,
+				QuiesceRoles:   quiesceRoles,
 			}
 			// Only send copy_data when the operator set it, so an unset flag keeps
 			// the server-side default (true).
@@ -123,6 +125,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 	cmd.Flags().StringSlice("tables", nil, "tables to migrate (comma-separated); use '*' for all owned tables or 'schema.*' for all owned tables in a schema")
 	cmd.Flags().Bool("copy-data", true, "run the initial COPY at subscription setup (false subscribes without a copy; target seeded out-of-band)")
 	cmd.Flags().Bool("skip-schema-copy", false, "skip pg_dump --schema-only (the target schema already exists)")
+	cmd.Flags().StringSlice("quiesce-roles", nil, "source application role(s) (comma-separated) whose CONNECT is revoked during the ACTIVATE cutover so they cannot write to the source once it becomes a subscriber")
 	return cmd
 }
 

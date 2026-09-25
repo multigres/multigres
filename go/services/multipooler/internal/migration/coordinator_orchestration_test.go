@@ -173,7 +173,7 @@ func TestDrop_ForceSkipsDrain(t *testing.T) {
 	_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{Force: true})
 	require.NoError(t, err)
 	require.Equal(t, []int64{testMigID}, tc.store.deletes)
-	require.NotContains(t, tc.log, "source.SetReadOnly", "force must skip the drain barrier")
+	require.NotContains(t, tc.log, "source.SetReadOnly(true)", "force must skip the drain barrier")
 }
 
 func TestDrop_GracefulImportSuccess(t *testing.T) {
@@ -183,6 +183,18 @@ func TestDrop_GracefulImportSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{testMigID}, tc.store.deletes)
 	require.Contains(t, tc.log, "target.DropSubscription")
+}
+
+func TestDrop_GracefulImportSoftQuiesce(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+	_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{})
+	require.NoError(t, err)
+	// A graceful drop leaves the source a standalone primary, so it uses the soft
+	// quiesce: read-only only, never terminating or fencing the app's own backends.
+	require.Contains(t, tc.log, "source.SetReadOnly(true)", "graceful drop still drains read-only")
+	require.NotContains(t, tc.log, "source.TerminateClientBackends", "graceful drop must not cut the app's backends")
+	require.NotContains(t, tc.log, "source.RevokeConnect", "graceful drop must not fence the app roles")
 }
 
 func TestDrop_GracefulDrainFailureRestoresPhase(t *testing.T) {
@@ -265,6 +277,67 @@ func TestActivate_ImportToExportFullSwitch(t *testing.T) {
 	require.Contains(t, tc.log, "source.CreateSubscription", "the reverse subscription is established on the source")
 }
 
+// logIndex returns the position of the first log entry equal to want, or -1.
+func logIndex(log []string, want string) int {
+	for i, e := range log {
+		if e == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestActivate_HardQuiesceFencesRolesAndTerminates(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+
+	_, err := tc.c.Activate(context.Background(), Ref{ID: m.ID}, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.NoError(t, err)
+
+	// The hard quiesce fences the named roles and cuts live client backends, and both
+	// must happen before the switch tears the import link down (source.DropPublication).
+	revoke := logIndex(tc.log, "source.RevokeConnect")
+	terminate := logIndex(tc.log, "source.TerminateClientBackends")
+	dropPub := logIndex(tc.log, "source.DropPublication")
+	require.NotEqual(t, -1, revoke, "activate must revoke CONNECT from the fenced roles")
+	require.NotEqual(t, -1, terminate, "activate must terminate live source client backends")
+	require.NotEqual(t, -1, dropPub)
+	require.Less(t, revoke, dropPub, "the fence must precede the switch")
+	require.Less(t, terminate, dropPub, "the write-cut must precede the switch")
+}
+
+func TestActivate_HardQuiesceWithoutRolesStillTerminates(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting}) // no QuiesceRoles
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+
+	_, err := tc.c.Activate(context.Background(), Ref{ID: m.ID}, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.NoError(t, err)
+	require.Contains(t, tc.log, "source.TerminateClientBackends", "terminate is unconditional at the ACTIVATE barrier")
+	require.NotContains(t, tc.log, "source.RevokeConnect", "no roles means no CONNECT fence")
+}
+
+func TestActivate_TerminateErrorAbortsSwitch(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting})
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+	tc.src.terminateErr = errors.New("cannot signal backends")
+
+	_, err := tc.c.Activate(context.Background(), Ref{ID: m.ID}, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.ErrorContains(t, err, "cannot signal backends")
+	require.NotContains(t, tc.log, "source.DropPublication", "a failed write-cut must not proceed into the switch")
+}
+
 func TestActivate_AlreadyActive(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseExporting})
@@ -292,6 +365,39 @@ func TestDeactivate_ExportToImportFullSwitch(t *testing.T) {
 	require.Contains(t, tc.log, "source.CreatePublication", "IMPORT makes the source the publisher again")
 	require.Contains(t, tc.log, "target.DropLogicalSlot", "the reverse slot is dropped on the target")
 	require.Contains(t, tc.log, "target.CreateSubscription", "the forward subscription is re-established on the target")
+}
+
+func TestDeactivate_DrainsTargetAndRestoresConnect(t *testing.T) {
+	tc := newTestCoord(t)
+	drained := 0
+	tc.c.drainForImport = func(context.Context) error { drained++; return nil }
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}})
+	tc.src.subExists = true
+
+	proj, err := tc.c.Deactivate(context.Background(), Ref{ID: m.ID})
+	require.NoError(t, err)
+	require.Equal(t, PhaseImporting, proj.Phase)
+	require.Equal(t, 1, drained, "deactivate must drain the pooler to non-serving synchronously before the target becomes a subscriber")
+	require.Contains(t, tc.log, "source.GrantConnect", "deactivate restores app CONNECT on the source-as-publisher")
+}
+
+func TestDeactivate_DrainForImportErrorAborts(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.drainForImport = func(context.Context) error { return errors.New("still serving") }
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = true
+
+	_, err := tc.c.Deactivate(context.Background(), Ref{ID: m.ID})
+	require.ErrorContains(t, err, "still serving")
+	require.NotContains(t, tc.log, "source.CreatePublication", "a failed non-serving drain must not proceed into the switch")
+}
+
+func TestActivate_ExportGrantsBackOnTeardown(t *testing.T) {
+	tc := newTestCoord(t)
+	// A fenced EXPORT migration torn down (COMPLETING resume) must restore CONNECT.
+	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport, QuiesceRoles: []string{"app"}})
+	require.NoError(t, tc.c.Reconcile(context.Background()))
+	require.Contains(t, tc.log, "source.GrantConnect", "EXPORT teardown restores app CONNECT on the standalone source")
 }
 
 func TestDeactivate_NotActive(t *testing.T) {

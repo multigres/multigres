@@ -303,6 +303,26 @@ Notes:
   state, and so on, appending a journal entry each time. Each flip relies on the quiesce+lag-zero barrier making both
   sides identical, so `copy_data=false` is always safe. (`active_direction` stays IMPORT/EXPORT in the record and status
   views — the monitoring vocabulary — while the operator verbs read as activate/deactivate.)
+- **The source quiesce at activate is a hard barrier, not just read-only.** `default_transaction_read_only` alone is not
+  airtight: it only defaults _new_ transactions, an in-flight transaction still commits, and a client can override it
+  (`BEGIN … READ WRITE`, `SET … = off`). Because the source becomes a subscriber, any write it takes after the barrier
+  is captured by nothing and diverges (logical replication never reconciles a local write on a subscriber). So
+  `activate-migration` quiesces the source hard, in this order: (1) `REVOKE CONNECT` from the operator-named application
+  role(s) (the `quiesce_roles` create option) — losing CONNECT cannot be overridden the way the read-only GUC can, and
+  superusers (the migrator's own DSN) bypass the check so admin access is retained; (2) `default_transaction_read_only =
+on` cluster-wide to freeze anything still connected; (3) `pg_terminate_backend` every remaining `client backend`
+  (never walsenders/apply workers, never the migrator's connections, which carry a distinct `application_name`); only
+  then (4) capture the barrier LSN and wait for `confirmed_flush ≥ LSN`. Terminating (rather than only blocking) is what
+  makes the captured LSN final. `quiesce_roles` is opt-in: with none set, steps (2)+(3) still cut and freeze the live
+  writers, but a reconnecting client is defaulted read-only, so naming the app role(s) is what closes the last hole.
+  The source is un-quiesced (`default_transaction_read_only = off`) as part of the switch because DDL replication apply
+  runs captured DDL through an `ENABLE ALWAYS` trigger, which `ProcessUtility` rejects under a read-only transaction —
+  the CONNECT fence, not the GUC, is what keeps the app out for the rest of the EXPORT lifetime; `deactivate` and a drop
+  `GRANT CONNECT` back. The symmetric `deactivate` (EXPORT→IMPORT) needs no GUC on the target: the target's postgres is
+  reachable only through the pooler, so its hard guarantee is the serving gate — `deactivate` drains the pooler to
+  non-serving **synchronously** (the same `drainForImport` barrier `StartMigration` uses) before the target becomes a
+  subscriber, rather than waiting for the async monitor tick. A graceful drop keeps the source a standalone primary, so
+  it uses only the soft read-only drain (no terminate, no CONNECT fence).
 - **Why the reverse path is built at switch time, not pre-armed.** A tempting alternative is to create the subscriptions
   and publications for _both_ directions up front and just `ENABLE`/`DISABLE` them at the switch. This works for
   publications — they are stateless metadata (a table set plus optional filter), hold no slot or position, and drive no

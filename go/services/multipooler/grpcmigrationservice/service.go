@@ -84,6 +84,7 @@ func (s *migrationService) CreateMigration(ctx context.Context, req *migratorpb.
 		CopyData:       copyData,
 		SkipSchemaCopy: req.SkipSchemaCopy,
 		SequenceMargin: req.SequenceMargin,
+		QuiesceRoles:   req.QuiesceRoles,
 	})
 	if err != nil {
 		return nil, toGRPC(err)

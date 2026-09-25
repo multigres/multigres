@@ -523,6 +523,20 @@ export class CreateMigrationRequest extends Message<CreateMigrationRequest> {
    */
   publishViaPartitionRoot = false;
 
+  /**
+   * quiesce_roles are optional application role names on the source whose CONNECT
+   * privilege is revoked during the ACTIVATE cutover (and restored on a deactivate
+   * rollback or teardown), so they cannot reconnect and write to the source once it
+   * becomes a subscriber. The hard quiesce always freezes and terminates existing
+   * client backends; naming roles here additionally fences reconnects that would
+   * otherwise diverge. Each role must exist on the source and must not be the DSN's
+   * own role (validated at create time). Empty leaves the terminate + read-only
+   * barrier as the only guard.
+   *
+   * @generated from field: repeated string quiesce_roles = 15;
+   */
+  quiesceRoles: string[] = [];
+
   constructor(data?: PartialMessage<CreateMigrationRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -542,6 +556,7 @@ export class CreateMigrationRequest extends Message<CreateMigrationRequest> {
     { no: 11, name: "skip_schema_copy", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 12, name: "source_publication", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 13, name: "publish_via_partition_root", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 15, name: "quiesce_roles", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateMigrationRequest {

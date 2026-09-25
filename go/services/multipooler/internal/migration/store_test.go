@@ -165,6 +165,7 @@ func selectRow(id int64, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value("true"),                    // copy_data
 		sqltypes.Value("false"),                   // skip_schema_copy
 		sqltypes.Value("IMPORT"),                  // direction
+		sqltypes.Value("[]"),                      // quiesce_roles
 		sqltypes.Value(""),                        // last_error
 		sqltypes.Value(createdAt),                 // created_at
 		nil,                                       // streaming_since (NULL)
