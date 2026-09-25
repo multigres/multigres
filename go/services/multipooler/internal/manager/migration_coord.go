@@ -125,7 +125,7 @@ func (pm *MultipoolerManager) migrationCoordinator() *migration.Coordinator {
 		if qs == nil {
 			return nil
 		}
-		pm.migrationCoord = migration.NewCoordinator(qs, pm.logger, pm.targetConnInfo, pm.drainForMigrationImport)
+		pm.migrationCoord = migration.NewCoordinator(qs, pm.logger, pm.targetConnInfo, pm.drainForMigrationImport, pm.releaseForMigrationExport)
 	}
 	return pm.migrationCoord
 }
@@ -231,6 +231,27 @@ func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error
 	}
 	defer pm.actionLock.Release(lockCtx)
 	return pm.stateManager.ForceMigrationHold(lockCtx)
+}
+
+// releaseForMigrationExport is the synchronous serving flip the migration
+// coordinator runs the moment the IMPORT->EXPORT cutover commits the EXPORTING
+// phase. It recomputes the import hold from the (now EXPORTING) migration table —
+// so a second still-importing migration on the shard keeps the hold — and
+// reconciles serving inline, completing the transient DRAINING back to SERVING
+// instead of waiting for the ~5s postgres-monitor tick. Prompt serving-on lets the
+// gateway's failover buffer replay the queries it held during the cutover within
+// its window. Injected into the coordinator via NewCoordinator; symmetric to
+// drainForMigrationImport.
+func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) error {
+	// Recompute from the table rather than blindly clearing: another migration on
+	// this shard may still be importing and must keep the hold.
+	pm.refreshMigrationHold(ctx)
+	lockCtx, err := pm.actionLock.Acquire(ctx, "MigrationExportRelease")
+	if err != nil {
+		return err
+	}
+	defer pm.actionLock.Release(lockCtx)
+	return pm.stateManager.ReconcileMigrationHold(lockCtx, pm.migrationServingHold())
 }
 
 // runMigrationReconcile is the reconcile poller. Each tick, if this pooler is

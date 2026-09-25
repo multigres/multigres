@@ -29,6 +29,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	"github.com/multigres/multigres/go/tools/humansize"
 )
 
 // markersToSelection converts the CLI's flat --tables markers into the request's
@@ -208,7 +209,18 @@ func AddActivateMigrationCommand() *cobra.Command {
 		Use:   "activate-migration",
 		Short: "Activate a migration: cut over to serving (switch to EXPORT)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, _ := cmd.Flags().GetString("id")
+			f := cmd.Flags()
+			id, _ := f.GetString("id")
+			maxLagStr, _ := f.GetString("max-lag-bytes")
+			waitTimeout, _ := f.GetInt64("wait-timeout")
+			var maxLagBytes uint64
+			if maxLagStr != "" {
+				n, err := humansize.ParseBytes(maxLagStr)
+				if err != nil {
+					return fmt.Errorf("--max-lag-bytes: %w", err)
+				}
+				maxLagBytes = n
+			}
 			client, err := admin.NewClient(cmd)
 			if err != nil {
 				return err
@@ -216,7 +228,12 @@ func AddActivateMigrationCommand() *cobra.Command {
 			defer client.Close()
 
 			refID, refName := splitRef(id)
-			resp, err := client.ActivateMigration(cmd.Context(), &migratorpb.ActivateMigrationRequest{Id: refID, Name: refName})
+			resp, err := client.ActivateMigration(cmd.Context(), &migratorpb.ActivateMigrationRequest{
+				Id:                 refID,
+				Name:               refName,
+				MaxLagBytes:        maxLagBytes,
+				WaitTimeoutSeconds: waitTimeout,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to activate migration: %w", err)
 			}
@@ -225,6 +242,8 @@ func AddActivateMigrationCommand() *cobra.Command {
 	}
 	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
 	cmd.Flags().String("id", "", "migration id or name")
+	cmd.Flags().String("max-lag-bytes", "", "readiness threshold: wait until replication lag is at or below this size before cutting over, so the cutover fits the gateway buffer window. Accepts a byte count or a size literal like '8 MiB' (empty = server default)")
+	cmd.Flags().Int64("wait-timeout", 0, "timeout in seconds to wait for the lag to fall to --max-lag-bytes before failing (0 = server default)")
 	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }

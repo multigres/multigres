@@ -23,6 +23,23 @@ import (
 
 const testDSN = "host=src.example.com port=5432 user=repl password=s3cr3t dbname=appdb sslmode=disable"
 
+func TestActivateOptionsResolve(t *testing.T) {
+	// Zero value fills in the server defaults.
+	lag, wait := ActivateOptions{}.resolve()
+	require.Equal(t, DefaultActivateMaxLagBytes, lag)
+	require.Equal(t, DefaultActivateWaitTimeout, wait)
+
+	// Explicit values are honored as-is.
+	lag, wait = ActivateOptions{MaxLagBytes: 1 << 20, WaitTimeout: 5 * time.Second}.resolve()
+	require.Equal(t, uint64(1<<20), lag)
+	require.Equal(t, 5*time.Second, wait)
+
+	// A value above the recommended ceiling is NOT refused — the ceiling is advisory
+	// only (see the note on ActivateOptions.resolve), so it passes through unchanged.
+	lag, _ = ActivateOptions{MaxLagBytes: MaxActivateMaxLagBytes + 1}.resolve()
+	require.Equal(t, MaxActivateMaxLagBytes+1, lag)
+}
+
 func TestRedactDSN(t *testing.T) {
 	got := redactDSN(testDSN)
 	require.Equal(t, "src.example.com:5432/appdb", got)

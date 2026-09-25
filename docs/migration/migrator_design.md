@@ -526,6 +526,51 @@ nothing is lost. The reverse subscription's `CONNECTION` is the gateway advertis
 `START_REPLICATION` terminates at the gateway and is rejected with `57P03` until the pooler flips to serving (the retry
 window); then the gateway proxies to the target primary walsender and the reverse stream flows back through the tunnel.
 
+#### Cutover readiness gate and gateway buffering
+
+The cutover has a brief window — quiesce the source, drain the residual lag to zero under the read-only barrier, flip
+the direction, turn serving on — during which the target pooler is not yet serving. Rather than refuse client queries
+with `57P03` in that window, the gateway **buffers** them (its planned-failover buffer, `buffer-enabled`,
+`buffer-window` ~10s, `buffer-max-failover-duration` ~20s) and replays them once the target serves, so an application
+already pointed at the gateway sees no error and loses no write. Two mechanisms make that safe:
+
+1. **Readiness gate before the barrier.** `ActivateMigration` takes `max_lag_bytes` and `wait_timeout_seconds`. Before
+   it quiesces the source it polls the live replication lag — `pg_wal_lsn_diff(pg_current_wal_lsn(),
+confirmed_flush_lsn)` on the source slot — and proceeds only once the lag is at or below `max_lag_bytes`. If the lag
+   does not fall in `wait_timeout_seconds` it fails with a precondition error (`ErrNotReady` → gRPC
+   `FAILED_PRECONDITION`) and leaves the migration in the IMPORT direction — no cutover, no serving change. Bounding the
+   residual before the source goes read-only keeps the subsequent drain-to-zero short, so the whole cutover fits the
+   buffer window.
+
+2. **Synchronous serving flip.** The moment `applySwitch` commits `EXPORTING`, the coordinator flips this pooler to
+   `SERVING` inline (`releaseForMigrationExport` → `StateManager.ReconcileMigrationHold`), rather than waiting for the
+   asynchronous ~5s postgres-monitor tick. Prompt serving-on is what lets the gateway's buffer drain (it releases when
+   the elected leader self-attests PRIMARY + SERVING) inside its window; a slow flip risks the buffer timing out
+   (`MTB02`) and refusing the held queries. The same flip unblocks the reverse subscription, which the source can only
+   attach once the target serves.
+
+**The buffer-window / threshold relationship.** The cutover wall-clock is `T_drain + T_flip + T_serve`.
+`T_flip + T_serve` are a handful of catalog operations plus the synchronous flip (a fixed budget). `T_drain` scales with
+the residual lag at quiesce time, which the readiness gate bounds. So `max_lag_bytes` must be small enough that
+`T_drain` plus that fixed budget stays under `buffer-window`; otherwise the buffer overflows and queries are refused
+mid-cutover. The coordinator documents a recommended ceiling (`MaxActivateMaxLagBytes`, in step with the gateway buffer
+window) but does **not** enforce it: whether a threshold is too large depends on the gateway buffer window, which the
+coordinator cannot observe across services, and the CLI / multiadmin path bypasses the gateway entirely — so a hard
+refuse would be guessing. Keeping `max_lag_bytes` at or below the recommended ceiling is the operator's responsibility.
+The default (`DefaultActivateMaxLagBytes`) is well under the ceiling, so a caught-up `IMPORTING` stream (lag ~0) cuts
+over immediately. A zero-error cutover also requires the gateway to have buffering enabled (`buffer-enabled`); with it
+off, queries in the window fall back to the current `57P03` refuse behavior.
+
+**SQL surface.** `ALTER MIGRATION <name> ACTIVATE WITH (max_lag_bytes = 8388608, wait_timeout = '30s')` threads the same
+two parameters through the gateway; `wait_timeout` accepts a duration string or bare integer seconds. The `mg` /
+multiadmin path exposes them as `--max-lag-bytes` / `--wait-timeout`.
+
+**Observing lag.** So an operator can pick a threshold, migration status surfaces the live lag: `SHOW MIGRATION <name>`
+(and `get-migration` / the API `Migration` message) reports `lag_bytes` and `lag_seconds`, measured on the current
+publisher — the source in IMPORT, the target in EXPORT. `lag_bytes` is the same `pg_current_wal_lsn() -
+confirmed_flush_lsn` measure the readiness gate compares against `max_lag_bytes`, and `lag_seconds` is the walsender's
+`replay_lag`. Both read live on each status call (best-effort: 0 when not streaming or the publisher is unreachable).
+
 ### DeactivateMigration
 
 ```mermaid
@@ -971,8 +1016,10 @@ Each command forwards to the multiadmin RPC in parentheses; the trailing arrow i
   the `IMPORTING` state, **not serving**. (`StartMigration`) `CREATED` → `IMPORTING`.
 - **`get-migration` / `list-migrations`** — status: phase, `active_direction`, serving, copy progress (`srsubstate`),
   lag, journal. (`GetMigrations`, single = filter by id) read-only.
-- **`activate-migration`** — go live: drain to lag zero, flip `active_direction` to EXPORT, and turn serving **on**.
-  Requires the current direction to be IMPORT. (`ActivateMigration`) `IMPORTING` → `EXPORTING` (serving).
+- **`activate-migration`** — go live: wait until lag is within `--max-lag-bytes` (up to `--wait-timeout`), drain to lag
+  zero, flip `active_direction` to EXPORT, and turn serving **on** synchronously so the gateway buffer replays queries
+  held during the cutover. Requires the current direction to be IMPORT; if the lag does not fall in time it fails with a
+  precondition error and stays IMPORT. (`ActivateMigration`) `IMPORTING` → `EXPORTING` (serving).
 - **`deactivate-migration`** — roll back: turn serving **off**, then flip `active_direction` back to IMPORT. Requires
   the current direction to be EXPORT. (`DeactivateMigration`) `EXPORTING` → `IMPORTING`.
 - **`drop-migration`** — drop sub/pub/slot both sides and delete the workflow (idempotent). Default performs a
@@ -999,7 +1046,9 @@ Migrator (`GetMigratorsByCell` plus shard filter, reusing `go/services/multiadmi
 - `StartMigration(StartMigrationRequest) → Migration`
 - `GetMigrations(GetMigrationsRequest) → GetMigrationsResponse` — single RPC for one or many: optional id/filter returns
   that one; empty returns all (mirrors `GetBackups`).
-- `ActivateMigration(ActivateMigrationRequest) → Migration` — cut over to serving (IMPORT→EXPORT).
+- `ActivateMigration(ActivateMigrationRequest) → Migration` — cut over to serving (IMPORT→EXPORT). The request
+  carries `max_lag_bytes` and `wait_timeout_seconds` (the readiness gate); an unmet threshold returns
+  `FAILED_PRECONDITION`.
 - `DeactivateMigration(DeactivateMigrationRequest) → Migration` — roll back to non-serving (EXPORT→IMPORT).
 - `DropMigration(DropMigrationRequest) → Migration`
 - `Migration` message = workflow record projection (id, name, source, target, tables, `copy_data`, phase,

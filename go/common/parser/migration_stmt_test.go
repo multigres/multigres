@@ -124,6 +124,27 @@ func TestParseAlterMigration(t *testing.T) {
 	assert.True(t, ie.(*ast.AlterMigrationStmt).IfExists)
 }
 
+// TestParseActivateMigrationOptions covers the ACTIVATE WITH (...) readiness
+// options (max_lag_bytes / wait_timeout) and their SqlString round-trip.
+func TestParseActivateMigrationOptions(t *testing.T) {
+	// Bare ACTIVATE still parses with no options.
+	bare := parseOne(t, "ALTER MIGRATION m ACTIVATE").(*ast.AlterMigrationStmt)
+	assert.Equal(t, ast.MigrationActionActivate, bare.Action)
+	assert.Nil(t, bare.Options)
+	assert.Equal(t, "ALTER MIGRATION m ACTIVATE", bare.SqlString())
+
+	withOpts := parseOne(t, "ALTER MIGRATION m ACTIVATE WITH (max_lag_bytes = 8388608, wait_timeout = '30s')").(*ast.AlterMigrationStmt)
+	assert.Equal(t, ast.MigrationActionActivate, withOpts.Action)
+	require.NotNil(t, withOpts.Options)
+	assert.Len(t, withOpts.Options.Items, 2)
+	// Round-trips through SqlString and re-parses to the same options.
+	rt := withOpts.SqlString()
+	reparsed := parseOne(t, rt).(*ast.AlterMigrationStmt)
+	assert.Equal(t, ast.MigrationActionActivate, reparsed.Action)
+	require.NotNil(t, reparsed.Options)
+	assert.Len(t, reparsed.Options.Items, 2)
+}
+
 func TestParseDropAndShowMigration(t *testing.T) {
 	plain := parseOne(t, "DROP MIGRATION m").(*ast.DropMigrationStmt)
 	assert.False(t, plain.Force)
