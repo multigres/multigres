@@ -508,6 +508,30 @@ func TestGetInt64(t *testing.T) {
 	})
 }
 
+func TestGetTime(t *testing.T) {
+	t.Run("get time value", func(t *testing.T) {
+		row := makeRow("2026-09-23 14:05:22.123456-04")
+		ts, err := GetTime(row, 0)
+		require.NoError(t, err)
+		want, err := time.Parse("2006-01-02 15:04:05.999999-07", "2026-09-23 14:05:22.123456-04")
+		require.NoError(t, err)
+		assert.True(t, want.Equal(ts))
+	})
+
+	t.Run("NULL leaves the zero value", func(t *testing.T) {
+		row := makeRow(nil)
+		ts, err := GetTime(row, 0)
+		require.NoError(t, err)
+		assert.True(t, ts.IsZero())
+	})
+
+	t.Run("unparsable value errors", func(t *testing.T) {
+		row := makeRow("not-a-timestamp")
+		_, err := GetTime(row, 0)
+		require.Error(t, err)
+	})
+}
+
 func TestParseFloat64(t *testing.T) {
 	tests := []struct {
 		name        string

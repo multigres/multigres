@@ -504,6 +504,93 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Equal(t, "0/12345678", status.Status.PrimaryStatus.Lsn)
 	})
 
+	t.Run("PRIMARY_pooler_reports_its_own_first_hand_quorum_commit_watermark", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.Multipooler{
+			Id:            serviceID,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		multipooler.PoolerDir = tmpDir
+
+		// A short interval so the heartbeat writer's own tick (not the RPC path
+		// under test) produces a proven watermark within the test's poll budget.
+		config := &Config{
+			TopoClient:          ts,
+			PgctldAddr:          pgctldAddr,
+			HeartbeatIntervalMs: 20,
+		}
+		mockQueryService := mock.NewQueryService()
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+			withMockController(&mockPoolerController{queryService: mockQueryService}),
+			withFakeRules(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   serviceID,
+				}},
+			}}))
+		require.NoError(t, err)
+		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/12345678"}}))
+		mockQueryService.AddQueryPattern("SELECT application_name",
+			mock.MakeQueryResult([]string{"application_name"}, nil))
+		mockQueryService.AddQueryPattern("SELECT current_setting",
+			mock.MakeQueryResult(
+				[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
+				[][]any{{"", "on", "5"}}))
+		// The heartbeat writer's own INSERT..RETURNING, distinct from the
+		// getPrimaryLSN() SELECT above -- its RETURNING value becomes the
+		// writer's proven candidate (Writer.LastProven), which
+		// getPrimaryStatusInternal reports as PrimaryStatus.QuorumCommitLsn/Ts.
+		mockQueryService.AddQueryPattern("INSERT INTO multigres\\.heartbeat",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/300"}}))
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		require.Eventually(t, func() bool {
+			_, _ = pm.monitorPostgresIteration(ctx)
+			return pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
+
+		require.Eventually(t, func() bool {
+			status, err := pm.Status(ctx)
+			return err == nil && status.Status.GetPrimaryStatus().GetQuorumCommitLsn() != ""
+		}, 5*time.Second, 50*time.Millisecond, "PrimaryStatus should eventually report the writer's own proven watermark")
+
+		status, err := pm.Status(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "0/300", status.Status.PrimaryStatus.QuorumCommitLsn)
+		assert.NotNil(t, status.Status.PrimaryStatus.QuorumCommitTs)
+	})
+
 	t.Run("REPLICA_pooler_returns_replication_status", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
