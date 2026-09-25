@@ -68,6 +68,7 @@ type Multigateway struct {
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
 	// slots in the replication preamble (default off, dynamic/reloadable).
 	slotBasedReplicationEnabled viperutil.Value[bool]
+	queryStreamReuse            viperutil.Value[bool]
 	// keepTransactionOnGatewayRejection, when enabled, leaves an open explicit
 	// transaction in-block after a gateway policy rejection (feature_not_supported)
 	// instead of aborting it. Off by default so clients see PostgreSQL's contract
@@ -247,6 +248,9 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
+		queryStreamReuse: viperutil.Configure(reg, "query-stream-reuse", viperutil.Options[bool]{
+			Default: true, FlagName: "query-stream-reuse", EnvVars: []string{"MT_QUERY_STREAM_REUSE"},
+		}),
 		keepTransactionOnGatewayRejection: viperutil.Configure(reg, "keep-transaction-on-gateway-rejection", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "keep-transaction-on-gateway-rejection",
@@ -302,6 +306,7 @@ func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 }
 
 func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Bool("query-stream-reuse", mg.queryStreamReuse.Default(), "Reuse simple-query RPC streams; false restores per-query RPCs (requires restart)")
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
@@ -322,6 +327,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
 	viperutil.BindFlags(
 		fs,
+		mg.queryStreamReuse,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
@@ -396,14 +402,15 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	}
 
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		Ctx:           mg.shutdownCtx,
-		Source:        mg.ts,
-		LocalCell:     mg.cell.Get(),
-		Logger:        logger,
-		DialOpt:       poolerTransportCreds,
-		Buffer:        mg.buffer,
-		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
-		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
+		Ctx:                     mg.shutdownCtx,
+		Source:                  mg.ts,
+		LocalCell:               mg.cell.Get(),
+		Logger:                  logger,
+		DialOpt:                 poolerTransportCreds,
+		Buffer:                  mg.buffer,
+		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 

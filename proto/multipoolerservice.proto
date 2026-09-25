@@ -22,6 +22,7 @@ package multipoolerservice;
 
 import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
+import "google/rpc/status.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -36,6 +37,13 @@ service MultipoolerService {
 
   // StreamExecute executes a SQL query and streams the results back
   rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
+
+  // ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+  // The server sends ready before accepting SQL. Each operation ends in exactly
+  // one completion frame, including on SQL error. Transport loss is NOT safe to
+  // retry after sending SQL. Reservations remain explicit and independent of
+  // this transport; clients must still release them on disconnect.
+  rpc ExecuteStream(stream ExecuteStreamRequest) returns (stream ExecuteStreamResponse);
 
   // PortalStreamExecute executes a portal (bound prepared statement) and streams results
   // Returns reserved connection information for session affinity
@@ -156,6 +164,23 @@ message StreamExecuteResponse {
   // reserved_state contains the authoritative reservation state from multipooler.
   // Sent in a final message after query execution completes.
   query.ReservedState reserved_state = 5;
+}
+
+message ExecuteStreamRequest {
+  StreamExecuteRequest request = 1;
+  // Only telemetry propagation fields, never authentication metadata.
+  map<string, string> propagation = 2;
+  // Remaining operation timeout; zero means no deadline. Cancellation also
+  // cancels the leased transport, never a subsequently reused operation.
+  int64 timeout_nanos = 3;
+}
+
+message ExecuteStreamResponse {
+  bool ready = 1;
+  StreamExecuteResponse response = 2;
+  // Terminal frame for this operation: the operation's gRPC status, including
+  // PostgreSQL diagnostics in details. Code OK means the operation succeeded.
+  google.rpc.Status completion = 3;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results

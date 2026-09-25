@@ -55,6 +55,9 @@ const (
 	// MultipoolerServiceStreamExecuteProcedure is the fully-qualified name of the MultipoolerService's
 	// StreamExecute RPC.
 	MultipoolerServiceStreamExecuteProcedure = "/multipoolerservice.MultipoolerService/StreamExecute"
+	// MultipoolerServiceExecuteStreamProcedure is the fully-qualified name of the MultipoolerService's
+	// ExecuteStream RPC.
+	MultipoolerServiceExecuteStreamProcedure = "/multipoolerservice.MultipoolerService/ExecuteStream"
 	// MultipoolerServicePortalStreamExecuteProcedure is the fully-qualified name of the
 	// MultipoolerService's PortalStreamExecute RPC.
 	MultipoolerServicePortalStreamExecuteProcedure = "/multipoolerservice.MultipoolerService/PortalStreamExecute"
@@ -95,6 +98,12 @@ type MultipoolerServiceClient interface {
 	ExecuteQuery(context.Context, *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(context.Context, *connect.Request[multipoolerservice.StreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamExecuteResponse], error)
+	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// The server sends ready before accepting SQL. Each operation ends in exactly
+	// one completion frame, including on SQL error. Transport loss is NOT safe to
+	// retry after sending SQL. Reservations remain explicit and independent of
+	// this transport; clients must still release them on disconnect.
+	ExecuteStream(context.Context) *connect.BidiStreamForClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse]
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(context.Context, *connect.Request[multipoolerservice.PortalStreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.PortalStreamExecuteResponse], error)
@@ -174,6 +183,12 @@ func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerServiceMethods.ByName("StreamExecute")),
 			connect.WithClientOptions(opts...),
 		),
+		executeStream: connect.NewClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse](
+			httpClient,
+			baseURL+MultipoolerServiceExecuteStreamProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("ExecuteStream")),
+			connect.WithClientOptions(opts...),
+		),
 		portalStreamExecute: connect.NewClient[multipoolerservice.PortalStreamExecuteRequest, multipoolerservice.PortalStreamExecuteResponse](
 			httpClient,
 			baseURL+MultipoolerServicePortalStreamExecuteProcedure,
@@ -241,6 +256,7 @@ func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 type multipoolerServiceClient struct {
 	executeQuery              *connect.Client[multipoolerservice.ExecuteQueryRequest, multipoolerservice.ExecuteQueryResponse]
 	streamExecute             *connect.Client[multipoolerservice.StreamExecuteRequest, multipoolerservice.StreamExecuteResponse]
+	executeStream             *connect.Client[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse]
 	portalStreamExecute       *connect.Client[multipoolerservice.PortalStreamExecuteRequest, multipoolerservice.PortalStreamExecuteResponse]
 	describe                  *connect.Client[multipoolerservice.DescribeRequest, multipoolerservice.DescribeResponse]
 	getAuthCredentials        *connect.Client[multipoolerservice.GetAuthCredentialsRequest, multipoolerservice.GetAuthCredentialsResponse]
@@ -261,6 +277,11 @@ func (c *multipoolerServiceClient) ExecuteQuery(ctx context.Context, req *connec
 // StreamExecute calls multipoolerservice.MultipoolerService.StreamExecute.
 func (c *multipoolerServiceClient) StreamExecute(ctx context.Context, req *connect.Request[multipoolerservice.StreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamExecuteResponse], error) {
 	return c.streamExecute.CallServerStream(ctx, req)
+}
+
+// ExecuteStream calls multipoolerservice.MultipoolerService.ExecuteStream.
+func (c *multipoolerServiceClient) ExecuteStream(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse] {
+	return c.executeStream.CallBidiStream(ctx)
 }
 
 // PortalStreamExecute calls multipoolerservice.MultipoolerService.PortalStreamExecute.
@@ -322,6 +343,12 @@ type MultipoolerServiceHandler interface {
 	ExecuteQuery(context.Context, *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(context.Context, *connect.Request[multipoolerservice.StreamExecuteRequest], *connect.ServerStream[multipoolerservice.StreamExecuteResponse]) error
+	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// The server sends ready before accepting SQL. Each operation ends in exactly
+	// one completion frame, including on SQL error. Transport loss is NOT safe to
+	// retry after sending SQL. Reservations remain explicit and independent of
+	// this transport; clients must still release them on disconnect.
+	ExecuteStream(context.Context, *connect.BidiStream[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse]) error
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(context.Context, *connect.Request[multipoolerservice.PortalStreamExecuteRequest], *connect.ServerStream[multipoolerservice.PortalStreamExecuteResponse]) error
@@ -397,6 +424,12 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 		connect.WithSchema(multipoolerServiceMethods.ByName("StreamExecute")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerServiceExecuteStreamHandler := connect.NewBidiStreamHandler(
+		MultipoolerServiceExecuteStreamProcedure,
+		svc.ExecuteStream,
+		connect.WithSchema(multipoolerServiceMethods.ByName("ExecuteStream")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerServicePortalStreamExecuteHandler := connect.NewServerStreamHandler(
 		MultipoolerServicePortalStreamExecuteProcedure,
 		svc.PortalStreamExecute,
@@ -463,6 +496,8 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 			multipoolerServiceExecuteQueryHandler.ServeHTTP(w, r)
 		case MultipoolerServiceStreamExecuteProcedure:
 			multipoolerServiceStreamExecuteHandler.ServeHTTP(w, r)
+		case MultipoolerServiceExecuteStreamProcedure:
+			multipoolerServiceExecuteStreamHandler.ServeHTTP(w, r)
 		case MultipoolerServicePortalStreamExecuteProcedure:
 			multipoolerServicePortalStreamExecuteHandler.ServeHTTP(w, r)
 		case MultipoolerServiceDescribeProcedure:
@@ -498,6 +533,10 @@ func (UnimplementedMultipoolerServiceHandler) ExecuteQuery(context.Context, *con
 
 func (UnimplementedMultipoolerServiceHandler) StreamExecute(context.Context, *connect.Request[multipoolerservice.StreamExecuteRequest], *connect.ServerStream[multipoolerservice.StreamExecuteResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamExecute is not implemented"))
+}
+
+func (UnimplementedMultipoolerServiceHandler) ExecuteStream(context.Context, *connect.BidiStream[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.ExecuteStream is not implemented"))
 }
 
 func (UnimplementedMultipoolerServiceHandler) PortalStreamExecute(context.Context, *connect.Request[multipoolerservice.PortalStreamExecuteRequest], *connect.ServerStream[multipoolerservice.PortalStreamExecuteResponse]) error {
