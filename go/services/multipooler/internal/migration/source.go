@@ -437,6 +437,15 @@ func (s *source) SetReadOnly(ro bool) error {
 	if _, err := s.conn.Exec(s.ctx, "SELECT pg_reload_conf()"); err != nil {
 		return fmt.Errorf("reload source conf: %w", err)
 	}
+	// Also set it on THIS session. ALTER SYSTEM + pg_reload_conf() propagates
+	// asynchronously (the reload is processed between statements, and only by other
+	// backends at their next transaction), so a caller that writes on this same
+	// connection right after — e.g. teardown's DROP PUBLICATION after un-quiescing
+	// on a graceful IMPORT drop — would otherwise still run read-only and fail. The
+	// session SET takes effect immediately for this connection.
+	if _, err := s.conn.Exec(s.ctx, "SET default_transaction_read_only = "+val); err != nil {
+		return fmt.Errorf("set source read_only (session): %w", err)
+	}
 	return nil
 }
 

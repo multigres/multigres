@@ -1133,6 +1133,13 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 		// other migrations on this server keep working.
 		logErr("drop target DDL apply", teardownDDLApply(ctx, c.target.ddlConn(), m.ID))
 		if src != nil {
+			// A graceful (non-force) drop drained the source with
+			// default_transaction_read_only=on; reset it before the source-side
+			// DROP PUBLICATION, which would otherwise be rejected under a read-only
+			// transaction, orphaning the publication. Also leaves the abandoned old
+			// source writable again (the migration is being torn down). No-op on a
+			// force drop that never quiesced.
+			logErr("un-quiesce source", src.SetReadOnly(false))
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
 			logErr("drop source DDL capture", teardownDDLCapture(ctx, src.ddlConn(), m.ID))
 		}
