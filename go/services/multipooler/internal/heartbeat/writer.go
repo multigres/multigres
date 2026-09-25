@@ -177,6 +177,13 @@ func (w *Writer) write(ctx context.Context) error {
 // recent successful write, and whether one has been observed yet. This is
 // the leader's own first-hand view -- available even when no follower is
 // reachable to relay the replicated row.
+//
+// Purely in-memory, so it goes empty right after a process restart. It can
+// also look stale immediately after a promotion, before this pooler's own
+// first heartbeat write lands -- but Recruit always demotes a former primary
+// to standby and restarts it before it can be recruited again, so becoming
+// leader always means a real pg_promote() out of recovery, which the
+// analyzer's promotion grace period already covers.
 func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	lastProven := w.lastProven.Load()
 	if lastProven == nil {
