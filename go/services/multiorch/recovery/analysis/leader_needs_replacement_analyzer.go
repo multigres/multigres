@@ -19,11 +19,14 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -32,10 +35,10 @@ import (
 // emits at most one shard-level problem per cycle. It reasons on two axes:
 //
 //   - Does the leader need replacing, and why? Either healthy (empty cause) or one
-//     of LeaderResigned / LeaderUnhealthy / LeaderUnreachableByCohort / LeaderStuck,
+//     of LeaderResigned / LeaderUnhealthy / LeaderUnreachableByCohort / LeaderQuorumWritesStalled,
 //     chosen by the first-hand vs observer-derived evidence principle (see the
 //     leader problem docs in the types package). Observer-derived causes are
-//     quorum-gated; first-hand ones are not. LeaderStuck is the backstop, checked
+//     quorum-gated; first-hand ones are not. LeaderQuorumWritesStalled is the backstop, checked
 //     right before either healthy verdict is returned.
 //   - Could a failover succeed? Only if a durability-sufficient set of reachable,
 //     initialized poolers is available to recruit a replacement.
@@ -439,7 +442,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 		// Anti-flap: treat as healthy while the process is alive and postgres
 		// responded within the response window; once it lapses, a wedged postgres
 		// must not block failover forever. (Interim guard, replaced by the LSN
-		// progress signal when LeaderStuck lands.)
+		// progress signal when LeaderQuorumWritesStalled lands.)
 		if leaderPostgresRunning(sa) {
 			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 			lastReady := leaderLastPostgresReadyTime(sa)
@@ -547,10 +550,13 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 // independent per-member values, so any source that has a fresh copy is
 // valid proof — including the leader's own (always >= any follower's replica,
 // since replication only adds delay) and a non-cohort observer's.
-func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
+//
+// TODO: verify a report's heartbeat leader_id matches leaderID (fencing-gap misattribution risk).
+func freshestQuorumCommitTs(sa *ShardAnalysis) *timestamppb.Timestamp {
+	var freshest *timestamppb.Timestamp
 	if sa.Leader != nil {
 		if ts := sa.Leader.Health().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
-			freshest, have = ts.AsTime(), true
+			freshest = ts
 		}
 	}
 	for _, pa := range sa.Analyses {
@@ -561,11 +567,11 @@ func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
 		if ts == nil {
 			continue
 		}
-		if t := ts.AsTime(); !have || t.After(freshest) {
-			freshest, have = t, true
+		if freshest == nil || ts.AsTime().After(freshest.AsTime()) {
+			freshest = ts
 		}
 	}
-	return freshest, have
+	return freshest
 }
 
 // receiveLsnStillAdvancing reports whether a durability-sufficient set of the
@@ -575,9 +581,8 @@ func freshestQuorumCommitTs(sa *ShardAnalysis) (freshest time.Time, have bool) {
 // rather than a genuine halt. Unlike raw LSN, last_receive_lsn_advance_time
 // only moves via live streaming (never restore_command replay), so it can't
 // be spoofed by archive replay. Gated on replicaConfiguredForLeader so WAL
-// advance from an unrelated primary (e.g. a follower not yet reconfigured
-// onto this leader, or a cascading standby behind another cohort member)
-// can't stand in as evidence of this leader's health.
+// advance from an unrelated primary can't stand in as evidence of this
+// leader's health.
 func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
 	if sa.Leader == nil {
 		return false
@@ -616,14 +621,14 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 	return policy.SatisfiedBy(vouching) == nil
 }
 
-// quorumCommitStuckCause checks the LeaderStuck backstop: the leader looks
+// quorumCommitStuckCause checks the LeaderQuorumWritesStalled backstop: the leader looks
 // healthy but quorum commits have stalled even though replicas can still
 // show raw LSN progress (they replay WAL ahead of the primary's own
 // synchronous-quorum ack). Absence of evidence must not convict, so this is
 // healthy (cause=="") when no pooler has reported a quorum_commit_ts yet.
 func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) (types.ProblemCode, string, bool) {
-	freshest, have := freshestQuorumCommitTs(sa)
-	if !have || sa.Now.Sub(freshest) <= sa.Policy.QuorumCommitStaleAfter {
+	freshest := freshestQuorumCommitTs(sa)
+	if !consensus.QuorumCommitStale(freshest, sa.Now, sa.Policy.QuorumCommitStaleAfter) {
 		return "", "", false
 	}
 	// A DECIDED rule already proves a quorum-acked commit succeeded under this
@@ -632,7 +637,7 @@ func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysi
 	if !commonconsensus.IsRuleDecided(sa.HighestPosition) && a.receiveLsnStillAdvancing(sa, cohort, leaderID, policy) {
 		return "", "", false
 	}
-	return types.ProblemLeaderStuck,
+	return types.ProblemLeaderQuorumWritesStalled,
 		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardKey, sa.Policy.QuorumCommitStaleAfter), false
 }
 

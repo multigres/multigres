@@ -44,7 +44,7 @@ const (
 	// the outgoing decision, not the cause.
 	//
 	// Predictors vs backstop: the property we actually care about is whether the
-	// shard is making durable (quorum-commit) write progress. LeaderStuck measures
+	// shard is making durable (quorum-commit) write progress. LeaderQuorumWritesStalled measures
 	// that directly and is the backstop that catches a stall from any cause. The
 	// other codes here are faster, higher-confidence *predictors* of (imminent)
 	// stuckness — they let us act before, or explain why, progress stops — but
@@ -63,18 +63,16 @@ const (
 	//   - LeaderUnreachableByCohort: observer-derived — a durability-sufficient set
 	//     of the cohort no longer reaches the leader, so it cannot maintain quorum.
 	//     Quorum-gated precisely because we are inferring rather than being told.
-	//   - LeaderStuck: the leader is reachable and claims healthy, but the
-	//     heartbeat's quorum-commit watermark isn't advancing — replicas can be
-	//     ahead on raw receive/replay LSN despite this, since they replay WAL
-	//     ahead of the primary's own synchronous-quorum ack. Reuses
-	//     AppointLeaderAction's shared grace period for now; it arguably deserves
-	//     a longer, distinct grace since a commit stall can self-resolve, but that
-	//     needs per-cause grace plumbing this codebase doesn't have yet.
+	//   - LeaderQuorumWritesStalled: the leader is reachable and claims healthy, but the
+	//     heartbeat's quorum-commit watermark isn't advancing — replicas can look
+	//     ahead on raw LSN regardless, since they replay WAL ahead of the
+	//     primary's own quorum ack. Reuses AppointLeaderAction's grace period for
+	//     now; a dedicated, longer one would suit a self-resolving stall better.
 	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
 	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
 	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
 	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
-	ProblemLeaderStuck               ProblemCode = "LeaderStuck"
+	ProblemLeaderQuorumWritesStalled ProblemCode = "LeaderQuorumWritesStalled"
 )
 
 // IsFailoverProblem reports whether this problem is resolved by
@@ -85,7 +83,7 @@ func (c ProblemCode) IsFailoverProblem() bool {
 		c == ProblemLeaderUnreachableByCohort ||
 		c == ProblemLeaderUnhealthy ||
 		c == ProblemLeaderResigned ||
-		c == ProblemLeaderStuck
+		c == ProblemLeaderQuorumWritesStalled
 }
 
 const (
@@ -124,7 +122,7 @@ const (
 	//     not be recovered from. A warning — the shard is up but fragile.
 	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
 	//     reachable, so progress is halted and cannot resume automatically. Critical
-	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
+	//     — a human must intervene. (Stronger than LeaderQuorumWritesStalled, which is recoverable.)
 	//   - NoHealthyCohortMembers: orch has no fresh, valid health from any initialized
 	//     pooler in the shard, so it is blind — it can determine the leader/rule only
 	//     from stale observations. Rather than convict the leader on stale evidence

@@ -28,7 +28,10 @@ import (
 
 // pollLeaderHealth confirms — via a live Status RPC issued right now, not cached
 // state — that the shard's consensus leader is reachable, still names itself as
-// the leader, and has postgres ready to serve, and returns it.
+// the leader, and has postgres ready to serve, and returns it along with the
+// live StatusResponse the check itself just fetched (callers that need a
+// fresher read of the leader than the cached store, e.g. quorum-commit
+// staleness, can use it instead of issuing their own extra RPC).
 //
 // The leader is identified from cached state by the store (sl, produced by
 // PoolerStore.FindShardMembers), keeping leader identification (a store concern)
@@ -47,27 +50,27 @@ import (
 //     Without this check appoint_leader would treat an in-recovery standby as an
 //     existing writable primary and skip the failover — mirrors the analyzer's
 //     leaderInRecovery guard so a routed failover actually promotes a real primary.
-func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultipoolerClient, sl store.ShardMembers) (*store.Pooler, error) {
+func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultipoolerClient, sl store.ShardMembers) (*store.Pooler, *multipoolermanagerdatapb.StatusResponse, error) {
 	leader := sl.Leader
 	if leader == nil {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no consensus leader known")
+		return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no consensus leader known")
 	}
 
 	statusResp, err := rpcClient.Status(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
-		return nil, mterrors.Wrap(err, "consensus leader unreachable during health check")
+		return nil, nil, mterrors.Wrap(err, "consensus leader unreachable during health check")
 	}
 	if commonconsensus.SelfConsensusRole(statusResp.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s no longer reports itself as the leader", leader.Health().GetMultipooler().GetId().GetName())
 	}
 	if !statusResp.GetStatus().GetPostgresReady() {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s postgres is not ready", leader.Health().GetMultipooler().GetId().GetName())
 	}
 	if statusResp.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s postgres is in recovery (standby), not a writable primary", leader.Health().GetMultipooler().GetId().GetName())
 	}
-	return leader, nil
+	return leader, statusResp, nil
 }

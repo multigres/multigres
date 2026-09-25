@@ -55,7 +55,7 @@ func TestPollLeaderHealth(t *testing.T) {
 			Status:          &multipoolermanagerdatapb.Status{PostgresReady: true},
 		})
 
-		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+		got, _, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.NoError(t, err)
 		assert.Equal(t, "primary", got.Health().Multipooler.Id.Name)
@@ -71,7 +71,7 @@ func TestPollLeaderHealth(t *testing.T) {
 			Status:          &multipoolermanagerdatapb.Status{PostgresReady: false},
 		})
 
-		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+		got, _, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.Error(t, err)
 		assert.Nil(t, got)
@@ -92,7 +92,7 @@ func TestPollLeaderHealth(t *testing.T) {
 			},
 		})
 
-		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+		got, _, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.Error(t, err)
 		assert.Nil(t, got)
@@ -100,7 +100,7 @@ func TestPollLeaderHealth(t *testing.T) {
 	})
 
 	t.Run("errors when no leader is known", func(t *testing.T) {
-		got, err := pollLeaderHealth(ctx, rpcclient.NewFakeClient(), store.ShardMembers{Leader: nil})
+		got, _, err := pollLeaderHealth(ctx, rpcclient.NewFakeClient(), store.ShardMembers{Leader: nil})
 
 		require.Error(t, err)
 		assert.Nil(t, got)
@@ -111,7 +111,7 @@ func TestPollLeaderHealth(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		fakeClient.Errors["multipooler-cell1-primary"] = errors.New("connection refused")
 
-		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+		got, _, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.Error(t, err)
 		assert.Nil(t, got)
@@ -126,7 +126,7 @@ func TestPollLeaderHealth(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: leaderID},
 		})
 
-		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+		got, _, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.Error(t, err)
 		assert.Nil(t, got)

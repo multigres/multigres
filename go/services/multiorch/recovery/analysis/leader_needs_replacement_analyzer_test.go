@@ -544,7 +544,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("LeaderStuck when quorum-commit watermark goes stale", func(t *testing.T) {
+	t.Run("LeaderQuorumWritesStalled when quorum-commit watermark goes stale", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, true)
 			setLeaderPGReady(sa, true)
@@ -554,7 +554,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderQuorumWritesStalled, problems[0].Code)
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
@@ -589,20 +589,21 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems, "leader's own fresh first-hand report takes precedence over a stale cohort-observed one")
 	})
 
-	t.Run("LSN still advancing on a quorum-sufficient set suppresses LeaderStuck for an undecided rule", func(t *testing.T) {
-		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			setLeaderLive(sa, true)
-			setLeaderPGReady(sa, true)
-			setRuleUndecided(sa)
-			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
-			setPrimaryConnInfo(sa, follower1ID, "leader-host", 5432)
-			setLastReceiveLsnAdvance(sa, follower1ID, sa.Now)
-		})
+	t.Run("LSN still advancing on a quorum-sufficient set suppresses LeaderQuorumWritesStalled for an undecided rule",
+		func(t *testing.T) {
+			sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+				setLeaderLive(sa, true)
+				setLeaderPGReady(sa, true)
+				setRuleUndecided(sa)
+				setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+				setPrimaryConnInfo(sa, follower1ID, "leader-host", 5432)
+				setLastReceiveLsnAdvance(sa, follower1ID, sa.Now)
+			})
 
-		problems, err := analyzer.Analyze(sa)
-		require.NoError(t, err)
-		require.Empty(t, problems, "a quorum-sufficient set actively receiving fresh WAL from the candidate leader means an undecided promotion is likely still catching up, not stuck")
-	})
+			problems, err := analyzer.Analyze(sa)
+			require.NoError(t, err)
+			require.Empty(t, problems, "a quorum-sufficient set actively receiving fresh WAL from the candidate leader means an undecided promotion is likely still catching up, not stuck")
+		})
 
 	t.Run("does not let a cascading standby's WAL advance excuse an undecided promotion", func(t *testing.T) {
 		// follower1 streams directly from the candidate leader (correctly
@@ -625,10 +626,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code, "a cascading standby's WAL advance must not excuse the candidate leader")
+		require.Equal(t, types.ProblemLeaderQuorumWritesStalled, problems[0].Code, "a cascading standby's WAL advance must not excuse the candidate leader")
 	})
 
-	t.Run("LeaderStuck fires despite LSN still advancing once the rule is decided", func(t *testing.T) {
+	t.Run("LeaderQuorumWritesStalled fires despite LSN still advancing once the rule is decided", func(t *testing.T) {
 		// A DECIDED rule is itself proof a quorum-acked commit already
 		// succeeded under this leadership (the finalize commit is quorum-gated
 		// like any other write), so the backlog-draining excuse no longer
@@ -643,7 +644,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderQuorumWritesStalled, problems[0].Code)
 	})
 
 	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {
@@ -861,7 +862,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems, "should not trigger failover when pooler is down but replicas are connected")
 	})
 
-	t.Run("LeaderStuck via cohort corroboration when quorum-commit watermark goes stale", func(t *testing.T) {
+	t.Run("LeaderQuorumWritesStalled via cohort corroboration when quorum-commit watermark goes stale", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, false)
 			connectReplica(sa)
@@ -872,7 +873,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemLeaderStuck, problems[0].Code)
+		require.Equal(t, types.ProblemLeaderQuorumWritesStalled, problems[0].Code)
 	})
 
 	t.Run("triggers failover when leader pooler up but postgres down", func(t *testing.T) {

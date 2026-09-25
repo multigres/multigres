@@ -17,6 +17,7 @@ package analysis
 import (
 	"time"
 
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -77,7 +78,7 @@ type AvailabilityPolicy struct {
 	ObservationFreshness time.Duration
 
 	// QuorumCommitStaleAfter bounds how old the freshest cohort-observed
-	// quorum_commit_ts may be before LeaderStuck considers commits stalled.
+	// quorum_commit_ts may be before LeaderQuorumWritesStalled considers commits stalled.
 	// Kept generous and longer than LeaderLivenessFreshness: this signal is
 	// multi-hop (heartbeat interval, one-tick defer, reader poll, then
 	// health-snapshot propagation), so delays stack even when nothing is
@@ -98,6 +99,6 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 		LeaderChangeFreshness:           store.DefaultLeaderWriteFreshness,
 		ConnectReplicasToNewLeaderGrace: 10 * time.Second,
 		ObservationFreshness:            store.DefaultObservationFreshness,
-		QuorumCommitStaleAfter:          20 * time.Second,
+		QuorumCommitStaleAfter:          consensus.DefaultQuorumCommitStaleAfter,
 	}
 }
