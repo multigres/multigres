@@ -162,7 +162,7 @@ Examples:
 	cmd.Flags().String("reason", a.reason.Default(), "Free-text reason for the rule change (recorded for audit)")
 	cmd.Flags().Bool("yes", a.yes.Default(), "Skip the interactive confirmation prompt")
 	cmd.Flags().Duration("timeout", a.timeout.Default(), "Timeout for the RPC call")
-	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 
 	viperutil.BindFlags(cmd.Flags(),
 		a.database, a.tableGroup, a.shard,
