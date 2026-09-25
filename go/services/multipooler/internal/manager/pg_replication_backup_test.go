@@ -34,27 +34,31 @@ func TestArchiverStats(t *testing.T) {
 	t.Run("maps epoch seconds to time and count", func(t *testing.T) {
 		qs := mock.NewQueryService()
 		qs.AddQueryPattern("pg_stat_archiver", mock.MakeQueryResult(
-			[]string{"last_archived", "last_failed", "failed_count"},
-			[][]any{{int64(1735984800), int64(1735984900), int64(3)}}))
+			[]string{"last_archived", "last_failed", "failed_count", "pending_count", "oldest_pending"},
+			[][]any{{int64(1735984800), int64(1735984900), int64(3), int64(2), int64(1735984850)}}))
 
 		stats, err := managerWithMockQuery(qs).archiverStats(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, int64(1735984800), stats.LastArchived.Unix())
 		assert.Equal(t, int64(1735984900), stats.LastFailed.Unix())
 		assert.Equal(t, int64(3), stats.FailedCount)
+		assert.Equal(t, int64(2), stats.PendingCount)
+		assert.Equal(t, int64(1735984850), stats.OldestPending.Unix())
 	})
 
 	t.Run("zero (NULL→COALESCE 0) maps to zero time", func(t *testing.T) {
 		qs := mock.NewQueryService()
 		qs.AddQueryPattern("pg_stat_archiver", mock.MakeQueryResult(
-			[]string{"last_archived", "last_failed", "failed_count"},
-			[][]any{{int64(0), int64(0), int64(0)}}))
+			[]string{"last_archived", "last_failed", "failed_count", "pending_count", "oldest_pending"},
+			[][]any{{int64(0), int64(0), int64(0), int64(0), int64(0)}}))
 
 		stats, err := managerWithMockQuery(qs).archiverStats(t.Context())
 		require.NoError(t, err)
 		assert.True(t, stats.LastArchived.IsZero(), "epoch 0 must map to zero time, not 1970")
 		assert.True(t, stats.LastFailed.IsZero())
 		assert.Zero(t, stats.FailedCount)
+		assert.Zero(t, stats.PendingCount, "no .ready files → nothing pending")
+		assert.True(t, stats.OldestPending.IsZero(), "epoch 0 must map to zero time when caught up")
 	})
 
 	t.Run("query error is wrapped", func(t *testing.T) {
@@ -67,7 +71,7 @@ func TestArchiverStats(t *testing.T) {
 	t.Run("scan error on unexpected row shape", func(t *testing.T) {
 		qs := mock.NewQueryService()
 		qs.AddQueryPattern("pg_stat_archiver", mock.MakeQueryResult(
-			[]string{"only_one"}, [][]any{{int64(1)}})) // 1 column, scanner needs 3
+			[]string{"only_one"}, [][]any{{int64(1)}})) // 1 column, scanner needs 5
 		_, err := managerWithMockQuery(qs).archiverStats(t.Context())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "scan")
