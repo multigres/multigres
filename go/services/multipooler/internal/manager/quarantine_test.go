@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // fakeClock is a manually-advanced clock so the timeout gate is deterministic.
@@ -144,6 +146,104 @@ func TestTrackRecoveryOutcome_RetriesCohortIneligibilityAfterPartialApply(t *tes
 	assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
 		pm.consensusMgr.CohortEligibility(),
 		"cohort ineligibility should be retried and applied on a later tick")
+}
+
+// TestMonitor_StartFatalLoopQuarantines_NoSentinel reproduces the staging
+// incident (diverged-standby-unstartable-not-quarantined): after failover
+// flapping a standby's WAL diverged and the reconfigure left the data directory
+// with an invalid latest checkpoint, so postgres PANICs on every start
+// ("could not locate a valid checkpoint record" / signal 6 during recovery) and
+// stays down. The corruption predates any pg_rewind, so there is NO rewind
+// sentinel on disk — this is the plain start-FATAL loop, not the sentinel
+// (running-but-held) path exercised by TestTrackRecoveryOutcome_RewindSentinelCountsWhileRunning.
+//
+// Unlike the other classifier tests, which inject remedialActionStartPostgres +
+// an error directly, this drives the real per-tick cycle (discoverPostgresState →
+// determineRemedialAction → takeRemedialAction → trackRecoveryOutcome). That
+// proves the incident's on-disk/pgctld state actually routes to a StartPostgres
+// attempt whose failure the classifier counts — i.e. the classifier catches this
+// PANIC signature with no sentinel involved, and the only reason it never fired in
+// staging was the disabled-by-default timeout.
+func TestMonitor_StartFatalLoopQuarantines_NoSentinel(t *testing.T) {
+	pm, clock := newQuarantineTestManager(t, 30*time.Second)
+	// pgctld reports the data dir initialized but postgres stopped, and every
+	// Start fails the way an invalid-checkpoint PANIC surfaces over gRPC.
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
+		startError:     errors.New("could not locate a valid checkpoint record at 0/4D000028"),
+	}
+
+	runTick := func(ctx context.Context) remedialAction {
+		state, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+		require.False(t, state.postgresRunning, "postgres must stay down while it PANICs on start")
+		require.False(t, state.rewindSentinelPresent, "the incident has no rewind sentinel on disk")
+		require.True(t, state.dirInitialized, "the data dir exists (PVC-backed), it is just corrupt")
+		action := pm.determineRemedialAction(ctx, state)
+		actionErr := pm.takeRemedialAction(ctx, action, state)
+		pm.trackRecoveryOutcome(ctx, action, state, actionErr)
+		return action
+	}
+
+	withLock(t, pm, func(ctx context.Context) {
+		// A down, initialized data dir with no sentinel must route to a plain start
+		// (not the rewind or restore paths), and each start must fail.
+		action := runTick(ctx)
+		require.Equal(t, remedialActionStartPostgres, action,
+			"a down, initialized data dir with no sentinel must route to StartPostgres")
+		require.True(t, pm.pgctldClient.(*mockPgctldClient).startCalled, "the start must actually be attempted")
+
+		// Keep FATAL-looping across the timeout window.
+		clock.advance(15 * time.Second)
+		runTick(ctx) // attempt 2, elapsed 15s
+		clock.advance(20 * time.Second)
+		runTick(ctx) // attempt 3 (floor met), elapsed 35s (>= 30s)
+	})
+
+	quarantined, reason, _ := quarantineState(pm)
+	assert.True(t, quarantined,
+		"a postgres that PANICs on every start (invalid checkpoint) must be quarantined even without a rewind sentinel")
+	assert.NotEmpty(t, reason)
+	// The safety net's whole point: stop the futile restart loop and signal for
+	// replacement instead of spinning one member short of durability forever.
+	assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		pm.consensusMgr.CohortEligibility())
+	assert.True(t, pm.postgresRestartsDisabled.Load(), "restarts should be disabled after quarantine")
+}
+
+// TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled is the mirror of
+// TestMonitor_StartFatalLoopQuarantines_NoSentinel: with the classifier disabled
+// (--postgres-unrecoverable-timeout=0), the same unstartable data dir must keep
+// retrying forever and never quarantine. This preserves the pre-classifier
+// behavior for deployments that opt out — e.g. those without a Layer-2
+// replacement actor, where quarantining would strand the node with no replacement.
+func TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled(t *testing.T) {
+	pm, clock := newQuarantineTestManager(t, 0) // 0 => classifier disabled
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
+		startError:     errors.New("could not locate a valid checkpoint record at 0/4D000028"),
+	}
+
+	withLock(t, pm, func(ctx context.Context) {
+		// Far more attempts and elapsed time than any enabled budget would tolerate.
+		for range 50 {
+			state, err := pm.discoverPostgresState(ctx)
+			require.NoError(t, err)
+			action := pm.determineRemedialAction(ctx, state)
+			require.Equal(t, remedialActionStartPostgres, action)
+			actionErr := pm.takeRemedialAction(ctx, action, state)
+			pm.trackRecoveryOutcome(ctx, action, state, actionErr)
+			clock.advance(time.Minute)
+		}
+	})
+
+	quarantined, _, _ := quarantineState(pm)
+	assert.False(t, quarantined,
+		"a disabled classifier (timeout 0) must never quarantine, even after prolonged FATAL-looping")
+	assert.False(t, pm.postgresRestartsDisabled.Load(),
+		"restarts must stay enabled while the classifier is disabled")
+	assert.Equal(t, 0, pm.unrecoverableFailedAttempts,
+		"a disabled classifier must not even accrue the failure streak")
 }
 
 func TestTrackRecoveryOutcome_TimeoutGateHolds(t *testing.T) {
