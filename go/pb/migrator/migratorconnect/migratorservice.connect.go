@@ -57,6 +57,9 @@ const (
 	MigratorUpdateMigrationProcedure = "/migrator.Migrator/UpdateMigration"
 	// MigratorGetMigrationsProcedure is the fully-qualified name of the Migrator's GetMigrations RPC.
 	MigratorGetMigrationsProcedure = "/migrator.Migrator/GetMigrations"
+	// MigratorGetMigrationJournalProcedure is the fully-qualified name of the Migrator's
+	// GetMigrationJournal RPC.
+	MigratorGetMigrationJournalProcedure = "/migrator.Migrator/GetMigrationJournal"
 	// MigratorActivateMigrationProcedure is the fully-qualified name of the Migrator's
 	// ActivateMigration RPC.
 	MigratorActivateMigrationProcedure = "/migrator.Migrator/ActivateMigration"
@@ -79,6 +82,10 @@ type MigratorClient interface {
 	UpdateMigration(context.Context, *connect.Request[migrator.UpdateMigrationRequest]) (*connect.Response[migrator.UpdateMigrationResponse], error)
 	// GetMigrations returns status for one migration (id set) or all migrations.
 	GetMigrations(context.Context, *connect.Request[migrator.GetMigrationsRequest]) (*connect.Response[migrator.GetMigrationsResponse], error)
+	// GetMigrationJournal returns a migration's append-only audit journal (oldest
+	// first). Internal audit surface; entries are retained after a drop, so this
+	// returns them even for a migration whose row is gone (addressed by id).
+	GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error)
 	// ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
 	// direction, and start serving. Requires the current direction to be IMPORT.
 	ActivateMigration(context.Context, *connect.Request[migrator.ActivateMigrationRequest]) (*connect.Response[migrator.ActivateMigrationResponse], error)
@@ -125,6 +132,12 @@ func NewMigratorClient(httpClient connect.HTTPClient, baseURL string, opts ...co
 			connect.WithSchema(migratorMethods.ByName("GetMigrations")),
 			connect.WithClientOptions(opts...),
 		),
+		getMigrationJournal: connect.NewClient[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse](
+			httpClient,
+			baseURL+MigratorGetMigrationJournalProcedure,
+			connect.WithSchema(migratorMethods.ByName("GetMigrationJournal")),
+			connect.WithClientOptions(opts...),
+		),
 		activateMigration: connect.NewClient[migrator.ActivateMigrationRequest, migrator.ActivateMigrationResponse](
 			httpClient,
 			baseURL+MigratorActivateMigrationProcedure,
@@ -152,6 +165,7 @@ type migratorClient struct {
 	startMigration      *connect.Client[migrator.StartMigrationRequest, migrator.StartMigrationResponse]
 	updateMigration     *connect.Client[migrator.UpdateMigrationRequest, migrator.UpdateMigrationResponse]
 	getMigrations       *connect.Client[migrator.GetMigrationsRequest, migrator.GetMigrationsResponse]
+	getMigrationJournal *connect.Client[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse]
 	activateMigration   *connect.Client[migrator.ActivateMigrationRequest, migrator.ActivateMigrationResponse]
 	deactivateMigration *connect.Client[migrator.DeactivateMigrationRequest, migrator.DeactivateMigrationResponse]
 	dropMigration       *connect.Client[migrator.DropMigrationRequest, migrator.DropMigrationResponse]
@@ -175,6 +189,11 @@ func (c *migratorClient) UpdateMigration(ctx context.Context, req *connect.Reque
 // GetMigrations calls migrator.Migrator.GetMigrations.
 func (c *migratorClient) GetMigrations(ctx context.Context, req *connect.Request[migrator.GetMigrationsRequest]) (*connect.Response[migrator.GetMigrationsResponse], error) {
 	return c.getMigrations.CallUnary(ctx, req)
+}
+
+// GetMigrationJournal calls migrator.Migrator.GetMigrationJournal.
+func (c *migratorClient) GetMigrationJournal(ctx context.Context, req *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error) {
+	return c.getMigrationJournal.CallUnary(ctx, req)
 }
 
 // ActivateMigration calls migrator.Migrator.ActivateMigration.
@@ -204,6 +223,10 @@ type MigratorHandler interface {
 	UpdateMigration(context.Context, *connect.Request[migrator.UpdateMigrationRequest]) (*connect.Response[migrator.UpdateMigrationResponse], error)
 	// GetMigrations returns status for one migration (id set) or all migrations.
 	GetMigrations(context.Context, *connect.Request[migrator.GetMigrationsRequest]) (*connect.Response[migrator.GetMigrationsResponse], error)
+	// GetMigrationJournal returns a migration's append-only audit journal (oldest
+	// first). Internal audit surface; entries are retained after a drop, so this
+	// returns them even for a migration whose row is gone (addressed by id).
+	GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error)
 	// ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
 	// direction, and start serving. Requires the current direction to be IMPORT.
 	ActivateMigration(context.Context, *connect.Request[migrator.ActivateMigrationRequest]) (*connect.Response[migrator.ActivateMigrationResponse], error)
@@ -246,6 +269,12 @@ func NewMigratorHandler(svc MigratorHandler, opts ...connect.HandlerOption) (str
 		connect.WithSchema(migratorMethods.ByName("GetMigrations")),
 		connect.WithHandlerOptions(opts...),
 	)
+	migratorGetMigrationJournalHandler := connect.NewUnaryHandler(
+		MigratorGetMigrationJournalProcedure,
+		svc.GetMigrationJournal,
+		connect.WithSchema(migratorMethods.ByName("GetMigrationJournal")),
+		connect.WithHandlerOptions(opts...),
+	)
 	migratorActivateMigrationHandler := connect.NewUnaryHandler(
 		MigratorActivateMigrationProcedure,
 		svc.ActivateMigration,
@@ -274,6 +303,8 @@ func NewMigratorHandler(svc MigratorHandler, opts ...connect.HandlerOption) (str
 			migratorUpdateMigrationHandler.ServeHTTP(w, r)
 		case MigratorGetMigrationsProcedure:
 			migratorGetMigrationsHandler.ServeHTTP(w, r)
+		case MigratorGetMigrationJournalProcedure:
+			migratorGetMigrationJournalHandler.ServeHTTP(w, r)
 		case MigratorActivateMigrationProcedure:
 			migratorActivateMigrationHandler.ServeHTTP(w, r)
 		case MigratorDeactivateMigrationProcedure:
@@ -303,6 +334,10 @@ func (UnimplementedMigratorHandler) UpdateMigration(context.Context, *connect.Re
 
 func (UnimplementedMigratorHandler) GetMigrations(context.Context, *connect.Request[migrator.GetMigrationsRequest]) (*connect.Response[migrator.GetMigrationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("migrator.Migrator.GetMigrations is not implemented"))
+}
+
+func (UnimplementedMigratorHandler) GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("migrator.Migrator.GetMigrationJournal is not implemented"))
 }
 
 func (UnimplementedMigratorHandler) ActivateMigration(context.Context, *connect.Request[migrator.ActivateMigrationRequest]) (*connect.Response[migrator.ActivateMigrationResponse], error) {

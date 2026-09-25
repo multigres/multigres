@@ -537,6 +537,246 @@ func (x *Migration) GetLagSeconds() float64 {
 	return 0
 }
 
+// MigrationJournalEntry is one row of a migration's durable, append-only audit
+// log (multigres.migration_journal): each lifecycle action (create, start, phase
+// advance, direction switch, drop, failure) appends one entry. It is an internal
+// audit surface — never contains credentials — and, unlike the Migration
+// projection, is retained after the migration is dropped.
+type MigrationJournalEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// seq is the database-generated global monotonic audit order.
+	Seq         int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	MigrationId int64 `protobuf:"varint,2,opt,name=migration_id,json=migrationId,proto3" json:"migration_id,omitempty"`
+	// migration_name is the migration's optional name, denormalized at write time
+	// so the entry stays readable after the migration row is dropped.
+	MigrationName string `protobuf:"bytes,3,opt,name=migration_name,json=migrationName,proto3" json:"migration_name,omitempty"`
+	// event is the action: CREATE, START, PHASE, ACTIVATE, DEACTIVATE, DROP, FAILED.
+	Event string `protobuf:"bytes,4,opt,name=event,proto3" json:"event,omitempty"`
+	// phase is the migration phase in effect at (or resulting from) the action.
+	Phase MigrationPhase `protobuf:"varint,5,opt,name=phase,proto3,enum=migrator.MigrationPhase" json:"phase,omitempty"`
+	// direction is the active replication direction at the action.
+	Direction MigrationDirection `protobuf:"varint,6,opt,name=direction,proto3,enum=migrator.MigrationDirection" json:"direction,omitempty"`
+	// from_lsn is the drained-to / quiesce LSN on the old writer (direction switch
+	// and graceful drop); empty otherwise.
+	FromLsn string `protobuf:"bytes,7,opt,name=from_lsn,json=fromLsn,proto3" json:"from_lsn,omitempty"`
+	// to_lsn is the start LSN on the new writer (direction switch); empty otherwise.
+	ToLsn string `protobuf:"bytes,8,opt,name=to_lsn,json=toLsn,proto3" json:"to_lsn,omitempty"`
+	// last_error is the failure reason (FAILED entries).
+	LastError string `protobuf:"bytes,9,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	// detail is free-form context, e.g. "COPYING->IMPORTING" for a phase advance.
+	Detail        string                 `protobuf:"bytes,10,opt,name=detail,proto3" json:"detail,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MigrationJournalEntry) Reset() {
+	*x = MigrationJournalEntry{}
+	mi := &file_migratorservice_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MigrationJournalEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MigrationJournalEntry) ProtoMessage() {}
+
+func (x *MigrationJournalEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_migratorservice_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MigrationJournalEntry.ProtoReflect.Descriptor instead.
+func (*MigrationJournalEntry) Descriptor() ([]byte, []int) {
+	return file_migratorservice_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *MigrationJournalEntry) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *MigrationJournalEntry) GetMigrationId() int64 {
+	if x != nil {
+		return x.MigrationId
+	}
+	return 0
+}
+
+func (x *MigrationJournalEntry) GetMigrationName() string {
+	if x != nil {
+		return x.MigrationName
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetEvent() string {
+	if x != nil {
+		return x.Event
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetPhase() MigrationPhase {
+	if x != nil {
+		return x.Phase
+	}
+	return MigrationPhase_MIGRATION_PHASE_UNSPECIFIED
+}
+
+func (x *MigrationJournalEntry) GetDirection() MigrationDirection {
+	if x != nil {
+		return x.Direction
+	}
+	return MigrationDirection_MIGRATION_DIRECTION_UNSPECIFIED
+}
+
+func (x *MigrationJournalEntry) GetFromLsn() string {
+	if x != nil {
+		return x.FromLsn
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetToLsn() string {
+	if x != nil {
+		return x.ToLsn
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *MigrationJournalEntry) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// GetMigrationJournalRequest addresses one migration by id or, when id is empty,
+// by name. A dropped migration is addressable only by id (the row that carried
+// the name is gone, though its journal entries are retained).
+type GetMigrationJournalRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMigrationJournalRequest) Reset() {
+	*x = GetMigrationJournalRequest{}
+	mi := &file_migratorservice_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMigrationJournalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMigrationJournalRequest) ProtoMessage() {}
+
+func (x *GetMigrationJournalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_migratorservice_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMigrationJournalRequest.ProtoReflect.Descriptor instead.
+func (*GetMigrationJournalRequest) Descriptor() ([]byte, []int) {
+	return file_migratorservice_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetMigrationJournalRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *GetMigrationJournalRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetMigrationJournalResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// entries are the migration's journal entries, oldest first.
+	Entries       []*MigrationJournalEntry `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMigrationJournalResponse) Reset() {
+	*x = GetMigrationJournalResponse{}
+	mi := &file_migratorservice_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMigrationJournalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMigrationJournalResponse) ProtoMessage() {}
+
+func (x *GetMigrationJournalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_migratorservice_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMigrationJournalResponse.ProtoReflect.Descriptor instead.
+func (*GetMigrationJournalResponse) Descriptor() ([]byte, []int) {
+	return file_migratorservice_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetMigrationJournalResponse) GetEntries() []*MigrationJournalEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 type CreateMigrationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// source_dsn is a full libpq conninfo to the standalone source postgres
@@ -584,7 +824,7 @@ type CreateMigrationRequest struct {
 
 func (x *CreateMigrationRequest) Reset() {
 	*x = CreateMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[3]
+	mi := &file_migratorservice_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -596,7 +836,7 @@ func (x *CreateMigrationRequest) String() string {
 func (*CreateMigrationRequest) ProtoMessage() {}
 
 func (x *CreateMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[3]
+	mi := &file_migratorservice_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +849,7 @@ func (x *CreateMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMigrationRequest.ProtoReflect.Descriptor instead.
 func (*CreateMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{3}
+	return file_migratorservice_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateMigrationRequest) GetSourceDsn() string {
@@ -705,7 +945,7 @@ type CreateMigrationResponse struct {
 
 func (x *CreateMigrationResponse) Reset() {
 	*x = CreateMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[4]
+	mi := &file_migratorservice_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -717,7 +957,7 @@ func (x *CreateMigrationResponse) String() string {
 func (*CreateMigrationResponse) ProtoMessage() {}
 
 func (x *CreateMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[4]
+	mi := &file_migratorservice_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -730,7 +970,7 @@ func (x *CreateMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMigrationResponse.ProtoReflect.Descriptor instead.
 func (*CreateMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{4}
+	return file_migratorservice_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateMigrationResponse) GetMigration() *Migration {
@@ -761,7 +1001,7 @@ type UpdateMigrationRequest struct {
 
 func (x *UpdateMigrationRequest) Reset() {
 	*x = UpdateMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[5]
+	mi := &file_migratorservice_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -773,7 +1013,7 @@ func (x *UpdateMigrationRequest) String() string {
 func (*UpdateMigrationRequest) ProtoMessage() {}
 
 func (x *UpdateMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[5]
+	mi := &file_migratorservice_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -786,7 +1026,7 @@ func (x *UpdateMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMigrationRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{5}
+	return file_migratorservice_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateMigrationRequest) GetId() int64 {
@@ -840,7 +1080,7 @@ type UpdateMigrationResponse struct {
 
 func (x *UpdateMigrationResponse) Reset() {
 	*x = UpdateMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[6]
+	mi := &file_migratorservice_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -852,7 +1092,7 @@ func (x *UpdateMigrationResponse) String() string {
 func (*UpdateMigrationResponse) ProtoMessage() {}
 
 func (x *UpdateMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[6]
+	mi := &file_migratorservice_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -865,7 +1105,7 @@ func (x *UpdateMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMigrationResponse.ProtoReflect.Descriptor instead.
 func (*UpdateMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{6}
+	return file_migratorservice_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UpdateMigrationResponse) GetMigration() *Migration {
@@ -902,7 +1142,7 @@ type ActivateMigrationRequest struct {
 
 func (x *ActivateMigrationRequest) Reset() {
 	*x = ActivateMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[7]
+	mi := &file_migratorservice_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -914,7 +1154,7 @@ func (x *ActivateMigrationRequest) String() string {
 func (*ActivateMigrationRequest) ProtoMessage() {}
 
 func (x *ActivateMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[7]
+	mi := &file_migratorservice_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -927,7 +1167,7 @@ func (x *ActivateMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateMigrationRequest.ProtoReflect.Descriptor instead.
 func (*ActivateMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{7}
+	return file_migratorservice_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ActivateMigrationRequest) GetId() int64 {
@@ -967,7 +1207,7 @@ type ActivateMigrationResponse struct {
 
 func (x *ActivateMigrationResponse) Reset() {
 	*x = ActivateMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[8]
+	mi := &file_migratorservice_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1219,7 @@ func (x *ActivateMigrationResponse) String() string {
 func (*ActivateMigrationResponse) ProtoMessage() {}
 
 func (x *ActivateMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[8]
+	mi := &file_migratorservice_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +1232,7 @@ func (x *ActivateMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateMigrationResponse.ProtoReflect.Descriptor instead.
 func (*ActivateMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{8}
+	return file_migratorservice_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ActivateMigrationResponse) GetMigration() *Migration {
@@ -1015,7 +1255,7 @@ type DeactivateMigrationRequest struct {
 
 func (x *DeactivateMigrationRequest) Reset() {
 	*x = DeactivateMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[9]
+	mi := &file_migratorservice_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1267,7 @@ func (x *DeactivateMigrationRequest) String() string {
 func (*DeactivateMigrationRequest) ProtoMessage() {}
 
 func (x *DeactivateMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[9]
+	mi := &file_migratorservice_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1280,7 @@ func (x *DeactivateMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeactivateMigrationRequest.ProtoReflect.Descriptor instead.
 func (*DeactivateMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{9}
+	return file_migratorservice_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeactivateMigrationRequest) GetId() int64 {
@@ -1066,7 +1306,7 @@ type DeactivateMigrationResponse struct {
 
 func (x *DeactivateMigrationResponse) Reset() {
 	*x = DeactivateMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[10]
+	mi := &file_migratorservice_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1078,7 +1318,7 @@ func (x *DeactivateMigrationResponse) String() string {
 func (*DeactivateMigrationResponse) ProtoMessage() {}
 
 func (x *DeactivateMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[10]
+	mi := &file_migratorservice_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1091,7 +1331,7 @@ func (x *DeactivateMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeactivateMigrationResponse.ProtoReflect.Descriptor instead.
 func (*DeactivateMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{10}
+	return file_migratorservice_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeactivateMigrationResponse) GetMigration() *Migration {
@@ -1112,7 +1352,7 @@ type StartMigrationRequest struct {
 
 func (x *StartMigrationRequest) Reset() {
 	*x = StartMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[11]
+	mi := &file_migratorservice_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1124,7 +1364,7 @@ func (x *StartMigrationRequest) String() string {
 func (*StartMigrationRequest) ProtoMessage() {}
 
 func (x *StartMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[11]
+	mi := &file_migratorservice_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1137,7 +1377,7 @@ func (x *StartMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartMigrationRequest.ProtoReflect.Descriptor instead.
 func (*StartMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{11}
+	return file_migratorservice_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StartMigrationRequest) GetId() int64 {
@@ -1163,7 +1403,7 @@ type StartMigrationResponse struct {
 
 func (x *StartMigrationResponse) Reset() {
 	*x = StartMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[12]
+	mi := &file_migratorservice_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1415,7 @@ func (x *StartMigrationResponse) String() string {
 func (*StartMigrationResponse) ProtoMessage() {}
 
 func (x *StartMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[12]
+	mi := &file_migratorservice_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1428,7 @@ func (x *StartMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartMigrationResponse.ProtoReflect.Descriptor instead.
 func (*StartMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{12}
+	return file_migratorservice_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *StartMigrationResponse) GetMigration() *Migration {
@@ -1210,7 +1450,7 @@ type GetMigrationsRequest struct {
 
 func (x *GetMigrationsRequest) Reset() {
 	*x = GetMigrationsRequest{}
-	mi := &file_migratorservice_proto_msgTypes[13]
+	mi := &file_migratorservice_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1222,7 +1462,7 @@ func (x *GetMigrationsRequest) String() string {
 func (*GetMigrationsRequest) ProtoMessage() {}
 
 func (x *GetMigrationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[13]
+	mi := &file_migratorservice_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1235,7 +1475,7 @@ func (x *GetMigrationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMigrationsRequest.ProtoReflect.Descriptor instead.
 func (*GetMigrationsRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{13}
+	return file_migratorservice_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetMigrationsRequest) GetId() int64 {
@@ -1261,7 +1501,7 @@ type GetMigrationsResponse struct {
 
 func (x *GetMigrationsResponse) Reset() {
 	*x = GetMigrationsResponse{}
-	mi := &file_migratorservice_proto_msgTypes[14]
+	mi := &file_migratorservice_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1513,7 @@ func (x *GetMigrationsResponse) String() string {
 func (*GetMigrationsResponse) ProtoMessage() {}
 
 func (x *GetMigrationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[14]
+	mi := &file_migratorservice_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1526,7 @@ func (x *GetMigrationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMigrationsResponse.ProtoReflect.Descriptor instead.
 func (*GetMigrationsResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{14}
+	return file_migratorservice_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetMigrationsResponse) GetMigrations() []*Migration {
@@ -1315,7 +1555,7 @@ type DropMigrationRequest struct {
 
 func (x *DropMigrationRequest) Reset() {
 	*x = DropMigrationRequest{}
-	mi := &file_migratorservice_proto_msgTypes[15]
+	mi := &file_migratorservice_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1327,7 +1567,7 @@ func (x *DropMigrationRequest) String() string {
 func (*DropMigrationRequest) ProtoMessage() {}
 
 func (x *DropMigrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[15]
+	mi := &file_migratorservice_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1340,7 +1580,7 @@ func (x *DropMigrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropMigrationRequest.ProtoReflect.Descriptor instead.
 func (*DropMigrationRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{15}
+	return file_migratorservice_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DropMigrationRequest) GetId() int64 {
@@ -1387,7 +1627,7 @@ type DropMigrationResponse struct {
 
 func (x *DropMigrationResponse) Reset() {
 	*x = DropMigrationResponse{}
-	mi := &file_migratorservice_proto_msgTypes[16]
+	mi := &file_migratorservice_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1399,7 +1639,7 @@ func (x *DropMigrationResponse) String() string {
 func (*DropMigrationResponse) ProtoMessage() {}
 
 func (x *DropMigrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[16]
+	mi := &file_migratorservice_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1412,7 +1652,7 @@ func (x *DropMigrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropMigrationResponse.ProtoReflect.Descriptor instead.
 func (*DropMigrationResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{16}
+	return file_migratorservice_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DropMigrationResponse) GetMigration() *Migration {
@@ -1458,7 +1698,27 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x04name\x18\x12 \x01(\tR\x04name\x12\x1b\n" +
 	"\tlag_bytes\x18\x13 \x01(\x04R\blagBytes\x12\x1f\n" +
 	"\vlag_seconds\x18\x14 \x01(\x01R\n" +
-	"lagSecondsJ\x04\b\x0f\x10\x10\"\xaf\x04\n" +
+	"lagSecondsJ\x04\b\x0f\x10\x10\"\x99\x03\n" +
+	"\x15MigrationJournalEntry\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12!\n" +
+	"\fmigration_id\x18\x02 \x01(\x03R\vmigrationId\x12%\n" +
+	"\x0emigration_name\x18\x03 \x01(\tR\rmigrationName\x12\x14\n" +
+	"\x05event\x18\x04 \x01(\tR\x05event\x12.\n" +
+	"\x05phase\x18\x05 \x01(\x0e2\x18.migrator.MigrationPhaseR\x05phase\x12:\n" +
+	"\tdirection\x18\x06 \x01(\x0e2\x1c.migrator.MigrationDirectionR\tdirection\x12\x19\n" +
+	"\bfrom_lsn\x18\a \x01(\tR\afromLsn\x12\x15\n" +
+	"\x06to_lsn\x18\b \x01(\tR\x05toLsn\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\t \x01(\tR\tlastError\x12\x16\n" +
+	"\x06detail\x18\n" +
+	" \x01(\tR\x06detail\x129\n" +
+	"\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"@\n" +
+	"\x1aGetMigrationJournalRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +
+	"\x1bGetMigrationJournalResponse\x129\n" +
+	"\aentries\x18\x01 \x03(\v2\x1f.migrator.MigrationJournalEntryR\aentries\"\xaf\x04\n" +
 	"\x16CreateMigrationRequest\x12\x1d\n" +
 	"\n" +
 	"source_dsn\x18\x01 \x01(\tR\tsourceDsn\x12'\n" +
@@ -1541,12 +1801,13 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x12MigrationDirection\x12#\n" +
 	"\x1fMIGRATION_DIRECTION_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aMIGRATION_DIRECTION_IMPORT\x10\x01\x12\x1e\n" +
-	"\x1aMIGRATION_DIRECTION_EXPORT\x10\x022\xf5\x04\n" +
+	"\x1aMIGRATION_DIRECTION_EXPORT\x10\x022\xd9\x05\n" +
 	"\bMigrator\x12V\n" +
 	"\x0fCreateMigration\x12 .migrator.CreateMigrationRequest\x1a!.migrator.CreateMigrationResponse\x12S\n" +
 	"\x0eStartMigration\x12\x1f.migrator.StartMigrationRequest\x1a .migrator.StartMigrationResponse\x12V\n" +
 	"\x0fUpdateMigration\x12 .migrator.UpdateMigrationRequest\x1a!.migrator.UpdateMigrationResponse\x12P\n" +
-	"\rGetMigrations\x12\x1e.migrator.GetMigrationsRequest\x1a\x1f.migrator.GetMigrationsResponse\x12\\\n" +
+	"\rGetMigrations\x12\x1e.migrator.GetMigrationsRequest\x1a\x1f.migrator.GetMigrationsResponse\x12b\n" +
+	"\x13GetMigrationJournal\x12$.migrator.GetMigrationJournalRequest\x1a%.migrator.GetMigrationJournalResponse\x12\\\n" +
 	"\x11ActivateMigration\x12\".migrator.ActivateMigrationRequest\x1a#.migrator.ActivateMigrationResponse\x12b\n" +
 	"\x13DeactivateMigration\x12$.migrator.DeactivateMigrationRequest\x1a%.migrator.DeactivateMigrationResponse\x12P\n" +
 	"\rDropMigration\x12\x1e.migrator.DropMigrationRequest\x1a\x1f.migrator.DropMigrationResponseB/Z-github.com/multigres/multigres/go/pb/migratorb\x06proto3"
@@ -1564,64 +1825,73 @@ func file_migratorservice_proto_rawDescGZIP() []byte {
 }
 
 var file_migratorservice_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_migratorservice_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_migratorservice_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_migratorservice_proto_goTypes = []any{
 	(MigrationPhase)(0),                 // 0: migrator.MigrationPhase
 	(MigrationDirection)(0),             // 1: migrator.MigrationDirection
 	(*TableSpec)(nil),                   // 2: migrator.TableSpec
 	(*SelectionObject)(nil),             // 3: migrator.SelectionObject
 	(*Migration)(nil),                   // 4: migrator.Migration
-	(*CreateMigrationRequest)(nil),      // 5: migrator.CreateMigrationRequest
-	(*CreateMigrationResponse)(nil),     // 6: migrator.CreateMigrationResponse
-	(*UpdateMigrationRequest)(nil),      // 7: migrator.UpdateMigrationRequest
-	(*UpdateMigrationResponse)(nil),     // 8: migrator.UpdateMigrationResponse
-	(*ActivateMigrationRequest)(nil),    // 9: migrator.ActivateMigrationRequest
-	(*ActivateMigrationResponse)(nil),   // 10: migrator.ActivateMigrationResponse
-	(*DeactivateMigrationRequest)(nil),  // 11: migrator.DeactivateMigrationRequest
-	(*DeactivateMigrationResponse)(nil), // 12: migrator.DeactivateMigrationResponse
-	(*StartMigrationRequest)(nil),       // 13: migrator.StartMigrationRequest
-	(*StartMigrationResponse)(nil),      // 14: migrator.StartMigrationResponse
-	(*GetMigrationsRequest)(nil),        // 15: migrator.GetMigrationsRequest
-	(*GetMigrationsResponse)(nil),       // 16: migrator.GetMigrationsResponse
-	(*DropMigrationRequest)(nil),        // 17: migrator.DropMigrationRequest
-	(*DropMigrationResponse)(nil),       // 18: migrator.DropMigrationResponse
-	(*timestamppb.Timestamp)(nil),       // 19: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),       // 20: google.protobuf.FieldMask
+	(*MigrationJournalEntry)(nil),       // 5: migrator.MigrationJournalEntry
+	(*GetMigrationJournalRequest)(nil),  // 6: migrator.GetMigrationJournalRequest
+	(*GetMigrationJournalResponse)(nil), // 7: migrator.GetMigrationJournalResponse
+	(*CreateMigrationRequest)(nil),      // 8: migrator.CreateMigrationRequest
+	(*CreateMigrationResponse)(nil),     // 9: migrator.CreateMigrationResponse
+	(*UpdateMigrationRequest)(nil),      // 10: migrator.UpdateMigrationRequest
+	(*UpdateMigrationResponse)(nil),     // 11: migrator.UpdateMigrationResponse
+	(*ActivateMigrationRequest)(nil),    // 12: migrator.ActivateMigrationRequest
+	(*ActivateMigrationResponse)(nil),   // 13: migrator.ActivateMigrationResponse
+	(*DeactivateMigrationRequest)(nil),  // 14: migrator.DeactivateMigrationRequest
+	(*DeactivateMigrationResponse)(nil), // 15: migrator.DeactivateMigrationResponse
+	(*StartMigrationRequest)(nil),       // 16: migrator.StartMigrationRequest
+	(*StartMigrationResponse)(nil),      // 17: migrator.StartMigrationResponse
+	(*GetMigrationsRequest)(nil),        // 18: migrator.GetMigrationsRequest
+	(*GetMigrationsResponse)(nil),       // 19: migrator.GetMigrationsResponse
+	(*DropMigrationRequest)(nil),        // 20: migrator.DropMigrationRequest
+	(*DropMigrationResponse)(nil),       // 21: migrator.DropMigrationResponse
+	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),       // 23: google.protobuf.FieldMask
 }
 var file_migratorservice_proto_depIdxs = []int32{
 	2,  // 0: migrator.SelectionObject.table:type_name -> migrator.TableSpec
 	0,  // 1: migrator.Migration.phase:type_name -> migrator.MigrationPhase
-	19, // 2: migrator.Migration.created_at:type_name -> google.protobuf.Timestamp
+	22, // 2: migrator.Migration.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 3: migrator.Migration.active_direction:type_name -> migrator.MigrationDirection
-	19, // 4: migrator.Migration.streaming_since:type_name -> google.protobuf.Timestamp
-	3,  // 5: migrator.CreateMigrationRequest.objects:type_name -> migrator.SelectionObject
-	4,  // 6: migrator.CreateMigrationResponse.migration:type_name -> migrator.Migration
-	20, // 7: migrator.UpdateMigrationRequest.update_mask:type_name -> google.protobuf.FieldMask
-	4,  // 8: migrator.UpdateMigrationResponse.migration:type_name -> migrator.Migration
-	4,  // 9: migrator.ActivateMigrationResponse.migration:type_name -> migrator.Migration
-	4,  // 10: migrator.DeactivateMigrationResponse.migration:type_name -> migrator.Migration
-	4,  // 11: migrator.StartMigrationResponse.migration:type_name -> migrator.Migration
-	4,  // 12: migrator.GetMigrationsResponse.migrations:type_name -> migrator.Migration
-	4,  // 13: migrator.DropMigrationResponse.migration:type_name -> migrator.Migration
-	5,  // 14: migrator.Migrator.CreateMigration:input_type -> migrator.CreateMigrationRequest
-	13, // 15: migrator.Migrator.StartMigration:input_type -> migrator.StartMigrationRequest
-	7,  // 16: migrator.Migrator.UpdateMigration:input_type -> migrator.UpdateMigrationRequest
-	15, // 17: migrator.Migrator.GetMigrations:input_type -> migrator.GetMigrationsRequest
-	9,  // 18: migrator.Migrator.ActivateMigration:input_type -> migrator.ActivateMigrationRequest
-	11, // 19: migrator.Migrator.DeactivateMigration:input_type -> migrator.DeactivateMigrationRequest
-	17, // 20: migrator.Migrator.DropMigration:input_type -> migrator.DropMigrationRequest
-	6,  // 21: migrator.Migrator.CreateMigration:output_type -> migrator.CreateMigrationResponse
-	14, // 22: migrator.Migrator.StartMigration:output_type -> migrator.StartMigrationResponse
-	8,  // 23: migrator.Migrator.UpdateMigration:output_type -> migrator.UpdateMigrationResponse
-	16, // 24: migrator.Migrator.GetMigrations:output_type -> migrator.GetMigrationsResponse
-	10, // 25: migrator.Migrator.ActivateMigration:output_type -> migrator.ActivateMigrationResponse
-	12, // 26: migrator.Migrator.DeactivateMigration:output_type -> migrator.DeactivateMigrationResponse
-	18, // 27: migrator.Migrator.DropMigration:output_type -> migrator.DropMigrationResponse
-	21, // [21:28] is the sub-list for method output_type
-	14, // [14:21] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	22, // 4: migrator.Migration.streaming_since:type_name -> google.protobuf.Timestamp
+	0,  // 5: migrator.MigrationJournalEntry.phase:type_name -> migrator.MigrationPhase
+	1,  // 6: migrator.MigrationJournalEntry.direction:type_name -> migrator.MigrationDirection
+	22, // 7: migrator.MigrationJournalEntry.created_at:type_name -> google.protobuf.Timestamp
+	5,  // 8: migrator.GetMigrationJournalResponse.entries:type_name -> migrator.MigrationJournalEntry
+	3,  // 9: migrator.CreateMigrationRequest.objects:type_name -> migrator.SelectionObject
+	4,  // 10: migrator.CreateMigrationResponse.migration:type_name -> migrator.Migration
+	23, // 11: migrator.UpdateMigrationRequest.update_mask:type_name -> google.protobuf.FieldMask
+	4,  // 12: migrator.UpdateMigrationResponse.migration:type_name -> migrator.Migration
+	4,  // 13: migrator.ActivateMigrationResponse.migration:type_name -> migrator.Migration
+	4,  // 14: migrator.DeactivateMigrationResponse.migration:type_name -> migrator.Migration
+	4,  // 15: migrator.StartMigrationResponse.migration:type_name -> migrator.Migration
+	4,  // 16: migrator.GetMigrationsResponse.migrations:type_name -> migrator.Migration
+	4,  // 17: migrator.DropMigrationResponse.migration:type_name -> migrator.Migration
+	8,  // 18: migrator.Migrator.CreateMigration:input_type -> migrator.CreateMigrationRequest
+	16, // 19: migrator.Migrator.StartMigration:input_type -> migrator.StartMigrationRequest
+	10, // 20: migrator.Migrator.UpdateMigration:input_type -> migrator.UpdateMigrationRequest
+	18, // 21: migrator.Migrator.GetMigrations:input_type -> migrator.GetMigrationsRequest
+	6,  // 22: migrator.Migrator.GetMigrationJournal:input_type -> migrator.GetMigrationJournalRequest
+	12, // 23: migrator.Migrator.ActivateMigration:input_type -> migrator.ActivateMigrationRequest
+	14, // 24: migrator.Migrator.DeactivateMigration:input_type -> migrator.DeactivateMigrationRequest
+	20, // 25: migrator.Migrator.DropMigration:input_type -> migrator.DropMigrationRequest
+	9,  // 26: migrator.Migrator.CreateMigration:output_type -> migrator.CreateMigrationResponse
+	17, // 27: migrator.Migrator.StartMigration:output_type -> migrator.StartMigrationResponse
+	11, // 28: migrator.Migrator.UpdateMigration:output_type -> migrator.UpdateMigrationResponse
+	19, // 29: migrator.Migrator.GetMigrations:output_type -> migrator.GetMigrationsResponse
+	7,  // 30: migrator.Migrator.GetMigrationJournal:output_type -> migrator.GetMigrationJournalResponse
+	13, // 31: migrator.Migrator.ActivateMigration:output_type -> migrator.ActivateMigrationResponse
+	15, // 32: migrator.Migrator.DeactivateMigration:output_type -> migrator.DeactivateMigrationResponse
+	21, // 33: migrator.Migrator.DropMigration:output_type -> migrator.DropMigrationResponse
+	26, // [26:34] is the sub-list for method output_type
+	18, // [18:26] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_migratorservice_proto_init() }
@@ -1633,14 +1903,14 @@ func file_migratorservice_proto_init() {
 		(*SelectionObject_Table)(nil),
 		(*SelectionObject_Schema)(nil),
 	}
-	file_migratorservice_proto_msgTypes[3].OneofWrappers = []any{}
+	file_migratorservice_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_migratorservice_proto_rawDesc), len(file_migratorservice_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   17,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -64,11 +64,12 @@ func NewStore(qs executor.InternalQueryService) *Store {
 // bootstrapped before the tables were added to createSidecarSchema.
 // migration_tables is created after migration (it references it).
 func (s *Store) EnsureSchema(ctx context.Context) error {
-	sqlList := []string{CreateMigrationSQL, CreateMigrationTablesSQL}
+	sqlList := []string{CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL}
 	// Forward-migrate a table created before the name/copy_data/skip_schema_copy
-	// columns existed, then (re)assert the partial-unique name index.
+	// columns existed, then (re)assert the partial-unique name index and the
+	// journal lookup index.
 	sqlList = append(sqlList, alterMigrationAddColumnsSQL...)
-	sqlList = append(sqlList, MigrationNameUniqueIndexSQL)
+	sqlList = append(sqlList, MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL)
 	for _, sql := range sqlList {
 		if _, err := s.qs.QueryAdmin(ctx, sql); err != nil {
 			return fmt.Errorf("ensure migration schema: %w", err)
@@ -160,6 +161,76 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	}
 	s.cacheDelete(id)
 	return nil
+}
+
+// InsertJournal appends one row to the append-only migration journal. seq and
+// created_at are DB-generated (BIGSERIAL / now() defaults) and are not read back
+// here — the entry is fire-and-forget from the caller's perspective. The journal
+// is a separate concern from the cached migration state, so this does not touch
+// the read-cache.
+func (s *Store) InsertJournal(ctx context.Context, e *JournalEntry) error {
+	const insertJournalSQL = `INSERT INTO multigres.migration_journal
+		(migration_id, migration_name, event, phase, direction, from_lsn, to_lsn, last_error, detail)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`
+	if _, err := s.qs.QueryAdminArgs(
+		ctx, insertJournalSQL,
+		e.MigrationID, e.MigrationName, string(e.Event), string(e.Phase),
+		string(e.Direction), e.FromLSN, e.ToLSN, e.LastError, e.Detail,
+	); err != nil {
+		return fmt.Errorf("insert migration journal: %w", err)
+	}
+	return nil
+}
+
+// ListJournal returns the journal entries for a migration in seq order (oldest
+// first). It reads the table directly by migration_id, independent of the
+// migration read-cache, so it also returns entries for a migration whose row has
+// already been dropped (the journal is retained for audit after a drop).
+func (s *Store) ListJournal(ctx context.Context, migrationID int64) ([]*JournalEntry, error) {
+	res, err := s.qs.QueryAdminArgs(ctx, selectJournalSQL, migrationID)
+	if err != nil {
+		return nil, fmt.Errorf("list migration journal: %w", err)
+	}
+	out := make([]*JournalEntry, 0)
+	if res != nil {
+		for _, row := range res.Rows {
+			e, err := scanJournalEntry(row)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// selectJournalSQL reads one migration's journal entries in seq order. It filters
+// by migration_id directly (not via the migration read-cache), so it also returns
+// entries for a migration whose row has been dropped.
+const selectJournalSQL = `SELECT seq, migration_id, migration_name, event, phase,
+	direction, from_lsn, to_lsn, last_error, detail, created_at
+	FROM multigres.migration_journal
+	WHERE migration_id=$1
+	ORDER BY seq`
+
+// scanJournalEntry decodes a result row (in selectJournalSQL column order) into a
+// JournalEntry.
+func scanJournalEntry(row *sqltypes.Row) (*JournalEntry, error) {
+	var (
+		e         JournalEntry
+		event     string
+		phase     string
+		direction string
+	)
+	err := executor.ScanRow(row, &e.Seq, &e.MigrationID, &e.MigrationName, &event, &phase,
+		&direction, &e.FromLSN, &e.ToLSN, &e.LastError, &e.Detail, &e.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("scan migration journal entry: %w", err)
+	}
+	e.Event = JournalEvent(event)
+	e.Phase = Phase(phase)
+	e.Direction = Direction(direction)
+	return &e, nil
 }
 
 // selectMigrationSQL reads every migration and joins in its table list,

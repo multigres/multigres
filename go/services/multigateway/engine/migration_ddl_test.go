@@ -36,6 +36,7 @@ type fakeMigrator struct {
 	update     *migratorpb.UpdateMigrationRequest
 	drop       *migratorpb.DropMigrationRequest
 	get        *migratorpb.GetMigrationsRequest
+	getJournal *migratorpb.GetMigrationJournalRequest
 	migrations []*migratorpb.Migration
 }
 
@@ -72,6 +73,11 @@ func (f *fakeMigrator) DeactivateMigration(_ context.Context, in *migratorpb.Dea
 func (f *fakeMigrator) DropMigration(_ context.Context, in *migratorpb.DropMigrationRequest, _ ...grpc.CallOption) (*migratorpb.DropMigrationResponse, error) {
 	f.drop = in
 	return &migratorpb.DropMigrationResponse{}, nil
+}
+
+func (f *fakeMigrator) GetMigrationJournal(_ context.Context, in *migratorpb.GetMigrationJournalRequest, _ ...grpc.CallOption) (*migratorpb.GetMigrationJournalResponse, error) {
+	f.getJournal = in
+	return &migratorpb.GetMigrationJournalResponse{}, nil
 }
 
 func newTestBackend(fake migratorpb.MigratorClient) *MigrationBackend {

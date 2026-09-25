@@ -35,6 +35,8 @@ type migrationStore interface {
 	Delete(ctx context.Context, id int64) error
 	GetByRef(ctx context.Context, ref Ref) (*Migration, error)
 	List(ctx context.Context) ([]*Migration, error)
+	InsertJournal(ctx context.Context, e *JournalEntry) error
+	ListJournal(ctx context.Context, migrationID int64) ([]*JournalEntry, error)
 }
 
 // migrationTarget is the subset of *target the Coordinator uses: the local

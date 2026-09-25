@@ -62,6 +62,10 @@ func (failMigrator) DropMigration(context.Context, *migratorpb.DropMigrationRequ
 	return nil, errBackend
 }
 
+func (failMigrator) GetMigrationJournal(context.Context, *migratorpb.GetMigrationJournalRequest, ...grpc.CallOption) (*migratorpb.GetMigrationJournalResponse, error) {
+	return nil, errBackend
+}
+
 // --- accessors and portal path ---
 
 func TestMigrationDDL_Accessors(t *testing.T) {

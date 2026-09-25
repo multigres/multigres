@@ -17,6 +17,7 @@ package migration
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,10 +29,11 @@ import (
 // fakeQS is an in-memory executor.InternalQueryService that records admin
 // queries and returns a scripted result for the migration SELECT.
 type fakeQS struct {
-	selectResult *sqltypes.Result
-	adminQueries []string
-	adminArgs    []qsArgCall
-	tx           *fakeTx
+	selectResult  *sqltypes.Result
+	journalResult *sqltypes.Result
+	adminQueries  []string
+	adminArgs     []qsArgCall
+	tx            *fakeTx
 }
 
 type qsArgCall struct {
@@ -51,6 +53,9 @@ func (f *fakeQS) QueryAdmin(_ context.Context, query string) (*sqltypes.Result, 
 
 func (f *fakeQS) QueryAdminArgs(_ context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	f.adminArgs = append(f.adminArgs, qsArgCall{sql: query, args: args})
+	if query == selectJournalSQL && f.journalResult != nil {
+		return f.journalResult, nil
+	}
 	return emptyResult(), nil
 }
 
@@ -249,4 +254,93 @@ func TestStorePersistsDirection(t *testing.T) {
 		&Migration{ID: 1, Phase: PhaseCreated, SourceDSN: "host=h dbname=d"}))
 	require.Contains(t, qsI.tx.calls[0].sql, "direction")
 	require.Contains(t, qsI.tx.calls[0].args, "IMPORT")
+}
+
+// journalRow builds one migration_journal row in selectJournalSQL column order.
+func journalRow(seq, id int64, name, event, phase, direction, fromLSN, toLSN, lastErr, detail, createdAt string) *sqltypes.Row {
+	return &sqltypes.Row{Values: []sqltypes.Value{
+		sqltypes.Value(strconv.FormatInt(seq, 10)), // seq
+		sqltypes.Value(strconv.FormatInt(id, 10)),  // migration_id
+		sqltypes.Value(name),                       // migration_name
+		sqltypes.Value(event),                      // event
+		sqltypes.Value(phase),                      // phase
+		sqltypes.Value(direction),                  // direction
+		sqltypes.Value(fromLSN),                    // from_lsn
+		sqltypes.Value(toLSN),                      // to_lsn
+		sqltypes.Value(lastErr),                    // last_error
+		sqltypes.Value(detail),                     // detail
+		sqltypes.Value(createdAt),                  // created_at
+	}}
+}
+
+func TestStoreInsertJournal(t *testing.T) {
+	qs := &fakeQS{}
+	s := NewStore(qs)
+	// A pre-loaded cache must NOT be disturbed by a journal append (journal is a
+	// separate concern from the cached migration state).
+	s.cache = map[int64]*Migration{1: {ID: 1}}
+
+	err := s.InsertJournal(context.Background(), &JournalEntry{
+		MigrationID: 1, MigrationName: "nightly", Event: JournalEventActivate,
+		Phase: PhaseExporting, Direction: DirectionExport,
+		FromLSN: "0/1000", ToLSN: "0/2000", Detail: "cutover",
+	})
+	require.NoError(t, err)
+
+	last := qs.adminArgs[len(qs.adminArgs)-1]
+	require.Contains(t, last.sql, "INSERT INTO multigres.migration_journal")
+	require.Equal(t, []any{int64(1), "nightly", "ACTIVATE", "EXPORTING", "EXPORT", "0/1000", "0/2000", "", "cutover"}, last.args)
+	require.NotNil(t, s.cache, "journal append leaves the migration cache intact")
+}
+
+func TestStoreListJournal(t *testing.T) {
+	qs := &fakeQS{journalResult: &sqltypes.Result{Rows: []*sqltypes.Row{
+		journalRow(1, 1, "nightly", "CREATE", "CREATED", "IMPORT", "", "", "", "", "2026-01-01T00:00:00Z"),
+		journalRow(2, 1, "nightly", "ACTIVATE", "EXPORTING", "EXPORT", "0/1000", "0/2000", "", "cutover", "2026-01-02T00:00:00Z"),
+	}}}
+	s := NewStore(qs)
+
+	entries, err := s.ListJournal(context.Background(), 1)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+
+	require.Equal(t, int64(1), qs.adminArgs[len(qs.adminArgs)-1].args[0], "filters by migration_id")
+
+	require.Equal(t, int64(1), entries[0].Seq)
+	require.Equal(t, int64(1), entries[0].MigrationID)
+	require.Equal(t, JournalEventCreate, entries[0].Event)
+	require.Equal(t, PhaseCreated, entries[0].Phase)
+	require.Equal(t, DirectionImport, entries[0].Direction)
+
+	require.Equal(t, JournalEventActivate, entries[1].Event)
+	require.Equal(t, PhaseExporting, entries[1].Phase)
+	require.Equal(t, DirectionExport, entries[1].Direction)
+	require.Equal(t, "0/1000", entries[1].FromLSN, "handoff drained-to LSN round-trips")
+	require.Equal(t, "0/2000", entries[1].ToLSN, "handoff new-writer LSN round-trips")
+	require.Equal(t, "cutover", entries[1].Detail)
+}
+
+func TestScanJournalEntry(t *testing.T) {
+	e, err := scanJournalEntry(journalRow(7, 9, "daily", "DEACTIVATE", "IMPORTING", "IMPORT", "0/A", "0/B", "boom", "roll back", "2026-03-04T05:06:07Z"))
+	require.NoError(t, err)
+	require.Equal(t, int64(7), e.Seq)
+	require.Equal(t, int64(9), e.MigrationID)
+	require.Equal(t, "daily", e.MigrationName)
+	require.Equal(t, JournalEventDeactivate, e.Event)
+	require.Equal(t, "boom", e.LastError)
+
+	_, err = scanJournalEntry(&sqltypes.Row{Values: []sqltypes.Value{sqltypes.Value("only-one")}})
+	require.Error(t, err, "too few columns must error")
+}
+
+// TestEnsureSchemaCreatesJournal proves EnsureSchema issues the journal DDL (and
+// its index) alongside the migration tables.
+func TestEnsureSchemaCreatesJournal(t *testing.T) {
+	qs := &fakeQS{}
+	require.NoError(t, NewStore(qs).EnsureSchema(context.Background()))
+	joined := strings.Join(qs.adminQueries, "\n")
+	require.Contains(t, joined, "CREATE TABLE IF NOT EXISTS multigres.migration_journal")
+	require.Contains(t, joined, "migration_journal_migration_id_idx")
+	require.NotContains(t, CreateMigrationJournalSQL, "REFERENCES",
+		"journal must have no FK so it is retained after the migration row is dropped")
 }

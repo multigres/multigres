@@ -275,6 +275,12 @@ func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 	if err := pm.adminExec(execCtx, migration.CreateMigrationTablesSQL); err != nil {
 		return mterrors.Wrap(err, "failed to create migration_tables table")
 	}
+	if err := pm.adminExec(execCtx, migration.CreateMigrationJournalSQL); err != nil {
+		return mterrors.Wrap(err, "failed to create migration_journal table")
+	}
+	if err := pm.adminExec(execCtx, migration.MigrationJournalMigrationIndexSQL); err != nil {
+		return mterrors.Wrap(err, "failed to create migration_journal index")
+	}
 	return nil
 }
 

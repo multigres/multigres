@@ -37,6 +37,7 @@ const (
 	Migrator_StartMigration_FullMethodName      = "/migrator.Migrator/StartMigration"
 	Migrator_UpdateMigration_FullMethodName     = "/migrator.Migrator/UpdateMigration"
 	Migrator_GetMigrations_FullMethodName       = "/migrator.Migrator/GetMigrations"
+	Migrator_GetMigrationJournal_FullMethodName = "/migrator.Migrator/GetMigrationJournal"
 	Migrator_ActivateMigration_FullMethodName   = "/migrator.Migrator/ActivateMigration"
 	Migrator_DeactivateMigration_FullMethodName = "/migrator.Migrator/DeactivateMigration"
 	Migrator_DropMigration_FullMethodName       = "/migrator.Migrator/DropMigration"
@@ -59,6 +60,10 @@ type MigratorClient interface {
 	UpdateMigration(ctx context.Context, in *UpdateMigrationRequest, opts ...grpc.CallOption) (*UpdateMigrationResponse, error)
 	// GetMigrations returns status for one migration (id set) or all migrations.
 	GetMigrations(ctx context.Context, in *GetMigrationsRequest, opts ...grpc.CallOption) (*GetMigrationsResponse, error)
+	// GetMigrationJournal returns a migration's append-only audit journal (oldest
+	// first). Internal audit surface; entries are retained after a drop, so this
+	// returns them even for a migration whose row is gone (addressed by id).
+	GetMigrationJournal(ctx context.Context, in *GetMigrationJournalRequest, opts ...grpc.CallOption) (*GetMigrationJournalResponse, error)
 	// ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
 	// direction, and start serving. Requires the current direction to be IMPORT.
 	ActivateMigration(ctx context.Context, in *ActivateMigrationRequest, opts ...grpc.CallOption) (*ActivateMigrationResponse, error)
@@ -118,6 +123,16 @@ func (c *migratorClient) GetMigrations(ctx context.Context, in *GetMigrationsReq
 	return out, nil
 }
 
+func (c *migratorClient) GetMigrationJournal(ctx context.Context, in *GetMigrationJournalRequest, opts ...grpc.CallOption) (*GetMigrationJournalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMigrationJournalResponse)
+	err := c.cc.Invoke(ctx, Migrator_GetMigrationJournal_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *migratorClient) ActivateMigration(ctx context.Context, in *ActivateMigrationRequest, opts ...grpc.CallOption) (*ActivateMigrationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ActivateMigrationResponse)
@@ -165,6 +180,10 @@ type MigratorServer interface {
 	UpdateMigration(context.Context, *UpdateMigrationRequest) (*UpdateMigrationResponse, error)
 	// GetMigrations returns status for one migration (id set) or all migrations.
 	GetMigrations(context.Context, *GetMigrationsRequest) (*GetMigrationsResponse, error)
+	// GetMigrationJournal returns a migration's append-only audit journal (oldest
+	// first). Internal audit surface; entries are retained after a drop, so this
+	// returns them even for a migration whose row is gone (addressed by id).
+	GetMigrationJournal(context.Context, *GetMigrationJournalRequest) (*GetMigrationJournalResponse, error)
 	// ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
 	// direction, and start serving. Requires the current direction to be IMPORT.
 	ActivateMigration(context.Context, *ActivateMigrationRequest) (*ActivateMigrationResponse, error)
@@ -195,6 +214,9 @@ func (UnimplementedMigratorServer) UpdateMigration(context.Context, *UpdateMigra
 }
 func (UnimplementedMigratorServer) GetMigrations(context.Context, *GetMigrationsRequest) (*GetMigrationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMigrations not implemented")
+}
+func (UnimplementedMigratorServer) GetMigrationJournal(context.Context, *GetMigrationJournalRequest) (*GetMigrationJournalResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMigrationJournal not implemented")
 }
 func (UnimplementedMigratorServer) ActivateMigration(context.Context, *ActivateMigrationRequest) (*ActivateMigrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ActivateMigration not implemented")
@@ -298,6 +320,24 @@ func _Migrator_GetMigrations_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Migrator_GetMigrationJournal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMigrationJournalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MigratorServer).GetMigrationJournal(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Migrator_GetMigrationJournal_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MigratorServer).GetMigrationJournal(ctx, req.(*GetMigrationJournalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Migrator_ActivateMigration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ActivateMigrationRequest)
 	if err := dec(in); err != nil {
@@ -374,6 +414,10 @@ var Migrator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMigrations",
 			Handler:    _Migrator_GetMigrations_Handler,
+		},
+		{
+			MethodName: "GetMigrationJournal",
+			Handler:    _Migrator_GetMigrationJournal_Handler,
 		},
 		{
 			MethodName: "ActivateMigration",

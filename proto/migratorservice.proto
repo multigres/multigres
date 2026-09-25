@@ -126,6 +126,48 @@ message Migration {
   double lag_seconds = 20;
 }
 
+// MigrationJournalEntry is one row of a migration's durable, append-only audit
+// log (multigres.migration_journal): each lifecycle action (create, start, phase
+// advance, direction switch, drop, failure) appends one entry. It is an internal
+// audit surface — never contains credentials — and, unlike the Migration
+// projection, is retained after the migration is dropped.
+message MigrationJournalEntry {
+  // seq is the database-generated global monotonic audit order.
+  int64 seq = 1;
+  int64 migration_id = 2;
+  // migration_name is the migration's optional name, denormalized at write time
+  // so the entry stays readable after the migration row is dropped.
+  string migration_name = 3;
+  // event is the action: CREATE, START, PHASE, ACTIVATE, DEACTIVATE, DROP, FAILED.
+  string event = 4;
+  // phase is the migration phase in effect at (or resulting from) the action.
+  MigrationPhase phase = 5;
+  // direction is the active replication direction at the action.
+  MigrationDirection direction = 6;
+  // from_lsn is the drained-to / quiesce LSN on the old writer (direction switch
+  // and graceful drop); empty otherwise.
+  string from_lsn = 7;
+  // to_lsn is the start LSN on the new writer (direction switch); empty otherwise.
+  string to_lsn = 8;
+  // last_error is the failure reason (FAILED entries).
+  string last_error = 9;
+  // detail is free-form context, e.g. "COPYING->IMPORTING" for a phase advance.
+  string detail = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+// GetMigrationJournalRequest addresses one migration by id or, when id is empty,
+// by name. A dropped migration is addressable only by id (the row that carried
+// the name is gone, though its journal entries are retained).
+message GetMigrationJournalRequest {
+  int64 id = 1;
+  string name = 2;
+}
+message GetMigrationJournalResponse {
+  // entries are the migration's journal entries, oldest first.
+  repeated MigrationJournalEntry entries = 1;
+}
+
 message CreateMigrationRequest {
   // source_dsn is a full libpq conninfo to the standalone source postgres
   // (may include TLS options). Held only by Multigres Migrator; never returned.
@@ -281,6 +323,11 @@ service Migrator {
 
   // GetMigrations returns status for one migration (id set) or all migrations.
   rpc GetMigrations(GetMigrationsRequest) returns (GetMigrationsResponse);
+
+  // GetMigrationJournal returns a migration's append-only audit journal (oldest
+  // first). Internal audit surface; entries are retained after a drop, so this
+  // returns them even for a migration whose row is gone (addressed by id).
+  rpc GetMigrationJournal(GetMigrationJournalRequest) returns (GetMigrationJournalResponse);
 
   // ActivateMigration cuts over to serving (IMPORT -> EXPORT): drain, flip
   // direction, and start serving. Requires the current direction to be IMPORT.

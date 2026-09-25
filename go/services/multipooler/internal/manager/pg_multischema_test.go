@@ -128,6 +128,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.shard", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_tables", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_journal", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS migration_journal_migration_id_idx", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},

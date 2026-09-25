@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ActivateMigrationRequest, ActivateMigrationResponse, CreateMigrationRequest, CreateMigrationResponse, DeactivateMigrationRequest, DeactivateMigrationResponse, DropMigrationRequest, DropMigrationResponse, GetMigrationsRequest, GetMigrationsResponse, StartMigrationRequest, StartMigrationResponse, UpdateMigrationRequest, UpdateMigrationResponse } from "./migratorservice_pb";
+import { ActivateMigrationRequest, ActivateMigrationResponse, CreateMigrationRequest, CreateMigrationResponse, DeactivateMigrationRequest, DeactivateMigrationResponse, DropMigrationRequest, DropMigrationResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationsRequest, GetMigrationsResponse, StartMigrationRequest, StartMigrationResponse, UpdateMigrationRequest, UpdateMigrationResponse } from "./migratorservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -73,6 +73,19 @@ export const Migrator = {
       name: "GetMigrations",
       I: GetMigrationsRequest,
       O: GetMigrationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetMigrationJournal returns a migration's append-only audit journal (oldest
+     * first). Internal audit surface; entries are retained after a drop, so this
+     * returns them even for a migration whose row is gone (addressed by id).
+     *
+     * @generated from rpc migrator.Migrator.GetMigrationJournal
+     */
+    getMigrationJournal: {
+      name: "GetMigrationJournal",
+      I: GetMigrationJournalRequest,
+      O: GetMigrationJournalResponse,
       kind: MethodKind.Unary,
     },
     /**

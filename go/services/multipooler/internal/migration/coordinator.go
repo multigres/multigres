@@ -195,6 +195,7 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
 	}
+	c.journal(ctx, m, JournalEventCreate, "")
 	return c.project(m, nil), nil
 }
 
@@ -218,6 +219,7 @@ func (c *Coordinator) StartMigration(ctx context.Context, ref Ref) (*Projection,
 
 	// If the subscription does not yet exist, run the setup phases in order.
 	if phaseRank(m.Phase) < phaseRank(PhaseCopying) {
+		c.journal(ctx, m, JournalEventStart, "")
 		if err := c.runSetup(ctx, m); err != nil {
 			c.fail(ctx, m, err)
 			return nil, err
@@ -241,7 +243,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	}
 	defer src.close()
 
-	if err := c.setPhase(ctx, m, PhaseValidating); err != nil {
+	if err := c.advancePhase(ctx, m, PhaseValidating); err != nil {
 		return err
 	}
 	_, _, warnings, err := src.Validate(m.Tables)
@@ -265,7 +267,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		}
 	}
 
-	if err := c.setPhase(ctx, m, PhaseSchemaCopy); err != nil {
+	if err := c.advancePhase(ctx, m, PhaseSchemaCopy); err != nil {
 		return err
 	}
 	// SkipSchemaCopy: the target schema already exists (seeded out-of-band), so
@@ -302,7 +304,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 		return err
 	}
 
-	if err := c.setPhase(ctx, m, PhaseCreatePublication); err != nil {
+	if err := c.advancePhase(ctx, m, PhaseCreatePublication); err != nil {
 		return err
 	}
 	if err := src.CreatePublication(m.PublicationName(), m.Tables); err != nil {
@@ -320,7 +322,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	if err := c.target.CreateSubscription(ctx, m.SubscriptionName(), m.SourceDSN, m.PublicationName(), m.CopyData); err != nil {
 		return err
 	}
-	return c.setPhase(ctx, m, PhaseCopying)
+	return c.advancePhase(ctx, m, PhaseCopying)
 }
 
 // UpdateParams carries field-masked updates; a nil field is left unchanged.
@@ -446,6 +448,29 @@ func (c *Coordinator) ListMigrations(ctx context.Context) ([]*Projection, error)
 	return out, nil
 }
 
+// GetMigrationJournal returns a migration's journal entries, oldest first. It
+// reads the journal table directly, so it also returns entries for a migration
+// whose row has already been dropped (the journal is retained for audit after a
+// drop). ref is an id or name: a live migration is resolved by either, but a
+// dropped migration is addressable only by its id (the row that held the name is
+// gone). The journal never contains credentials, so entries are returned as-is.
+func (c *Coordinator) GetMigrationJournal(ctx context.Context, ref Ref) ([]*JournalEntry, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	id := ref.ID
+	if m, err := c.store.GetByRef(ctx, ref); err == nil {
+		id = m.ID
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	// A dropped migration is addressable only by id: with no live row and no id
+	// (name-only ref), there is nothing to look up.
+	if id == 0 {
+		return nil, ErrNotFound
+	}
+	return c.store.ListJournal(ctx, id)
+}
+
 // DropOptions controls DropMigration. Default (neither set) drains to lag zero
 // first and requires a caught-up STREAMING state. Wait blocks until it becomes
 // completable; Force skips the drain and tears down from any phase.
@@ -474,6 +499,7 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 	// of force/wait — rather than re-running the drain from a non-streaming phase.
 	if m.Phase == PhaseCompleting {
 		c.teardown(ctx, m, m.effectiveDirection())
+		c.journal(ctx, m, JournalEventDrop, "")
 		if err := c.store.Delete(ctx, m.ID); err != nil {
 			return nil, err
 		}
@@ -483,6 +509,10 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 	// Capture the direction while the phase still carries one — PhaseCompleting
 	// below does not, so drain and teardown must be told which side is which.
 	dir := directionOf(m.Phase)
+	// dropLSN is the drained-to (quiesce) LSN of a graceful drop's barrier, recorded
+	// in the DROP journal entry as the final position of the surviving writer; empty
+	// for a forced (undrained) drop.
+	var dropLSN string
 
 	if !opts.Force {
 		// Advance the phase from live status first, so a just-caught-up migration
@@ -517,7 +547,8 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 		if err := c.store.Update(ctx, m); err != nil {
 			return nil, err
 		}
-		if err := c.drainAndAdvance(ctx, m, dir); err != nil {
+		lsn, err := c.drainAndAdvance(ctx, m, dir)
+		if err != nil {
 			// The drain did not complete (e.g. the subscriber never reached lag
 			// zero and the deadline fired). Roll the phase back to its streaming
 			// state so the migration is not stranded in COMPLETING — which the
@@ -534,6 +565,7 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 			cancel()
 			return nil, fmt.Errorf("drain before dropping migration %d failed (left in %s, serving preserved): %w", m.ID, origPhase, err)
 		}
+		dropLSN = lsn
 	} else {
 		// Force skips the drain but must still record the direction so teardown
 		// (which no longer inspects the phase) drops the correct side's objects.
@@ -541,6 +573,18 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 	}
 
 	c.teardown(ctx, m, dir)
+	// DROP journal entry, best-effort (audit only). from_lsn carries a graceful
+	// drop's drained-to LSN (the final quiesce position); empty for a forced drop.
+	if err := c.store.InsertJournal(ctx, &JournalEntry{
+		MigrationID:   m.ID,
+		MigrationName: m.Name,
+		Event:         JournalEventDrop,
+		Phase:         m.Phase,
+		Direction:     dir,
+		FromLSN:       dropLSN,
+	}); err != nil {
+		c.logger.WarnContext(ctx, "append migration journal entry", "migration", m.ID, "event", string(JournalEventDrop), "error", err)
+	}
 	if err := c.store.Delete(ctx, m.ID); err != nil {
 		return nil, err
 	}
@@ -632,23 +676,25 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 
 // drainAndAdvance runs the drain barrier and advances the surviving writer's
 // sequences (the target in IMPORT, the source in EXPORT). dir is the active
-// direction (see drainCurrent).
-func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) error {
+// direction (see drainCurrent). It returns the drained-to (quiesce) LSN captured
+// by the barrier, for the drop's journal entry.
+func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) (string, error) {
 	// A graceful drop leaves the current publisher in place as a standalone
 	// database, so a soft quiesce (read-only, later un-quiesced at teardown) is
 	// enough — no need to terminate/fence its client backends.
-	if _, err := c.drainCurrent(ctx, m, dir, false); err != nil {
-		return err
+	drainedLSN, err := c.drainCurrent(ctx, m, dir, false)
+	if err != nil {
+		return "", err
 	}
 	if dir == DirectionImport {
-		return c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin)
+		return drainedLSN, c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin)
 	}
 	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer src.close()
-	return src.AdvanceSequences(m.Tables, m.SequenceMargin)
+	return drainedLSN, src.AdvanceSequences(m.Tables, m.SequenceMargin)
 }
 
 // Cutover readiness tuning. The activation cutover quiesces the source and drains
@@ -901,20 +947,53 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 		c.fail(ctx, m, err)
 		return nil, err
 	}
+	// drainedLSN is the quiesce point on the old writer (the "drained-to" LSN),
+	// captured for the handoff journal entry. It is only known when the drain
+	// actually runs: on a crash-resumed switch the current link is already gone
+	// (live == false), so the drain is skipped and drainedLSN stays empty.
+	var drainedLSN string
 	if live {
 		// A switching phase still carries the current (pre-switch) direction, so
 		// derive it from the phase: SWITCHING_TO_EXPORT drains the import publisher,
 		// SWITCHING_TO_IMPORT drains the export publisher. Switching TO export makes the
 		// source a subscriber, so drain it HARD (fence roles + terminate backends);
 		// switching back to import drains the target and does not touch the source.
-		if _, err := c.drainCurrent(ctx, m, directionOf(m.Phase), target == DirectionExport); err != nil {
+		drainedLSN, err = c.drainCurrent(ctx, m, directionOf(m.Phase), target == DirectionExport)
+		if err != nil {
 			c.fail(ctx, m, err)
 			return nil, err
 		}
 	}
-	if err := c.switchTo(ctx, m, target); err != nil {
+	// newWriterLSN is the start LSN on the side that becomes the writer after the
+	// switch (the handoff point past the switch's own catalog WAL).
+	newWriterLSN, err := c.switchTo(ctx, m, target)
+	if err != nil {
 		c.fail(ctx, m, err)
 		return nil, err
+	}
+	// Durable handoff record: append the switch's handoff LSNs BEFORE committing
+	// the streaming phase, so a switch is never committed without an auditable
+	// handoff entry. The event is the operator verb the switch corresponds to
+	// (ACTIVATE for IMPORT->EXPORT, DEACTIVATE for EXPORT->IMPORT). A failed append
+	// fails the call while the phase is still the SWITCHING_* intent, so
+	// reconcileLocked re-runs applySwitch and retries (on that retry the current
+	// link is already gone, so drainedLSN is empty). Deliberately not routed through
+	// fail(): switchTo already reconfigured replication, so the switch must roll
+	// forward, not be marked FAILED.
+	handoffEvent := JournalEventActivate
+	if target == DirectionImport {
+		handoffEvent = JournalEventDeactivate
+	}
+	if err := c.store.InsertJournal(ctx, &JournalEntry{
+		MigrationID:   m.ID,
+		MigrationName: m.Name,
+		Event:         handoffEvent,
+		Phase:         streamingPhase(target),
+		Direction:     target,
+		FromLSN:       drainedLSN,
+		ToLSN:         newWriterLSN,
+	}); err != nil {
+		return nil, fmt.Errorf("record migration %d handoff journal entry: %w", m.ID, err)
 	}
 	m.Phase = streamingPhase(target)
 	if err := c.store.Update(ctx, m); err != nil {
@@ -1037,11 +1116,13 @@ func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, 
 }
 
 // switchTo tears down the current-direction link and establishes the reverse
-// link (copy_data=false). Caller holds c.mu and has already drained.
-func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Direction) error {
+// link (copy_data=false). Caller holds c.mu and has already drained. It returns
+// the start LSN on the side that becomes the writer after the switch (the handoff
+// point, past the switch's own catalog WAL) for the handoff journal entry.
+func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Direction) (string, error) {
 	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer src.close()
 	sub, pub := m.SubscriptionName(), m.PublicationName()
@@ -1051,42 +1132,42 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		// the old source becomes a subscriber. Un-quiesce the source first (the
 		// drain left it read-only) so its own DDL and replication apply can write.
 		if err := src.SetReadOnly(false); err != nil {
-			return err
+			return "", err
 		}
 		if err := c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin); err != nil {
-			return err
+			return "", err
 		}
 		if err := c.target.DropSubscription(ctx, sub); err != nil {
-			return err
+			return "", err
 		}
 		if err := src.DropPublication(pub); err != nil {
-			return err
+			return "", err
 		}
 		// Flip DDL replication to match: capture moves from the source to the
 		// target, apply from the target to the source (see ddlrepl.go). Tear down
 		// the old-direction roles, then set up the new ones before recreating the
 		// link.
 		if err := teardownDDLCapture(ctx, src.ddlConn()); err != nil {
-			return err
+			return "", err
 		}
 		if err := teardownDDLApply(ctx, c.target.ddlConn()); err != nil {
-			return err
+			return "", err
 		}
 		if err := setupDDLApply(ctx, src.ddlConn()); err != nil {
-			return err
+			return "", err
 		}
 		if err := setupDDLCapture(ctx, c.target.ddlConn(), m.Tables); err != nil {
-			return err
+			return "", err
 		}
 		if exists, err := c.target.PublicationExists(ctx, pub); err != nil {
-			return err
+			return "", err
 		} else if !exists {
 			if err := c.target.CreatePublication(ctx, pub, m.Tables); err != nil {
-				return err
+				return "", err
 			}
 		}
 		if err := armDDLCapture(ctx, c.target.ddlConn()); err != nil {
-			return err
+			return "", err
 		}
 		// Pre-create the reverse slot on the target *now*, before serving turns on,
 		// so it captures every subsequent target write; then advance it to the
@@ -1099,20 +1180,22 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 		// subscription attaching. Idempotent on resume: before serving there are no
 		// app writes, so re-advancing only skips more switch WAL, never data.
 		if exists, err := c.target.SlotExists(ctx, sub); err != nil {
-			return err
+			return "", err
 		} else if !exists {
 			if err := c.target.CreateLogicalSlot(ctx, sub); err != nil {
-				return err
+				return "", err
 			}
 		}
 		lsn, lerr := c.target.CurrentLSN(ctx)
 		if lerr != nil {
-			return lerr
+			return "", lerr
 		}
 		if err := c.target.AdvanceSlot(ctx, sub, lsn); err != nil {
-			return err
+			return "", err
 		}
-		return nil
+		// The target's current LSN is the handoff point: the reverse slot was just
+		// advanced to it, and the target is the new writer.
+		return lsn, nil
 	}
 
 	// EXPORT -> IMPORT: the external source becomes publisher/writer again. The
@@ -1128,53 +1211,61 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	// false) so DDL replication apply could run — so no read-only flip is needed
 	// here. Idempotent and a no-op when no roles were fenced.
 	if err := src.GrantConnect(m.QuiesceRoles); err != nil {
-		return err
+		return "", err
 	}
 	if err := src.AdvanceSequences(m.Tables, m.SequenceMargin); err != nil {
-		return err
+		return "", err
+	}
+	// The source is the new writer; its current LSN is the handoff point for the
+	// journal entry (best-effort — a read failure here must not fail the switch).
+	newWriterLSN, err := src.CurrentLSN()
+	if err != nil {
+		newWriterLSN = ""
 	}
 	if err := src.DropSubscription(sub); err != nil {
-		return err
+		return "", err
 	}
 	if err := c.target.DropPublication(ctx, pub); err != nil {
-		return err
+		return "", err
 	}
 	// Drop the reverse slot on the target. The reverse subscription attached with
 	// create_slot=false, so dropping it (above, on the source) does not drop this
 	// slot — do it explicitly or it lingers, pinning WAL and catalog_xmin.
 	if err := c.target.DropLogicalSlot(ctx, sub); err != nil {
-		return err
+		return "", err
 	}
 	// Flip DDL replication back: capture moves from the target to the source,
 	// apply from the source to the target.
 	if err := teardownDDLCapture(ctx, c.target.ddlConn()); err != nil {
-		return err
+		return "", err
 	}
 	if err := teardownDDLApply(ctx, src.ddlConn()); err != nil {
-		return err
+		return "", err
 	}
 	if err := setupDDLApply(ctx, c.target.ddlConn()); err != nil {
-		return err
+		return "", err
 	}
 	if err := setupDDLCapture(ctx, src.ddlConn(), m.Tables); err != nil {
-		return err
+		return "", err
 	}
 	if exists, err := src.PublicationExists(pub); err != nil {
-		return err
+		return "", err
 	} else if !exists {
 		if err := src.CreatePublication(pub, m.Tables); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := armDDLCapture(ctx, src.ddlConn()); err != nil {
-		return err
+		return "", err
 	}
 	if exists, err := c.target.SubscriptionExists(ctx, sub); err != nil {
-		return err
+		return "", err
 	} else if !exists {
-		return c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false)
+		if err := c.target.CreateSubscription(ctx, sub, m.SourceDSN, pub, false); err != nil {
+			return "", err
+		}
 	}
-	return nil
+	return newWriterLSN, nil
 }
 
 // teardown drops the subscription and publication (and thus the slot) on both
@@ -1266,7 +1357,11 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 			now := c.now()
 			m.Phase = PhaseImporting
 			m.StreamingSince = &now
-			return c.store.Update(ctx, m)
+			if err := c.store.Update(ctx, m); err != nil {
+				return err
+			}
+			c.journal(ctx, m, JournalEventPhase, string(PhaseCopying)+"->"+string(PhaseImporting))
+			return nil
 		}
 	case PhaseSwitchingToExport:
 		_, err := c.applySwitch(ctx, m, DirectionExport)
@@ -1289,6 +1384,7 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 		// counts any non-EXPORTING migration and would otherwise hold this shard
 		// non-serving forever — is released.
 		c.teardown(ctx, m, m.effectiveDirection())
+		c.journal(ctx, m, JournalEventDrop, "")
 		return c.store.Delete(ctx, m.ID)
 	}
 	return nil
@@ -1348,6 +1444,39 @@ func (c *Coordinator) setPhase(ctx context.Context, m *Migration, phase Phase) e
 	return c.store.Update(ctx, m)
 }
 
+// advancePhase persists a phase transition (setPhase) and appends a PHASE journal
+// entry recording "from->to". Caller holds c.mu. The journal append is
+// best-effort (see journal); the phase change itself is the durable record.
+func (c *Coordinator) advancePhase(ctx context.Context, m *Migration, phase Phase) error {
+	from := m.Phase
+	if err := c.setPhase(ctx, m, phase); err != nil {
+		return err
+	}
+	c.journal(ctx, m, JournalEventPhase, string(from)+"->"+string(phase))
+	return nil
+}
+
+// journal appends one entry to the migration journal, best-effort: a failed
+// append is logged but never aborts the migration. The journal is an append-only
+// audit log, not the crash-safe intent record — that is the migration row — so a
+// lost audit entry must not fail an operation. The one exception is the switch
+// handoff record, which applySwitch appends durably (fatal on error) so a switch
+// is never committed without its handoff LSNs. Caller holds c.mu.
+func (c *Coordinator) journal(ctx context.Context, m *Migration, event JournalEvent, detail string) {
+	e := &JournalEntry{
+		MigrationID:   m.ID,
+		MigrationName: m.Name,
+		Event:         event,
+		Phase:         m.Phase,
+		Direction:     m.effectiveDirection(),
+		LastError:     m.LastError,
+		Detail:        detail,
+	}
+	if err := c.store.InsertJournal(ctx, e); err != nil {
+		c.logger.WarnContext(ctx, "append migration journal entry", "migration", m.ID, "event", string(event), "error", err)
+	}
+}
+
 // fail records a terminal error on a migration (best-effort persist). Caller
 // holds c.mu.
 func (c *Coordinator) fail(ctx context.Context, m *Migration, err error) {
@@ -1356,6 +1485,7 @@ func (c *Coordinator) fail(ctx context.Context, m *Migration, err error) {
 	if uerr := c.store.Update(ctx, m); uerr != nil {
 		c.logger.WarnContext(ctx, "persist failed phase", "migration", m.ID, "error", uerr)
 	}
+	c.journal(ctx, m, JournalEventFailed, "")
 }
 
 // phaseRank orders the linear IMPORT setup phases so the coordinator can resume

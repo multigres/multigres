@@ -36,15 +36,19 @@ const testMigID int64 = 1
 type fakeStore struct {
 	migs map[int64]*Migration
 
-	ensureErr error
-	insertErr error
-	updateErr error
-	deleteErr error
-	getErr    error
-	listErr   error
+	ensureErr        error
+	insertErr        error
+	updateErr        error
+	deleteErr        error
+	getErr           error
+	listErr          error
+	insertJournalErr error
 
 	updates int
 	deletes []int64
+	// journal accumulates every appended entry across all migrations, in append
+	// order, so tests can assert the lifecycle sequence and retention after a drop.
+	journal []*JournalEntry
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{migs: map[int64]*Migration{}} }
@@ -104,6 +108,38 @@ func (f *fakeStore) List(context.Context) ([]*Migration, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+func (f *fakeStore) InsertJournal(_ context.Context, e *JournalEntry) error {
+	if f.insertJournalErr != nil {
+		return f.insertJournalErr
+	}
+	cp := *e
+	cp.Seq = int64(len(f.journal) + 1)
+	f.journal = append(f.journal, &cp)
+	return nil
+}
+
+func (f *fakeStore) ListJournal(_ context.Context, migrationID int64) ([]*JournalEntry, error) {
+	out := make([]*JournalEntry, 0)
+	for _, e := range f.journal {
+		if e.MigrationID == migrationID {
+			cp := *e
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+// journalEvents returns the event sequence appended for one migration, in order.
+func (f *fakeStore) journalEvents(migrationID int64) []JournalEvent {
+	var out []JournalEvent
+	for _, e := range f.journal {
+		if e.MigrationID == migrationID {
+			out = append(out, e.Event)
+		}
+	}
+	return out
 }
 
 func (f *fakeStore) put(m *Migration) { f.migs[m.ID] = m }

@@ -437,6 +437,215 @@ export class Migration extends Message<Migration> {
 }
 
 /**
+ * MigrationJournalEntry is one row of a migration's durable, append-only audit
+ * log (multigres.migration_journal): each lifecycle action (create, start, phase
+ * advance, direction switch, drop, failure) appends one entry. It is an internal
+ * audit surface — never contains credentials — and, unlike the Migration
+ * projection, is retained after the migration is dropped.
+ *
+ * @generated from message migrator.MigrationJournalEntry
+ */
+export class MigrationJournalEntry extends Message<MigrationJournalEntry> {
+  /**
+   * seq is the database-generated global monotonic audit order.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq = protoInt64.zero;
+
+  /**
+   * @generated from field: int64 migration_id = 2;
+   */
+  migrationId = protoInt64.zero;
+
+  /**
+   * migration_name is the migration's optional name, denormalized at write time
+   * so the entry stays readable after the migration row is dropped.
+   *
+   * @generated from field: string migration_name = 3;
+   */
+  migrationName = "";
+
+  /**
+   * event is the action: CREATE, START, PHASE, ACTIVATE, DEACTIVATE, DROP, FAILED.
+   *
+   * @generated from field: string event = 4;
+   */
+  event = "";
+
+  /**
+   * phase is the migration phase in effect at (or resulting from) the action.
+   *
+   * @generated from field: migrator.MigrationPhase phase = 5;
+   */
+  phase = MigrationPhase.UNSPECIFIED;
+
+  /**
+   * direction is the active replication direction at the action.
+   *
+   * @generated from field: migrator.MigrationDirection direction = 6;
+   */
+  direction = MigrationDirection.UNSPECIFIED;
+
+  /**
+   * from_lsn is the drained-to / quiesce LSN on the old writer (direction switch
+   * and graceful drop); empty otherwise.
+   *
+   * @generated from field: string from_lsn = 7;
+   */
+  fromLsn = "";
+
+  /**
+   * to_lsn is the start LSN on the new writer (direction switch); empty otherwise.
+   *
+   * @generated from field: string to_lsn = 8;
+   */
+  toLsn = "";
+
+  /**
+   * last_error is the failure reason (FAILED entries).
+   *
+   * @generated from field: string last_error = 9;
+   */
+  lastError = "";
+
+  /**
+   * detail is free-form context, e.g. "COPYING->IMPORTING" for a phase advance.
+   *
+   * @generated from field: string detail = 10;
+   */
+  detail = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 11;
+   */
+  createdAt?: Timestamp;
+
+  constructor(data?: PartialMessage<MigrationJournalEntry>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "migrator.MigrationJournalEntry";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "seq", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "migration_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "migration_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "event", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "phase", kind: "enum", T: proto3.getEnumType(MigrationPhase) },
+    { no: 6, name: "direction", kind: "enum", T: proto3.getEnumType(MigrationDirection) },
+    { no: 7, name: "from_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "to_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "last_error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "detail", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "created_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MigrationJournalEntry {
+    return new MigrationJournalEntry().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MigrationJournalEntry {
+    return new MigrationJournalEntry().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MigrationJournalEntry {
+    return new MigrationJournalEntry().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: MigrationJournalEntry | PlainMessage<MigrationJournalEntry> | undefined, b: MigrationJournalEntry | PlainMessage<MigrationJournalEntry> | undefined): boolean {
+    return proto3.util.equals(MigrationJournalEntry, a, b);
+  }
+}
+
+/**
+ * GetMigrationJournalRequest addresses one migration by id or, when id is empty,
+ * by name. A dropped migration is addressable only by id (the row that carried
+ * the name is gone, though its journal entries are retained).
+ *
+ * @generated from message migrator.GetMigrationJournalRequest
+ */
+export class GetMigrationJournalRequest extends Message<GetMigrationJournalRequest> {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id = protoInt64.zero;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name = "";
+
+  constructor(data?: PartialMessage<GetMigrationJournalRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "migrator.GetMigrationJournalRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMigrationJournalRequest {
+    return new GetMigrationJournalRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetMigrationJournalRequest {
+    return new GetMigrationJournalRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetMigrationJournalRequest {
+    return new GetMigrationJournalRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetMigrationJournalRequest | PlainMessage<GetMigrationJournalRequest> | undefined, b: GetMigrationJournalRequest | PlainMessage<GetMigrationJournalRequest> | undefined): boolean {
+    return proto3.util.equals(GetMigrationJournalRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message migrator.GetMigrationJournalResponse
+ */
+export class GetMigrationJournalResponse extends Message<GetMigrationJournalResponse> {
+  /**
+   * entries are the migration's journal entries, oldest first.
+   *
+   * @generated from field: repeated migrator.MigrationJournalEntry entries = 1;
+   */
+  entries: MigrationJournalEntry[] = [];
+
+  constructor(data?: PartialMessage<GetMigrationJournalResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "migrator.GetMigrationJournalResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "entries", kind: "message", T: MigrationJournalEntry, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMigrationJournalResponse {
+    return new GetMigrationJournalResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetMigrationJournalResponse {
+    return new GetMigrationJournalResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetMigrationJournalResponse {
+    return new GetMigrationJournalResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetMigrationJournalResponse | PlainMessage<GetMigrationJournalResponse> | undefined, b: GetMigrationJournalResponse | PlainMessage<GetMigrationJournalResponse> | undefined): boolean {
+    return proto3.util.equals(GetMigrationJournalResponse, a, b);
+  }
+}
+
+/**
  * @generated from message migrator.CreateMigrationRequest
  */
 export class CreateMigrationRequest extends Message<CreateMigrationRequest> {
