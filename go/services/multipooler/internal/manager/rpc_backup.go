@@ -325,10 +325,21 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			"cannot restore: PGDATA already exists; caller must stop PostgreSQL and remove PGDATA first")
 	}
 
-	// Restore the backup
+	// Restore the backup. A partial restore can leave PG_VERSION on disk,
+	// which hasDataDirectory() would misread as "already initialized" next
+	// tick - clean up so it retries instead of starting postgres on unverified
+	// data. Scoped to this call only: later steps run after a successful
+	// restore, so their failures shouldn't discard good data.
+	//
+	// TODO: doesn't cover a process crash mid-restore (no defer runs then) -
+	// a crash-surviving sentinel, like hasBootstrapSentinel/hasRewindSentinel,
+	// would close that gap.
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
 		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
+		if removeErr := pm.removeDataDirectory(); removeErr != nil {
+			pm.logger.WarnContext(ctx, "failed to remove partial data directory after failed restore", "error", removeErr)
+		}
 		return err
 	}
 

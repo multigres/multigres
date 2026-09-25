@@ -281,6 +281,7 @@ type StreamHealthData struct {
 // Each problem is tracked per affected entity (pooler ID or shard key).
 type DetectedProblemData struct {
 	AnalysisType string
+	ProblemCode  string
 	DBNamespace  string
 	Shard        string
 	EntityID     string
@@ -332,6 +333,7 @@ func (m *Metrics) RegisterDetectedProblemsCallback(getter func() []DetectedProbl
 				observer.ObserveInt64(m.detectedProblems.Inst(), 1,
 					metric.WithAttributes(
 						attribute.String("analysis_type", data.AnalysisType),
+						attribute.String("problem_code", data.ProblemCode),
 						attribute.String("db.namespace", data.DBNamespace),
 						attribute.String("shard", data.Shard),
 						attribute.String("entity_id", data.EntityID),

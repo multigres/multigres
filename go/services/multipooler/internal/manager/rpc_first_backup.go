@@ -19,6 +19,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
+
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -26,6 +29,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -40,6 +44,10 @@ import (
 // the monitor should back off and retry. Returns (false, true, nil) if a backup was found
 // (created by another pooler) — the caller should restore immediately.
 func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.Context) (busy bool, backupFound bool, retErr error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return false, false, err
+	}
+
 	pm.logger.InfoContext(ctx, "creating first backup for shard", "shard", pm.getShardID())
 
 	if pm.pgctldClient == nil {
@@ -109,9 +117,22 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Ordering matters: only clear the sentinel after the data directory is
 	// gone, to preserve the "data dir present ⇒ sentinel present" invariant.
 	defer func() {
-		if _, err := pm.pgctldClient.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
+		// Detached (actionlock.Detach) so an already-expired ctx (e.g. the
+		// monitor tick's timeout) doesn't fail Stop for an unrelated reason,
+		// while still satisfying protectedPgctldClient.Stop's action-lock
+		// requirement. Mode "immediate" (not the escalation ladder used
+		// elsewhere): this instance has no real client traffic to drain and
+		// its data is about to be deleted regardless, so there's nothing a
+		// graceful stop buys here that's worth waiting for.
+		const stopTimeout = 10 * time.Second
+		stopCtx, stopCancel := context.WithTimeout(actionlock.Detach(ctx), stopTimeout)
+		defer stopCancel()
+		if _, err := pm.pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{Mode: "immediate", Timeout: durationpb.New(stopTimeout)}); err != nil {
 			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)
 		}
+		// Removing the data directory regardless of Stop's outcome is safe:
+		// Recruit/Promote (the only ways this pooler could become a real
+		// leader) need this same action lock, held until this defer returns.
 		if err := pm.removeDataDirectory(); err != nil {
 			pm.logger.WarnContext(ctx, "failed to remove data directory during first backup cleanup", "error", err)
 			if retErr == nil {

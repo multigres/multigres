@@ -92,27 +92,42 @@ func (pm *MultipoolerManager) archiverStats(ctx context.Context) (backupengine.A
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
+	// pg_stat_archiver gives wall-clock recency; the archive_status backlog
+	// (LATERAL over pg_ls_archive_statusdir) gives the true pending age: .ready
+	// files are completed segments awaiting archive, so min(modification) is
+	// when the oldest one became ready. On a caught-up (incl. idle) primary
+	// there are no .ready files, so pending_count is 0 and oldest_pending NULL.
 	sql := `SELECT
-		COALESCE(EXTRACT(EPOCH FROM last_archived_time)::bigint, 0) AS last_archived,
-		COALESCE(EXTRACT(EPOCH FROM last_failed_time)::bigint, 0)   AS last_failed,
-		failed_count
-	FROM pg_stat_archiver`
+		COALESCE(EXTRACT(EPOCH FROM s.last_archived_time)::bigint, 0) AS last_archived,
+		COALESCE(EXTRACT(EPOCH FROM s.last_failed_time)::bigint, 0)   AS last_failed,
+		s.failed_count,
+		COALESCE(p.pending_count, 0)                                 AS pending_count,
+		COALESCE(EXTRACT(EPOCH FROM p.oldest_pending)::bigint, 0)     AS oldest_pending
+	FROM pg_stat_archiver s
+	LEFT JOIN LATERAL (
+		SELECT count(*) AS pending_count, min(modification) AS oldest_pending
+		FROM pg_ls_archive_statusdir()
+		WHERE name LIKE '%.ready'
+	) p ON true`
 	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to query pg_stat_archiver")
 	}
 
-	var lastArchived, lastFailed, failedCount int64
-	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount); err != nil {
+	var lastArchived, lastFailed, failedCount, pendingCount, oldestPending int64
+	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount, &pendingCount, &oldestPending); err != nil {
 		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to scan pg_stat_archiver result")
 	}
 
-	stats := backupengine.ArchiverStats{FailedCount: failedCount}
+	stats := backupengine.ArchiverStats{FailedCount: failedCount, PendingCount: pendingCount}
 	if lastArchived > 0 {
 		stats.LastArchived = time.Unix(lastArchived, 0)
 	}
 	if lastFailed > 0 {
 		stats.LastFailed = time.Unix(lastFailed, 0)
+	}
+	if oldestPending > 0 {
+		stats.OldestPending = time.Unix(oldestPending, 0)
 	}
 	return stats, nil
 }
