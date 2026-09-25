@@ -66,8 +66,11 @@ const (
 	//   - LeaderQuorumWritesStalled: the leader is reachable and claims healthy, but the
 	//     heartbeat's quorum-commit watermark isn't advancing — replicas can look
 	//     ahead on raw LSN regardless, since they replay WAL ahead of the
-	//     primary's own quorum ack. Reuses AppointLeaderAction's grace period for
-	//     now; a dedicated, longer one would suit a self-resolving stall better.
+	//     primary's own quorum ack. Covered by inPromotionGrace like the other
+	//     Leader* causes, plus its own dedicated exemption while the rule is
+	//     still undecided: fresh WAL streaming to a quorum-sufficient set of
+	//     followers (receiveLsnStillAdvancing) is treated as backlog-draining
+	//     during propagation, not a genuine halt.
 	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
 	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
 	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
