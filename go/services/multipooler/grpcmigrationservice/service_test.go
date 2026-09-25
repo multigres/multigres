@@ -57,7 +57,6 @@ func TestFoldTableSelection(t *testing.T) {
 	}{
 		{"columns", &migratorpb.TableSpec{QualifiedName: "public.orders", Columns: []string{"id"}}},
 		{"where", &migratorpb.TableSpec{QualifiedName: "public.orders", Where: "id > 0"}},
-		{"include_descendants", &migratorpb.TableSpec{QualifiedName: "public.orders", IncludeDescendants: true}},
 	} {
 		t.Run("rejects "+tc.name+" as not-yet-supported", func(t *testing.T) {
 			_, err := foldTableSelection(&migratorpb.CreateMigrationRequest{
@@ -68,6 +67,19 @@ func TestFoldTableSelection(t *testing.T) {
 				"want feature_not_supported (0A000), got %v", err)
 		})
 	}
+
+	// include_descendants (a bare `FOR TABLE <t>` without ONLY) is accepted at the
+	// fold: it is a no-op for an ordinary table, and a table that is actually
+	// partitioned is rejected later at source validation (where relkind is known).
+	t.Run("accepts include_descendants (partitioned rejected at validation)", func(t *testing.T) {
+		got, err := foldTableSelection(&migratorpb.CreateMigrationRequest{
+			Objects: []*migratorpb.SelectionObject{{Object: &migratorpb.SelectionObject_Table{
+				Table: &migratorpb.TableSpec{QualifiedName: "public.orders", IncludeDescendants: true},
+			}}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []string{"public.orders"}, got)
+	})
 }
 
 func TestMigrationRef(t *testing.T) {

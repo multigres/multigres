@@ -95,9 +95,12 @@ func (s *migrationService) CreateMigration(ctx context.Context, req *migratorpb.
 // heterogeneous objects list) into the flat pattern list the coordinator
 // resolves: "*" (all owned tables), "schema.*" (all owned tables in a schema),
 // or "schema.table". all_tables and objects are unioned (the resolver
-// de-duplicates). A table object carrying a column list, WHERE filter, or
-// include_descendants is rejected with a typed feature_not_supported error
-// (those clauses are not yet backed).
+// de-duplicates). A table object carrying a column list or WHERE filter is
+// rejected with a typed feature_not_supported error (those clauses are not yet
+// backed). include_descendants (the default for a bare `FOR TABLE <t>`, without
+// ONLY) is accepted — it is a no-op for an ordinary table; a table that is
+// actually partitioned is rejected later, at source validation, where the catalog
+// relkind is known (partition fan-out is not yet supported).
 func foldTableSelection(req *migratorpb.CreateMigrationRequest) ([]string, error) {
 	var patterns []string
 	if req.AllTables {
@@ -109,9 +112,9 @@ func foldTableSelection(req *migratorpb.CreateMigrationRequest) ([]string, error
 			patterns = append(patterns, o.Schema+".*")
 		case *migratorpb.SelectionObject_Table:
 			ts := o.Table
-			if len(ts.Columns) > 0 || ts.Where != "" || ts.IncludeDescendants {
+			if len(ts.Columns) > 0 || ts.Where != "" {
 				return nil, mterrors.NewFeatureNotSupported(
-					"migrator: per-table column lists, WHERE row filters, and include_descendants are not yet supported")
+					"migrator: per-table column lists and WHERE row filters are not yet supported")
 			}
 			patterns = append(patterns, ts.QualifiedName)
 		default:

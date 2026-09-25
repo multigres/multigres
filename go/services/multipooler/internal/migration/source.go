@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/tools/executil"
 )
@@ -182,6 +183,14 @@ func (s *source) Validate(patterns []string) (info *SourceInfo, resolved []strin
 		if !m.canSelect {
 			return nil, nil, nil, fmt.Errorf("source role lacks SELECT on table %q needed for initial copy", tbl)
 		}
+		// A bare `FOR TABLE <t>` (without ONLY) sets include_descendants, which is
+		// a no-op for an ordinary table but means partition fan-out for a
+		// partitioned one — not yet supported, so reject it here where the catalog
+		// relkind is known (rather than in the parser, which cannot tell them apart).
+		if m.relkind == relkindPartitioned {
+			return nil, nil, nil, mterrors.NewFeatureNotSupported(
+				fmt.Sprintf("table %q is a partitioned table; partitioned-table migration is not yet supported", tbl))
+		}
 
 		switch m.relreplident {
 		case replicaIdentityNothing:
@@ -200,10 +209,14 @@ func (s *source) Validate(patterns []string) (info *SourceInfo, resolved []strin
 // tableMeta is the per-table validation data read from pg_class.
 type tableMeta struct {
 	relreplident string // pg_class.relreplident (n/d/f/i)
+	relkind      string // pg_class.relkind (r = ordinary, p = partitioned)
 	hasPK        bool
 	isOwner      bool
 	canSelect    bool
 }
+
+// relkindPartitioned is pg_class.relkind for a partitioned table (the parent).
+const relkindPartitioned = "p"
 
 const (
 	replicaIdentityDefault = "d"
@@ -254,6 +267,7 @@ WITH
 SELECT n.nspname::text,
 	   c.relname::text,
        c.relreplident::text,
+       c.relkind::text,
        EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary),
        pg_has_role(current_user, c.relowner, 'USAGE'),
        has_table_privilege(current_user, c.oid, 'SELECT')
@@ -344,7 +358,7 @@ func (s *source) readTableMetadata(allTables bool, schemas, explicit []string) (
 	for rows.Next() {
 		var nspname, relname string
 		var m tableMeta
-		if err := rows.Scan(&nspname, &relname, &m.relreplident, &m.hasPK, &m.isOwner, &m.canSelect); err != nil {
+		if err := rows.Scan(&nspname, &relname, &m.relreplident, &m.relkind, &m.hasPK, &m.isOwner, &m.canSelect); err != nil {
 			return nil, nil, fmt.Errorf("scan table metadata: %w", err)
 		}
 		name := nspname + "." + relname
