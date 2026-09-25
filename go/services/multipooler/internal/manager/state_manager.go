@@ -337,8 +337,21 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // It is the synchronous serving barrier the migration IMPORT setup runs before
 // touching target tables, rather than waiting for the ~5s monitor tick.
 func (ssm *StateManager) ForceMigrationHold(ctx context.Context) error {
+	return ssm.ReconcileMigrationHold(ctx, true)
+}
+
+// ReconcileMigrationHold applies the migration serving hold synchronously: hold=true
+// forces SERVING->DRAINING (the IMPORT barrier), hold=false completes a transient
+// DRAINING->SERVING (the EXPORT cutover). It is the synchronous counterpart to the
+// ~5s postgres-monitor tick, used at both ends of the direction switch so serving
+// tracks the phase promptly rather than up to a tick later. In particular the
+// EXPORT release must be prompt so the gateway's failover buffer, which drains once
+// the leader self-attests SERVING, replays the queries it held during the cutover
+// inside its bounded window. DISABLED (shutdown/demote) is never auto-reconciled.
+// Requires the action lock (asserted by Mutate).
+func (ssm *StateManager) ReconcileMigrationHold(ctx context.Context, hold bool) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, hold)
 	})
 }
 

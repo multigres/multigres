@@ -52,6 +52,15 @@ type Coordinator struct {
 	// tests without a manager), in which case the barrier is skipped.
 	drainForImport func(ctx context.Context) error
 
+	// releaseForExport flips this pooler to SERVING synchronously the moment the
+	// IMPORT->EXPORT cutover commits the EXPORTING phase, rather than waiting for the
+	// async ~5s postgres-monitor tick to observe it. Prompt serving-on is what lets
+	// the gateway's failover buffer replay the queries it held during the cutover
+	// (the buffer drains when the leader self-attests SERVING) inside its bounded
+	// window, instead of them timing out and being refused. May be nil (unit tests
+	// without a manager), in which case the flip is left to the monitor tick.
+	releaseForExport func(ctx context.Context) error
+
 	now func() time.Time
 
 	// mu serializes state transitions so concurrent operator calls on the same
@@ -64,14 +73,17 @@ type Coordinator struct {
 // reverse subscription; pass nil if EXPORT is not supported in this deployment.
 // drainForImport is the synchronous serving barrier run before IMPORT setup
 // touches the target (see the drainForImport field); pass nil to skip it.
-func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error), drainForImport func(ctx context.Context) error) *Coordinator {
+// releaseForExport is the synchronous serving flip run when the EXPORT cutover
+// commits (see the releaseForExport field); pass nil to leave it to the monitor.
+func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targetConnInfo func(database string) (string, error), drainForImport func(ctx context.Context) error, releaseForExport func(ctx context.Context) error) *Coordinator {
 	return &Coordinator{
-		store:          NewStore(qs),
-		target:         newTarget(qs),
-		logger:         logger,
-		targetConnInfo: targetConnInfo,
-		drainForImport: drainForImport,
-		now:            time.Now,
+		store:            NewStore(qs),
+		target:           newTarget(qs),
+		logger:           logger,
+		targetConnInfo:   targetConnInfo,
+		drainForImport:   drainForImport,
+		releaseForExport: releaseForExport,
+		now:              time.Now,
 	}
 }
 
@@ -590,16 +602,89 @@ func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Dir
 	return src.AdvanceSequences(m.Tables, m.SequenceMargin)
 }
 
+// Cutover readiness tuning. The activation cutover quiesces the source and drains
+// the residual lag to zero under a read-only barrier; during that window the gateway
+// buffers client queries (bounded by its failover buffer-window, default ~10s, and
+// max-failover-duration, ~20s). The readiness gate below bounds how much residual
+// there is when the barrier starts, so the drain plus the fixed flip/serving-on
+// overhead fits inside that window and buffered queries are replayed, not refused.
+const (
+	// DefaultActivateMaxLagBytes is the readiness threshold used when the request
+	// leaves max_lag_bytes at 0. Chosen well under MaxActivateMaxLagBytes so a caught-
+	// up stream (lag ~0 in the IMPORTING steady state) proceeds immediately, while a
+	// backlog under write load blocks until it drains.
+	DefaultActivateMaxLagBytes uint64 = 8 << 20 // 8 MiB
+	// MaxActivateMaxLagBytes is the recommended upper bound on the readiness
+	// threshold. NOTE: it is advisory only and is NOT enforced (see the note on
+	// ActivateOptions.resolve). Above roughly this much residual, at realistic apply
+	// throughput the drain may not finish within the gateway buffer window and the
+	// buffer could overflow, so operators should keep max_lag_bytes at or below it,
+	// in step with the gateway's buffer-window / max-failover-duration.
+	MaxActivateMaxLagBytes uint64 = 16 << 20 // 16 MiB
+	// DefaultActivateWaitTimeout bounds the readiness wait when the request leaves
+	// wait_timeout_seconds at 0.
+	DefaultActivateWaitTimeout = 30 * time.Second
+	// activateLagPollInterval is how often the readiness gate re-reads live lag.
+	activateLagPollInterval = 500 * time.Millisecond
+)
+
+// ErrNotReady is returned by Activate when the migration cannot be cut over yet:
+// the live replication lag did not fall to the requested threshold within the wait
+// timeout. The migration is left untouched in the IMPORT direction (no cutover, no
+// serving change), so the operator can retry (optionally with a larger threshold or
+// timeout, or after write load subsides). The gRPC layer maps it to
+// FAILED_PRECONDITION.
+var ErrNotReady = errors.New("migration not ready to activate")
+
+// ActivateOptions parameterizes the cutover readiness gate. The zero value uses the
+// server defaults (DefaultActivateMaxLagBytes, DefaultActivateWaitTimeout).
+type ActivateOptions struct {
+	// MaxLagBytes is the readiness threshold: activation waits until the live
+	// replication lag is at or below this before it quiesces the source and cuts
+	// over. 0 uses DefaultActivateMaxLagBytes; a value above MaxActivateMaxLagBytes
+	// is refused.
+	MaxLagBytes uint64
+	// WaitTimeout bounds the readiness wait. 0 uses DefaultActivateWaitTimeout.
+	WaitTimeout time.Duration
+}
+
+// resolve fills in the server defaults for any unset option.
+//
+// NOTE: the up-front "threshold too large" check is intentionally NOT enforced here.
+// Whether a given max_lag_bytes is too large depends on the gateway's buffer window,
+// which the coordinator cannot observe across services, and the CLI/multiadmin path
+// never touches the gateway at all — so a hard refuse here would be guessing.
+// MaxActivateMaxLagBytes remains as advisory guidance (and is documented in the
+// design doc); choosing a threshold small enough that the drain fits the buffer
+// window is the operator's responsibility. Revisit if the gateway buffer window
+// becomes visible to the coordinator.
+func (o ActivateOptions) resolve() (uint64, time.Duration) {
+	lag := o.MaxLagBytes
+	if lag == 0 {
+		lag = DefaultActivateMaxLagBytes
+	}
+	wait := o.WaitTimeout
+	if wait == 0 {
+		wait = DefaultActivateWaitTimeout
+	}
+	return lag, wait
+}
+
 // SetMigrationDirection sets the active direction declaratively. Setting the
 // current direction is a no-op; the other performs the symmetric barrier + flip:
 // drain the current publisher, advance the new writer's sequences, tear down the
 // current link, and establish the reverse link (copy_data=false). It requires a
 // caught-up STREAMING state.
 // Activate cuts a migration over to serving by switching to the EXPORT direction
-// (drain to lag zero, flip direction, start serving). It requires the migration
-// to be currently importing; activating an already-active (EXPORT) migration is
-// an error. SetMigrationDirection does the barrier + flip.
-func (c *Coordinator) Activate(ctx context.Context, id string) (*Projection, error) {
+// (wait until lag <= threshold, drain to lag zero, flip direction, start serving).
+// It requires the migration to be currently importing; activating an already-active
+// (EXPORT) migration is an error. The readiness gate (opts) bounds the residual lag
+// at the moment the source is quiesced so the cutover fits the gateway buffer
+// window; if the lag does not fall to the threshold within opts.WaitTimeout it
+// returns ErrNotReady and leaves the migration importing. SetMigrationDirection does
+// the barrier + flip.
+func (c *Coordinator) Activate(ctx context.Context, id string, opts ActivateOptions) (*Projection, error) {
+	maxLag, wait := opts.resolve()
 	c.mu.Lock()
 	m, err := c.store.GetByRef(ctx, id)
 	c.mu.Unlock()
@@ -609,7 +694,53 @@ func (c *Coordinator) Activate(ctx context.Context, id string) (*Projection, err
 	if directionOf(m.Phase) != DirectionImport {
 		return nil, fmt.Errorf("cannot activate migration %s: it is already active (EXPORT direction)", m.ID)
 	}
+	// Block until the live lag falls to the readiness threshold BEFORE quiescing the
+	// source, so the subsequent read-only drain barrier (in SetMigrationDirection ->
+	// drainCurrent) has only a small residual to flush and completes inside the
+	// gateway buffer window. A resume of an already-recorded switch skips the gate
+	// (the source is already read-only past that point).
+	if m.Phase == PhaseImporting {
+		if err := c.waitForCutoverReadiness(ctx, m, maxLag, wait); err != nil {
+			return nil, err
+		}
+	}
 	return c.SetMigrationDirection(ctx, m.ID, DirectionExport)
+}
+
+// waitForCutoverReadiness polls the live source-slot lag until it is at or below
+// maxLag, or returns ErrNotReady once wait elapses. It runs before the source is
+// quiesced, so it observes the real streaming backlog under concurrent write load.
+func (c *Coordinator) waitForCutoverReadiness(ctx context.Context, m *Migration, maxLag uint64, wait time.Duration) error {
+	src, err := newSource(ctx, m.SourceDSN)
+	if err != nil {
+		return err
+	}
+	defer src.close()
+
+	deadline := c.now().Add(wait)
+	ticker := time.NewTicker(activateLagPollInterval)
+	defer ticker.Stop()
+	for {
+		lag, _, present, err := src.ReplicationLag(m.SubscriptionName())
+		if err != nil {
+			return err
+		}
+		if present && lag <= maxLag {
+			c.logger.InfoContext(ctx, "migration ready to activate", "id", m.ID, "lag_bytes", lag, "max_lag_bytes", maxLag)
+			return nil
+		}
+		if !c.now().Before(deadline) {
+			if !present {
+				return fmt.Errorf("%w: replication slot %q not found on source after %s (nothing consumed yet)", ErrNotReady, m.SubscriptionName(), wait)
+			}
+			return fmt.Errorf("%w: replication lag %d bytes did not fall to %d within %s (source still under write load?)", ErrNotReady, lag, maxLag, wait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // Deactivate rolls a migration back to non-serving by switching to the IMPORT
@@ -723,13 +854,28 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	if err := c.store.Update(ctx, m); err != nil {
 		return nil, err
 	}
+	// EXPORT: flip this pooler to SERVING synchronously now that EXPORTING is
+	// committed, instead of waiting for the async ~5s postgres-monitor tick to
+	// observe the phase. Prompt serving-on is what lets the gateway's failover
+	// buffer replay the queries it held during the cutover inside its bounded
+	// window (the buffer drains when the leader self-attests SERVING); a slow flip
+	// risks the buffer timing out and refusing those queries. It also unblocks the
+	// reverse subscription below, which the source can only attach once the target
+	// serves. A nil hook (unit tests) leaves the flip to the monitor.
+	if target == DirectionExport && c.releaseForExport != nil {
+		if err := c.releaseForExport(ctx); err != nil {
+			// Do not fail the migration: EXPORTING is already committed and the monitor
+			// tick will reconcile serving on its own; log and continue.
+			c.logger.WarnContext(ctx, "synchronous serving flip failed; falling back to monitor tick", "id", m.ID, "error", err)
+		}
+	}
 	// EXPORT: establish the reverse subscription now that the phase is EXPORTING,
-	// so the gateway (which serves only at EXPORTING, and flips serving
-	// asynchronously via the monitor) will accept the source's connection. Retry
-	// the transient "temporarily unavailable" window. This runs after the EXPORTING
-	// commit on purpose; a failure here does NOT fail the migration (serving is
-	// already up) — reconcileLocked keeps re-ensuring the link. IMPORT's reverse
-	// subscription dials the source directly and was already created in switchTo.
+	// so the gateway (which serves only at EXPORTING) will accept the source's
+	// connection. Retry the transient "temporarily unavailable" window. This runs
+	// after the EXPORTING commit on purpose; a failure here does NOT fail the
+	// migration (serving is already up) — reconcileLocked keeps re-ensuring the
+	// link. IMPORT's reverse subscription dials the source directly and was already
+	// created in switchTo.
 	if target == DirectionExport {
 		if err := c.retryReverseExportLink(ctx, m); err != nil {
 			return nil, err
@@ -1063,10 +1209,50 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 
 // liveStatus reads subscription status for phases where it is meaningful.
 func (c *Coordinator) liveStatus(ctx context.Context, m *Migration) (*SubscriptionStatus, error) {
-	if m.Phase == PhaseCopying || isStreaming(m.Phase) {
-		return c.target.SubscriptionStatus(ctx, m.SubscriptionName())
+	if m.Phase != PhaseCopying && !isStreaming(m.Phase) {
+		return nil, nil
 	}
-	return nil, nil
+	st, err := c.target.SubscriptionStatus(ctx, m.SubscriptionName())
+	if err != nil {
+		return nil, err
+	}
+	// Attach live publisher-side lag (best-effort; a lag-probe failure must not fail
+	// status). Source-side in IMPORT, target-side in EXPORT — the same slot the drain
+	// barrier waits on.
+	st.LagBytes, st.LagSeconds = c.liveLag(ctx, m)
+	return st, nil
+}
+
+// liveLag returns the current replication lag (bytes, seconds) for the migration,
+// measured on whichever side is currently the publisher: the external source in
+// IMPORT, the local target in EXPORT. It is best-effort — any error (source
+// unreachable, slot absent) yields (0, 0) rather than failing status. The IMPORT
+// path opens a short-lived source connection, bounded so a slow source cannot stall
+// a status read.
+func (c *Coordinator) liveLag(ctx context.Context, m *Migration) (uint64, float64) {
+	switch directionOf(m.Phase) {
+	case DirectionImport:
+		lagCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		src, err := newSource(lagCtx, m.SourceDSN)
+		if err != nil {
+			return 0, 0
+		}
+		defer src.close()
+		b, s, present, err := src.ReplicationLag(m.SubscriptionName())
+		if err != nil || !present {
+			return 0, 0
+		}
+		return b, s
+	case DirectionExport:
+		b, s, present, err := c.target.ReplicationLag(ctx, m.SubscriptionName())
+		if err != nil || !present {
+			return 0, 0
+		}
+		return b, s
+	default:
+		return 0, 0
+	}
 }
 
 // setPhase persists a phase transition. Caller holds c.mu.
@@ -1124,9 +1310,13 @@ type Projection struct {
 	CaughtUp         bool
 	ReceivedLSN      string
 	LatestEndLSN     string
-	LastError        string
-	CreatedAt        time.Time
-	StreamingSince   *time.Time
+	// LagBytes / LagSeconds are the live replication lag on the current publisher
+	// (source in IMPORT, target in EXPORT); 0 when not streaming or unavailable.
+	LagBytes       uint64
+	LagSeconds     float64
+	LastError      string
+	CreatedAt      time.Time
+	StreamingSince *time.Time
 }
 
 // project builds the redacted projection, merging optional live status.
@@ -1152,6 +1342,8 @@ func (c *Coordinator) project(m *Migration, status *SubscriptionStatus) *Project
 		p.CaughtUp = status.CaughtUp
 		p.ReceivedLSN = status.ReceivedLSN
 		p.LatestEndLSN = status.LatestEndLSN
+		p.LagBytes = status.LagBytes
+		p.LagSeconds = status.LagSeconds
 	}
 	return p
 }

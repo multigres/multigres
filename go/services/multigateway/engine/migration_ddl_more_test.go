@@ -335,6 +335,39 @@ func TestMigrationDDLHelpers_applyMigrationOptions(t *testing.T) {
 		ast.NewNodeList(defElem("nope", "1"))), "unknown migration option")
 }
 
+func TestMigrationDDLHelpers_applyActivateOptions(t *testing.T) {
+	// nil list leaves the request at defaults.
+	req := &migratorpb.ActivateMigrationRequest{}
+	require.NoError(t, applyActivateOptions(req, nil))
+	assert.Zero(t, req.GetMaxLagBytes())
+	assert.Zero(t, req.GetWaitTimeoutSeconds())
+
+	// Bytes plus a duration string.
+	req = &migratorpb.ActivateMigrationRequest{}
+	require.NoError(t, applyActivateOptions(req, ast.NewNodeList(
+		ast.NewString("skip"), // non-DefElem skipped
+		defElem("max_lag_bytes", "8388608"),
+		defElem("wait_timeout", "30s"),
+	)))
+	assert.Equal(t, uint64(8388608), req.GetMaxLagBytes())
+	assert.Equal(t, int64(30), req.GetWaitTimeoutSeconds())
+
+	// wait_timeout also accepts bare integer seconds.
+	req = &migratorpb.ActivateMigrationRequest{}
+	require.NoError(t, applyActivateOptions(req, ast.NewNodeList(defElem("wait_timeout", "45"))))
+	assert.Equal(t, int64(45), req.GetWaitTimeoutSeconds())
+
+	// Errors: bad bytes, bad duration, negative timeout, unknown option.
+	assert.ErrorContains(t, applyActivateOptions(&migratorpb.ActivateMigrationRequest{},
+		ast.NewNodeList(defElem("max_lag_bytes", "-1"))), "non-negative integer")
+	assert.ErrorContains(t, applyActivateOptions(&migratorpb.ActivateMigrationRequest{},
+		ast.NewNodeList(defElem("wait_timeout", "soon"))), "duration")
+	assert.ErrorContains(t, applyActivateOptions(&migratorpb.ActivateMigrationRequest{},
+		ast.NewNodeList(defElem("wait_timeout", "-5s"))), "negative")
+	assert.ErrorContains(t, applyActivateOptions(&migratorpb.ActivateMigrationRequest{},
+		ast.NewNodeList(defElem("nope", "1"))), "unknown ACTIVATE option")
+}
+
 func TestMigrationDDLHelpers_applyUpdateOptions(t *testing.T) {
 	req := &migratorpb.UpdateMigrationRequest{}
 	paths, err := applyUpdateOptions(req, nil)

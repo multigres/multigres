@@ -140,6 +140,12 @@ type SubscriptionStatus struct {
 	CaughtUp       bool
 	ReceivedLSN    string
 	LatestEndLSN   string
+	// LagBytes / LagSeconds are the live replication lag measured on the current
+	// publisher (source in IMPORT, target in EXPORT). They are NOT filled by
+	// SubscriptionStatus (which is purely subscription-derived); Coordinator.liveStatus
+	// populates them best-effort via ReplicationLag so the projection can surface them.
+	LagBytes   uint64
+	LagSeconds float64
 }
 
 const subscriptionStatusSQL = `SELECT count(r.*),
@@ -255,6 +261,33 @@ func (t *target) DropLogicalSlot(ctx context.Context, name string) error {
 // WaitSlotConfirmed blocks until the named local replication slot has
 // confirmed_flush_lsn >= targetLSN, or ctx is done. Call on the publisher side
 // (target in EXPORT direction).
+// ReplicationLag returns the current replication lag for the named slot on the local
+// (target) Postgres when it is the publisher (EXPORT direction): byte lag =
+// pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn) and time lag = the
+// walsender's replay_lag in seconds. present is false when the slot does not exist.
+// Mirrors source.ReplicationLag for the reverse direction.
+func (t *target) ReplicationLag(ctx context.Context, slot string) (lagBytes uint64, lagSeconds float64, present bool, err error) {
+	const lagSQL = `SELECT
+		GREATEST(pg_wal_lsn_diff(pg_current_wal_lsn(), sl.confirmed_flush_lsn), 0)::bigint,
+		COALESCE(EXTRACT(EPOCH FROM sr.replay_lag), 0)::float8
+	FROM pg_replication_slots sl
+	LEFT JOIN pg_stat_replication sr ON sr.pid = sl.active_pid
+	WHERE sl.slot_name = $1`
+	res, err := t.qs.QueryAdminArgs(ctx, lagSQL, slot)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("read target replication lag for slot %q: %w", slot, err)
+	}
+	if res == nil || len(res.Rows) == 0 {
+		return 0, 0, false, nil
+	}
+	var b int64
+	var secs float64
+	if err := executor.ScanSingleRow(res, &b, &secs); err != nil {
+		return 0, 0, false, fmt.Errorf("scan target replication lag: %w", err)
+	}
+	return uint64(b), secs, true, nil
+}
+
 func (t *target) WaitSlotConfirmed(ctx context.Context, slot, targetLSN string) error {
 	return pollSlotConfirmed(ctx, func(c context.Context) (bool, error) {
 		res, err := t.qs.QueryAdminArgs(c,

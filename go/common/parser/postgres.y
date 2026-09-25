@@ -12661,7 +12661,7 @@ AlterMigrationStmt:
 
 migration_action:
 		START				{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionStart} }
-	|	ACTIVATE			{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionActivate} }
+	|	ACTIVATE opt_definition	{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionActivate, Options: $2} }
 	|	DEACTIVATE			{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionDeactivate} }
 	|	CONNECTION name		{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionSetConnection, Connection: $2} }
 	|	SET definition		{ $$ = &ast.MigrationActionSpec{Action: ast.MigrationActionSetOptions, Options: $2} }

@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
@@ -264,7 +265,11 @@ func (m *MigrationDDL) alterMigration(ctx context.Context, s *ast.AlterMigration
 	case ast.MigrationActionStart:
 		_, err = client.StartMigration(ctx, &migratorpb.StartMigrationRequest{Name: s.Name})
 	case ast.MigrationActionActivate:
-		_, err = client.ActivateMigration(ctx, &migratorpb.ActivateMigrationRequest{Name: s.Name})
+		req := &migratorpb.ActivateMigrationRequest{Name: s.Name}
+		if err = applyActivateOptions(req, s.Options); err != nil {
+			return nil, err
+		}
+		_, err = client.ActivateMigration(ctx, req)
 	case ast.MigrationActionDeactivate:
 		_, err = client.DeactivateMigration(ctx, &migratorpb.DeactivateMigrationRequest{Name: s.Name})
 	case ast.MigrationActionSetConnection:
@@ -332,7 +337,7 @@ func (m *MigrationDDL) showMigrations(ctx context.Context, s *ast.ShowMigrations
 	cols := []string{
 		"name", "id", "source", "target_database", "target_shard",
 		"phase", "active_direction", "total_relations", "ready_relations",
-		"caught_up", "last_error",
+		"caught_up", "lag_bytes", "lag_seconds", "last_error",
 	}
 	result := &sqltypes.Result{CommandTag: fmt.Sprintf("SELECT %d", len(resp.GetMigrations()))}
 	if includeFields {
@@ -350,6 +355,8 @@ func (m *MigrationDDL) showMigrations(ctx context.Context, s *ast.ShowMigrations
 			[]byte(strconv.FormatInt(mig.GetTotalRelations(), 10)),
 			[]byte(strconv.FormatInt(mig.GetReadyRelations(), 10)),
 			[]byte(boolText(mig.GetCaughtUp())),
+			[]byte(strconv.FormatUint(mig.GetLagBytes(), 10)),
+			[]byte(strconv.FormatFloat(mig.GetLagSeconds(), 'f', 3, 64)),
 			[]byte(mig.GetLastError()),
 		}))
 	}
@@ -496,6 +503,59 @@ func rangeVarName(rv *ast.RangeVar) string {
 		return rv.SchemaName + "." + rv.RelName
 	}
 	return rv.RelName
+}
+
+// applyActivateOptions maps an ACTIVATE WITH (...) option list onto
+// ActivateMigrationRequest. Recognized options: max_lag_bytes (integer bytes) and
+// wait_timeout (a duration string like '30s', or a bare integer in seconds).
+func applyActivateOptions(req *migratorpb.ActivateMigrationRequest, list *ast.NodeList) error {
+	if list == nil {
+		return nil
+	}
+	for _, it := range list.Items {
+		d, ok := it.(*ast.DefElem)
+		if !ok {
+			continue
+		}
+		val := defElemValue(d)
+		switch strings.ToLower(d.Defname) {
+		case "max_lag_bytes":
+			n, err := strconv.ParseUint(val, 10, 64)
+			if err != nil {
+				return fmt.Errorf("max_lag_bytes must be a non-negative integer: %q", val)
+			}
+			req.MaxLagBytes = n
+		case "wait_timeout":
+			secs, err := parseTimeoutSeconds(val)
+			if err != nil {
+				return err
+			}
+			req.WaitTimeoutSeconds = secs
+		default:
+			return fmt.Errorf("unknown ACTIVATE option %q", d.Defname)
+		}
+	}
+	return nil
+}
+
+// parseTimeoutSeconds accepts a Go duration string ('30s', '2m') or a bare integer
+// number of seconds, returning whole seconds. It rejects sub-second and negative
+// values (the RPC field is integer seconds).
+func parseTimeoutSeconds(val string) (int64, error) {
+	if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+		if n < 0 {
+			return 0, fmt.Errorf("wait_timeout must not be negative: %q", val)
+		}
+		return n, nil
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		return 0, fmt.Errorf("wait_timeout must be a duration (e.g. '30s') or integer seconds: %q", val)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("wait_timeout must not be negative: %q", val)
+	}
+	return int64(d / time.Second), nil
 }
 
 // applyMigrationOptions maps a WITH (...) option list onto CreateMigrationRequest.

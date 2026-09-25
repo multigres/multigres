@@ -196,14 +196,21 @@ func AddActivateMigrationCommand() *cobra.Command {
 		Use:   "activate-migration",
 		Short: "Activate a migration: cut over to serving (switch to EXPORT)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, _ := cmd.Flags().GetString("id")
+			f := cmd.Flags()
+			id, _ := f.GetString("id")
+			maxLagBytes, _ := f.GetUint64("max-lag-bytes")
+			waitTimeout, _ := f.GetInt64("wait-timeout")
 			client, err := admin.NewClient(cmd)
 			if err != nil {
 				return err
 			}
 			defer client.Close()
 
-			resp, err := client.ActivateMigration(cmd.Context(), &migratorpb.ActivateMigrationRequest{Id: id})
+			resp, err := client.ActivateMigration(cmd.Context(), &migratorpb.ActivateMigrationRequest{
+				Id:                 id,
+				MaxLagBytes:        maxLagBytes,
+				WaitTimeoutSeconds: waitTimeout,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to activate migration: %w", err)
 			}
@@ -212,6 +219,8 @@ func AddActivateMigrationCommand() *cobra.Command {
 	}
 	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
 	cmd.Flags().String("id", "", "migration id or name")
+	cmd.Flags().Uint64("max-lag-bytes", 0, "readiness threshold: wait until replication lag is at or below this many bytes before cutting over, so the cutover fits the gateway buffer window (0 = server default)")
+	cmd.Flags().Int64("wait-timeout", 0, "timeout in seconds to wait for the lag to fall to --max-lag-bytes before failing (0 = server default)")
 	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }

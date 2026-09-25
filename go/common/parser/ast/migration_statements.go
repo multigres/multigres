@@ -290,6 +290,10 @@ func (n *AlterMigrationStmt) SqlString() string {
 		b.WriteString(" START")
 	case MigrationActionActivate:
 		b.WriteString(" ACTIVATE")
+		if n.Options != nil && len(n.Options.Items) > 0 {
+			b.WriteString(" WITH ")
+			b.WriteString(optionListSQL(n.Options))
+		}
 	case MigrationActionDeactivate:
 		b.WriteString(" DEACTIVATE")
 	case MigrationActionSetConnection:

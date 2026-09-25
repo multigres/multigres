@@ -368,7 +368,15 @@ type Migration struct {
 	// name is the optional, human-friendly identifier, unique per target database.
 	// Empty for migrations created without one. The generated id remains the stable
 	// internal key.
-	Name          string `protobuf:"bytes,18,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,18,opt,name=name,proto3" json:"name,omitempty"`
+	// lag_bytes / lag_seconds are the live replication lag measured on the current
+	// publisher (the external source in IMPORT, the Multigres target in EXPORT):
+	// lag_bytes = pg_current_wal_lsn() - confirmed_flush_lsn, lag_seconds = the
+	// walsender's replay_lag. Both are 0 when the migration is not streaming or the
+	// lag cannot be read. lag_bytes is the same measure ActivateMigration.max_lag_bytes
+	// gates on.
+	LagBytes      uint64  `protobuf:"varint,19,opt,name=lag_bytes,json=lagBytes,proto3" json:"lag_bytes,omitempty"`
+	LagSeconds    float64 `protobuf:"fixed64,20,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -513,6 +521,20 @@ func (x *Migration) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *Migration) GetLagBytes() uint64 {
+	if x != nil {
+		return x.LagBytes
+	}
+	return 0
+}
+
+func (x *Migration) GetLagSeconds() float64 {
+	if x != nil {
+		return x.LagSeconds
+	}
+	return 0
 }
 
 type CreateMigrationRequest struct {
@@ -841,11 +863,25 @@ func (x *UpdateMigrationResponse) GetMigration() *Migration {
 // switch to the EXPORT direction, and start serving. Requires the current
 // direction to be IMPORT. Addressed by id or, when id is empty, by name.
 type ActivateMigrationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// max_lag_bytes is the readiness threshold for the cutover. Before quiescing the
+	// source, activation polls the live replication lag (the bytes of source WAL the
+	// target has not yet confirmed-consumed) and proceeds only once it is at or below
+	// this many bytes, so the residual drain under the read-only barrier completes
+	// inside the gateway's failover-buffer window (queries buffered during the cutover
+	// are replayed, not refused). 0 uses the server default. Choosing it too large
+	// relative to the gateway buffer window risks the buffer overflowing mid-cutover;
+	// keeping it small enough is the operator's responsibility (not enforced here).
+	MaxLagBytes uint64 `protobuf:"varint,3,opt,name=max_lag_bytes,json=maxLagBytes,proto3" json:"max_lag_bytes,omitempty"`
+	// wait_timeout_seconds bounds how long activation blocks waiting for the lag to
+	// fall to max_lag_bytes. 0 uses the server default. If the threshold is not
+	// reached within the timeout, activation fails with a precondition error and the
+	// migration stays in the IMPORT direction (no cutover, no serving change).
+	WaitTimeoutSeconds int64 `protobuf:"varint,4,opt,name=wait_timeout_seconds,json=waitTimeoutSeconds,proto3" json:"wait_timeout_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ActivateMigrationRequest) Reset() {
@@ -890,6 +926,20 @@ func (x *ActivateMigrationRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *ActivateMigrationRequest) GetMaxLagBytes() uint64 {
+	if x != nil {
+		return x.MaxLagBytes
+	}
+	return 0
+}
+
+func (x *ActivateMigrationRequest) GetWaitTimeoutSeconds() int64 {
+	if x != nil {
+		return x.WaitTimeoutSeconds
+	}
+	return 0
 }
 
 type ActivateMigrationResponse struct {
@@ -1369,7 +1419,7 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x0fSelectionObject\x12+\n" +
 	"\x05table\x18\x01 \x01(\v2\x13.migrator.TableSpecH\x00R\x05table\x12\x18\n" +
 	"\x06schema\x18\x02 \x01(\tH\x00R\x06schemaB\b\n" +
-	"\x06object\"\x90\x05\n" +
+	"\x06object\"\xce\x05\n" +
 	"\tMigration\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12'\n" +
@@ -1389,7 +1439,10 @@ const file_migratorservice_proto_rawDesc = "" +
 	"created_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12G\n" +
 	"\x10active_direction\x18\x10 \x01(\x0e2\x1c.migrator.MigrationDirectionR\x0factiveDirection\x12C\n" +
 	"\x0fstreaming_since\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\x0estreamingSince\x12\x12\n" +
-	"\x04name\x18\x12 \x01(\tR\x04nameJ\x04\b\x0f\x10\x10\"\x8a\x04\n" +
+	"\x04name\x18\x12 \x01(\tR\x04name\x12\x1b\n" +
+	"\tlag_bytes\x18\x13 \x01(\x04R\blagBytes\x12\x1f\n" +
+	"\vlag_seconds\x18\x14 \x01(\x01R\n" +
+	"lagSecondsJ\x04\b\x0f\x10\x10\"\x8a\x04\n" +
 	"\x16CreateMigrationRequest\x12\x1d\n" +
 	"\n" +
 	"source_dsn\x18\x01 \x01(\tR\tsourceDsn\x12'\n" +
@@ -1420,10 +1473,12 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x06tables\x18\x05 \x03(\tR\x06tables\x12\x12\n" +
 	"\x04name\x18\x06 \x01(\tR\x04name\"L\n" +
 	"\x17UpdateMigrationResponse\x121\n" +
-	"\tmigration\x18\x01 \x01(\v2\x13.migrator.MigrationR\tmigration\">\n" +
+	"\tmigration\x18\x01 \x01(\v2\x13.migrator.MigrationR\tmigration\"\x94\x01\n" +
 	"\x18ActivateMigrationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"N\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\"\n" +
+	"\rmax_lag_bytes\x18\x03 \x01(\x04R\vmaxLagBytes\x120\n" +
+	"\x14wait_timeout_seconds\x18\x04 \x01(\x03R\x12waitTimeoutSeconds\"N\n" +
 	"\x19ActivateMigrationResponse\x121\n" +
 	"\tmigration\x18\x01 \x01(\v2\x13.migrator.MigrationR\tmigration\"@\n" +
 	"\x1aDeactivateMigrationRequest\x12\x0e\n" +

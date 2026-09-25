@@ -218,7 +218,11 @@ func (s *migrationService) ActivateMigration(ctx context.Context, req *migratorp
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	proj, err := coord.Activate(ctx, migrationRef(req.Id, req.Name))
+	opts := migration.ActivateOptions{
+		MaxLagBytes: req.MaxLagBytes,
+		WaitTimeout: time.Duration(req.WaitTimeoutSeconds) * time.Second,
+	}
+	proj, err := coord.Activate(ctx, migrationRef(req.Id, req.Name), opts)
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -242,6 +246,9 @@ func toGRPC(err error) error {
 	if errors.Is(err, migration.ErrNotFound) {
 		return status.Error(codes.NotFound, err.Error())
 	}
+	if errors.Is(err, migration.ErrNotReady) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
 	return mterrors.ToGRPC(err)
 }
 
@@ -261,6 +268,8 @@ func projToProto(p *migration.Projection) *migratorpb.Migration {
 		CaughtUp:         p.CaughtUp,
 		PublicationName:  p.PublicationName,
 		SubscriptionName: p.SubscriptionName,
+		LagBytes:         p.LagBytes,
+		LagSeconds:       p.LagSeconds,
 		CreatedAt:        timestamppb.New(p.CreatedAt),
 	}
 	if p.StreamingSince != nil {

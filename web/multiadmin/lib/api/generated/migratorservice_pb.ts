@@ -374,6 +374,23 @@ export class Migration extends Message<Migration> {
    */
   name = "";
 
+  /**
+   * lag_bytes / lag_seconds are the live replication lag measured on the current
+   * publisher (the external source in IMPORT, the Multigres target in EXPORT):
+   * lag_bytes = pg_current_wal_lsn() - confirmed_flush_lsn, lag_seconds = the
+   * walsender's replay_lag. Both are 0 when the migration is not streaming or the
+   * lag cannot be read. lag_bytes is the same measure ActivateMigration.max_lag_bytes
+   * gates on.
+   *
+   * @generated from field: uint64 lag_bytes = 19;
+   */
+  lagBytes = protoInt64.zero;
+
+  /**
+   * @generated from field: double lag_seconds = 20;
+   */
+  lagSeconds = 0;
+
   constructor(data?: PartialMessage<Migration>) {
     super();
     proto3.util.initPartial(data, this);
@@ -398,6 +415,8 @@ export class Migration extends Message<Migration> {
     { no: 16, name: "active_direction", kind: "enum", T: proto3.getEnumType(MigrationDirection) },
     { no: 17, name: "streaming_since", kind: "message", T: Timestamp },
     { no: 18, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 19, name: "lag_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 20, name: "lag_seconds", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Migration {
@@ -711,6 +730,30 @@ export class ActivateMigrationRequest extends Message<ActivateMigrationRequest> 
    */
   name = "";
 
+  /**
+   * max_lag_bytes is the readiness threshold for the cutover. Before quiescing the
+   * source, activation polls the live replication lag (the bytes of source WAL the
+   * target has not yet confirmed-consumed) and proceeds only once it is at or below
+   * this many bytes, so the residual drain under the read-only barrier completes
+   * inside the gateway's failover-buffer window (queries buffered during the cutover
+   * are replayed, not refused). 0 uses the server default. Choosing it too large
+   * relative to the gateway buffer window risks the buffer overflowing mid-cutover;
+   * keeping it small enough is the operator's responsibility (not enforced here).
+   *
+   * @generated from field: uint64 max_lag_bytes = 3;
+   */
+  maxLagBytes = protoInt64.zero;
+
+  /**
+   * wait_timeout_seconds bounds how long activation blocks waiting for the lag to
+   * fall to max_lag_bytes. 0 uses the server default. If the threshold is not
+   * reached within the timeout, activation fails with a precondition error and the
+   * migration stays in the IMPORT direction (no cutover, no serving change).
+   *
+   * @generated from field: int64 wait_timeout_seconds = 4;
+   */
+  waitTimeoutSeconds = protoInt64.zero;
+
   constructor(data?: PartialMessage<ActivateMigrationRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -721,6 +764,8 @@ export class ActivateMigrationRequest extends Message<ActivateMigrationRequest> 
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "max_lag_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 4, name: "wait_timeout_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ActivateMigrationRequest {

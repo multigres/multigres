@@ -116,6 +116,14 @@ message Migration {
   // Empty for migrations created without one. The generated id remains the stable
   // internal key.
   string name = 18;
+  // lag_bytes / lag_seconds are the live replication lag measured on the current
+  // publisher (the external source in IMPORT, the Multigres target in EXPORT):
+  // lag_bytes = pg_current_wal_lsn() - confirmed_flush_lsn, lag_seconds = the
+  // walsender's replay_lag. Both are 0 when the migration is not streaming or the
+  // lag cannot be read. lag_bytes is the same measure ActivateMigration.max_lag_bytes
+  // gates on.
+  uint64 lag_bytes = 19;
+  double lag_seconds = 20;
 }
 
 message CreateMigrationRequest {
@@ -183,6 +191,20 @@ message UpdateMigrationResponse {
 message ActivateMigrationRequest {
   string id = 1;
   string name = 2;
+  // max_lag_bytes is the readiness threshold for the cutover. Before quiescing the
+  // source, activation polls the live replication lag (the bytes of source WAL the
+  // target has not yet confirmed-consumed) and proceeds only once it is at or below
+  // this many bytes, so the residual drain under the read-only barrier completes
+  // inside the gateway's failover-buffer window (queries buffered during the cutover
+  // are replayed, not refused). 0 uses the server default. Choosing it too large
+  // relative to the gateway buffer window risks the buffer overflowing mid-cutover;
+  // keeping it small enough is the operator's responsibility (not enforced here).
+  uint64 max_lag_bytes = 3;
+  // wait_timeout_seconds bounds how long activation blocks waiting for the lag to
+  // fall to max_lag_bytes. 0 uses the server default. If the threshold is not
+  // reached within the timeout, activation fails with a precondition error and the
+  // migration stays in the IMPORT direction (no cutover, no serving change).
+  int64 wait_timeout_seconds = 4;
 }
 message ActivateMigrationResponse {
   Migration migration = 1;

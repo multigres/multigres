@@ -211,6 +211,8 @@ func TestMigrationDDL_ShowMigrations(t *testing.T) {
 			Phase:           migratorpb.MigrationPhase_MIGRATION_PHASE_IMPORTING,
 			ActiveDirection: migratorpb.MigrationDirection_MIGRATION_DIRECTION_IMPORT,
 			CaughtUp:        copyDone,
+			LagBytes:        4096,
+			LagSeconds:      1.5,
 		},
 	}}
 	backend := newTestBackend(fake)
@@ -219,10 +221,14 @@ func TestMigrationDDL_ShowMigrations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "orders_move", fake.get.GetName())
 	require.Len(t, res.Rows, 1)
-	assert.NotEmpty(t, res.Fields)
+	require.Len(t, res.Fields, 13)
+	assert.Equal(t, "lag_bytes", res.Fields[10].Name)
+	assert.Equal(t, "lag_seconds", res.Fields[11].Name)
 	vals := res.Rows[0].Values
 	assert.Equal(t, "orders_move", string(vals[0]))
 	assert.Equal(t, "m1", string(vals[1]))
+	assert.Equal(t, "4096", string(vals[10]))
+	assert.Equal(t, "1.500", string(vals[11]))
 }
 
 func TestMigrationDDL_UnconfiguredBackend(t *testing.T) {

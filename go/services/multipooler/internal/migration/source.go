@@ -449,6 +449,32 @@ func (s *source) CurrentLSN() (string, error) {
 	return lsn, nil
 }
 
+// ReplicationLag returns the current replication lag for the named slot on this
+// publisher: byte lag = pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)
+// (the WAL the subscriber has not yet confirmed-consumed), and time lag = the
+// walsender's replay_lag in seconds (0 when no walsender is attached). present is
+// false when the slot does not exist yet (nothing has been consumed; the readiness
+// gate treats that as not-ready rather than lag zero). Call on the publisher side
+// (source in IMPORT). It is both the live readiness metric the cutover polls and the
+// lag surfaced in migration status.
+func (s *source) ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error) {
+	const lagSQL = `SELECT
+		GREATEST(pg_wal_lsn_diff(pg_current_wal_lsn(), sl.confirmed_flush_lsn), 0)::bigint,
+		COALESCE(EXTRACT(EPOCH FROM sr.replay_lag), 0)::float8
+	FROM pg_replication_slots sl
+	LEFT JOIN pg_stat_replication sr ON sr.pid = sl.active_pid
+	WHERE sl.slot_name = $1`
+	var b int64
+	var secs float64
+	if err := s.conn.QueryRow(s.ctx, lagSQL, slot).Scan(&b, &secs); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, fmt.Errorf("read source replication lag for slot %q: %w", slot, err)
+	}
+	return uint64(b), secs, true, nil
+}
+
 // SubscriptionExists reports whether a subscription with the given name exists on
 // the source. Used to make the direction switch idempotent on resume.
 func (s *source) SubscriptionExists(name string) (bool, error) {
