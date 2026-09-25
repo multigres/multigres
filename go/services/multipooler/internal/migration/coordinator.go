@@ -35,9 +35,14 @@ import (
 // caller (the migration gRPC service and the become-primary reconcile hook) is
 // responsible for that gating.
 type Coordinator struct {
-	store  *Store
-	target *target
+	store  migrationStore
+	target migrationTarget
 	logger *slog.Logger
+
+	// newSource opens the external source side over the operator-supplied DSN. It is
+	// a field (defaulted to the real newSource in NewCoordinator) so unit tests can
+	// substitute a fake source without a live Postgres — see ports.go.
+	newSource func(ctx context.Context, dsn string) (migrationSource, error)
 
 	// targetConnInfo builds a libpq conninfo the external source can use to reach
 	// this (target) Postgres, for the reverse subscription in EXPORT direction.
@@ -79,6 +84,7 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 	return &Coordinator{
 		store:            NewStore(qs),
 		target:           newTarget(qs),
+		newSource:        func(ctx context.Context, dsn string) (migrationSource, error) { return newSource(ctx, dsn) },
 		logger:           logger,
 		targetConnInfo:   targetConnInfo,
 		drainForImport:   drainForImport,
@@ -128,7 +134,7 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 
 	// Validate the source read-only before recording anything (no DB changes).
 	// Validate also resolves "*"/"schema.*" wildcards to the concrete owned tables.
-	src, err := newSource(ctx, p.SourceDSN)
+	src, err := c.newSource(ctx, p.SourceDSN)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +223,7 @@ func (c *Coordinator) StartMigration(ctx context.Context, id string) (*Projectio
 func (c *Coordinator) runSetup(ctx context.Context, m *Migration) error {
 	// One source connection drives the whole setup (validate, publication, DDL
 	// capture); DumpSchema still shells out to pg_dump separately.
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
 	}
@@ -352,7 +358,7 @@ func (c *Coordinator) UpdateMigration(ctx context.Context, id string, p UpdatePa
 		// Re-resolve against the (possibly updated) source, the same as create, so
 		// "*"/"schema.*" wildcards expand to concrete owned tables and missing
 		// schemas/tables are rejected — never store raw patterns.
-		src, err := newSource(ctx, m.SourceDSN)
+		src, err := c.newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return nil, err
 		}
@@ -555,7 +561,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // to PhaseCompleting (which carries no direction).
 func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction) (string, error) {
 	if dir == DirectionImport {
-		src, err := newSource(ctx, m.SourceDSN)
+		src, err := c.newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return "", err
 		}
@@ -594,7 +600,7 @@ func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Dir
 	if dir == DirectionImport {
 		return c.target.AdvanceSequences(ctx, m.Tables, m.SequenceMargin)
 	}
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
 	}
@@ -711,7 +717,7 @@ func (c *Coordinator) Activate(ctx context.Context, id string, opts ActivateOpti
 // maxLag, or returns ErrNotReady once wait elapses. It runs before the source is
 // quiesced, so it observes the real streaming backlog under concurrent write load.
 func (c *Coordinator) waitForCutoverReadiness(ctx context.Context, m *Migration, maxLag uint64, wait time.Duration) error {
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
 	}
@@ -795,7 +801,7 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, id string, targ
 		}
 		// EXPORT makes the source a subscriber; verify it can create subscriptions
 		// before touching anything (PG<16 without superuser cannot).
-		src, err := newSource(ctx, m.SourceDSN)
+		src, err := c.newSource(ctx, m.SourceDSN)
 		if err != nil {
 			return nil, err
 		}
@@ -923,7 +929,7 @@ func (c *Coordinator) ensureReverseExportLink(ctx context.Context, m *Migration)
 	if err != nil {
 		return err
 	}
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
 	}
@@ -962,7 +968,7 @@ func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, 
 	if directionOf(m.Phase) == DirectionImport {
 		return c.target.SubscriptionExists(ctx, m.SubscriptionName())
 	}
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return false, err
 	}
@@ -973,7 +979,7 @@ func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, 
 // switchTo tears down the current-direction link and establishes the reverse
 // link (copy_data=false). Caller holds c.mu and has already drained.
 func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Direction) error {
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		return err
 	}
@@ -1114,7 +1120,7 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	}
 	// The source may be unreachable during an abort; still tear down the target
 	// side. Source-side drops run only if we could connect.
-	src, err := newSource(ctx, m.SourceDSN)
+	src, err := c.newSource(ctx, m.SourceDSN)
 	if err != nil {
 		logErr("connect source", err)
 	} else {
