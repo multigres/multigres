@@ -181,8 +181,10 @@ What this does and does not change for durability:
 
 `[global:archive-push] process-max` now matters: in synchronous mode it was
 inert, in asynchronous mode it is the number of segments pushed in
-parallel. It is still derived from `runtime.NumCPU()`, the node's CPU count,
-not the container's CPU limit.
+parallel. It is fixed at 2 for now: the other process-max values are derived
+from `runtime.NumCPU()`, the node's CPU count, and a small pod on a large
+node must not fan out compression across node-sized parallelism. Tuning it
+from measurements is a follow-up.
 
 ### Rolling out and rolling back
 
