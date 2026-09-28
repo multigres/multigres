@@ -147,6 +147,24 @@ func TestOpenAPIWireSchemas(t *testing.T) {
 		validate(t, "clustermetadata.RuleNumber", marshaled(t, &clustermetadata.RuleNumber{CoordinatorTerm: -9223372036854775808, LeaderSubterm: 9223372036854775807}), true)
 		validate(t, "clustermetadata.RuleNumber", map[string]any{"coordinatorTerm": float64(1)}, false)
 	})
+	t.Run("unsigned query parameter", func(t *testing.T) {
+		path := "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"
+		paths := spec.(map[string]any)["paths"].(map[string]any)
+		operation := paths[path].(map[string]any)["get"].(map[string]any)
+		for i, raw := range operation["parameters"].([]any) {
+			parameter := raw.(map[string]any)
+			if parameter["name"] != "minCalls" {
+				continue
+			}
+			ref := "#/paths/" + strings.ReplaceAll(path, "/", "~1") + "/get/parameters/" + strconv.Itoa(i) + "/schema"
+			validate(t, ref, "0", true)
+			validate(t, ref, "18446744073709551615", true)
+			validate(t, ref, "-1", false)
+			validate(t, ref, "one", false)
+			return
+		}
+		t.Fatal("minCalls query parameter is missing")
+	})
 	t.Run("timestamp", func(t *testing.T) {
 		validate(t, "google.protobuf.Timestamp", "2000-01-01T00:00:00.123456789Z", true)
 		validate(t, "google.protobuf.Timestamp", "yesterday", false)

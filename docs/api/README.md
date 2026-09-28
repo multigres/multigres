@@ -25,6 +25,12 @@ and detects changes to the checked-in specification. It also runs `openapi-check
 with Redocly CLI v2.54.3 to check references, operation IDs, security, parameters,
 examples, and unused components. All recommended rules run as errors.
 
+Super-linter also runs Spectral and Checkov. Two exceptions apply only to this
+specification: Spectral's `path-params` rule cannot parse dotted protobuf path
+placeholders, which Redocly validates; Checkov's `CKV_OPENAPI_21` requires array
+limits that Vanguard does not enforce for repeated cell filters. These exceptions
+do not change the API contract or disable the other checks.
+
 The generator is
 [`protoc-gen-connect-openapi` v0.25.7](https://github.com/sudorandom/protoc-gen-connect-openapi/tree/v0.25.7),
 pinned in `tools/setup_build_tools.sh`. Its `features=google.api.http;gnostic`
