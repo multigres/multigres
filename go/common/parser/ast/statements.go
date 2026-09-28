@@ -662,14 +662,7 @@ func (s *SelectStmt) SqlString() string {
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
 		}
-		// WITH cte(...) AS (...) VALUES (...) attaches WithClause to the
-		// outer SelectStmt; same drop-on-round-trip class as the set-op
-		// branch above.
-		result := "VALUES " + strings.Join(valueRows, ", ")
-		if s.WithClause != nil {
-			result = s.WithClause.SqlString() + " " + result
-		}
-		return result
+		return s.sqlStringWithClauses([]string{"VALUES " + strings.Join(valueRows, ", ")})
 	}
 
 	// Regular SELECT statement
@@ -772,6 +765,11 @@ func (s *SelectStmt) SqlString() string {
 		}
 	}
 
+	return s.sqlStringWithClauses(parts)
+}
+
+// sqlStringWithClauses preserves the clauses shared by SELECT and VALUES.
+func (s *SelectStmt) sqlStringWithClauses(parts []string) string {
 	// ORDER BY clause (from SortClause)
 	if s.SortClause != nil && s.SortClause.Len() > 0 {
 		var sortItems []string
