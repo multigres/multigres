@@ -651,6 +651,13 @@ type StatusResponse struct {
 	// pgBackRest TLS server port pgctld serves. 0 when pgBackRest is not
 	// configured.
 	PgbackrestPort int32 `protobuf:"varint,13,opt,name=pgbackrest_port,json=pgbackrestPort,proto3" json:"pgbackrest_port,omitempty"`
+	// Effective configured superuser_reserved_connections and (PG 16+)
+	// reserved_connections, resolved like max_connections. Both use explicit
+	// presence rather than a zero sentinel because 0 is a legitimate configured
+	// value for each; absent = unknown. Seed/fallback only, like
+	// max_connections.
+	SuperuserReservedConnections *int32 `protobuf:"varint,15,opt,name=superuser_reserved_connections,json=superuserReservedConnections,proto3,oneof" json:"superuser_reserved_connections,omitempty"`
+	ReservedConnections          *int32 `protobuf:"varint,16,opt,name=reserved_connections,json=reservedConnections,proto3,oneof" json:"reserved_connections,omitempty"`
 	// Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
 	// pgbackrest.key). Empty when pgBackRest is not configured.
 	PgbackrestCertDir string `protobuf:"bytes,14,opt,name=pgbackrest_cert_dir,json=pgbackrestCertDir,proto3" json:"pgbackrest_cert_dir,omitempty"`
@@ -775,6 +782,20 @@ func (x *StatusResponse) GetMaxConnections() int32 {
 func (x *StatusResponse) GetPgbackrestPort() int32 {
 	if x != nil {
 		return x.PgbackrestPort
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetSuperuserReservedConnections() int32 {
+	if x != nil && x.SuperuserReservedConnections != nil {
+		return *x.SuperuserReservedConnections
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetReservedConnections() int32 {
+	if x != nil && x.ReservedConnections != nil {
+		return *x.ReservedConnections
 	}
 	return 0
 }
@@ -1366,7 +1387,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
-	"\rStatusRequest\"\x86\x04\n" +
+	"\rStatusRequest\"\xc5\x05\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
@@ -1382,8 +1403,12 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
 	"pooler_dir\x18\v \x01(\tR\tpoolerDir\x12'\n" +
 	"\x0fmax_connections\x18\f \x01(\x05R\x0emaxConnections\x12'\n" +
-	"\x0fpgbackrest_port\x18\r \x01(\x05R\x0epgbackrestPort\x12.\n" +
-	"\x13pgbackrest_cert_dir\x18\x0e \x01(\tR\x11pgbackrestCertDir\"\xb5\x01\n" +
+	"\x0fpgbackrest_port\x18\r \x01(\x05R\x0epgbackrestPort\x12I\n" +
+	"\x1esuperuser_reserved_connections\x18\x0f \x01(\x05H\x00R\x1csuperuserReservedConnections\x88\x01\x01\x126\n" +
+	"\x14reserved_connections\x18\x10 \x01(\x05H\x01R\x13reservedConnections\x88\x01\x01\x12.\n" +
+	"\x13pgbackrest_cert_dir\x18\x0e \x01(\tR\x11pgbackrestCertDirB!\n" +
+	"\x1f_superuser_reserved_connectionsB\x17\n" +
+	"\x15_reserved_connections\"\xb5\x01\n" +
 	"\x10PgBackRestStatus\x12\x18\n" +
 	"\arunning\x18\x01 \x01(\bR\arunning\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12#\n" +
@@ -1515,6 +1540,7 @@ func file_pgctldservice_proto_init() {
 	if File_pgctldservice_proto != nil {
 		return
 	}
+	file_pgctldservice_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -1092,7 +1092,7 @@ func TestManager_Open_DeriveFails_SeedFallback(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 	resolveTestPgPassword(t, config)
-	config.SetSeedMaxConnections(60)
+	config.SetSeedConnectionBudget(SeedConnectionBudget{MaxConnections: 60, SuperuserReservedConnections: 3, ReservedConnections: 0})
 
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{
@@ -1113,7 +1113,7 @@ func TestManager_Open_DeriveFails_SeedClampedToConfigured(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 	resolveTestPgPassword(t, config)
-	config.SetSeedMaxConnections(500)
+	config.SetSeedConnectionBudget(SeedConnectionBudget{MaxConnections: 500, SuperuserReservedConnections: 3, ReservedConnections: 0})
 
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{
@@ -1123,4 +1123,30 @@ func TestManager_Open_DeriveFails_SeedClampedToConfigured(t *testing.T) {
 	defer manager.Close()
 
 	assert.Equal(t, int64(100), manager.GlobalCapacity())
+}
+
+func TestManager_Open_DeriveFails_SeedUsesReportedReserves(t *testing.T) {
+	// When pgctld also reported the reserved-slot GUCs, the fallback uses
+	// them instead of the PostgreSQL defaults: 60 − 10 − 5 − 5 (admin) = 40,
+	// not 60 − 3 − 0 − 5 = 52. A known zero is honored as zero.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
+	config.SetSeedConnectionBudget(SeedConnectionBudget{
+		MaxConnections:               60,
+		SuperuserReservedConnections: 10,
+		ReservedConnections:          5,
+	})
+
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Database:   server.ClientConfig().Database,
+	})
+	defer manager.Close()
+
+	assert.Equal(t, int64(40), manager.GlobalCapacity())
 }

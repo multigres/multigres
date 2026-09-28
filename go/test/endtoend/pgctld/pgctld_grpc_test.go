@@ -76,6 +76,8 @@ func TestGRPCServerIntegration(t *testing.T) {
 		assert.NotEmpty(t, statusResp.GetPoolerDir())
 		assert.NotEmpty(t, statusResp.GetHost())
 		assert.Zero(t, statusResp.GetMaxConnections())
+		assert.Nil(t, statusResp.SuperuserReservedConnections, "unknown before initdb")
+		assert.Nil(t, statusResp.ReservedConnections)
 
 		// Step 2: Initialize data directory
 		_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{})
@@ -95,6 +97,12 @@ func TestGRPCServerIntegration(t *testing.T) {
 		assert.NotEmpty(t, statusResp.GetPoolerDir())
 		assert.NotEmpty(t, statusResp.GetHost())
 		assert.Equal(t, int32(100), statusResp.GetMaxConnections())
+		// The reserved GUCs use explicit presence: a configured 0
+		// (reserved_connections) must arrive as known-zero, not unknown.
+		require.NotNil(t, statusResp.SuperuserReservedConnections)
+		assert.Equal(t, int32(3), *statusResp.SuperuserReservedConnections)
+		require.NotNil(t, statusResp.ReservedConnections)
+		assert.Zero(t, *statusResp.ReservedConnections)
 
 		// Step 5: Get version
 		versionResp, err := client.Version(ctx, &pb.VersionRequest{})

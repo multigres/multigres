@@ -806,7 +806,14 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		return nil, fmt.Errorf("invalid port: %w", err)
 	}
 
-	return &pb.StatusResponse{
+	// One batch: probed concurrently under a single cache-generation
+	// snapshot, so the response cannot mix values from two configs.
+	// max_connections uses 0-as-unknown (postgres enforces >= 1); the
+	// reserved GUCs use explicit presence because 0 is a valid value for
+	// each. reserved_connections exists on PG 16+ only; on the (unsupported)
+	// older servers its probe fails closed to absent.
+	gucs := s.gucCache.getAll(ctx, "max_connections", "superuser_reserved_connections", "reserved_connections")
+	resp := &pb.StatusResponse{
 		Status:            status,
 		Pid:               pid,
 		Version:           result.Version,
@@ -818,10 +825,17 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		Message:           result.Message,
 		PgbackrestStatus:  s.getPgBackRestStatus(),
 		PoolerDir:         s.poolerDir,
-		MaxConnections:    s.gucCache.get(ctx, "max_connections"),
+		MaxConnections:    gucs["max_connections"],
 		PgbackrestPort:    pgbackrestPort,
 		PgbackrestCertDir: pgbackrestCertDir,
-	}, nil
+	}
+	if v, known := gucs["superuser_reserved_connections"]; known {
+		resp.SuperuserReservedConnections = &v
+	}
+	if v, known := gucs["reserved_connections"]; known {
+		resp.ReservedConnections = &v
+	}
+	return resp, nil
 }
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {

@@ -343,27 +343,28 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 }
 
 // fallbackGlobalCapacity picks the budget when the live SQL derivation fails:
-// a pgctld-reported max_connections seed (from the conf, so it cannot see a
+// a pgctld-reported budget seed (from the conf, so it cannot see a
 // pending-restart divergence — hence never preferred over the live query)
-// beats the flag default, which matches nothing in particular. PostgreSQL's
-// default superuser_reserved_connections (3) stands in for the value the
-// query would have read; reserved_connections defaults to 0.
+// beats the flag default, which matches nothing in particular. The seed's
+// reserved-slot values are already concrete (the monitor resolves unknowns
+// to PostgreSQL's defaults when seeding).
 func (m *Manager) fallbackGlobalCapacity(ctx context.Context, cause error) int64 {
 	configured := m.config.GlobalCapacity()
-	seed := m.config.SeedMaxConnections()
-	if seed <= 0 {
+	seed := m.config.SeedConnectionBudget()
+	if seed == nil || seed.MaxConnections <= 0 {
 		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
 			"error", cause, "global_capacity", configured)
 		return configured
 	}
-	// The seed cannot see the server's actual reserved-slot GUCs (PostgreSQL's
-	// default of 3 stands in), so cap the result at the configured value: the
-	// fallback fires when postgres is already unqueryable, and the seed's job
-	// is to shrink the budget on small servers, never to grow it on big ones.
-	const pgDefaultSuperuserReserved = 3
-	derived := min(deriveGlobalCapacity(seed, pgDefaultSuperuserReserved, 0, m.config.AdminCapacity()), configured)
-	m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using pgctld-reported max_connections seed",
-		"error", cause, "global_capacity", derived, "seed_max_connections", seed)
+	// Cap the result at the configured value: the fallback fires when
+	// postgres is already unqueryable, and the seed's job is to shrink the
+	// budget on small servers, never to grow it on big ones.
+	derived := min(deriveGlobalCapacity(seed.MaxConnections, seed.SuperuserReservedConnections, seed.ReservedConnections, m.config.AdminCapacity()), configured)
+	m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using pgctld-reported budget seed",
+		"error", cause, "global_capacity", derived,
+		"seed_max_connections", seed.MaxConnections,
+		"seed_superuser_reserved", seed.SuperuserReservedConnections,
+		"seed_reserved_connections", seed.ReservedConnections)
 	return derived
 }
 
