@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, CreateCellRequest, CreateCellResponse, CreateDatabaseRequest, CreateDatabaseResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolerRegistrationRequest, GetPoolerRegistrationResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, RetirePoolerRequest, RetirePoolerResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -28,6 +28,85 @@ import { MethodKind } from "@bufbuild/protobuf";
 export const MultiadminService = {
   typeName: "multiadmin.MultiadminService",
   methods: {
+    /**
+     * CreateCell creates a cell or adopts identical existing configuration.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+     * configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+     * order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+     * uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+     * it does not provision infrastructure.
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateCell
+     */
+    createCell: {
+      name: "CreateCell",
+      I: CreateCellRequest,
+      O: CreateCellResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * CreateDatabase creates database configuration or adopts an identical existing record.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+     * is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+     * Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+     * After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+     * bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+     * of a running shard or provisions infrastructure.
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateDatabase
+     */
+    createDatabase: {
+      name: "CreateDatabase",
+      I: CreateDatabaseRequest,
+      O: CreateDatabaseResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetPoolerRegistration reads topology without contacting the pooler process.
+     * Errors and recovery:
+     * NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+     * A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+     * with backoff. Save incarnationId and version
+     * with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+     * different incarnation establishes that the old registration is gone; it does not identify which
+     * request removed it. A surviving matching incarnation still needs reconciliation.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetPoolerRegistration
+     */
+    getPoolerRegistration: {
+      name: "GetPoolerRegistration",
+      I: GetPoolerRegistrationRequest,
+      O: GetPoolerRegistrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+     * The caller must positively establish that this exact pooler process and its PostgreSQL process
+     * are stopped or permanently isolated from topology, peers, and clients, and that restart or
+     * reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+     * fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+     * by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+     * promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+     * means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+     * 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+     * Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+     * identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+     * registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+     * gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+     * preconditions with a newer incarnation merely to make a retry succeed.
+     *
+     * @generated from rpc multiadmin.MultiadminService.RetirePooler
+     */
+    retirePooler: {
+      name: "RetirePooler",
+      I: RetirePoolerRequest,
+      O: RetirePoolerResponse,
+      kind: MethodKind.Unary,
+    },
     /**
      * GetCell retrieves information about a specific cell
      *

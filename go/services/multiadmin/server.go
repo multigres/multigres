@@ -117,6 +117,9 @@ func (s *MultiadminServer) GetCell(ctx context.Context, req *multiadminpb.GetCel
 	}
 
 	// Return the response
+	if cell.Name == "" {
+		cell.Name = req.Name
+	}
 	response := &multiadminpb.GetCellResponse{
 		Cell: cell,
 	}
@@ -148,6 +151,9 @@ func (s *MultiadminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 	}
 
 	// Return the response
+	if database.Name == "" {
+		database.Name = req.Name
+	}
 	response := &multiadminpb.GetDatabaseResponse{
 		Database: database,
 	}

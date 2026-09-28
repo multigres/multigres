@@ -429,3 +429,18 @@ func TestPoolerRecord_DerivesTypeFromRoutingState(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_UNKNOWN, r.Type())
 	})
 }
+
+func TestPoolerRecordPreservesIncarnation(t *testing.T) {
+	ts := &fakeTopoStore{}
+	mp := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	mp.IncarnationId = "process-incarnation"
+	record := mustNewPoolerRecord(t, ts, mp)
+	ts.setError(errors.New("topology unavailable"))
+	record.publishIfNeeded(t.Context())
+	ts.clearError()
+	record.publishIfNeeded(t.Context())
+	require.Equal(t, mp.IncarnationId, ts.lastSeen.Load().IncarnationId)
+	require.NoError(t, record.Mutate(newActionLockedCtx(t), func(state *MutablePoolerRecordState) { state.RoutingState = primaryObs() }))
+	record.publishIfNeeded(t.Context())
+	require.Equal(t, mp.IncarnationId, ts.lastSeen.Load().IncarnationId)
+}

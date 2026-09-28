@@ -248,6 +248,57 @@ paths:
       summary: List cell names
       tags:
         - cells
+    post:
+      description: |-
+        CreateCell creates a cell or adopts identical existing configuration.
+         Errors and recovery:
+         InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+         configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+         order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+         uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+         it does not provision infrastructure.
+      operationId: multiadmin.MultiadminService.CreateCell
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/clustermetadata.Cell'
+              properties:
+                name:
+                  pattern: ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$
+                root:
+                  pattern: ^/
+                serverAddresses: {}
+              required:
+                - name
+                - serverAddresses
+                - root
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multiadmin.CreateCellResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        "409":
+          $ref: '#/components/responses/RPCError'
+        "503":
+          $ref: '#/components/responses/RPCError'
+        "504":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create or adopt a cell
+      tags:
+        - cells
   /api/v1/cells/{name}:
     get:
       description: |-
@@ -305,6 +356,56 @@ paths:
         default:
           $ref: '#/components/responses/RPCError'
       summary: List database names
+      tags:
+        - databases
+    post:
+      description: |-
+        CreateDatabase creates database configuration or adopts an identical existing record.
+         Errors and recovery:
+         InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+         is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+         Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+         After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+         bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+         of a running shard or provisions infrastructure.
+      operationId: multiadmin.MultiadminService.CreateDatabase
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/clustermetadata.Database'
+              properties:
+                cells: {}
+                name:
+                  pattern: ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$
+              required:
+                - name
+                - cells
+                - bootstrapDurabilityPolicy
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multiadmin.CreateDatabaseResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        "409":
+          $ref: '#/components/responses/RPCError'
+        "503":
+          $ref: '#/components/responses/RPCError'
+        "504":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create or adopt a database
       tags:
         - databases
   /api/v1/databases/{name}:
@@ -702,6 +803,168 @@ paths:
       summary: Set automatic PostgreSQL restarts
       tags:
         - poolers
+  /api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/registration:
+    get:
+      description: |-
+        GetPoolerRegistration reads topology without contacting the pooler process.
+         Errors and recovery:
+         NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+         A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+         with backoff. Save incarnationId and version
+         with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+         different incarnation establishes that the old registration is gone; it does not identify which
+         request removed it. A surviving matching incarnation still needs reconciliation.
+      operationId: multiadmin.MultiadminService.GetPoolerRegistration
+      parameters:
+        - description: cell is the Multigres cell where the component is located
+          in: path
+          name: pooler_id.cell
+          required: true
+          schema:
+            title: cell
+            type: string
+        - description: |-
+            name is a unique identifier for the component within the multigres
+             cluster.
+          in: path
+          name: pooler_id.name
+          required: true
+          schema:
+            title: name
+            type: string
+        - description: component identifies the type of Multigres component (multipooler, multigateway, or multiorch)
+          in: query
+          name: poolerId.component
+          schema:
+            $ref: '#/components/schemas/clustermetadata.ID.ComponentType'
+            title: component
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multiadmin.GetPoolerRegistrationResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        "409":
+          $ref: '#/components/responses/RPCError'
+        "503":
+          $ref: '#/components/responses/RPCError'
+        "504":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Get a pooler registration
+      tags:
+        - poolers
+  /api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/retire:
+    post:
+      description: |-
+        RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+         The caller must positively establish that this exact pooler process and its PostgreSQL process
+         are stopped or permanently isolated from topology, peers, and clients, and that restart or
+         reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+         fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+         by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+         promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+         Errors and recovery:
+         InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+         means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+         409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+         Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+         identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+         registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+         gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+         preconditions with a newer incarnation merely to make a retry succeed.
+      operationId: multiadmin.MultiadminService.RetirePooler
+      parameters:
+        - description: cell is the Multigres cell where the component is located
+          in: path
+          name: pooler_id.cell
+          required: true
+          schema:
+            title: cell
+            type: string
+        - description: |-
+            name is a unique identifier for the component within the multigres
+             cluster.
+          in: path
+          name: pooler_id.name
+          required: true
+          schema:
+            title: name
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              properties:
+                fencingAcknowledged:
+                  description: Required acknowledgement of positive infrastructure fencing, as described by RetirePooler.
+                  enum:
+                    - true
+                  title: fencing_acknowledged
+                  type: boolean
+                incarnationId:
+                  description: Process incarnation read before fencing; required and never inferred from a name or address.
+                  minLength: 1
+                  title: incarnation_id
+                  type: string
+                poolerId:
+                  $ref: '#/components/schemas/clustermetadata.ID'
+                  description: Exact old member identity. Cell and name are required; component is MULTIPOOLER or omitted.
+                  title: pooler_id
+                shardKey:
+                  $ref: '#/components/schemas/clustermetadata.ShardKey'
+                  description: Database, table group, and shard of the fenced member; all are required.
+                  required:
+                    - database
+                    - tableGroup
+                    - shard
+                  title: shard_key
+                version:
+                  description: Registration snapshot version from GetPoolerRegistration; required.
+                  minLength: 1
+                  title: version
+                  type: string
+              required:
+                - shardKey
+                - incarnationId
+                - version
+                - fencingAcknowledged
+              title: RetirePoolerRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multiadmin.RetirePoolerResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        "409":
+          $ref: '#/components/responses/RPCError'
+        "503":
+          $ref: '#/components/responses/RPCError'
+        "504":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Retire a fenced pooler registration
+      tags:
+        - poolers
   /api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status:
     get:
       description: |-
@@ -853,9 +1116,16 @@ paths:
                         - unsafeDeriveCert
                       title: unsafe_derive_cert
                       type: object
-                    - properties:
-                        cert: false
-                        unsafeDeriveCert: false
+                    - not:
+                        anyOf:
+                          - properties:
+                              cert: {}
+                            required:
+                              - cert
+                          - properties:
+                              unsafeDeriveCert: {}
+                            required:
+                              - unsafeDeriveCert
               anyOf:
                 - properties:
                     cert: {}
@@ -1017,9 +1287,16 @@ components:
                 - s3
               title: s3
               type: object
-            - properties:
-                filesystem: false
-                s3: false
+            - not:
+                anyOf:
+                  - properties:
+                      filesystem: {}
+                    required:
+                      - filesystem
+                  - properties:
+                      s3: {}
+                    required:
+                      - s3
       description: BackupLocation specifies where backups are stored
       title: BackupLocation
       type: object
@@ -1362,6 +1639,14 @@ components:
           $ref: '#/components/schemas/clustermetadata.ID'
           description: id is the unique identifier of the multipooler in the cluster.
           title: id
+        incarnationId:
+          description: |-
+            incarnation_id identifies this process lifetime. Generated at startup and
+             preserved across publication retries; a restarted or replacement process
+             gets a new value even when its ID and addresses are reused. Older processes
+             leave this empty and cannot be retired through the conditional public API.
+          title: incarnation_id
+          type: string
         keyRange:
           $ref: '#/components/schemas/clustermetadata.KeyRange'
           description: If range based sharding is used, range for the pooler's shard.
@@ -2250,6 +2535,26 @@ components:
         - BACKUP_STATUS_FAILED
       title: BackupStatus
       type: string
+    multiadmin.CreateCellResponse:
+      additionalProperties: false
+      properties:
+        cell:
+          $ref: '#/components/schemas/clustermetadata.Cell'
+          title: cell
+      required:
+        - cell
+      title: CreateCellResponse
+      type: object
+    multiadmin.CreateDatabaseResponse:
+      additionalProperties: false
+      properties:
+        database:
+          $ref: '#/components/schemas/clustermetadata.Database'
+          title: database
+      required:
+        - database
+      title: CreateDatabaseResponse
+      type: object
     multiadmin.ExpireBackupsRequest:
       additionalProperties: false
       description: ExpireBackupsRequest requests expiration of old backups
@@ -2439,6 +2744,23 @@ components:
           type: array
       title: GetOrchsResponse
       type: object
+    multiadmin.GetPoolerRegistrationResponse:
+      additionalProperties: false
+      properties:
+        pooler:
+          $ref: '#/components/schemas/clustermetadata.Multipooler'
+          title: pooler
+        version:
+          description: |-
+            Opaque version of this registration snapshot. Every write changes it.
+             Retain it with pooler.incarnationId; do not parse or construct versions.
+          title: version
+          type: string
+      required:
+        - pooler
+        - version
+      title: GetPoolerRegistrationResponse
+      type: object
     multiadmin.GetPoolerStatusResponse:
       additionalProperties: false
       description: GetPoolerStatusResponse contains the pooler's unified status
@@ -2483,6 +2805,10 @@ components:
         - JOB_TYPE_RESTORE
       title: JobType
       type: string
+    multiadmin.RetirePoolerResponse:
+      additionalProperties: false
+      title: RetirePoolerResponse
+      type: object
     multiadmin.SetPostgresRestartsEnabledResponse:
       additionalProperties: false
       description: |-

@@ -230,3 +230,35 @@ func (a *connectAdapter) SwitchPrimary(ctx context.Context, req *connect.Request
 	}
 	return connect.NewResponse(resp), nil
 }
+
+func (a *connectAdapter) CreateCell(ctx context.Context, req *connect.Request[multiadminpb.CreateCellRequest]) (*connect.Response[multiadminpb.CreateCellResponse], error) {
+	resp, err := a.MultiadminServer.CreateCell(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (a *connectAdapter) CreateDatabase(ctx context.Context, req *connect.Request[multiadminpb.CreateDatabaseRequest]) (*connect.Response[multiadminpb.CreateDatabaseResponse], error) {
+	resp, err := a.MultiadminServer.CreateDatabase(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (a *connectAdapter) GetPoolerRegistration(ctx context.Context, req *connect.Request[multiadminpb.GetPoolerRegistrationRequest]) (*connect.Response[multiadminpb.GetPoolerRegistrationResponse], error) {
+	resp, err := a.MultiadminServer.GetPoolerRegistration(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (a *connectAdapter) RetirePooler(ctx context.Context, req *connect.Request[multiadminpb.RetirePoolerRequest]) (*connect.Response[multiadminpb.RetirePoolerResponse], error) {
+	resp, err := a.MultiadminServer.RetirePooler(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

@@ -2463,6 +2463,402 @@ func (x *SwitchPrimaryResponse) GetOldLeaderId() *clustermetadata.ID {
 	return nil
 }
 
+// CreateCellRequest contains the complete initial cell configuration.
+type CreateCellRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Cell name, topology addresses, and root are required.
+	Cell          *clustermetadata.Cell `protobuf:"bytes,1,opt,name=cell,proto3" json:"cell,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCellRequest) Reset() {
+	*x = CreateCellRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCellRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCellRequest) ProtoMessage() {}
+
+func (x *CreateCellRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCellRequest.ProtoReflect.Descriptor instead.
+func (*CreateCellRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *CreateCellRequest) GetCell() *clustermetadata.Cell {
+	if x != nil {
+		return x.Cell
+	}
+	return nil
+}
+
+type CreateCellResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cell          *clustermetadata.Cell  `protobuf:"bytes,1,opt,name=cell,proto3" json:"cell,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCellResponse) Reset() {
+	*x = CreateCellResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCellResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCellResponse) ProtoMessage() {}
+
+func (x *CreateCellResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCellResponse.ProtoReflect.Descriptor instead.
+func (*CreateCellResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *CreateCellResponse) GetCell() *clustermetadata.Cell {
+	if x != nil {
+		return x.Cell
+	}
+	return nil
+}
+
+// CreateDatabaseRequest contains the complete initial database configuration.
+type CreateDatabaseRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name, cells, and bootstrap durability policy are required. Backup location is optional.
+	Database      *clustermetadata.Database `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDatabaseRequest) Reset() {
+	*x = CreateDatabaseRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDatabaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDatabaseRequest) ProtoMessage() {}
+
+func (x *CreateDatabaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDatabaseRequest.ProtoReflect.Descriptor instead.
+func (*CreateDatabaseRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *CreateDatabaseRequest) GetDatabase() *clustermetadata.Database {
+	if x != nil {
+		return x.Database
+	}
+	return nil
+}
+
+type CreateDatabaseResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Database      *clustermetadata.Database `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDatabaseResponse) Reset() {
+	*x = CreateDatabaseResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDatabaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDatabaseResponse) ProtoMessage() {}
+
+func (x *CreateDatabaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDatabaseResponse.ProtoReflect.Descriptor instead.
+func (*CreateDatabaseResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CreateDatabaseResponse) GetDatabase() *clustermetadata.Database {
+	if x != nil {
+		return x.Database
+	}
+	return nil
+}
+
+type GetPoolerRegistrationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Cell and name are required; component is MULTIPOOLER or omitted.
+	PoolerId      *clustermetadata.ID `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPoolerRegistrationRequest) Reset() {
+	*x = GetPoolerRegistrationRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPoolerRegistrationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPoolerRegistrationRequest) ProtoMessage() {}
+
+func (x *GetPoolerRegistrationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPoolerRegistrationRequest.ProtoReflect.Descriptor instead.
+func (*GetPoolerRegistrationRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *GetPoolerRegistrationRequest) GetPoolerId() *clustermetadata.ID {
+	if x != nil {
+		return x.PoolerId
+	}
+	return nil
+}
+
+type GetPoolerRegistrationResponse struct {
+	state  protoimpl.MessageState       `protogen:"open.v1"`
+	Pooler *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=pooler,proto3" json:"pooler,omitempty"`
+	// Opaque version of this registration snapshot. Every write changes it.
+	// Retain it with pooler.incarnationId; do not parse or construct versions.
+	Version       string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPoolerRegistrationResponse) Reset() {
+	*x = GetPoolerRegistrationResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPoolerRegistrationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPoolerRegistrationResponse) ProtoMessage() {}
+
+func (x *GetPoolerRegistrationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPoolerRegistrationResponse.ProtoReflect.Descriptor instead.
+func (*GetPoolerRegistrationResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *GetPoolerRegistrationResponse) GetPooler() *clustermetadata.Multipooler {
+	if x != nil {
+		return x.Pooler
+	}
+	return nil
+}
+
+func (x *GetPoolerRegistrationResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type RetirePoolerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Exact old member identity. Cell and name are required; component is MULTIPOOLER or omitted.
+	PoolerId *clustermetadata.ID `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// Database, table group, and shard of the fenced member; all are required.
+	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,2,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	// Process incarnation read before fencing; required and never inferred from a name or address.
+	IncarnationId string `protobuf:"bytes,3,opt,name=incarnation_id,json=incarnationId,proto3" json:"incarnation_id,omitempty"`
+	// Registration snapshot version from GetPoolerRegistration; required.
+	Version string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	// Required acknowledgement of positive infrastructure fencing, as described by RetirePooler.
+	FencingAcknowledged bool `protobuf:"varint,5,opt,name=fencing_acknowledged,json=fencingAcknowledged,proto3" json:"fencing_acknowledged,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *RetirePoolerRequest) Reset() {
+	*x = RetirePoolerRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetirePoolerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetirePoolerRequest) ProtoMessage() {}
+
+func (x *RetirePoolerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetirePoolerRequest.ProtoReflect.Descriptor instead.
+func (*RetirePoolerRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *RetirePoolerRequest) GetPoolerId() *clustermetadata.ID {
+	if x != nil {
+		return x.PoolerId
+	}
+	return nil
+}
+
+func (x *RetirePoolerRequest) GetShardKey() *clustermetadata.ShardKey {
+	if x != nil {
+		return x.ShardKey
+	}
+	return nil
+}
+
+func (x *RetirePoolerRequest) GetIncarnationId() string {
+	if x != nil {
+		return x.IncarnationId
+	}
+	return ""
+}
+
+func (x *RetirePoolerRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *RetirePoolerRequest) GetFencingAcknowledged() bool {
+	if x != nil {
+		return x.FencingAcknowledged
+	}
+	return false
+}
+
+type RetirePoolerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetirePoolerResponse) Reset() {
+	*x = RetirePoolerResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetirePoolerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetirePoolerResponse) ProtoMessage() {}
+
+func (x *RetirePoolerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetirePoolerResponse.ProtoReflect.Descriptor instead.
+func (*RetirePoolerResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{45}
+}
+
 var File_multiadminservice_proto protoreflect.FileDescriptor
 
 const file_multiadminservice_proto_rawDesc = "" +
@@ -2622,7 +3018,29 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"P\n" +
 	"\x15SwitchPrimaryResponse\x127\n" +
-	"\rold_leader_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\voldLeaderId*J\n" +
+	"\rold_leader_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\voldLeaderId\">\n" +
+	"\x11CreateCellRequest\x12)\n" +
+	"\x04cell\x18\x01 \x01(\v2\x15.clustermetadata.CellR\x04cell\"K\n" +
+	"\x12CreateCellResponse\x12)\n" +
+	"\x04cell\x18\x01 \x01(\v2\x15.clustermetadata.CellR\x04cell:\n" +
+	"\xbaG\a\xba\x01\x04cell\"N\n" +
+	"\x15CreateDatabaseRequest\x125\n" +
+	"\bdatabase\x18\x01 \x01(\v2\x19.clustermetadata.DatabaseR\bdatabase\"_\n" +
+	"\x16CreateDatabaseResponse\x125\n" +
+	"\bdatabase\x18\x01 \x01(\v2\x19.clustermetadata.DatabaseR\bdatabase:\x0e\xbaG\v\xba\x01\bdatabase\"P\n" +
+	"\x1cGetPoolerRegistrationRequest\x120\n" +
+	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x87\x01\n" +
+	"\x1dGetPoolerRegistrationResponse\x124\n" +
+	"\x06pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\x06pooler\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion:\x16\xbaG\x13\xba\x01\x06pooler\xba\x01\aversion\"\xf6\x02\n" +
+	"\x13RetirePoolerRequest\x120\n" +
+	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12[\n" +
+	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyB#\xbaG \xba\x01\bdatabase\xba\x01\n" +
+	"tableGroup\xba\x01\x05shardR\bshardKey\x12-\n" +
+	"\x0eincarnation_id\x18\x03 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\rincarnationId\x12 \n" +
+	"\aversion\x18\x04 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\aversion\x12?\n" +
+	"\x14fencing_acknowledged\x18\x05 \x01(\bB\f\xbaG\t\xc2\x01\x06\x12\x04trueR\x13fencingAcknowledged:>\xbaG;\xba\x01\bshardKey\xba\x01\rincarnationId\xba\x01\aversion\xba\x01\x13fencingAcknowledged\"\x16\n" +
+	"\x14RetirePoolerResponse*J\n" +
 	"\aJobType\x12\x14\n" +
 	"\x10JOB_TYPE_UNKNOWN\x10\x00\x12\x13\n" +
 	"\x0fJOB_TYPE_BACKUP\x10\x01\x12\x14\n" +
@@ -2637,8 +3055,100 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15BACKUP_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18BACKUP_STATUS_INCOMPLETE\x10\x01\x12\x1a\n" +
 	"\x16BACKUP_STATUS_COMPLETE\x10\x02\x12\x18\n" +
-	"\x14BACKUP_STATUS_FAILED\x10\x032\xdd;\n" +
-	"\x11MultiadminService\x12\xaf\x02\n" +
+	"\x14BACKUP_STATUS_FAILED\x10\x032\xccN\n" +
+	"\x11MultiadminService\x12\x9a\x05\n" +
+	"\n" +
+	"CreateCell\x12\x1d.multiadmin.CreateCellRequest\x1a\x1e.multiadmin.CreateCellResponse\"\xcc\x04\xbaG\xad\x04\n" +
+	"\x05cells\x12\x16Create or adopt a cell:\xd0\x01\n" +
+	"\xcd\x01\x12\xc8\x01\n" +
+	"\xc5\x01\n" +
+	"\x10application/json\x12\xb0\x01\n" +
+	"\xad\x01\n" +
+	"\xaa\x01\xba\x01\x04name\xba\x01\x0fserverAddresses\xba\x01\x04root\xd2\x01-\x12+\n" +
+	")#/components/schemas/clustermetadata.Cell\xfa\x01W\n" +
+	"*\n" +
+	"\x04name\x12\"\n" +
+	" \x8a\x01\x1d^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$\n" +
+	"\x18\n" +
+	"\x0fserverAddresses\x12\x05\n" +
+	"\x03\x98\x01\x01\n" +
+	"\x0f\n" +
+	"\x04root\x12\a\n" +
+	"\x05\x8a\x01\x02^/\x18\x01B\xb8\x02\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03409\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03503\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03504\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x15:\x04cell\"\r/api/v1/cells\x12\xad\x05\n" +
+	"\x0eCreateDatabase\x12!.multiadmin.CreateDatabaseRequest\x1a\".multiadmin.CreateDatabaseResponse\"\xd3\x04\xbaG\xac\x04\n" +
+	"\tdatabases\x12\x1aCreate or adopt a database:\xc7\x01\n" +
+	"\xc4\x01\x12\xbf\x01\n" +
+	"\xbc\x01\n" +
+	"\x10application/json\x12\xa7\x01\n" +
+	"\xa4\x01\n" +
+	"\xa1\x01\xba\x01\x04name\xba\x01\x05cells\xba\x01\x19bootstrapDurabilityPolicy\xd2\x011\x12/\n" +
+	"-#/components/schemas/clustermetadata.Database\xfa\x01?\n" +
+	"*\n" +
+	"\x04name\x12\"\n" +
+	" \x8a\x01\x1d^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$\n" +
+	"\x11\n" +
+	"\x05cells\x12\b\n" +
+	"\x06\x98\x01\x01\xa0\x01\x01\x18\x01B\xb8\x02\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03409\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03503\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03504\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1d:\bdatabase\"\x11/api/v1/databases\x12\x98\x04\n" +
+	"\x15GetPoolerRegistration\x12(.multiadmin.GetPoolerRegistrationRequest\x1a).multiadmin.GetPoolerRegistrationResponse\"\xa9\x03\xbaG\xdf\x02\n" +
+	"\apoolers\x12\x19Get a pooler registrationB\xb8\x02\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03409\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03503\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03504\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02@\x12>/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/registration\x12\x84\x04\n" +
+	"\fRetirePooler\x12\x1f.multiadmin.RetirePoolerRequest\x1a .multiadmin.RetirePoolerResponse\"\xb0\x03\xbaG\xe9\x02\n" +
+	"\apoolers\x12#Retire a fenced pooler registrationB\xb8\x02\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03409\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03503\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03504\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02=:\x01*\"8/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/retire\x12\xaf\x02\n" +
 	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\"\xea\x01\xbaG\xca\x01\n" +
 	"\x05cells\x12\n" +
 	"Get a cellB\xb4\x01\x12.\n" +
@@ -2917,7 +3427,7 @@ func file_multiadminservice_proto_rawDescGZIP() []byte {
 }
 
 var file_multiadminservice_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_multiadminservice_proto_goTypes = []any{
 	(JobType)(0),                                          // 0: multiadmin.JobType
 	(JobStatus)(0),                                        // 1: multiadmin.JobStatus
@@ -2960,97 +3470,121 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*ApplyCertifiedRuleChangeResponse)(nil),              // 38: multiadmin.ApplyCertifiedRuleChangeResponse
 	(*SwitchPrimaryRequest)(nil),                          // 39: multiadmin.SwitchPrimaryRequest
 	(*SwitchPrimaryResponse)(nil),                         // 40: multiadmin.SwitchPrimaryResponse
-	nil,                                                   // 41: multiadmin.ExpireBackupsRequest.OverridesEntry
-	(*clustermetadata.Cell)(nil),                          // 42: clustermetadata.Cell
-	(*clustermetadata.Database)(nil),                      // 43: clustermetadata.Database
-	(*clustermetadata.Multigateway)(nil),                  // 44: clustermetadata.Multigateway
-	(*clustermetadata.Multipooler)(nil),                   // 45: clustermetadata.Multipooler
-	(*clustermetadata.Multiorch)(nil),                     // 46: clustermetadata.Multiorch
-	(*durationpb.Duration)(nil),                           // 47: google.protobuf.Duration
-	(clustermetadata.RoutingRole)(0),                      // 48: clustermetadata.RoutingRole
-	(*timestamppb.Timestamp)(nil),                         // 49: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),                            // 50: clustermetadata.ID
-	(*multipoolermanagerdata.Status)(nil),                 // 51: multipoolermanagerdata.Status
-	(*clustermetadata.ConsensusStatus)(nil),               // 52: clustermetadata.ConsensusStatus
-	(*multigatewaymanagerdata.QueryRegistrySnapshot)(nil), // 53: multigatewaymanagerdata.QueryRegistrySnapshot
-	(*multigatewaymanagerdata.ConsolidatorStats)(nil),     // 54: multigatewaymanagerdata.ConsolidatorStats
-	(*clustermetadata.ShardKey)(nil),                      // 55: clustermetadata.ShardKey
-	(*clustermetadata.RulePosition)(nil),                  // 56: clustermetadata.RulePosition
-	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 57: clustermetadata.ExternallyCertifiedRevocation
-	(*clustermetadata.ShardRule)(nil),                     // 58: clustermetadata.ShardRule
+	(*CreateCellRequest)(nil),                             // 41: multiadmin.CreateCellRequest
+	(*CreateCellResponse)(nil),                            // 42: multiadmin.CreateCellResponse
+	(*CreateDatabaseRequest)(nil),                         // 43: multiadmin.CreateDatabaseRequest
+	(*CreateDatabaseResponse)(nil),                        // 44: multiadmin.CreateDatabaseResponse
+	(*GetPoolerRegistrationRequest)(nil),                  // 45: multiadmin.GetPoolerRegistrationRequest
+	(*GetPoolerRegistrationResponse)(nil),                 // 46: multiadmin.GetPoolerRegistrationResponse
+	(*RetirePoolerRequest)(nil),                           // 47: multiadmin.RetirePoolerRequest
+	(*RetirePoolerResponse)(nil),                          // 48: multiadmin.RetirePoolerResponse
+	nil,                                                   // 49: multiadmin.ExpireBackupsRequest.OverridesEntry
+	(*clustermetadata.Cell)(nil),                          // 50: clustermetadata.Cell
+	(*clustermetadata.Database)(nil),                      // 51: clustermetadata.Database
+	(*clustermetadata.Multigateway)(nil),                  // 52: clustermetadata.Multigateway
+	(*clustermetadata.Multipooler)(nil),                   // 53: clustermetadata.Multipooler
+	(*clustermetadata.Multiorch)(nil),                     // 54: clustermetadata.Multiorch
+	(*durationpb.Duration)(nil),                           // 55: google.protobuf.Duration
+	(clustermetadata.RoutingRole)(0),                      // 56: clustermetadata.RoutingRole
+	(*timestamppb.Timestamp)(nil),                         // 57: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                            // 58: clustermetadata.ID
+	(*multipoolermanagerdata.Status)(nil),                 // 59: multipoolermanagerdata.Status
+	(*clustermetadata.ConsensusStatus)(nil),               // 60: clustermetadata.ConsensusStatus
+	(*multigatewaymanagerdata.QueryRegistrySnapshot)(nil), // 61: multigatewaymanagerdata.QueryRegistrySnapshot
+	(*multigatewaymanagerdata.ConsolidatorStats)(nil),     // 62: multigatewaymanagerdata.ConsolidatorStats
+	(*clustermetadata.ShardKey)(nil),                      // 63: clustermetadata.ShardKey
+	(*clustermetadata.RulePosition)(nil),                  // 64: clustermetadata.RulePosition
+	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 65: clustermetadata.ExternallyCertifiedRevocation
+	(*clustermetadata.ShardRule)(nil),                     // 66: clustermetadata.ShardRule
 }
 var file_multiadminservice_proto_depIdxs = []int32{
-	42, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
-	43, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database
-	44, // 2: multiadmin.GetGatewaysResponse.gateways:type_name -> clustermetadata.Multigateway
-	45, // 3: multiadmin.GetPoolersResponse.poolers:type_name -> clustermetadata.Multipooler
-	46, // 4: multiadmin.GetOrchsResponse.orchs:type_name -> clustermetadata.Multiorch
+	50, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
+	51, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database
+	52, // 2: multiadmin.GetGatewaysResponse.gateways:type_name -> clustermetadata.Multigateway
+	53, // 3: multiadmin.GetPoolersResponse.poolers:type_name -> clustermetadata.Multipooler
+	54, // 4: multiadmin.GetOrchsResponse.orchs:type_name -> clustermetadata.Multiorch
 	0,  // 5: multiadmin.GetBackupJobStatusResponse.job_type:type_name -> multiadmin.JobType
 	1,  // 6: multiadmin.GetBackupJobStatusResponse.status:type_name -> multiadmin.JobStatus
 	27, // 7: multiadmin.GetBackupsResponse.backups:type_name -> multiadmin.BackupInfo
-	41, // 8: multiadmin.ExpireBackupsRequest.overrides:type_name -> multiadmin.ExpireBackupsRequest.OverridesEntry
-	47, // 9: multiadmin.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
+	49, // 8: multiadmin.ExpireBackupsRequest.overrides:type_name -> multiadmin.ExpireBackupsRequest.OverridesEntry
+	55, // 9: multiadmin.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
 	2,  // 10: multiadmin.BackupInfo.status:type_name -> multiadmin.BackupStatus
-	48, // 11: multiadmin.BackupInfo.routing_role:type_name -> clustermetadata.RoutingRole
-	49, // 12: multiadmin.BackupInfo.start_timestamp:type_name -> google.protobuf.Timestamp
-	49, // 13: multiadmin.BackupInfo.stop_timestamp:type_name -> google.protobuf.Timestamp
-	50, // 14: multiadmin.GetPoolerStatusRequest.pooler_id:type_name -> clustermetadata.ID
-	51, // 15: multiadmin.GetPoolerStatusResponse.status:type_name -> multipoolermanagerdata.Status
-	52, // 16: multiadmin.GetPoolerStatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	50, // 17: multiadmin.SetPostgresRestartsEnabledRequest.pooler_id:type_name -> clustermetadata.ID
-	50, // 18: multiadmin.GetGatewayQueriesRequest.gateway_id:type_name -> clustermetadata.ID
-	53, // 19: multiadmin.GetGatewayQueriesResponse.snapshot:type_name -> multigatewaymanagerdata.QueryRegistrySnapshot
-	50, // 20: multiadmin.GetGatewayConsolidatorRequest.gateway_id:type_name -> clustermetadata.ID
-	54, // 21: multiadmin.GetGatewayConsolidatorResponse.stats:type_name -> multigatewaymanagerdata.ConsolidatorStats
-	55, // 22: multiadmin.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
-	56, // 23: multiadmin.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
-	57, // 24: multiadmin.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
+	56, // 11: multiadmin.BackupInfo.routing_role:type_name -> clustermetadata.RoutingRole
+	57, // 12: multiadmin.BackupInfo.start_timestamp:type_name -> google.protobuf.Timestamp
+	57, // 13: multiadmin.BackupInfo.stop_timestamp:type_name -> google.protobuf.Timestamp
+	58, // 14: multiadmin.GetPoolerStatusRequest.pooler_id:type_name -> clustermetadata.ID
+	59, // 15: multiadmin.GetPoolerStatusResponse.status:type_name -> multipoolermanagerdata.Status
+	60, // 16: multiadmin.GetPoolerStatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	58, // 17: multiadmin.SetPostgresRestartsEnabledRequest.pooler_id:type_name -> clustermetadata.ID
+	58, // 18: multiadmin.GetGatewayQueriesRequest.gateway_id:type_name -> clustermetadata.ID
+	61, // 19: multiadmin.GetGatewayQueriesResponse.snapshot:type_name -> multigatewaymanagerdata.QueryRegistrySnapshot
+	58, // 20: multiadmin.GetGatewayConsolidatorRequest.gateway_id:type_name -> clustermetadata.ID
+	62, // 21: multiadmin.GetGatewayConsolidatorResponse.stats:type_name -> multigatewaymanagerdata.ConsolidatorStats
+	63, // 22: multiadmin.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
+	64, // 23: multiadmin.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
+	65, // 24: multiadmin.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	37, // 25: multiadmin.ApplyCertifiedRuleChangeRequest.unsafe_derive_cert:type_name -> multiadmin.UnsafeDeriveCertOptions
-	58, // 26: multiadmin.ApplyCertifiedRuleChangeResponse.installed_rule:type_name -> clustermetadata.ShardRule
-	57, // 27: multiadmin.ApplyCertifiedRuleChangeResponse.cert_used:type_name -> clustermetadata.ExternallyCertifiedRevocation
-	55, // 28: multiadmin.SwitchPrimaryRequest.shard_key:type_name -> clustermetadata.ShardKey
-	50, // 29: multiadmin.SwitchPrimaryResponse.old_leader_id:type_name -> clustermetadata.ID
-	3,  // 30: multiadmin.MultiadminService.GetCell:input_type -> multiadmin.GetCellRequest
-	5,  // 31: multiadmin.MultiadminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
-	7,  // 32: multiadmin.MultiadminService.GetCellNames:input_type -> multiadmin.GetCellNamesRequest
-	9,  // 33: multiadmin.MultiadminService.GetDatabaseNames:input_type -> multiadmin.GetDatabaseNamesRequest
-	11, // 34: multiadmin.MultiadminService.GetGateways:input_type -> multiadmin.GetGatewaysRequest
-	13, // 35: multiadmin.MultiadminService.GetPoolers:input_type -> multiadmin.GetPoolersRequest
-	15, // 36: multiadmin.MultiadminService.GetOrchs:input_type -> multiadmin.GetOrchsRequest
-	17, // 37: multiadmin.MultiadminService.Backup:input_type -> multiadmin.BackupRequest
-	19, // 38: multiadmin.MultiadminService.GetBackupJobStatus:input_type -> multiadmin.GetBackupJobStatusRequest
-	21, // 39: multiadmin.MultiadminService.GetBackups:input_type -> multiadmin.GetBackupsRequest
-	23, // 40: multiadmin.MultiadminService.ExpireBackups:input_type -> multiadmin.ExpireBackupsRequest
-	25, // 41: multiadmin.MultiadminService.VerifyBackups:input_type -> multiadmin.VerifyBackupsRequest
-	28, // 42: multiadmin.MultiadminService.GetPoolerStatus:input_type -> multiadmin.GetPoolerStatusRequest
-	30, // 43: multiadmin.MultiadminService.SetPostgresRestartsEnabled:input_type -> multiadmin.SetPostgresRestartsEnabledRequest
-	32, // 44: multiadmin.MultiadminService.GetGatewayQueries:input_type -> multiadmin.GetGatewayQueriesRequest
-	34, // 45: multiadmin.MultiadminService.GetGatewayConsolidator:input_type -> multiadmin.GetGatewayConsolidatorRequest
-	36, // 46: multiadmin.MultiadminService.ApplyCertifiedRuleChange:input_type -> multiadmin.ApplyCertifiedRuleChangeRequest
-	39, // 47: multiadmin.MultiadminService.SwitchPrimary:input_type -> multiadmin.SwitchPrimaryRequest
-	4,  // 48: multiadmin.MultiadminService.GetCell:output_type -> multiadmin.GetCellResponse
-	6,  // 49: multiadmin.MultiadminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
-	8,  // 50: multiadmin.MultiadminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
-	10, // 51: multiadmin.MultiadminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
-	12, // 52: multiadmin.MultiadminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
-	14, // 53: multiadmin.MultiadminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
-	16, // 54: multiadmin.MultiadminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
-	18, // 55: multiadmin.MultiadminService.Backup:output_type -> multiadmin.BackupResponse
-	20, // 56: multiadmin.MultiadminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
-	22, // 57: multiadmin.MultiadminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
-	24, // 58: multiadmin.MultiadminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
-	26, // 59: multiadmin.MultiadminService.VerifyBackups:output_type -> multiadmin.VerifyBackupsResponse
-	29, // 60: multiadmin.MultiadminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
-	31, // 61: multiadmin.MultiadminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
-	33, // 62: multiadmin.MultiadminService.GetGatewayQueries:output_type -> multiadmin.GetGatewayQueriesResponse
-	35, // 63: multiadmin.MultiadminService.GetGatewayConsolidator:output_type -> multiadmin.GetGatewayConsolidatorResponse
-	38, // 64: multiadmin.MultiadminService.ApplyCertifiedRuleChange:output_type -> multiadmin.ApplyCertifiedRuleChangeResponse
-	40, // 65: multiadmin.MultiadminService.SwitchPrimary:output_type -> multiadmin.SwitchPrimaryResponse
-	48, // [48:66] is the sub-list for method output_type
-	30, // [30:48] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	66, // 26: multiadmin.ApplyCertifiedRuleChangeResponse.installed_rule:type_name -> clustermetadata.ShardRule
+	65, // 27: multiadmin.ApplyCertifiedRuleChangeResponse.cert_used:type_name -> clustermetadata.ExternallyCertifiedRevocation
+	63, // 28: multiadmin.SwitchPrimaryRequest.shard_key:type_name -> clustermetadata.ShardKey
+	58, // 29: multiadmin.SwitchPrimaryResponse.old_leader_id:type_name -> clustermetadata.ID
+	50, // 30: multiadmin.CreateCellRequest.cell:type_name -> clustermetadata.Cell
+	50, // 31: multiadmin.CreateCellResponse.cell:type_name -> clustermetadata.Cell
+	51, // 32: multiadmin.CreateDatabaseRequest.database:type_name -> clustermetadata.Database
+	51, // 33: multiadmin.CreateDatabaseResponse.database:type_name -> clustermetadata.Database
+	58, // 34: multiadmin.GetPoolerRegistrationRequest.pooler_id:type_name -> clustermetadata.ID
+	53, // 35: multiadmin.GetPoolerRegistrationResponse.pooler:type_name -> clustermetadata.Multipooler
+	58, // 36: multiadmin.RetirePoolerRequest.pooler_id:type_name -> clustermetadata.ID
+	63, // 37: multiadmin.RetirePoolerRequest.shard_key:type_name -> clustermetadata.ShardKey
+	41, // 38: multiadmin.MultiadminService.CreateCell:input_type -> multiadmin.CreateCellRequest
+	43, // 39: multiadmin.MultiadminService.CreateDatabase:input_type -> multiadmin.CreateDatabaseRequest
+	45, // 40: multiadmin.MultiadminService.GetPoolerRegistration:input_type -> multiadmin.GetPoolerRegistrationRequest
+	47, // 41: multiadmin.MultiadminService.RetirePooler:input_type -> multiadmin.RetirePoolerRequest
+	3,  // 42: multiadmin.MultiadminService.GetCell:input_type -> multiadmin.GetCellRequest
+	5,  // 43: multiadmin.MultiadminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
+	7,  // 44: multiadmin.MultiadminService.GetCellNames:input_type -> multiadmin.GetCellNamesRequest
+	9,  // 45: multiadmin.MultiadminService.GetDatabaseNames:input_type -> multiadmin.GetDatabaseNamesRequest
+	11, // 46: multiadmin.MultiadminService.GetGateways:input_type -> multiadmin.GetGatewaysRequest
+	13, // 47: multiadmin.MultiadminService.GetPoolers:input_type -> multiadmin.GetPoolersRequest
+	15, // 48: multiadmin.MultiadminService.GetOrchs:input_type -> multiadmin.GetOrchsRequest
+	17, // 49: multiadmin.MultiadminService.Backup:input_type -> multiadmin.BackupRequest
+	19, // 50: multiadmin.MultiadminService.GetBackupJobStatus:input_type -> multiadmin.GetBackupJobStatusRequest
+	21, // 51: multiadmin.MultiadminService.GetBackups:input_type -> multiadmin.GetBackupsRequest
+	23, // 52: multiadmin.MultiadminService.ExpireBackups:input_type -> multiadmin.ExpireBackupsRequest
+	25, // 53: multiadmin.MultiadminService.VerifyBackups:input_type -> multiadmin.VerifyBackupsRequest
+	28, // 54: multiadmin.MultiadminService.GetPoolerStatus:input_type -> multiadmin.GetPoolerStatusRequest
+	30, // 55: multiadmin.MultiadminService.SetPostgresRestartsEnabled:input_type -> multiadmin.SetPostgresRestartsEnabledRequest
+	32, // 56: multiadmin.MultiadminService.GetGatewayQueries:input_type -> multiadmin.GetGatewayQueriesRequest
+	34, // 57: multiadmin.MultiadminService.GetGatewayConsolidator:input_type -> multiadmin.GetGatewayConsolidatorRequest
+	36, // 58: multiadmin.MultiadminService.ApplyCertifiedRuleChange:input_type -> multiadmin.ApplyCertifiedRuleChangeRequest
+	39, // 59: multiadmin.MultiadminService.SwitchPrimary:input_type -> multiadmin.SwitchPrimaryRequest
+	42, // 60: multiadmin.MultiadminService.CreateCell:output_type -> multiadmin.CreateCellResponse
+	44, // 61: multiadmin.MultiadminService.CreateDatabase:output_type -> multiadmin.CreateDatabaseResponse
+	46, // 62: multiadmin.MultiadminService.GetPoolerRegistration:output_type -> multiadmin.GetPoolerRegistrationResponse
+	48, // 63: multiadmin.MultiadminService.RetirePooler:output_type -> multiadmin.RetirePoolerResponse
+	4,  // 64: multiadmin.MultiadminService.GetCell:output_type -> multiadmin.GetCellResponse
+	6,  // 65: multiadmin.MultiadminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
+	8,  // 66: multiadmin.MultiadminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
+	10, // 67: multiadmin.MultiadminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
+	12, // 68: multiadmin.MultiadminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
+	14, // 69: multiadmin.MultiadminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
+	16, // 70: multiadmin.MultiadminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
+	18, // 71: multiadmin.MultiadminService.Backup:output_type -> multiadmin.BackupResponse
+	20, // 72: multiadmin.MultiadminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
+	22, // 73: multiadmin.MultiadminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
+	24, // 74: multiadmin.MultiadminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
+	26, // 75: multiadmin.MultiadminService.VerifyBackups:output_type -> multiadmin.VerifyBackupsResponse
+	29, // 76: multiadmin.MultiadminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
+	31, // 77: multiadmin.MultiadminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
+	33, // 78: multiadmin.MultiadminService.GetGatewayQueries:output_type -> multiadmin.GetGatewayQueriesResponse
+	35, // 79: multiadmin.MultiadminService.GetGatewayConsolidator:output_type -> multiadmin.GetGatewayConsolidatorResponse
+	38, // 80: multiadmin.MultiadminService.ApplyCertifiedRuleChange:output_type -> multiadmin.ApplyCertifiedRuleChangeResponse
+	40, // 81: multiadmin.MultiadminService.SwitchPrimary:output_type -> multiadmin.SwitchPrimaryResponse
+	60, // [60:82] is the sub-list for method output_type
+	38, // [38:60] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_multiadminservice_proto_init() }
@@ -3068,7 +3602,7 @@ func file_multiadminservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiadminservice_proto_rawDesc), len(file_multiadminservice_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   39,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

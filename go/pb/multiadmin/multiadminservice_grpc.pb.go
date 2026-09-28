@@ -33,6 +33,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	MultiadminService_CreateCell_FullMethodName                 = "/multiadmin.MultiadminService/CreateCell"
+	MultiadminService_CreateDatabase_FullMethodName             = "/multiadmin.MultiadminService/CreateDatabase"
+	MultiadminService_GetPoolerRegistration_FullMethodName      = "/multiadmin.MultiadminService/GetPoolerRegistration"
+	MultiadminService_RetirePooler_FullMethodName               = "/multiadmin.MultiadminService/RetirePooler"
 	MultiadminService_GetCell_FullMethodName                    = "/multiadmin.MultiadminService/GetCell"
 	MultiadminService_GetDatabase_FullMethodName                = "/multiadmin.MultiadminService/GetDatabase"
 	MultiadminService_GetCellNames_FullMethodName               = "/multiadmin.MultiadminService/GetCellNames"
@@ -59,6 +63,49 @@ const (
 //
 // MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceClient interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(ctx context.Context, in *CreateCellRequest, opts ...grpc.CallOption) (*CreateCellResponse, error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(ctx context.Context, in *CreateDatabaseRequest, opts ...grpc.CallOption) (*CreateDatabaseResponse, error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(ctx context.Context, in *GetPoolerRegistrationRequest, opts ...grpc.CallOption) (*GetPoolerRegistrationResponse, error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(ctx context.Context, in *RetirePoolerRequest, opts ...grpc.CallOption) (*RetirePoolerResponse, error)
 	// GetCell retrieves information about a specific cell
 	//
 	// Errors and recovery:
@@ -233,6 +280,46 @@ type multiadminServiceClient struct {
 
 func NewMultiadminServiceClient(cc grpc.ClientConnInterface) MultiadminServiceClient {
 	return &multiadminServiceClient{cc}
+}
+
+func (c *multiadminServiceClient) CreateCell(ctx context.Context, in *CreateCellRequest, opts ...grpc.CallOption) (*CreateCellResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateCellResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_CreateCell_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) CreateDatabase(ctx context.Context, in *CreateDatabaseRequest, opts ...grpc.CallOption) (*CreateDatabaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDatabaseResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_CreateDatabase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) GetPoolerRegistration(ctx context.Context, in *GetPoolerRegistrationRequest, opts ...grpc.CallOption) (*GetPoolerRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPoolerRegistrationResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_GetPoolerRegistration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) RetirePooler(ctx context.Context, in *RetirePoolerRequest, opts ...grpc.CallOption) (*RetirePoolerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RetirePoolerResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_RetirePooler_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *multiadminServiceClient) GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error) {
@@ -421,6 +508,49 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchP
 //
 // MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceServer interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(context.Context, *CreateCellRequest) (*CreateCellResponse, error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(context.Context, *CreateDatabaseRequest) (*CreateDatabaseResponse, error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(context.Context, *GetPoolerRegistrationRequest) (*GetPoolerRegistrationResponse, error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(context.Context, *RetirePoolerRequest) (*RetirePoolerResponse, error)
 	// GetCell retrieves information about a specific cell
 	//
 	// Errors and recovery:
@@ -597,6 +727,18 @@ type MultiadminServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMultiadminServiceServer struct{}
 
+func (UnimplementedMultiadminServiceServer) CreateCell(context.Context, *CreateCellRequest) (*CreateCellResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateCell not implemented")
+}
+func (UnimplementedMultiadminServiceServer) CreateDatabase(context.Context, *CreateDatabaseRequest) (*CreateDatabaseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateDatabase not implemented")
+}
+func (UnimplementedMultiadminServiceServer) GetPoolerRegistration(context.Context, *GetPoolerRegistrationRequest) (*GetPoolerRegistrationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPoolerRegistration not implemented")
+}
+func (UnimplementedMultiadminServiceServer) RetirePooler(context.Context, *RetirePoolerRequest) (*RetirePoolerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetirePooler not implemented")
+}
 func (UnimplementedMultiadminServiceServer) GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCell not implemented")
 }
@@ -670,6 +812,78 @@ func RegisterMultiadminServiceServer(s grpc.ServiceRegistrar, srv MultiadminServ
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&MultiadminService_ServiceDesc, srv)
+}
+
+func _MultiadminService_CreateCell_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateCellRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).CreateCell(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_CreateCell_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).CreateCell(ctx, req.(*CreateCellRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_CreateDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDatabaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).CreateDatabase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_CreateDatabase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).CreateDatabase(ctx, req.(*CreateDatabaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_GetPoolerRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPoolerRegistrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).GetPoolerRegistration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_GetPoolerRegistration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).GetPoolerRegistration(ctx, req.(*GetPoolerRegistrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_RetirePooler_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetirePoolerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).RetirePooler(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_RetirePooler_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).RetirePooler(ctx, req.(*RetirePoolerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _MultiadminService_GetCell_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1003,6 +1217,22 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "multiadmin.MultiadminService",
 	HandlerType: (*MultiadminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateCell",
+			Handler:    _MultiadminService_CreateCell_Handler,
+		},
+		{
+			MethodName: "CreateDatabase",
+			Handler:    _MultiadminService_CreateDatabase_Handler,
+		},
+		{
+			MethodName: "GetPoolerRegistration",
+			Handler:    _MultiadminService_GetPoolerRegistration_Handler,
+		},
+		{
+			MethodName: "RetirePooler",
+			Handler:    _MultiadminService_RetirePooler_Handler,
+		},
 		{
 			MethodName: "GetCell",
 			Handler:    _MultiadminService_GetCell_Handler,

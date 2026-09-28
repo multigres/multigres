@@ -2127,3 +2127,346 @@ export class SwitchPrimaryResponse extends Message<SwitchPrimaryResponse> {
   }
 }
 
+/**
+ * CreateCellRequest contains the complete initial cell configuration.
+ *
+ * @generated from message multiadmin.CreateCellRequest
+ */
+export class CreateCellRequest extends Message<CreateCellRequest> {
+  /**
+   * Cell name, topology addresses, and root are required.
+   *
+   * @generated from field: clustermetadata.Cell cell = 1;
+   */
+  cell?: Cell;
+
+  constructor(data?: PartialMessage<CreateCellRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.CreateCellRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cell", kind: "message", T: Cell },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateCellRequest {
+    return new CreateCellRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateCellRequest {
+    return new CreateCellRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateCellRequest {
+    return new CreateCellRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateCellRequest | PlainMessage<CreateCellRequest> | undefined, b: CreateCellRequest | PlainMessage<CreateCellRequest> | undefined): boolean {
+    return proto3.util.equals(CreateCellRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.CreateCellResponse
+ */
+export class CreateCellResponse extends Message<CreateCellResponse> {
+  /**
+   * @generated from field: clustermetadata.Cell cell = 1;
+   */
+  cell?: Cell;
+
+  constructor(data?: PartialMessage<CreateCellResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.CreateCellResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cell", kind: "message", T: Cell },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateCellResponse {
+    return new CreateCellResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateCellResponse {
+    return new CreateCellResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateCellResponse {
+    return new CreateCellResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateCellResponse | PlainMessage<CreateCellResponse> | undefined, b: CreateCellResponse | PlainMessage<CreateCellResponse> | undefined): boolean {
+    return proto3.util.equals(CreateCellResponse, a, b);
+  }
+}
+
+/**
+ * CreateDatabaseRequest contains the complete initial database configuration.
+ *
+ * @generated from message multiadmin.CreateDatabaseRequest
+ */
+export class CreateDatabaseRequest extends Message<CreateDatabaseRequest> {
+  /**
+   * Name, cells, and bootstrap durability policy are required. Backup location is optional.
+   *
+   * @generated from field: clustermetadata.Database database = 1;
+   */
+  database?: Database;
+
+  constructor(data?: PartialMessage<CreateDatabaseRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.CreateDatabaseRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "message", T: Database },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateDatabaseRequest {
+    return new CreateDatabaseRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateDatabaseRequest {
+    return new CreateDatabaseRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateDatabaseRequest {
+    return new CreateDatabaseRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateDatabaseRequest | PlainMessage<CreateDatabaseRequest> | undefined, b: CreateDatabaseRequest | PlainMessage<CreateDatabaseRequest> | undefined): boolean {
+    return proto3.util.equals(CreateDatabaseRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.CreateDatabaseResponse
+ */
+export class CreateDatabaseResponse extends Message<CreateDatabaseResponse> {
+  /**
+   * @generated from field: clustermetadata.Database database = 1;
+   */
+  database?: Database;
+
+  constructor(data?: PartialMessage<CreateDatabaseResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.CreateDatabaseResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "message", T: Database },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateDatabaseResponse {
+    return new CreateDatabaseResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateDatabaseResponse {
+    return new CreateDatabaseResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateDatabaseResponse {
+    return new CreateDatabaseResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateDatabaseResponse | PlainMessage<CreateDatabaseResponse> | undefined, b: CreateDatabaseResponse | PlainMessage<CreateDatabaseResponse> | undefined): boolean {
+    return proto3.util.equals(CreateDatabaseResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.GetPoolerRegistrationRequest
+ */
+export class GetPoolerRegistrationRequest extends Message<GetPoolerRegistrationRequest> {
+  /**
+   * Cell and name are required; component is MULTIPOOLER or omitted.
+   *
+   * @generated from field: clustermetadata.ID pooler_id = 1;
+   */
+  poolerId?: ID;
+
+  constructor(data?: PartialMessage<GetPoolerRegistrationRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.GetPoolerRegistrationRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "pooler_id", kind: "message", T: ID },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetPoolerRegistrationRequest {
+    return new GetPoolerRegistrationRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetPoolerRegistrationRequest {
+    return new GetPoolerRegistrationRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetPoolerRegistrationRequest {
+    return new GetPoolerRegistrationRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetPoolerRegistrationRequest | PlainMessage<GetPoolerRegistrationRequest> | undefined, b: GetPoolerRegistrationRequest | PlainMessage<GetPoolerRegistrationRequest> | undefined): boolean {
+    return proto3.util.equals(GetPoolerRegistrationRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.GetPoolerRegistrationResponse
+ */
+export class GetPoolerRegistrationResponse extends Message<GetPoolerRegistrationResponse> {
+  /**
+   * @generated from field: clustermetadata.Multipooler pooler = 1;
+   */
+  pooler?: Multipooler;
+
+  /**
+   * Opaque version of this registration snapshot. Every write changes it.
+   * Retain it with pooler.incarnationId; do not parse or construct versions.
+   *
+   * @generated from field: string version = 2;
+   */
+  version = "";
+
+  constructor(data?: PartialMessage<GetPoolerRegistrationResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.GetPoolerRegistrationResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "pooler", kind: "message", T: Multipooler },
+    { no: 2, name: "version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetPoolerRegistrationResponse {
+    return new GetPoolerRegistrationResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetPoolerRegistrationResponse {
+    return new GetPoolerRegistrationResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetPoolerRegistrationResponse {
+    return new GetPoolerRegistrationResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetPoolerRegistrationResponse | PlainMessage<GetPoolerRegistrationResponse> | undefined, b: GetPoolerRegistrationResponse | PlainMessage<GetPoolerRegistrationResponse> | undefined): boolean {
+    return proto3.util.equals(GetPoolerRegistrationResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.RetirePoolerRequest
+ */
+export class RetirePoolerRequest extends Message<RetirePoolerRequest> {
+  /**
+   * Exact old member identity. Cell and name are required; component is MULTIPOOLER or omitted.
+   *
+   * @generated from field: clustermetadata.ID pooler_id = 1;
+   */
+  poolerId?: ID;
+
+  /**
+   * Database, table group, and shard of the fenced member; all are required.
+   *
+   * @generated from field: clustermetadata.ShardKey shard_key = 2;
+   */
+  shardKey?: ShardKey;
+
+  /**
+   * Process incarnation read before fencing; required and never inferred from a name or address.
+   *
+   * @generated from field: string incarnation_id = 3;
+   */
+  incarnationId = "";
+
+  /**
+   * Registration snapshot version from GetPoolerRegistration; required.
+   *
+   * @generated from field: string version = 4;
+   */
+  version = "";
+
+  /**
+   * Required acknowledgement of positive infrastructure fencing, as described by RetirePooler.
+   *
+   * @generated from field: bool fencing_acknowledged = 5;
+   */
+  fencingAcknowledged = false;
+
+  constructor(data?: PartialMessage<RetirePoolerRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.RetirePoolerRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "pooler_id", kind: "message", T: ID },
+    { no: 2, name: "shard_key", kind: "message", T: ShardKey },
+    { no: 3, name: "incarnation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "fencing_acknowledged", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RetirePoolerRequest {
+    return new RetirePoolerRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RetirePoolerRequest {
+    return new RetirePoolerRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RetirePoolerRequest {
+    return new RetirePoolerRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RetirePoolerRequest | PlainMessage<RetirePoolerRequest> | undefined, b: RetirePoolerRequest | PlainMessage<RetirePoolerRequest> | undefined): boolean {
+    return proto3.util.equals(RetirePoolerRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message multiadmin.RetirePoolerResponse
+ */
+export class RetirePoolerResponse extends Message<RetirePoolerResponse> {
+  constructor(data?: PartialMessage<RetirePoolerResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.RetirePoolerResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RetirePoolerResponse {
+    return new RetirePoolerResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RetirePoolerResponse {
+    return new RetirePoolerResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RetirePoolerResponse {
+    return new RetirePoolerResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RetirePoolerResponse | PlainMessage<RetirePoolerResponse> | undefined, b: RetirePoolerResponse | PlainMessage<RetirePoolerResponse> | undefined): boolean {
+    return proto3.util.equals(RetirePoolerResponse, a, b);
+  }
+}
+

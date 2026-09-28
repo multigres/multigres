@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -72,7 +73,14 @@ func normalize(value any, kind string) {
 				}
 			}
 			if len(absent) > 0 {
-				node["oneOf"] = append(branches, map[string]any{"properties": absent})
+				var present []any
+				for _, name := range slices.Sorted(maps.Keys(absent)) {
+					present = append(present, map[string]any{
+						"properties": map[string]any{name: map[string]any{}},
+						"required":   []any{name},
+					})
+				}
+				node["oneOf"] = append(branches, map[string]any{"not": map[string]any{"anyOf": present}})
 			}
 		}
 		// unevaluatedProperties recognizes fields declared in allOf/oneOf.

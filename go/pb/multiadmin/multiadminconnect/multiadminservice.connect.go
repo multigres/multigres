@@ -47,6 +47,18 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MultiadminServiceCreateCellProcedure is the fully-qualified name of the MultiadminService's
+	// CreateCell RPC.
+	MultiadminServiceCreateCellProcedure = "/multiadmin.MultiadminService/CreateCell"
+	// MultiadminServiceCreateDatabaseProcedure is the fully-qualified name of the MultiadminService's
+	// CreateDatabase RPC.
+	MultiadminServiceCreateDatabaseProcedure = "/multiadmin.MultiadminService/CreateDatabase"
+	// MultiadminServiceGetPoolerRegistrationProcedure is the fully-qualified name of the
+	// MultiadminService's GetPoolerRegistration RPC.
+	MultiadminServiceGetPoolerRegistrationProcedure = "/multiadmin.MultiadminService/GetPoolerRegistration"
+	// MultiadminServiceRetirePoolerProcedure is the fully-qualified name of the MultiadminService's
+	// RetirePooler RPC.
+	MultiadminServiceRetirePoolerProcedure = "/multiadmin.MultiadminService/RetirePooler"
 	// MultiadminServiceGetCellProcedure is the fully-qualified name of the MultiadminService's GetCell
 	// RPC.
 	MultiadminServiceGetCellProcedure = "/multiadmin.MultiadminService/GetCell"
@@ -105,6 +117,49 @@ const (
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
 type MultiadminServiceClient interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error)
 	// GetCell retrieves information about a specific cell
 	//
 	// Errors and recovery:
@@ -284,6 +339,30 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 	baseURL = strings.TrimRight(baseURL, "/")
 	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
 	return &multiadminServiceClient{
+		createCell: connect.NewClient[multiadmin.CreateCellRequest, multiadmin.CreateCellResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateCellProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateCell")),
+			connect.WithClientOptions(opts...),
+		),
+		createDatabase: connect.NewClient[multiadmin.CreateDatabaseRequest, multiadmin.CreateDatabaseResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateDatabaseProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateDatabase")),
+			connect.WithClientOptions(opts...),
+		),
+		getPoolerRegistration: connect.NewClient[multiadmin.GetPoolerRegistrationRequest, multiadmin.GetPoolerRegistrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetPoolerRegistrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerRegistration")),
+			connect.WithClientOptions(opts...),
+		),
+		retirePooler: connect.NewClient[multiadmin.RetirePoolerRequest, multiadmin.RetirePoolerResponse](
+			httpClient,
+			baseURL+MultiadminServiceRetirePoolerProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("RetirePooler")),
+			connect.WithClientOptions(opts...),
+		),
 		getCell: connect.NewClient[multiadmin.GetCellRequest, multiadmin.GetCellResponse](
 			httpClient,
 			baseURL+MultiadminServiceGetCellProcedure,
@@ -397,6 +476,10 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // multiadminServiceClient implements MultiadminServiceClient.
 type multiadminServiceClient struct {
+	createCell                 *connect.Client[multiadmin.CreateCellRequest, multiadmin.CreateCellResponse]
+	createDatabase             *connect.Client[multiadmin.CreateDatabaseRequest, multiadmin.CreateDatabaseResponse]
+	getPoolerRegistration      *connect.Client[multiadmin.GetPoolerRegistrationRequest, multiadmin.GetPoolerRegistrationResponse]
+	retirePooler               *connect.Client[multiadmin.RetirePoolerRequest, multiadmin.RetirePoolerResponse]
 	getCell                    *connect.Client[multiadmin.GetCellRequest, multiadmin.GetCellResponse]
 	getDatabase                *connect.Client[multiadmin.GetDatabaseRequest, multiadmin.GetDatabaseResponse]
 	getCellNames               *connect.Client[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse]
@@ -415,6 +498,26 @@ type multiadminServiceClient struct {
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
+}
+
+// CreateCell calls multiadmin.MultiadminService.CreateCell.
+func (c *multiadminServiceClient) CreateCell(ctx context.Context, req *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error) {
+	return c.createCell.CallUnary(ctx, req)
+}
+
+// CreateDatabase calls multiadmin.MultiadminService.CreateDatabase.
+func (c *multiadminServiceClient) CreateDatabase(ctx context.Context, req *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error) {
+	return c.createDatabase.CallUnary(ctx, req)
+}
+
+// GetPoolerRegistration calls multiadmin.MultiadminService.GetPoolerRegistration.
+func (c *multiadminServiceClient) GetPoolerRegistration(ctx context.Context, req *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error) {
+	return c.getPoolerRegistration.CallUnary(ctx, req)
+}
+
+// RetirePooler calls multiadmin.MultiadminService.RetirePooler.
+func (c *multiadminServiceClient) RetirePooler(ctx context.Context, req *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error) {
+	return c.retirePooler.CallUnary(ctx, req)
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -509,6 +612,49 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connec
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error)
 	// GetCell retrieves information about a specific cell
 	//
 	// Errors and recovery:
@@ -684,6 +830,30 @@ type MultiadminServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
+	multiadminServiceCreateCellHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateCellProcedure,
+		svc.CreateCell,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateCell")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceCreateDatabaseHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateDatabaseProcedure,
+		svc.CreateDatabase,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateDatabase")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetPoolerRegistrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetPoolerRegistrationProcedure,
+		svc.GetPoolerRegistration,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerRegistration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceRetirePoolerHandler := connect.NewUnaryHandler(
+		MultiadminServiceRetirePoolerProcedure,
+		svc.RetirePooler,
+		connect.WithSchema(multiadminServiceMethods.ByName("RetirePooler")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiadminServiceGetCellHandler := connect.NewUnaryHandler(
 		MultiadminServiceGetCellProcedure,
 		svc.GetCell,
@@ -794,6 +964,14 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MultiadminServiceCreateCellProcedure:
+			multiadminServiceCreateCellHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateDatabaseProcedure:
+			multiadminServiceCreateDatabaseHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetPoolerRegistrationProcedure:
+			multiadminServiceGetPoolerRegistrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceRetirePoolerProcedure:
+			multiadminServiceRetirePoolerHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetCellProcedure:
 			multiadminServiceGetCellHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetDatabaseProcedure:
@@ -838,6 +1016,22 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 
 // UnimplementedMultiadminServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMultiadminServiceHandler struct{}
+
+func (UnimplementedMultiadminServiceHandler) CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateCell is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateDatabase is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetPoolerRegistration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.RetirePooler is not implemented"))
+}
 
 func (UnimplementedMultiadminServiceHandler) GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetCell is not implemented"))

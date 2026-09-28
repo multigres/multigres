@@ -1,7 +1,7 @@
 # Multiadmin REST API
 
 [Multiadmin OpenAPI 3.1 specification](./multiadmin.openapi.yaml) describes the
-18 annotated REST operations served by Vanguard on multiadmin's HTTP port.
+22 annotated REST operations served by Vanguard on multiadmin's HTTP port.
 Use the HTTP address of your multiadmin instance as the base URL.
 The web UI uses Connect; internal gRPC services and unannotated RPC paths are
 outside this contract.
@@ -141,6 +141,103 @@ have no client-supplied idempotency key and must not be blindly retried.
   response confirms only that the old primary was quiesced; wait until the
   replacement primary is serving before considering failover complete.
 
+## Bootstrap configuration and fenced retirement
+
+`CreateCell` (`POST /api/v1/cells`) and `CreateDatabase`
+(`POST /api/v1/databases`) create configuration or adopt an identical record.
+The JSON body is the cell or database itself. Successful requests return the
+stored resource with HTTP 200, including repeat requests. Existing resources
+with different configuration return HTTP 409 / AlreadyExists (6); they are never
+overwritten. Equality includes all fields and repeated-field order. A missing
+name in a legacy stored record is interpreted as its topology key.
+`GetCell` and `GetDatabase` provide readback for refresh and import.
+
+Create cells before referencing them in a database. Database creation requires
+an explicit supported `bootstrapDurabilityPolicy`. This policy applies when a
+shard is first initialized. Changing it in a create request does not change a
+running shard's consensus policy; conflicting configuration is rejected.
+The optional `backupLocation` configures the initial repository, with generation
+zero (the default) or one. Later repository rotations and consensus changes
+belong to the running database's management workflows.
+
+For example, after creating `zone1`, a database request can be:
+
+```json
+{
+  "name": "postgres",
+  "cells": ["zone1"],
+  "bootstrapDurabilityPolicy": {
+    "policyName": "AT_LEAST_2",
+    "quorumType": "QUORUM_TYPE_AT_LEAST_N",
+    "requiredCount": 2
+  },
+  "backupLocation": {
+    "s3": { "bucket": "database-backups", "region": "us-east-1" }
+  }
+}
+```
+
+After a timeout or dependency failure, repeat the identical create request or
+read the resource and compare it. These calls do not provision topology servers,
+hosts, storage, or PostgreSQL processes.
+
+### Retiring a member registration
+
+1. Read `GET /api/v1/poolers/{cell}/{name}/registration`. Persist the returned
+   `pooler.id`, `pooler.shardKey`, `pooler.incarnationId`, and `version` with the
+   infrastructure identity of the process being replaced.
+2. Positively fence that exact pooler and its PostgreSQL process. Establish that
+   they are stopped, or permanently isolated from topology, peers, and clients,
+   and prevent automatic restart or reconnection. For example, use confirmed
+   infrastructure termination or power-off with restart prevention. Failed
+   health checks, timeouts, and network partitions do not prove fencing.
+3. Read the registration again after fencing. A graceful shutdown may have
+   published a final update. Require the same incarnation and shard, then use
+   that snapshot's version. If the incarnation changed, do not retire it using
+   fencing evidence for the old process.
+4. Call `POST /api/v1/poolers/{cell}/{name}/retire` with the saved identity,
+   shard, incarnation, current version, and fencing acknowledgement:
+
+```json
+{
+  "poolerId": { "cell": "zone1", "name": "member1" },
+  "shardKey": {
+    "database": "postgres",
+    "tableGroup": "default",
+    "shard": "0-inf"
+  },
+  "incarnationId": "4db22870-e8db-4efe-82f7-c70e2878065d",
+  "version": "12345",
+  "fencingAcknowledged": true
+}
+```
+
+Copy the actual incarnation and opaque version from the read response; the
+example values cannot identify your member. Multiadmin trusts the authenticated
+caller's fencing acknowledgement. It cannot verify infrastructure fencing and
+does not infer fencing from process reachability.
+
+Retirement atomically checks the registration version before deleting it.
+A changed identity, shard, incarnation, or version returns HTTP 409 / Aborted
+(10). A registration from an older pooler without an incarnation ID returns
+HTTP 400 / FailedPrecondition (9); deploy poolers that publish incarnation IDs
+before using this operation. Missing cell configuration is also a failed
+precondition, not evidence that its registrations disappeared.
+
+HTTP 200 means the targeted registration is absent; repeating the request while
+it remains absent succeeds. If a response is lost, read again or repeat the exact
+request. A replacement with the same name or address is protected by its new
+incarnation and version: the stale request returns Aborted. A read showing
+absence or a different incarnation establishes that the old registration is
+gone, without identifying which request removed it. Dependency failures leave
+the outcome unknown. A stale version must never be replaced with one belonging
+to a newer incarnation just to make a retry succeed.
+
+Deleting registration does not fence a machine, revoke a process's credentials,
+or stop PostgreSQL. An unfenced process can publish itself again. Retirement
+does not change a shard rule, promote a member, or orchestrate replication;
+Multigres remains responsible for elections and consensus membership transitions.
+
 ## JSON contract
 
 - Object properties and query parameters use camelCase. Path placeholder names
@@ -178,6 +275,10 @@ Orchestrator discovery is grouped under `cells` because it is scoped by cells.
 
 | Method | Path                                                                                           | Operation                  | Tag       |
 | ------ | ---------------------------------------------------------------------------------------------- | -------------------------- | --------- |
+| POST   | `/api/v1/cells`                                                                                | CreateCell                 | cells     |
+| POST   | `/api/v1/databases`                                                                            | CreateDatabase             | databases |
+| GET    | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/registration`                               | GetPoolerRegistration      | poolers   |
+| POST   | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/retire`                                     | RetirePooler               | poolers   |
 | GET    | `/api/v1/cells/{name}`                                                                         | GetCell                    | cells     |
 | GET    | `/api/v1/databases/{name}`                                                                     | GetDatabase                | databases |
 | GET    | `/api/v1/cells`                                                                                | GetCellNames               | cells     |
