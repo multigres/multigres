@@ -140,6 +140,23 @@ func TestRoleSwitcher_CloseStopsBothRegardlessOfActiveRole(t *testing.T) {
 	}
 }
 
+// TestRoleSwitcher_StateChangeAfterCloseIsIgnored pins Close as terminal. A
+// closed multipooler ReplTracker that stayed registered with the state
+// manager was reopened by the next writable fan-out, so every connection
+// reopen left one more heartbeat writer running on the primary.
+func TestRoleSwitcher_StateChangeAfterCloseIsIgnored(t *testing.T) {
+	for _, state := range []servingstate.State{writableState(), notWritableState()} {
+		primary, secondary := &fakeToggleable{}, &fakeToggleable{}
+		p := NewRoleSwitcher(primary, secondary)
+		p.Close()
+
+		require.NoError(t, p.OnStateChange(t.Context(), state))
+
+		assert.Zero(t, primary.opens, "primary must not open after Close")
+		assert.Zero(t, secondary.opens, "secondary must not open after Close")
+	}
+}
+
 func TestNoOp_IsAlwaysClosedAndSafeToCall(t *testing.T) {
 	var n NoOp
 	assert.False(t, n.IsOpen())
