@@ -122,11 +122,11 @@ func pruneSchemas(spec map[string]any) {
 	components["schemas"] = used
 }
 
-func run() error {
-	if len(os.Args) != 3 {
+func run(args []string) error {
+	if len(args) != 2 {
 		return errors.New("usage: normalize INPUT.json OUTPUT.yaml")
 	}
-	data, err := os.ReadFile(os.Args[1]) //nolint:gosec // CLI argument specifies the input file.
+	data, err := os.ReadFile(args[0]) //nolint:gosec // CLI argument specifies the input file.
 	if err != nil {
 		return err
 	}
@@ -167,11 +167,11 @@ func run() error {
 	if err := enc.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile(os.Args[2], []byte(out.String()), 0o644) //nolint:gosec // CLI argument specifies the output file.
+	return os.WriteFile(args[1], []byte(out.String()), 0o644) //nolint:gosec // CLI argument specifies the output file.
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1) //nolint:forbidigo // Command entry point.
 	}

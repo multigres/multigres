@@ -24,11 +24,11 @@ import (
 	validator "github.com/pb33f/libopenapi-validator"
 )
 
-func run() error {
-	if len(os.Args) != 2 {
+func run(args []string) error {
+	if len(args) != 1 {
 		return errors.New("usage: lint SPEC.yaml")
 	}
-	data, err := os.ReadFile(os.Args[1]) //nolint:gosec // CLI argument specifies the input file.
+	data, err := os.ReadFile(args[0]) //nolint:gosec // CLI argument specifies the input file.
 	if err != nil {
 		return err
 	}
@@ -44,12 +44,12 @@ func run() error {
 	if !valid {
 		return fmt.Errorf("invalid OpenAPI: %+v", failures)
 	}
-	fmt.Printf("%s: valid OpenAPI %s\n", os.Args[1], doc.GetVersion())
+	fmt.Printf("%s: valid OpenAPI %s\n", args[0], doc.GetVersion())
 	return nil
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1) //nolint:forbidigo // Command entry point.
 	}
