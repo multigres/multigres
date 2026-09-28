@@ -51,7 +51,6 @@ func TestConfig_DefaultValues(t *testing.T) {
 
 	// Verify default values.
 	assert.Equal(t, constants.DefaultPostgresUser, config.pgUser.Default())
-	assert.Equal(t, "", config.pgPassword.Default())
 	assert.Equal(t, int64(5), config.adminCapacity.Default())
 
 	// Regular pool (capacity managed by rebalancer)
@@ -84,8 +83,9 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	require.NotNil(t, adminUserFlag)
 	assert.Equal(t, constants.DefaultPostgresUser, adminUserFlag.DefValue)
 
-	adminPasswordFlag := cmd.Flags().Lookup("connpool-admin-password")
-	require.NotNil(t, adminPasswordFlag)
+	// Deliberately no password CLI flag (visible in ps); env vars and the
+	// password file are the only sources.
+	assert.Nil(t, cmd.Flags().Lookup("connpool-admin-password"))
 
 	adminCapFlag := cmd.Flags().Lookup("connpool-admin-capacity")
 	require.NotNil(t, adminCapFlag)
@@ -337,43 +337,24 @@ func TestResolvePgPassword_FilePathEnvSetEmpty_Errors(t *testing.T) {
 	assert.Contains(t, err.Error(), "file path is set to the empty string")
 }
 
-// Row 3: --connpool-admin-password flag set to a non-empty value, no file
-// path configured. Flag wins over any env var; source must be Option.
-func TestResolvePgPassword_OptionFlagSet_UsesOption(t *testing.T) {
+// The password CLI flag was removed (a password on the command line is
+// visible in ps and shell history); setting it must fail flag parsing, and
+// the env var remains authoritative for the resolver.
+func TestResolvePgPassword_NoPasswordCLIFlag(t *testing.T) {
 	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
 	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
-	// Set env vars to a distinct value to prove the flag dominates.
-	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "from-env-should-be-ignored")
+	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "from-env")
 
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
-	require.NoError(t, fs.Set("connpool-admin-password", "from-flag"))
+	require.Error(t, fs.Set("connpool-admin-password", "from-flag"), "the password flag must not exist")
 
 	require.NoError(t, config.ResolvePgPassword())
 	pw, source := config.PgPassword()
-	assert.Equal(t, "from-flag", pw)
-	assert.Equal(t, pwSourceOption, source)
-}
-
-// Row 4: --connpool-admin-password flag explicitly set to the empty string.
-// Resolver must error even when env vars are set to a non-empty value.
-func TestResolvePgPassword_OptionFlagSetEmpty_Errors(t *testing.T) {
-	require.NoError(t, os.Unsetenv(constants.PgPasswordFileEnvVar))
-	require.NoError(t, os.Unsetenv("CONNPOOL_ADMIN_PASSWORD_FILE"))
-	t.Setenv("CONNPOOL_ADMIN_PASSWORD", "from-env-should-be-ignored")
-
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
-	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	config.RegisterFlags(fs)
-	require.NoError(t, fs.Set("connpool-admin-password", ""))
-
-	err := config.ResolvePgPassword()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--connpool-admin-password")
-	assert.Contains(t, err.Error(), "empty string")
+	assert.Equal(t, "from-env", pw)
+	assert.Equal(t, pwSourceEnv, source)
 }
 
 // No source configured at all: file path unset, neither env var set. Both

@@ -136,6 +136,8 @@ fi
 if [[ "$1" == "-C" ]]; then
     case "$2" in
         max_connections) echo "100" ;;
+        superuser_reserved_connections) echo "3" ;;
+        reserved_connections) echo "0" ;;
         *) echo "unknown GUC: $2" >&2; exit 1 ;;
     esac
     exit 0

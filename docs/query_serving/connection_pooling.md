@@ -900,15 +900,17 @@ globalReservedCapacity = globalCapacity * reservedRatio
 | Flag                        | Default    | Env Var                                        | Description                                            |
 | --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
 | `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
-| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password                          |
+| (no password flag)          | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password — env vars or `--connpool-admin-password-file` only; a password CLI flag would be visible in `ps` |
 | `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
 
 `CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
 takes precedence over `POSTGRES_PASSWORD` when both are set.
 
-> **Deprecated:** `--connpool-admin-user`, `--connpool-admin-password`, `CONNPOOL_ADMIN_USER`,
-> and `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
-> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead.
+> **Deprecated:** `--connpool-admin-user`, `CONNPOOL_ADMIN_USER`, and
+> `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
+> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead (`--connpool-admin-password`
+> has been removed). The `POSTGRES_*` variables are the identity/secrets contract
+> shared with pgctld — see `go/common/constants/postgres.go`.
 
 ### Per-User Pool Flags (Timeouts Only)
 

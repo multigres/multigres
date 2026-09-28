@@ -53,12 +53,19 @@ func TestGucProbeCache(t *testing.T) {
 			return 110, nil
 		}
 
-		assert.Equal(t, int32(110), c.get(ctx, "max_connections"))
-		assert.Equal(t, int32(110), c.get(ctx, "max_connections"))
+		v, known := c.get(ctx, "max_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(110), v)
+		v, known = c.get(ctx, "max_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(110), v)
 		assert.Equal(t, 1, calls["max_connections"], "successes are cached")
 
-		assert.Zero(t, c.get(ctx, "broken"))
-		assert.Zero(t, c.get(ctx, "broken"))
+		v, known = c.get(ctx, "broken")
+		assert.False(t, known)
+		assert.Zero(t, v)
+		_, known = c.get(ctx, "broken")
+		assert.False(t, known)
 		assert.Equal(t, 1, calls["broken"], "failures are cached too — no re-fork per poll")
 	})
 
@@ -67,11 +74,27 @@ func TestGucProbeCache(t *testing.T) {
 		c := newGucProbeCache(slog.Default())
 		c.probe = func(_ context.Context, _ string) (int32, error) { return val, nil }
 
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"))
+		v, _ := c.get(ctx, "max_connections")
+		assert.Equal(t, int32(100), v)
 		val = 200
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"), "cached until invalidated")
+		v, _ = c.get(ctx, "max_connections")
+		assert.Equal(t, int32(100), v, "cached until invalidated")
 		c.invalidate()
-		assert.Equal(t, int32(200), c.get(ctx, "max_connections"))
+		v, _ = c.get(ctx, "max_connections")
+		assert.Equal(t, int32(200), v)
+	})
+
+	t.Run("zero is a valid known value, distinct from failure", func(t *testing.T) {
+		calls := 0
+		c := newGucProbeCache(slog.Default())
+		c.probe = func(_ context.Context, _ string) (int32, error) { calls++; return 0, nil }
+
+		v, known := c.get(ctx, "reserved_connections")
+		assert.True(t, known, "a configured 0 is known, not a failure")
+		assert.Zero(t, v)
+		_, known = c.get(ctx, "reserved_connections")
+		assert.True(t, known)
+		assert.Equal(t, 1, calls, "valid zero is cached")
 	})
 
 	t.Run("probe overlapping an invalidation is discarded", func(t *testing.T) {
@@ -82,11 +105,13 @@ func TestGucProbeCache(t *testing.T) {
 			c.invalidate()
 			return 100, nil
 		}
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"), "in-flight caller still gets its result")
+		v, _ := c.get(ctx, "max_connections")
+		assert.Equal(t, int32(100), v, "in-flight caller still gets its result")
 
 		// The stale result must NOT have been published: the next get
 		// re-probes and sees the post-mutation value.
 		c.probe = func(_ context.Context, _ string) (int32, error) { return 20, nil }
-		assert.Equal(t, int32(20), c.get(ctx, "max_connections"))
+		v, _ = c.get(ctx, "max_connections")
+		assert.Equal(t, int32(20), v)
 	})
 }
