@@ -208,6 +208,14 @@ message StatusResponse {
   // configured.
   int32 pgbackrest_port = 13;
 
+  // Effective configured superuser_reserved_connections and (PG 16+)
+  // reserved_connections, resolved like max_connections. Both use explicit
+  // presence rather than a zero sentinel because 0 is a legitimate configured
+  // value for each; absent = unknown. Seed/fallback only, like
+  // max_connections.
+  optional int32 superuser_reserved_connections = 15;
+  optional int32 reserved_connections = 16;
+
   // Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
   // pgbackrest.key). Empty when pgBackRest is not configured.
   string pgbackrest_cert_dir = 14;

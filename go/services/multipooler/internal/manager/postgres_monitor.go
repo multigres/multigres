@@ -25,6 +25,7 @@ import (
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -441,11 +442,30 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	}
 
 	// Keep the pool-capacity fallback seed fresh from pgctld's conf-derived
-	// max_connections. Refreshed on every monitor tick (not just at startup)
-	// because on a fresh cluster the data dir — and therefore the value —
-	// only exists after multiorch bootstraps it, well after Init.
+	// connection budget. Refreshed on every monitor tick (not just at
+	// startup) because on a fresh cluster the data dir — and therefore the
+	// values — only exist after multiorch bootstraps it, well after Init.
+	// The stored budget carries only concrete values: a reserved-slot GUC
+	// pgctld did not report (older pgctld, or a transient probe failure)
+	// keeps its last known value rather than snapping back to the PostgreSQL
+	// default, and the default applies only when the value was never known.
 	if mc := statusResp.GetMaxConnections(); mc > 0 && pm.config.ConnPoolConfig != nil {
-		pm.config.ConnPoolConfig.SetSeedMaxConnections(int64(mc))
+		budget := connpoolmanager.SeedConnectionBudget{
+			MaxConnections:               int64(mc),
+			SuperuserReservedConnections: constants.PgDefaultSuperuserReservedConnections,
+			ReservedConnections:          constants.PgDefaultReservedConnections,
+		}
+		if prev := pm.config.ConnPoolConfig.SeedConnectionBudget(); prev != nil {
+			budget.SuperuserReservedConnections = prev.SuperuserReservedConnections
+			budget.ReservedConnections = prev.ReservedConnections
+		}
+		if v := statusResp.SuperuserReservedConnections; v != nil {
+			budget.SuperuserReservedConnections = int64(*v)
+		}
+		if v := statusResp.ReservedConnections; v != nil {
+			budget.ReservedConnections = int64(*v)
+		}
+		pm.config.ConnPoolConfig.SetSeedConnectionBudget(budget)
 	}
 
 	// Check if directory is initialized

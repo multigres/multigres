@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,12 +54,19 @@ func TestGucProbeCache(t *testing.T) {
 			return 110, nil
 		}
 
-		assert.Equal(t, int32(110), c.get(ctx, "max_connections"))
-		assert.Equal(t, int32(110), c.get(ctx, "max_connections"))
+		v, known := c.get(ctx, "max_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(110), v)
+		v, known = c.get(ctx, "max_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(110), v)
 		assert.Equal(t, 1, calls["max_connections"], "successes are cached")
 
-		assert.Zero(t, c.get(ctx, "broken"))
-		assert.Zero(t, c.get(ctx, "broken"))
+		v, known = c.get(ctx, "broken")
+		assert.False(t, known)
+		assert.Zero(t, v)
+		_, known = c.get(ctx, "broken")
+		assert.False(t, known)
 		assert.Equal(t, 1, calls["broken"], "failures are cached too — no re-fork per poll")
 	})
 
@@ -67,14 +75,30 @@ func TestGucProbeCache(t *testing.T) {
 		c := newGucProbeCache(slog.Default())
 		c.probe = func(_ context.Context, _ string) (int32, error) { return val, nil }
 
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"))
+		v, _ := c.get(ctx, "max_connections")
+		assert.Equal(t, int32(100), v)
 		val = 200
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"), "cached until invalidated")
+		v, _ = c.get(ctx, "max_connections")
+		assert.Equal(t, int32(100), v, "cached until invalidated")
 		c.invalidate()
-		assert.Equal(t, int32(200), c.get(ctx, "max_connections"))
+		v, _ = c.get(ctx, "max_connections")
+		assert.Equal(t, int32(200), v)
 	})
 
-	t.Run("probe overlapping an invalidation is discarded", func(t *testing.T) {
+	t.Run("zero is a valid known value, distinct from failure", func(t *testing.T) {
+		calls := 0
+		c := newGucProbeCache(slog.Default())
+		c.probe = func(_ context.Context, _ string) (int32, error) { calls++; return 0, nil }
+
+		v, known := c.get(ctx, "reserved_connections")
+		assert.True(t, known, "a configured 0 is known, not a failure")
+		assert.Zero(t, v)
+		_, known = c.get(ctx, "reserved_connections")
+		assert.True(t, known)
+		assert.Equal(t, 1, calls, "valid zero is cached")
+	})
+
+	t.Run("probe overlapping an invalidation reports unknown, publishes nothing", func(t *testing.T) {
 		c := newGucProbeCache(slog.Default())
 		c.probe = func(_ context.Context, _ string) (int32, error) {
 			// The config mutation completes — and invalidates — while this
@@ -82,11 +106,65 @@ func TestGucProbeCache(t *testing.T) {
 			c.invalidate()
 			return 100, nil
 		}
-		assert.Equal(t, int32(100), c.get(ctx, "max_connections"), "in-flight caller still gets its result")
+		// The batch straddles two configs, so the caller must see unknown
+		// rather than a value that may belong to either one.
+		_, known := c.get(ctx, "max_connections")
+		assert.False(t, known, "a batch that raced an invalidation reports unknown")
 
-		// The stale result must NOT have been published: the next get
-		// re-probes and sees the post-mutation value.
+		// Nothing was published: the next get re-probes and sees the
+		// post-mutation value.
 		c.probe = func(_ context.Context, _ string) (int32, error) { return 20, nil }
-		assert.Equal(t, int32(20), c.get(ctx, "max_connections"))
+		v, known := c.get(ctx, "max_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(20), v)
+	})
+
+	t.Run("cached values are withheld too when an invalidation races the batch", func(t *testing.T) {
+		c := newGucProbeCache(slog.Default())
+		c.probe = func(_ context.Context, _ string) (int32, error) { return 100, nil }
+		v, known := c.get(ctx, "max_connections")
+		require.True(t, known)
+		require.Equal(t, int32(100), v)
+
+		// A two-GUC batch: max_connections is served from cache, the cold
+		// reserved probe races an invalidation. Returning the cached 100
+		// next to nothing would still let the caller pair a pre-mutation
+		// value with post-mutation ones on a later call — the whole batch
+		// must come back unknown.
+		c.probe = func(_ context.Context, _ string) (int32, error) {
+			c.invalidate()
+			return 10, nil
+		}
+		got := c.getAll(ctx, "max_connections", "reserved_connections")
+		assert.Empty(t, got, "the entire snapshot is discarded on generation mismatch")
+	})
+
+	t.Run("failed probes retry after the bounded interval", func(t *testing.T) {
+		calls := 0
+		c := newGucProbeCache(slog.Default())
+		c.probe = func(_ context.Context, _ string) (int32, error) {
+			calls++
+			if calls == 1 {
+				return 0, errors.New("transient")
+			}
+			return 20, nil
+		}
+		clock := time.Now()
+		c.now = func() time.Time { return clock }
+
+		_, known := c.get(ctx, "superuser_reserved_connections")
+		assert.False(t, known)
+		_, known = c.get(ctx, "superuser_reserved_connections")
+		assert.False(t, known)
+		assert.Equal(t, 1, calls, "within the interval the failure is honored without re-probing")
+
+		// After the interval the failure expires and the probe is retried —
+		// a transient failure cannot pin unknown until the next config
+		// mutation.
+		clock = clock.Add(gucFailureRetryInterval)
+		v, known := c.get(ctx, "superuser_reserved_connections")
+		assert.True(t, known)
+		assert.Equal(t, int32(20), v)
+		assert.Equal(t, 2, calls)
 	})
 }
