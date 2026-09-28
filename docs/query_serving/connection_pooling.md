@@ -900,11 +900,13 @@ globalReservedCapacity = globalCapacity * reservedRatio
 | Flag                        | Default    | Env Var                                        | Description                                            |
 | --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
 | `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
-| (no password flag)          | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password — env vars or `--connpool-admin-password-file` only; a password CLI flag would be visible in `ps` |
+| (no password flag)          | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password (env or file only)       |
 | `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
 
 `CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
-takes precedence over `POSTGRES_PASSWORD` when both are set.
+takes precedence over `POSTGRES_PASSWORD` when both are set. There is deliberately no
+password CLI flag — a password on the command line is visible in `ps` and shell
+history; use the env vars or `--connpool-admin-password-file`.
 
 > **Deprecated:** `--connpool-admin-user`, `CONNPOOL_ADMIN_USER`, and
 > `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
