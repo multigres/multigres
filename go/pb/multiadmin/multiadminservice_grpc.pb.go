@@ -57,7 +57,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+// MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceClient interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error)
@@ -77,7 +77,7 @@ type MultiadminServiceClient interface {
 	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
 	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(ctx context.Context, in *ExpireBackupsRequest, opts ...grpc.CallOption) (*ExpireBackupsResponse, error)
@@ -307,7 +307,7 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchP
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
 //
-// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+// MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceServer interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error)
@@ -327,7 +327,7 @@ type MultiadminServiceServer interface {
 	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
 	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error)

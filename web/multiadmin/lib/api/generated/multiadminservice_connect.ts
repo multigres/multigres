@@ -21,7 +21,7 @@ import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, Back
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * MultiadminService provides administrative gRPC APIs for querying cluster metadata
+ * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
  *
  * @generated from service multiadmin.MultiadminService
  */
@@ -128,7 +128,7 @@ export const MultiadminService = {
       kind: MethodKind.Unary,
     },
     /**
-     * GetBackups lists backup artifacts with optional filtering
+     * GetBackups lists backup artifacts for a database and table group.
      *
      * @generated from rpc multiadmin.MultiadminService.GetBackups
      */

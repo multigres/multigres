@@ -123,7 +123,7 @@ type MultiadminServiceClient interface {
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
@@ -415,7 +415,7 @@ type MultiadminServiceHandler interface {
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)

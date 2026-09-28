@@ -11,6 +11,7 @@ to use Multigres for your applications, please refer to the
 - **[Working with us](./teamwork.md)**
 - **[Github workflow](./workflow.md)**
 - **[Contributing](./contributing.md)**
+- **[Multiadmin REST API and OpenAPI specification](./api/)**
 
 ## Design Documents
 

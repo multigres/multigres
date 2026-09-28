@@ -22,48 +22,213 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
+import "openapiv3/annotations.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
-// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+// REST documentation is generated from these annotations by make proto.
+option (openapi.v3.document) = {
+  info: {
+    title: "Multigres Multiadmin REST API"
+    version: "v1"
+    description:
+      "Administrative REST API for open-source Multigres clusters, served by the Vanguard transcoder. "
+      "Use the HTTP address of your multiadmin instance as the base URL. "
+      "Bearer JWT authentication is enforced when multiadmin runs with --enable-auth. "
+      "JSON uses camelCase field names, string enum names, decimal strings for 64-bit integers, "
+      "RFC 3339 timestamps, and protobuf durations such as 1.500s. Default-valued fields may be omitted.\n\n"
+      "Errors use google.rpc.Status JSON: code is a numeric gRPC code (not the HTTP status), "
+      "message is diagnostic text, and details contains typed objects with an @type field. "
+      "Use code rather than message text to identify errors. "
+      "HTTP mappings: 400 InvalidArgument/FailedPrecondition/OutOfRange; 401 Unauthenticated; "
+      "403 PermissionDenied; 404 NotFound; 409 AlreadyExists/Aborted; 429 ResourceExhausted; "
+      "499 Canceled; 500 Unknown/Internal/DataLoss; 501 Unimplemented; 503 Unavailable; "
+      "504 DeadlineExceeded. Proxy or routing errors can have non-JSON bodies; inspect Content-Type."
+    license: {name: "Apache-2.0" url: "https://www.apache.org/licenses/LICENSE-2.0.html"}
+  }
+  servers: {url: "/" description: "Multiadmin HTTP server. Set the base URL to your deployment when using a client."}
+  security: {additional_properties: {name: "BearerAuth" value: {}}}
+  tags: {name: "cells" description: "Cluster cells and orchestrators."}
+  tags: {name: "databases" description: "Database metadata."}
+  tags: {name: "backups" description: "Backup creation, inventory, expiration, and verification."}
+  tags: {name: "poolers" description: "Pooler discovery, status, and PostgreSQL monitoring."}
+  tags: {name: "gateways" description: "Gateway discovery and query diagnostics."}
+  tags: {name: "shards" description: "Shard rule changes and primary switchovers."}
+  tags: {name: "jobs" description: "Asynchronous backup and restore jobs."}
+  components: {
+    security_schemes: {
+      additional_properties: {
+        name: "BearerAuth"
+        value: {security_scheme: {
+          type: "http" scheme: "bearer" bearer_format: "JWT"
+          description: "Send Authorization: Bearer <JWT> when --enable-auth is enabled."
+        }}
+      }
+    }
+    responses: {
+      additional_properties: {
+        name: "RPCError"
+        value: {response: {
+          description: "Vanguard REST error. See the API description for numeric gRPC code to HTTP status mappings."
+          content: {additional_properties: {
+            name: "application/json"
+            value: {schema: {reference: {_ref: "#/components/schemas/google.rpc.Status"}}}
+          }}
+        }}
+      }
+    }
+  }
+};
+
+// MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 service MultiadminService {
   // GetCell retrieves information about a specific cell
   rpc GetCell(GetCellRequest) returns (GetCellResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a cell"
+      tags: "cells"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/cells/{name}"};
   }
 
   // GetDatabase retrieves information about a specific database
   rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a database"
+      tags: "databases"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/databases/{name}"};
   }
 
   // GetCellNames retrieves all cell names in the cluster
   rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List cell names"
+      tags: "cells"
+      responses: {
+        response_or_reference: {name: "200" value: {response: {
+          description: "Success"
+          content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.GetCellNamesResponse"}}
+            example: {yaml: '{"names":["zone-a","zone-b"]}'}
+          }
+        }}
+        }}}
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/cells"};
   }
 
   // GetDatabaseNames retrieves all database names in the cluster
   rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List database names"
+      tags: "databases"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/databases"};
   }
 
   // GetGateways retrieves gateways filtered by cells
   rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List gateways"
+      tags: "gateways"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/gateways"};
   }
 
   // GetPoolers retrieves poolers filtered by cells and/or database
   rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List poolers"
+      tags: "poolers"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/poolers"};
   }
 
   // GetOrchs retrieves orchestrators filtered by cells
   rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List orchestrators"
+      tags: "cells"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/orchs"};
   }
 
   // Backup starts an async backup of a specific shard
   rpc Backup(BackupRequest) returns (BackupResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Start a backup"
+      tags: "backups"
+      request_body: {request_body: {
+        required: true
+        content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.BackupRequest"}}
+            example: {yaml: '{"database":"postgres","tableGroup":"default","shard":"0","type":"full"}'}
+          }
+        }}
+      }}
+      responses: {
+        response_or_reference: {name: "200" value: {response: {
+          description: "Success"
+          content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.BackupResponse"}}
+            example: {yaml: '{"jobId":"backup-example"}'}
+          }
+        }}
+        }}}
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/backups"
       body: "*"
@@ -72,16 +237,72 @@ service MultiadminService {
 
   // GetBackupJobStatus checks the status of a backup or restore job
   rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get backup or restore job status"
+      tags: "jobs"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/jobs/{job_id}"};
   }
 
-  // GetBackups lists backup artifacts with optional filtering
+  // GetBackups lists backup artifacts for a database and table group.
   rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List backups"
+      tags: "backups"
+      parameters: {parameter: {name: "database" in: "query" required: true}}
+      parameters: {parameter: {name: "tableGroup" in: "query" required: true}}
+      responses: {
+        response_or_reference: {name: "200" value: {response: {
+          description: "Success"
+          content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.GetBackupsResponse"}}
+            example: {yaml:
+              '{"backups":[{"backupId":"20000101-000000F","database":"postgres",'
+              '"tableGroup":"default","shard":"0","type":"full","status":"BACKUP_STATUS_COMPLETE",'
+              '"backupSizeBytes":"1048576","startTimestamp":"2000-01-01T00:00:00Z"}]}'
+            }
+          }
+        }}
+        }}}
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/backups"};
   }
 
   // ExpireBackups removes old backups according to retention policy
   rpc ExpireBackups(ExpireBackupsRequest) returns (ExpireBackupsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Expire backups"
+      tags: "backups"
+      request_body: {request_body: {
+        required: true
+        content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.ExpireBackupsRequest"}}
+            example: {yaml: '{"database":"postgres","tableGroup":"default","shard":"0"}'}
+          }
+        }}
+      }}
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/backups/expire"
       body: "*"
@@ -90,6 +311,36 @@ service MultiadminService {
 
   // VerifyBackups runs pgbackrest verify for a shard.
   rpc VerifyBackups(VerifyBackupsRequest) returns (VerifyBackupsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Verify backups"
+      tags: "backups"
+      request_body: {request_body: {
+        required: true
+        content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.VerifyBackupsRequest"}}
+            example: {yaml: '{"database":"postgres","tableGroup":"default","shard":"0"}'}
+          }
+        }}
+      }}
+      responses: {
+        response_or_reference: {name: "200" value: {response: {
+          description: "Success"
+          content: {additional_properties: {
+          name: "application/json"
+          value: {
+            schema: {reference: {_ref: "#/components/schemas/multiadmin.VerifyBackupsResponse"}}
+            example: {yaml: '{"duration":"1.500s"}'}
+          }
+        }}
+        }}}
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/backups/verify"
       body: "*"
@@ -103,6 +354,16 @@ service MultiadminService {
   // GetPoolerStatus retrieves the unified status of a specific pooler.
   // This proxies the request to the target pooler's MultipoolerManager.Status RPC.
   rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get pooler status"
+      tags: "poolers"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"};
   }
 
@@ -113,6 +374,16 @@ service MultiadminService {
   // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
   // This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
   rpc SetPostgresRestartsEnabled(SetPostgresRestartsEnabledRequest) returns (SetPostgresRestartsEnabledResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Set automatic PostgreSQL restarts"
+      tags: "poolers"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"
       body: "*"
@@ -127,6 +398,16 @@ service MultiadminService {
   // specific multigateway. This proxies the request to the target gateway's
   // MultigatewayManager.GetQueryRegistry RPC.
   rpc GetGatewayQueries(GetGatewayQueriesRequest) returns (GetGatewayQueriesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List gateway queries"
+      tags: "gateways"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"};
   }
 
@@ -134,6 +415,16 @@ service MultiadminService {
   // snapshot of a specific multigateway. This proxies the request to the
   // target gateway's MultigatewayManager.GetConsolidatorStats RPC.
   rpc GetGatewayConsolidator(GetGatewayConsolidatorRequest) returns (GetGatewayConsolidatorResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get gateway consolidator statistics"
+      tags: "gateways"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"};
   }
 
@@ -150,6 +441,16 @@ service MultiadminService {
   // the proposed cohort. Multiadmin then forwards the request to the shard's
   // multiorch.
   rpc ApplyCertifiedRuleChange(ApplyCertifiedRuleChangeRequest) returns (ApplyCertifiedRuleChangeResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Apply a certified shard rule change"
+      tags: "shards"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"
       body: "*"
@@ -163,6 +464,16 @@ service MultiadminService {
   // old primary has been quiesced — it does not wait for the new leader to
   // appear.
   rpc SwitchPrimary(SwitchPrimaryRequest) returns (SwitchPrimaryResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Switch the shard primary"
+      tags: "shards"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
     option (google.api.http) = {
       post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
       body: "*"
@@ -178,7 +489,7 @@ message GetCellRequest {
 
 // GetCellResponse contains the cell information
 message GetCellResponse {
-  // cell contains the Cell protobuf object
+  // Cell metadata.
   clustermetadata.Cell cell = 1;
 }
 
@@ -190,7 +501,7 @@ message GetDatabaseRequest {
 
 // GetDatabaseResponse contains the database information
 message GetDatabaseResponse {
-  // database contains the Database protobuf object
+  // Database metadata.
   clustermetadata.Database database = 1;
 }
 
@@ -214,7 +525,7 @@ message GetDatabaseNamesResponse {
 
 // GetGatewaysRequest requests gateways with optional filtering
 message GetGatewaysRequest {
-  // cells is a comma-separated list of cell names to filter by (optional)
+  // Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
   repeated string cells = 1;
   // only_reachable drops gateways whose grpc address does not accept a TCP
   // connection, filtering out stale registrations left by dead pods.
@@ -223,12 +534,13 @@ message GetGatewaysRequest {
 
 // GetGatewaysResponse contains the filtered gateways
 message GetGatewaysResponse {
+  // Gateways matching the requested cells.
   repeated clustermetadata.Multigateway gateways = 1;
 }
 
 // GetPoolersRequest requests poolers with optional filtering
 message GetPoolersRequest {
-  // cells is a comma-separated list of cell names to filter by (optional)
+  // Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
   repeated string cells = 1;
   // database name to filter by (optional)
   string database = 2;
@@ -238,17 +550,19 @@ message GetPoolersRequest {
 
 // GetPoolersResponse contains the filtered poolers
 message GetPoolersResponse {
+  // Poolers matching the requested cells, database, and shard.
   repeated clustermetadata.Multipooler poolers = 1;
 }
 
 // GetOrchsRequest requests orchestrators with optional filtering
 message GetOrchsRequest {
-  // cells is a comma-separated list of cell names to filter by (optional)
+  // Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
   repeated string cells = 1;
 }
 
 // GetOrchsResponse contains the filtered orchestrators
 message GetOrchsResponse {
+  // Orchestrators matching the requested cells.
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated clustermetadata.Multiorch orchs = 1;
 }
@@ -336,13 +650,13 @@ enum JobStatus {
 
 // GetBackups operation messages
 
-// GetBackupsRequest requests a list of backup artifacts with optional filtering
+// GetBackupsRequest selects a backup repository and limits the returned inventory.
 message GetBackupsRequest {
-  // database name to filter by (optional, empty means all databases)
+  // Database whose backup inventory to query (required).
   string database = 1;
-  // table_group name to filter by (optional, empty means all table groups)
+  // Table group whose backup inventory to query (required).
   string table_group = 2;
-  // shard name to filter by (optional, empty means all shards)
+  // Shard context. Pooler selection currently uses database and table_group.
   string shard = 3;
   // limit on number of results (optional, 0 means no limit)
   uint32 limit = 4;
@@ -356,10 +670,14 @@ message GetBackupsResponse {
 
 // ExpireBackupsRequest requests expiration of old backups
 message ExpireBackupsRequest {
+  option (openapi.v3.schema) = {
+    required: "database"
+    required: "tableGroup"
+  };
   // database name (required)
-  string database = 1;
+  string database = 1 [(openapi.v3.property) = {min_length: 1}];
   // table_group name (required)
-  string table_group = 2;
+  string table_group = 2 [(openapi.v3.property) = {min_length: 1}];
   // shard name (required)
   string shard = 3;
   // Optional overrides for pgbackrest expire command-line flags.
@@ -374,17 +692,24 @@ message ExpireBackupsResponse {
 
 // VerifyBackupsRequest requests a stanza-wide verify run.
 message VerifyBackupsRequest {
+  option (openapi.v3.schema) = {
+    required: "database"
+    required: "tableGroup"
+    required: "shard"
+  };
   // database name (required)
-  string database = 1;
+  string database = 1 [(openapi.v3.property) = {min_length: 1}];
   // table_group name (required)
-  string table_group = 2;
+  string table_group = 2 [(openapi.v3.property) = {min_length: 1}];
   // shard name (required)
-  string shard = 3;
+  string shard = 3 [(openapi.v3.property) = {min_length: 1}];
 }
 
 // VerifyBackupsResponse contains the result of a verify run.
 message VerifyBackupsResponse {
+  // Elapsed verification time, encoded as protobuf seconds (for example, "1.500s").
   google.protobuf.Duration duration = 1;
+  // Diagnostic output from pgbackrest verify.
   string raw_output = 2;
 }
 
@@ -513,6 +838,16 @@ message GetGatewayConsolidatorResponse {
 // looking up a multiorch in the shard's cell and using "now" for timestamps,
 // then forwards the fully-populated request to that multiorch.
 message ApplyCertifiedRuleChangeRequest {
+  option (openapi.v3.schema) = {
+    any_of: {schema: {
+      required: "cert"
+      properties: {additional_properties: {name: "cert" value: {schema: {}}}}
+    }}
+    any_of: {schema: {
+      required: "unsafeDeriveCert"
+      properties: {additional_properties: {name: "unsafeDeriveCert" value: {schema: {}}}}
+    }}
+  };
   // Shard to apply the rule change to.
   clustermetadata.ShardKey shard_key = 1;
 
@@ -568,6 +903,7 @@ message UnsafeDeriveCertOptions {
   // Reserved for future tuning knobs (probe timeout, cohort subset, etc.).
 }
 
+// ApplyCertifiedRuleChangeResponse contains the installed rule and the certificate used.
 message ApplyCertifiedRuleChangeResponse {
   // The fully-populated rule that was installed, after multiadmin filled in
   // any identity fields the caller omitted.
@@ -581,6 +917,7 @@ message ApplyCertifiedRuleChangeResponse {
 
 // SwitchPrimary operation messages
 
+// SwitchPrimaryRequest identifies the shard and the audit reason for a graceful switchover.
 message SwitchPrimaryRequest {
   // Shard to perform the switchover on (required).
   clustermetadata.ShardKey shard_key = 1;
@@ -589,6 +926,7 @@ message SwitchPrimaryRequest {
   string reason = 2;
 }
 
+// SwitchPrimaryResponse identifies the demoted pooler; election of its replacement is asynchronous.
 message SwitchPrimaryResponse {
   // The pooler that was demoted.
   clustermetadata.ID old_leader_id = 1;
