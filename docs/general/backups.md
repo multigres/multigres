@@ -132,6 +132,72 @@ same in reverse: both sides authenticate. Cert/key/CA material is expected
 to already be provisioned (e.g. mounted from a secret store); Multigres
 doesn't generate certificates itself.
 
+## WAL archiving
+
+The primary's `archive_command` is `pgbackrest archive-push`, rendered with
+`archive-async=y` for every repository count. In synchronous mode each WAL
+segment costs a full process start, config load, repo connection and
+`archive.info` read, and pgBackRest cannot push more than one segment per
+invocation, so `[global:archive-push] process-max` buys no parallelism
+there. In asynchronous mode the first invocation forks one detached
+archive-push process that drains `pg_wal/archive_status` in parallel over a
+reused connection, and every later invocation just looks for that process's
+acknowledgement. With more than one repository async is also what keeps a
+down repository from holding the healthy ones one segment behind.
+
+What this does and does not change for durability:
+
+- postgres is only told a segment is archived once the async process has
+  written it to the repository and left a `<segment>.ok` file in the spool.
+  WAL stays in `pg_wal` until then; a storage outage shows up as
+  `archive_command` failures and a growing `archive_status` backlog, exactly
+  as before, and archiving resumes on its own when storage recovers.
+- `archive-push-queue-max` is deliberately unset. With a limit pgBackRest
+  acknowledges and drops WAL once the backlog exceeds it, which silently
+  breaks PITR. The trade-off is unchanged from synchronous mode: if the
+  repository stays unreachable, WAL fills the primary's disk.
+- `spool-path` (`<pooler-dir>/pgbackrest/spool`) holds those tiny ack files
+  for archive-push and up to `archive-get-queue-max` (128MiB) of prefetched
+  WAL for archive-get. It needs no extra provisioning. pgBackRest prunes an
+  ack only when a later async run finds no matching `.ready` file, and it
+  trusts any ack it finds, so the spool must not survive a restart of the
+  host's WAL history: timeline IDs keep segment names unique within one
+  cluster, but a fresh `initdb` against a fresh repository in a reused
+  pooler directory could recycle a same-named segment that never reached
+  the repository. Nothing clears the spool today.
+- archive-push runs as the postgres OS user and now writes to `spool-path`
+  and takes a lock in `lock-path`, both created by multipooler. That works
+  because multipooler and postgres share a uid (postgres already has to read
+  the 0600 `pgbackrest.conf`). A uid split fails loudly: the foreground
+  archive-push reports the permission error in the postgres log, and the
+  bootstrap-time `pgbackrest check` aborts cluster creation.
+- `archive-async` also applies to `restore_command` (`archive-get`): a
+  standby catching up from the archive prefetches segments into the spool.
+  Its prefetcher detaches from the restore-wrapper's process group, so
+  `StopRestoreCommand` may leave it running until its queue is filled; it
+  only writes to the spool and never into `pg_wal`, and if it still holds
+  the archive lock when the node is promoted, the first async archive-push
+  waits it out (bounded by one prefetch batch) and postgres retries.
+
+`[global:archive-push] process-max` now matters: in synchronous mode it was
+inert, in asynchronous mode it is the number of segments pushed in
+parallel. It is fixed at 2 for now: the other process-max values are derived
+from `runtime.NumCPU()`, the node's CPU count, and a small pod on a large
+node must not fan out compression across node-sized parallelism. Tuning it
+from measurements is a follow-up.
+
+### Rolling out and rolling back
+
+The change is in the rendered `pgbackrest.conf`, which multipooler writes at
+startup; a restart of multipooler on each pod is enough, and postgres picks
+up the new mode on its next `archive_command` invocation. After rollout,
+watch `pg_stat_archiver` (`failed_count`, `last_failed_wal`) and the
+`archive_status` backlog on the primary, and check
+`<pooler-dir>/pgbackrest/log/multigres-archive-push-async.log` exists. To
+roll back, deploy the previous multipooler image and restart it: the conf is
+re-rendered with `archive-async=n`, in-flight async pushes finish or are
+retried by postgres, and nothing in the repository or WAL changes shape.
+
 ## Ongoing backups default to replicas
 
 Ad hoc and scheduled backups both go through the same path: the `multigres`
