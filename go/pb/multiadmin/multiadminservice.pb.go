@@ -2869,17 +2869,21 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x03401\x12#\x12!\n" +
 	"\x1f#/components/responses/RPCError\x12*\n" +
 	"\x03404\x12#\x12!\n" +
-	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primaryB\xff\x0e\xbaG\xca\x0e\x12\xcd\b\n" +
-	"\x1dMultigres Multiadmin REST API\x12\xe7\aAdministrative REST API for open-source Multigres clusters, served by the Vanguard transcoder. Use the HTTP address of your multiadmin instance as the base URL. Bearer JWT authentication is enforced when multiadmin runs with --enable-auth. JSON uses camelCase field names, string enum names, decimal strings for 64-bit integers, RFC 3339 timestamps, and protobuf durations such as 1.500s. Default-valued fields may be omitted.\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primaryB\xcc\x17\xbaG\x97\x17\x12\xbb\x10\n" +
+	"\x1dMultigres Multiadmin REST API\x12\xd5\x0fAdministrative REST API for open-source Multigres clusters, served by the Vanguard transcoder. Use the HTTP address of your multiadmin instance as the base URL. Bearer JWT authentication is enforced when multiadmin runs with --enable-auth. JSON uses camelCase field names, string enum names, decimal strings for 64-bit integers, RFC 3339 timestamps, and protobuf durations such as 1.500s. Default-valued fields may be omitted.\n" +
 	"\n" +
-	"Errors use google.rpc.Status JSON: code is a numeric gRPC code (not the HTTP status), message is diagnostic text, and details contains typed objects with an @type field. Use code rather than message text to identify errors. HTTP mappings: 400 InvalidArgument/FailedPrecondition/OutOfRange; 401 Unauthenticated; 403 PermissionDenied; 404 NotFound; 409 AlreadyExists/Aborted; 429 ResourceExhausted; 499 Canceled; 500 Unknown/Internal/DataLoss; 501 Unimplemented; 503 Unavailable; 504 DeadlineExceeded. Proxy or routing errors can have non-JSON bodies; inspect Content-Type.*>\n" +
+	"Errors use google.rpc.Status JSON: code is a numeric gRPC code (not the HTTP status), message is diagnostic text, and details contains typed objects with an @type field. Use the numeric code together with the operation's error and recovery guidance; current handlers do not consistently preserve dependency failures. The Connect adapter currently discards gRPC status details, including mtrpc.RPCError application codes. Clients must tolerate missing details and must not parse diagnostic messages as stable error identifiers. HTTP mappings: 400 InvalidArgument/FailedPrecondition/OutOfRange; 401 Unauthenticated; 403 PermissionDenied; 404 NotFound; 409 AlreadyExists/Aborted; 429 ResourceExhausted; 499 Canceled; 500 Unknown/Internal/DataLoss; 501 Unimplemented; 503 Unavailable; 504 DeadlineExceeded. Proxy or routing errors can have non-JSON bodies; inspect Content-Type.\n" +
+	"\n" +
+	"Error handling: InvalidArgument (3) requires a corrected request; FailedPrecondition (9) requires a change in cluster state. Both use HTTP 400. NotFound (5) normally indicates absence, but backup lookups can also return it when a pooler could not be queried. Unavailable (14) and DeadlineExceeded (4) can reflect dependency failures; reads can retry with bounded backoff. Internal (13) and Unknown (2) can mask downstream failures. See each operation for exceptions.\n" +
+	"\n" +
+	"Mutation errors, timeouts, and lost responses do not guarantee rollback. Reconcile cluster state before retrying rule changes or switchovers. Backup creation success means a job was accepted; poll job status for its eventual outcome.*>\n" +
 	"\n" +
 	"Apache-2.0\x120https://www.apache.org/licenses/LICENSE-2.0.html2\x02v1\x1aU\n" +
-	"\x01/\x12PMultiadmin HTTP server. Set the base URL to your deployment when using a client.*\x9f\x02\x12\xb4\x01\n" +
-	"\xb1\x01\n" +
-	"\bRPCError\x12\xa4\x01\n" +
-	"\xa1\x01\n" +
-	"[Vanguard REST error. See the API description for numeric gRPC code to HTTP status mappings.\x1aB\n" +
+	"\x01/\x12PMultiadmin HTTP server. Set the base URL to your deployment when using a client.*\xfe\x02\x12\x93\x02\n" +
+	"\x90\x02\n" +
+	"\bRPCError\x12\x83\x02\n" +
+	"\x80\x02\n" +
+	"\xb9\x01Vanguard REST error. The numeric code uses gRPC values. See the operation description for current classification exceptions and recovery guidance; mutation errors do not imply rollback.\x1aB\n" +
 	"@\n" +
 	"\x10application/json\x12,\n" +
 	"*\x12(\n" +

@@ -60,42 +60,135 @@ const (
 // MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceClient interface {
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(ctx context.Context, in *GetCellNamesRequest, opts ...grpc.CallOption) (*GetCellNamesResponse, error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(ctx context.Context, in *GetDatabaseNamesRequest, opts ...grpc.CallOption) (*GetDatabaseNamesResponse, error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(ctx context.Context, in *GetGatewaysRequest, opts ...grpc.CallOption) (*GetGatewaysResponse, error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(ctx context.Context, in *ExpireBackupsRequest, opts ...grpc.CallOption) (*ExpireBackupsResponse, error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -105,6 +198,16 @@ type MultiadminServiceClient interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -112,6 +215,15 @@ type MultiadminServiceClient interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error)
 }
 
@@ -310,42 +422,135 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchP
 // MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
 type MultiadminServiceServer interface {
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(context.Context, *GetDatabaseNamesRequest) (*GetDatabaseNamesResponse, error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(context.Context, *GetGatewaysRequest) (*GetGatewaysResponse, error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -355,6 +560,16 @@ type MultiadminServiceServer interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -362,6 +577,15 @@ type MultiadminServiceServer interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
