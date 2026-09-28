@@ -34,6 +34,15 @@ import (
 // multipooler's monitor polls Status with a cancel-only context.
 const gucProbeTimeout = 5 * time.Second
 
+// gucFailureRetryInterval bounds how long a failed probe is cached before the
+// next get retries it. Failures must be cached (Status is polled every ~5s;
+// forking a doomed probe per poll would be wasteful) but not until the next
+// config mutation: a transiently failed probe after a restart would otherwise
+// pin a stale value in downstream consumers — e.g. the multipooler's seed
+// budget carrying a pre-restart reserve next to a post-restart
+// max_connections — for an unbounded window.
+const gucFailureRetryInterval = time.Minute
+
 // gucProbeCache caches effective numeric GUC values probed via
 // `postgres -C <name>`, which resolves include directives and
 // postgresql.auto.conf and works whether or not the server is running.
@@ -59,20 +68,26 @@ type gucProbeCache struct {
 	// probe runs one GUC lookup and is replaceable in tests. The default
 	// forks `postgres -C`.
 	probe func(ctx context.Context, name string) (int32, error)
+	// now is replaceable in tests to exercise the failure-retry interval.
+	now func() time.Time
 
 	mu  sync.Mutex
 	gen uint64
-	// values holds probed results; -1 marks a cached failure ("known
-	// unknown" — do not re-probe until the next invalidation). Valid values
-	// are >= 0.
+	// values holds successfully probed results (>= 0).
 	values map[string]int32
+	// failures records when a probe last failed; the failure is honored as
+	// "known unknown" (no re-probe) until gucFailureRetryInterval elapses or
+	// the next invalidation, whichever comes first.
+	failures map[string]time.Time
 }
 
 func newGucProbeCache(logger *slog.Logger) *gucProbeCache {
 	return &gucProbeCache{
-		logger: logger,
-		probe:  probePostgresGuc,
-		values: make(map[string]int32),
+		logger:   logger,
+		probe:    probePostgresGuc,
+		now:      time.Now,
+		values:   make(map[string]int32),
+		failures: make(map[string]time.Time),
 	}
 }
 
@@ -108,24 +123,27 @@ func (c *gucProbeCache) get(ctx context.Context, name string) (int32, bool) {
 
 // getAll returns the known values among the named GUCs (absent map entry =
 // unknown). All probes for cold names run concurrently under one shared
-// generation snapshot, so a Status response built from one getAll call is
-// internally consistent (an invalidation landing mid-call discards every
-// in-flight result rather than letting the response mix values from two
-// configs) and the worst-case blocking time stays one gucProbeTimeout
+// generation snapshot, and the whole batch — cached values included — is
+// discarded when an invalidation lands mid-call: the caller then sees every
+// GUC as unknown rather than a response mixing values from two configs (a
+// probe that ran across the mutation may have read the new conf while the
+// cached entries predate it). Worst-case blocking stays one gucProbeTimeout
 // regardless of how many GUCs are cold.
 func (c *gucProbeCache) getAll(ctx context.Context, names ...string) map[string]int32 {
 	known := make(map[string]int32, len(names))
 	var missing []string
 	c.mu.Lock()
 	gen := c.gen
+	now := c.now()
 	for _, name := range names {
 		if v, ok := c.values[name]; ok {
-			if v >= 0 {
-				known[name] = v
-			}
-		} else {
-			missing = append(missing, name)
+			known[name] = v
+			continue
 		}
+		if failedAt, ok := c.failures[name]; ok && now.Sub(failedAt) < gucFailureRetryInterval {
+			continue // known unknown; retry only after the interval
+		}
+		missing = append(missing, name)
 	}
 	c.mu.Unlock()
 	if len(missing) == 0 || !pgctld.IsDataDirInitialized() {
@@ -138,7 +156,7 @@ func (c *gucProbeCache) getAll(ctx context.Context, names ...string) map[string]
 		wg.Go(func() {
 			results[i] = -1
 			if v, err := c.probe(ctx, name); err != nil {
-				c.logger.WarnContext(ctx, "could not determine effective GUC value; reporting unknown until the next start/restart/reload",
+				c.logger.WarnContext(ctx, "could not determine effective GUC value; retrying after the next start/restart/reload or a bounded interval",
 					"guc", name, "error", err)
 			} else {
 				results[i] = v
@@ -147,12 +165,21 @@ func (c *gucProbeCache) getAll(ctx context.Context, names ...string) map[string]
 	}
 	wg.Wait()
 
-	// Publish only if no invalidation ran while the probes were in flight; a
-	// discarded batch leaves the cache empty for the next poll to retry.
 	c.mu.Lock()
-	if c.gen == gen {
-		for i, name := range missing {
+	if c.gen != gen {
+		// An invalidation raced the probes: the probe results may reflect
+		// the new config while the cached values reflect the old one.
+		// Publish nothing and report everything unknown; the next poll
+		// re-probes under the new generation.
+		c.mu.Unlock()
+		return map[string]int32{}
+	}
+	for i, name := range missing {
+		if results[i] >= 0 {
 			c.values[name] = results[i]
+			delete(c.failures, name)
+		} else {
+			c.failures[name] = now
 		}
 	}
 	c.mu.Unlock()
@@ -173,4 +200,5 @@ func (c *gucProbeCache) invalidate() {
 	defer c.mu.Unlock()
 	c.gen++
 	clear(c.values)
+	clear(c.failures)
 }

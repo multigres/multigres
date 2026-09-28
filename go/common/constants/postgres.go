@@ -23,7 +23,7 @@ import (
 // The identity/secrets environment contract between pgctld and multipooler.
 //
 // A colocated pgctld + multipooler pair agrees on the PostgreSQL identity
-// (database, superuser role) and its credential exclusively through the
+// (database, superuser role) and its credential by default through the
 // environment: both processes independently read the same variables with the
 // same defaults and the same precedence rules. This is a deliberate contract,
 // not a coincidence — deployments (the local provisioner, the cluster image,
@@ -40,6 +40,14 @@ import (
 //     visible in `ps` and shell history.
 //   - PgDataDirEnvVar (PGDATA): the PostgreSQL data directory. pgctld
 //     initializes and manages it; the multipooler requires it at startup.
+//
+// Per-service overrides remain: pgctld's --pg-database/--pg-user flags, the
+// multipooler's --database flag, and the deprecated CONNPOOL_ADMIN_USER /
+// CONNPOOL_ADMIN_PASSWORD variables (which the multipooler consults before
+// the POSTGRES_* ones). The contract therefore holds by default, not by
+// construction: an override set on one side of the pair without the other
+// breaks the pairing, and keeping overrides consistent is the deployment's
+// responsibility.
 //
 // Values pgctld owns operationally (ports, pooler directory, pgBackRest
 // endpoint) travel over its Status RPC instead — see the multipooler's
