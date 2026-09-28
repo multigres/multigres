@@ -1690,3 +1690,19 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 		require.Equal(t, "zone2", zone2FromZone1.Id.Cell)
 	})
 }
+
+func TestMultipoolerIncarnationAndConditionalDelete(t *testing.T) {
+	ts := memorytopo.NewServer(t.Context(), "zone1")
+	defer ts.Close()
+	first := topoclient.NewMultipooler("member", "zone1", "host")
+	second := topoclient.NewMultipooler("member", "zone1", "host")
+	require.NotEmpty(t, first.IncarnationId)
+	require.NotEqual(t, first.IncarnationId, second.IncarnationId)
+	require.NoError(t, ts.CreateMultipooler(t.Context(), first))
+	conn, err := ts.ConnForCell(t.Context(), "zone1")
+	require.NoError(t, err)
+	err = topoclient.DeleteMultipoolerFromConn(t.Context(), conn, first.Id, nil)
+	require.ErrorIs(t, err, &topoclient.TopoError{Code: topoclient.BadInput})
+	_, err = ts.GetMultipooler(t.Context(), first.Id)
+	require.NoError(t, err)
+}

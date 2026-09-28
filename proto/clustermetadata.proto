@@ -231,6 +231,12 @@ message Multipooler {
   // that publish path (pooler_record.go), not a constraint of the
   // RoutingState message itself — see RoutingState below.
   RoutingState routing_state = 13;
+
+  // incarnation_id identifies this process lifetime. Generated at startup and
+  // preserved across publication retries; a restarted or replacement process
+  // gets a new value even when its ID and addresses are reused. Older processes
+  // leave this empty and cannot be retired through the conditional public API.
+  string incarnation_id = 14;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.

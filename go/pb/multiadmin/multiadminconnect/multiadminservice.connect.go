@@ -47,6 +47,18 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MultiadminServiceCreateCellProcedure is the fully-qualified name of the MultiadminService's
+	// CreateCell RPC.
+	MultiadminServiceCreateCellProcedure = "/multiadmin.MultiadminService/CreateCell"
+	// MultiadminServiceCreateDatabaseProcedure is the fully-qualified name of the MultiadminService's
+	// CreateDatabase RPC.
+	MultiadminServiceCreateDatabaseProcedure = "/multiadmin.MultiadminService/CreateDatabase"
+	// MultiadminServiceGetPoolerRegistrationProcedure is the fully-qualified name of the
+	// MultiadminService's GetPoolerRegistration RPC.
+	MultiadminServiceGetPoolerRegistrationProcedure = "/multiadmin.MultiadminService/GetPoolerRegistration"
+	// MultiadminServiceRetirePoolerProcedure is the fully-qualified name of the MultiadminService's
+	// RetirePooler RPC.
+	MultiadminServiceRetirePoolerProcedure = "/multiadmin.MultiadminService/RetirePooler"
 	// MultiadminServiceGetCellProcedure is the fully-qualified name of the MultiadminService's GetCell
 	// RPC.
 	MultiadminServiceGetCellProcedure = "/multiadmin.MultiadminService/GetCell"
@@ -105,43 +117,179 @@ const (
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
 type MultiadminServiceClient interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error)
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -151,6 +299,16 @@ type MultiadminServiceClient interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -158,6 +316,15 @@ type MultiadminServiceClient interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
@@ -172,6 +339,30 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 	baseURL = strings.TrimRight(baseURL, "/")
 	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
 	return &multiadminServiceClient{
+		createCell: connect.NewClient[multiadmin.CreateCellRequest, multiadmin.CreateCellResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateCellProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateCell")),
+			connect.WithClientOptions(opts...),
+		),
+		createDatabase: connect.NewClient[multiadmin.CreateDatabaseRequest, multiadmin.CreateDatabaseResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateDatabaseProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateDatabase")),
+			connect.WithClientOptions(opts...),
+		),
+		getPoolerRegistration: connect.NewClient[multiadmin.GetPoolerRegistrationRequest, multiadmin.GetPoolerRegistrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetPoolerRegistrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerRegistration")),
+			connect.WithClientOptions(opts...),
+		),
+		retirePooler: connect.NewClient[multiadmin.RetirePoolerRequest, multiadmin.RetirePoolerResponse](
+			httpClient,
+			baseURL+MultiadminServiceRetirePoolerProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("RetirePooler")),
+			connect.WithClientOptions(opts...),
+		),
 		getCell: connect.NewClient[multiadmin.GetCellRequest, multiadmin.GetCellResponse](
 			httpClient,
 			baseURL+MultiadminServiceGetCellProcedure,
@@ -285,6 +476,10 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // multiadminServiceClient implements MultiadminServiceClient.
 type multiadminServiceClient struct {
+	createCell                 *connect.Client[multiadmin.CreateCellRequest, multiadmin.CreateCellResponse]
+	createDatabase             *connect.Client[multiadmin.CreateDatabaseRequest, multiadmin.CreateDatabaseResponse]
+	getPoolerRegistration      *connect.Client[multiadmin.GetPoolerRegistrationRequest, multiadmin.GetPoolerRegistrationResponse]
+	retirePooler               *connect.Client[multiadmin.RetirePoolerRequest, multiadmin.RetirePoolerResponse]
 	getCell                    *connect.Client[multiadmin.GetCellRequest, multiadmin.GetCellResponse]
 	getDatabase                *connect.Client[multiadmin.GetDatabaseRequest, multiadmin.GetDatabaseResponse]
 	getCellNames               *connect.Client[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse]
@@ -303,6 +498,26 @@ type multiadminServiceClient struct {
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
+}
+
+// CreateCell calls multiadmin.MultiadminService.CreateCell.
+func (c *multiadminServiceClient) CreateCell(ctx context.Context, req *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error) {
+	return c.createCell.CallUnary(ctx, req)
+}
+
+// CreateDatabase calls multiadmin.MultiadminService.CreateDatabase.
+func (c *multiadminServiceClient) CreateDatabase(ctx context.Context, req *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error) {
+	return c.createDatabase.CallUnary(ctx, req)
+}
+
+// GetPoolerRegistration calls multiadmin.MultiadminService.GetPoolerRegistration.
+func (c *multiadminServiceClient) GetPoolerRegistration(ctx context.Context, req *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error) {
+	return c.getPoolerRegistration.CallUnary(ctx, req)
+}
+
+// RetirePooler calls multiadmin.MultiadminService.RetirePooler.
+func (c *multiadminServiceClient) RetirePooler(ctx context.Context, req *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error) {
+	return c.retirePooler.CallUnary(ctx, req)
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -397,43 +612,179 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connec
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
+	// CreateCell creates a cell or adopts identical existing configuration.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+	// configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+	// order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+	// uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+	// it does not provision infrastructure.
+	CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error)
+	// CreateDatabase creates database configuration or adopts an identical existing record.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+	// is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+	// Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+	// After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+	// bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+	// of a running shard or provisions infrastructure.
+	CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error)
+	// GetPoolerRegistration reads topology without contacting the pooler process.
+	// Errors and recovery:
+	// NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+	// A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+	// with backoff. Save incarnationId and version
+	// with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+	// different incarnation establishes that the old registration is gone; it does not identify which
+	// request removed it. A surviving matching incarnation still needs reconciliation.
+	GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error)
+	// RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+	// The caller must positively establish that this exact pooler process and its PostgreSQL process
+	// are stopped or permanently isolated from topology, peers, and clients, and that restart or
+	// reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+	// fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+	// by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+	// promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+	// Errors and recovery:
+	// InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+	// means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+	// 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+	// Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+	// identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+	// registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+	// gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+	// preconditions with a newer incarnation merely to make a retry succeed.
+	RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error)
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -443,6 +794,16 @@ type MultiadminServiceHandler interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -450,6 +811,15 @@ type MultiadminServiceHandler interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
 }
 
@@ -460,6 +830,30 @@ type MultiadminServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
+	multiadminServiceCreateCellHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateCellProcedure,
+		svc.CreateCell,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateCell")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceCreateDatabaseHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateDatabaseProcedure,
+		svc.CreateDatabase,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateDatabase")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetPoolerRegistrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetPoolerRegistrationProcedure,
+		svc.GetPoolerRegistration,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerRegistration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceRetirePoolerHandler := connect.NewUnaryHandler(
+		MultiadminServiceRetirePoolerProcedure,
+		svc.RetirePooler,
+		connect.WithSchema(multiadminServiceMethods.ByName("RetirePooler")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiadminServiceGetCellHandler := connect.NewUnaryHandler(
 		MultiadminServiceGetCellProcedure,
 		svc.GetCell,
@@ -570,6 +964,14 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MultiadminServiceCreateCellProcedure:
+			multiadminServiceCreateCellHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateDatabaseProcedure:
+			multiadminServiceCreateDatabaseHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetPoolerRegistrationProcedure:
+			multiadminServiceGetPoolerRegistrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceRetirePoolerProcedure:
+			multiadminServiceRetirePoolerHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetCellProcedure:
 			multiadminServiceGetCellHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetDatabaseProcedure:
@@ -614,6 +1016,22 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 
 // UnimplementedMultiadminServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMultiadminServiceHandler struct{}
+
+func (UnimplementedMultiadminServiceHandler) CreateCell(context.Context, *connect.Request[multiadmin.CreateCellRequest]) (*connect.Response[multiadmin.CreateCellResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateCell is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateDatabase(context.Context, *connect.Request[multiadmin.CreateDatabaseRequest]) (*connect.Response[multiadmin.CreateDatabaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateDatabase is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetPoolerRegistration(context.Context, *connect.Request[multiadmin.GetPoolerRegistrationRequest]) (*connect.Response[multiadmin.GetPoolerRegistrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetPoolerRegistration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) RetirePooler(context.Context, *connect.Request[multiadmin.RetirePoolerRequest]) (*connect.Response[multiadmin.RetirePoolerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.RetirePooler is not implemented"))
+}
 
 func (UnimplementedMultiadminServiceHandler) GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetCell is not implemented"))

@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/google/uuid"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 
 	"google.golang.org/protobuf/proto"
@@ -40,8 +42,9 @@ func NewMultipooler(name, cell, host string) *clustermetadatapb.Multipooler {
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname: host,
-		PortMap:  make(map[string]int32),
+		Hostname:      host,
+		IncarnationId: uuid.NewString(),
+		PortMap:       make(map[string]int32),
 		// The pooler process is up but postgres readiness has not yet been
 		// confirmed; the manager transitions this to ACTIVE once the
 		// pgMonitor observes postgres responding. The timestamp is set at
@@ -108,6 +111,12 @@ func (ts *store) GetMultipooler(ctx context.Context, id *clustermetadatapb.ID) (
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get connection for cell %q", id.Cell))
 	}
 
+	return GetMultipoolerFromConn(ctx, conn, id)
+}
+
+// GetMultipoolerFromConn reads a registration using an already-resolved cell connection.
+// Keep the connection when subsequently deleting the observed version.
+func GetMultipoolerFromConn(ctx context.Context, conn Conn, id *clustermetadatapb.ID) (*MultipoolerInfo, error) {
 	poolerPath := path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile)
 	data, version, err := conn.Get(ctx, poolerPath)
 	if err != nil {
@@ -338,4 +347,13 @@ func (ts *store) RegisterMultipooler(ctx context.Context, mtpooler *clustermetad
 		return nil
 	}
 	return err
+}
+
+// DeleteMultipoolerFromConn deletes only the observed registration revision.
+// The connection must be the one used to read the registration.
+func DeleteMultipoolerFromConn(ctx context.Context, conn Conn, id *clustermetadatapb.ID, version Version) error {
+	if version == nil {
+		return NewError(BadInput, "registration version is required")
+	}
+	return conn.Delete(ctx, path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile), version)
 }

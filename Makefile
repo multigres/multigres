@@ -73,7 +73,25 @@ TS_CONNECT_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-con
 TS_PROTO_OUT = $(MTROOT)/web/multiadmin/lib/api/generated
 
 # Generate protobuf files
-proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
+proto: tools $(PROTO_GO_OUTS) proto-ts openapi ## Generate protobuf files and the REST API specification.
+
+.PHONY: openapi openapi-lint openapi-check
+openapi: tools ## Generate and validate the Multiadmin REST OpenAPI 3.1 specification.
+	@mkdir -p docs/api
+	@raw=$$(mktemp); trap 'rm -f "$$raw"' EXIT; \
+	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
+		--plugin=$(MTROOT)/bin/protoc-gen-connect-openapi \
+		--connect-openapi_out=$$(dirname "$$raw") \
+		--connect-openapi_opt='features=google.api.http;gnostic,content-types=json,without-default-tags,with-google-error-detail,with-proto-annotations,format=json,path='$$(basename "$$raw") \
+		--proto_path=$(MTROOT)/proto $(MTROOT)/proto/multiadminservice.proto && \
+	go run ./tools/openapi/normalize "$$raw" docs/api/multiadmin.openapi.yaml
+	$(MAKE) openapi-lint
+
+openapi-lint: ## Validate the generated REST specification against OpenAPI 3.1.
+	go run ./tools/openapi/lint docs/api/multiadmin.openapi.yaml
+
+openapi-check: openapi-lint ## Check REST documentation quality (requires Node.js 22.12+).
+	npm exec --yes --package=@redocly/cli@2.54.3 -- redocly lint docs/api/multiadmin.openapi.yaml --extends recommended-strict
 
 # Generate TypeScript types and connect service descriptors from proto files
 proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_ES_PLUGIN)
