@@ -386,7 +386,7 @@ func buildFailoverProposal(
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
 	}
 	if leader == nil {
-		return nil, errors.New("no eligible leaders for failover proposal")
+		return nil, errors.New("no leader selected for failover proposal")
 	}
 	// Not verified here that leader is actually a member of
 	// result.EligibleLeaders: validateProposal (called by both

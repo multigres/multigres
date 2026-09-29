@@ -17,6 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -123,8 +124,12 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	}
 
 	poolerByID, healthByID := buildCohortMaps(cohort)
+	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		leader := selectFittestLeader(r.EligibleLeaders, healthByID)
+		if len(r.EligibleLeaders) == 0 {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+		}
+		leader := selectFittestLeader(r.EligibleLeaders, healthByID, rng)
 		return buildFailoverProposal(r, leader, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {

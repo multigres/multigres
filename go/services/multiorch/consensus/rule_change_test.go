@@ -198,7 +198,7 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 		_, err := buildFailoverProposal(result, nil, addressByID)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no eligible leaders")
+		assert.Contains(t, err.Error(), "no leader selected")
 	})
 }
 

@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"math/rand/v2"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -31,18 +32,21 @@ import (
 // tomorrow — can change without touching the call site or mutating the
 // caller's slice.
 //
-// Current ordering, two orthogonal tiebreakers applied in sequence:
+// Ordering:
 //  1. Postgres readiness (postgresReadyLess): ready before not-ready — not
 //     yet ready to promote (crash recovery still running, socket not open).
 //  2. LeadershipSignal (poolerHealthStateLess): non-resigning before
 //     REQUESTING_DEMOTION (node has explicitly asked to be replaced via
 //     SwitchPrimary), then failover-slot readiness.
+//  3. Remaining ties are broken uniformly at random via rng, not by position
+//     — so a retried failover doesn't keep proposing the same candidate
+//     forever if its Promote keeps failing for an unrelated reason.
 //
-// TODO: this manually chains two Less funcs (poolerHealthStateLess itself
-// already chains two more criteria internally). If a third candidate-fitness
+// TODO: criteria 1-2 manually chain two Less funcs (poolerHealthStateLess
+// itself already chains two more criteria internally). If a third fitness
 // signal shows up, generalize to an ordered list of criteria instead of
 // nested if-returns.
-func selectFittestLeader(candidates []*clustermetadatapb.ConsensusStatus, healthByID map[string]*multiorchdatapb.PoolerHealthState) *clustermetadatapb.ConsensusStatus {
+func selectFittestLeader(candidates []*clustermetadatapb.ConsensusStatus, healthByID map[string]*multiorchdatapb.PoolerHealthState, rng *rand.Rand) *clustermetadatapb.ConsensusStatus {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -57,15 +61,18 @@ func selectFittestLeader(candidates []*clustermetadatapb.ConsensusStatus, health
 		}
 		return signalLess(a, b)
 	}
-	// Earliest-appearing candidate wins ties, matching sort.SliceStable's
-	// stability: only a strictly-more-fit later candidate replaces it.
-	best := candidates[0]
+	// Collect every candidate tied for best (not just the first found), then
+	// pick uniformly among them.
+	tied := []*clustermetadatapb.ConsensusStatus{candidates[0]}
 	for _, c := range candidates[1:] {
-		if less(c, best) {
-			best = c
+		switch {
+		case less(c, tied[0]):
+			tied = []*clustermetadatapb.ConsensusStatus{c}
+		case !less(tied[0], c):
+			tied = append(tied, c)
 		}
 	}
-	return best
+	return tied[rng.IntN(len(tied))]
 }
 
 // postgresReadyLess is the BuildSafeProposal tiebreaker for nodes tied at the
