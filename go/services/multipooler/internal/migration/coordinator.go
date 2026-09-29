@@ -664,6 +664,18 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 	}
 	// EXPORT: the target is the publisher. Its GUC is not flipped (it would
 	// interfere with the pooler); the operator stops application writes.
+	//
+	// On a DEACTIVATE (EXPORT->IMPORT) this barrier runs AFTER drainForImport has
+	// flipped the target pooler to non-serving. It waits for the reverse
+	// subscription — whose walsender streams the target's WAL to the source over
+	// the gateway replication tunnel — to confirm past the captured LSN, so the
+	// source has consumed every target write before the reverse link is torn down
+	// and the target re-imports with copy_data=false. That requires the reverse
+	// tunnel to survive the serving drain: the pooler exempts logical-replication
+	// streaming tunnels from the drain force-close and counter (see
+	// reserved.Pool.KillAllForDrain / NewLogicalReplicationConn), because a
+	// read-only walsender cannot diverge the subscriber. Without that exemption
+	// the drain severed the tunnel and this poll blocked forever.
 	lsn, err := c.target.CurrentLSN(ctx)
 	if err != nil {
 		return "", err
