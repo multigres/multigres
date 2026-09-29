@@ -324,6 +324,8 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 		return postgresState{}, err
 	}
 
+	pm.restorePgpassMode(noTimeoutCtx)
+
 	// Discover current state and decide on an action, bounded to
 	// defaultRemedialActionTimeout. Kept alive (not re-derived) across the
 	// post-lock re-check below, so detection and redetection share one 30s

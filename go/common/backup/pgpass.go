@@ -15,7 +15,9 @@
 package backup
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -37,4 +39,28 @@ func WritePgpassFile(poolerDir, user, password string) (string, error) {
 	}
 
 	return pgpassPath, nil
+}
+
+// RestorePgpassMode resets the pgpass file at path to 0600 if anything has
+// widened its permissions, and reports whether it did. libpq silently ignores a
+// password file with any group or world access, so a widened file makes every
+// replication and pgbackrest connection fail with "no password supplied"
+// rather than with an error that points at the file. Kubelet widens it when it
+// re-applies a pod's fsGroup to the volume. A missing file is not an error:
+// nothing is using it.
+func RestorePgpassMode(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to stat pgbackrest pgpass file: %w", err)
+	}
+	if info.Mode().Perm()&0o077 == 0 {
+		return false, nil
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return false, fmt.Errorf("failed to restore pgbackrest pgpass file mode: %w", err)
+	}
+	return true, nil
 }

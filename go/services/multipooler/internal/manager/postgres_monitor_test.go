@@ -1600,6 +1600,37 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 	assert.True(t, mockPgctld.startCalled, "Should attempt to start when ready")
 }
 
+func TestMonitorPostgres_RestoresWidenedPgpassMode(t *testing.T) {
+	ctx := t.Context()
+
+	readyChan := make(chan struct{})
+	close(readyChan)
+
+	pm := NewTestMultipoolerManager(t)
+	pm.readyChan = readyChan
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_RUNNING,
+		},
+	}
+	pm.state = ManagerStateReady
+	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
+
+	// 0660 is what kubelet leaves behind when it re-applies fsGroup to the volume.
+	pgpassPath := filepath.Join(t.TempDir(), "pgbackrest.pgpass")
+	require.NoError(t, os.WriteFile(pgpassPath, []byte("*:*:*:postgres:secret\n"), 0o600))
+	require.NoError(t, os.Chmod(pgpassPath, 0o660))
+	pm.mu.Lock()
+	pm.pgpassPath = pgpassPath
+	pm.mu.Unlock()
+
+	pm.monitorPostgresIteration(ctx) //nolint:errcheck
+
+	info, err := os.Stat(pgpassPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
 func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 	ctx := t.Context()
 

@@ -1180,6 +1180,27 @@ func (pm *MultipoolerManager) pgpassFilePath() string {
 	return pm.pgpassPath
 }
 
+// restorePgpassMode puts the pgpass file back to 0600 if something widened it
+// after it was written. The file is written only at startup, but kubelet
+// re-applies the pod's fsGroup (OR-ing in g+rw) whenever it remounts the
+// volume, including after its own restart while this process keeps running.
+// libpq then ignores the file and the WAL receiver stops authenticating, with
+// nothing else in this process noticing.
+func (pm *MultipoolerManager) restorePgpassMode(ctx context.Context) {
+	path := pm.pgpassFilePath()
+	if path == "" {
+		return
+	}
+	restored, err := backup.RestorePgpassMode(path)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "failed to restore pgpass file mode; libpq ignores it with group or world access", "path", path, "error", err)
+		return
+	}
+	if restored {
+		pm.logger.WarnContext(ctx, "restored pgpass file mode to 0600 after it was widened", "path", path)
+	}
+}
+
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
