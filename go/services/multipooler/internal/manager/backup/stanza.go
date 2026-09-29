@@ -26,6 +26,7 @@ import (
 // StanzaCreate runs pgbackrest stanza-create. The operation is idempotent
 // and safe to run concurrently — no backup lease required.
 func (e *Engine) StanzaCreate(ctx context.Context) error {
+	defer e.listCache.Invalidate()
 	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get pgbackrest config")

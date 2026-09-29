@@ -42,7 +42,7 @@ RELEASE_LDFLAGS = -w -s \
 	-X $(SERVENV_PACKAGE).gitCommit=$(GIT_COMMIT) \
 	-X $(SERVENV_PACKAGE).commitDate=$(COMMIT_DATE)
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics pgcatalog generate help
 
 ##@ General
 
@@ -116,7 +116,7 @@ parser: ## Generate PostgreSQL parser from grammar.
 	go generate ./go/common/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser metrics ## Alias for parser and metrics catalog.
+generate: parser metrics pgcatalog ## Alias for parser, metrics catalog, and pgcatalog tables.
 
 # Generate the metric catalog (go/observability/metriccatalog) from OpenTelemetry
 # instrument definitions across the codebase.
@@ -124,6 +124,13 @@ metrics: ## Generate the Prometheus metric catalog/keep-list.
 	@echo "$$(date): Generating metric catalog"
 	go run ./go/tools/metricsgen/main
 	@echo "Metric catalog generation completed"
+
+# Generate the builtin PostgreSQL catalog tables (go/common/pgcatalog) from the
+# vendored pg_*.dat files.
+pgcatalog: ## Generate the builtin PostgreSQL catalog tables.
+	@echo "$$(date): Generating pgcatalog tables"
+	go run ./go/tools/pgcataloggen/main
+	@echo "pgcatalog generation completed"
 
 ##@ Build
 
@@ -152,7 +159,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	done
 
 # Build everything (proto + parser + binaries)
-build-all: proto parser metrics build ## Build everything (proto + parser + metrics + binaries).
+build-all: proto parser metrics pgcatalog build ## Build everything (proto + parser + metrics + pgcatalog + binaries).
 
 # TODO(sougou): images is a temporary convenience target for a demo.
 # To run it, you need to have Docker installed.

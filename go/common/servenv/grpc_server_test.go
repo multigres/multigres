@@ -116,6 +116,15 @@ func TestGrpcServerKeepaliveDefaults(t *testing.T) {
 		"MaxConnectionIdle must stay unset; an idle replication stream must not be reaped")
 }
 
+func TestGrpcStreamWorkerConfiguration(t *testing.T) {
+	g := NewGrpcServer(viperutil.NewRegistry())
+	require.EqualValues(t, 64, g.streamWorkers.Get())
+	for _, n := range []uint32{0, 8, 64} {
+		g.streamWorkers.Set(n)
+		require.Equal(t, n, g.streamWorkers.Get())
+	}
+}
+
 func TestGrpcServerCreate_SucceedsWithoutTLS(t *testing.T) {
 	g, sv := newEnabledGRPCServerForTest()
 

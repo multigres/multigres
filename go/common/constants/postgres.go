@@ -20,6 +20,40 @@ import (
 	"time"
 )
 
+// The identity/secrets environment contract between pgctld and multipooler.
+//
+// A colocated pgctld + multipooler pair agrees on the PostgreSQL identity
+// (database, superuser role) and its credential by default through the
+// environment: both processes independently read the same variables with the
+// same defaults and the same precedence rules. This is a deliberate contract,
+// not a coincidence — deployments (the local provisioner, the cluster image,
+// k8s manifests) must set these variables identically for both processes:
+//
+//   - PgDatabaseEnvVar (POSTGRES_DB): the database the pair serves. pgctld
+//     creates it at initdb; the multipooler's --database defaults from it.
+//   - PgUserEnvVar (POSTGRES_USER): the superuser role. pgctld creates it at
+//     initdb and runs as it; the multipooler's admin pool authenticates as it.
+//   - PgPasswordEnvVar / PgPasswordFileEnvVar (POSTGRES_PASSWORD(_FILE)):
+//     the credential for that role. File-over-env precedence on both sides,
+//     matching the docker-library/postgres convention. Neither service
+//     accepts the password as a CLI flag — a password on the command line is
+//     visible in `ps` and shell history.
+//   - PgDataDirEnvVar (PGDATA): the PostgreSQL data directory. pgctld
+//     initializes and manages it; the multipooler requires it at startup.
+//
+// Per-service overrides remain: pgctld's --pg-database/--pg-user flags, the
+// multipooler's --database flag, and the deprecated CONNPOOL_ADMIN_USER /
+// CONNPOOL_ADMIN_PASSWORD variables (which the multipooler consults before
+// the POSTGRES_* ones). The contract therefore holds by default, not by
+// construction: an override set on one side of the pair without the other
+// breaks the pairing, and keeping overrides consistent is the deployment's
+// responsibility.
+//
+// Values pgctld owns operationally (ports, pooler directory, pgBackRest
+// endpoint) travel over its Status RPC instead — see the multipooler's
+// adoptPgctldValues. Secrets must never ride an RPC; they stay in the
+// environment.
+//
 // PostgreSQL default values - semantically separate concepts.
 // These are distinct constants despite having the same string value because
 // they represent different concepts that could diverge in the future.
@@ -125,6 +159,13 @@ const (
 	// puts the server into standby mode. Notably, postgres --single refuses to
 	// run with it present, so crash recovery removes and recreates it.
 	StandbySignalFile = "standby.signal"
+
+	// PgDefaultSuperuserReservedConnections and PgDefaultReservedConnections
+	// are PostgreSQL's compiled-in defaults for the reserved-slot GUCs
+	// (reserved_connections is PG 16+). Used as stand-ins when a server has
+	// not reported its effective values.
+	PgDefaultSuperuserReservedConnections = 3
+	PgDefaultReservedConnections          = 0
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
@@ -271,4 +312,14 @@ func PostgresSocketDir(poolerDir string) string {
 // is fixed by postgres, not configurable).
 func PostgresSocketFilePath(poolerDir string, pgPort int) string {
 	return filepath.Join(PostgresSocketDir(poolerDir), fmt.Sprintf(".s.PGSQL.%d", pgPort))
+}
+
+// PgBackRestCertFiles returns the fixed pgBackRest TLS material paths inside
+// a cert directory: pgbackrest.crt, pgbackrest.key, ca.crt. This is the
+// contract between pgctld's --pgbackrest-cert-dir and every consumer of the
+// material (the pgbackrest-server.conf template, the local provisioner's cert
+// generator, and the multipooler when it adopts cert paths from pgctld's
+// Status).
+func PgBackRestCertFiles(dir string) (certFile, keyFile, caFile string) {
+	return filepath.Join(dir, "pgbackrest.crt"), filepath.Join(dir, "pgbackrest.key"), filepath.Join(dir, "ca.crt")
 }

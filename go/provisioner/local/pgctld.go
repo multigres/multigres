@@ -191,6 +191,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 			Port:         existingService.Ports["grpc_port"],
 			LogFile:      existingService.LogFile,
 			PasswordFile: pgPasswordFile,
+			PoolerDir:    poolerDir,
 		}, nil
 	}
 
@@ -360,6 +361,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		Port:         grpcPort,
 		LogFile:      pgctldLogFile,
 		PasswordFile: pgPasswordFile,
+		PoolerDir:    poolerDir,
 	}, nil
 }
 

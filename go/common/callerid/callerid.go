@@ -13,15 +13,17 @@
 // limitations under the License.
 
 // Package callerid carries a client's identity from the multigateway edge down
-// to the multipooler, in two forms:
+// to the multipooler as a typed mtrpc.CallerID: the gateway stashes it in the
+// context, its queryservice client sets it as a first-class request field, and
+// the pooler reads it from the request to attribute spans and logs to the app
+// that issued the query rather than only the shared database user.
 //
-//   - Observability: the identity is mirrored into OpenTelemetry baggage, which
-//     propagates automatically over gRPC to the pooler (and future shards), so
-//     spans and logs can attribute a query to the app that issued it, not just
-//     the shared database user.
-//   - Typed identity: a mtrpc.CallerID is stashed in the context so the
-//     gateway's queryservice client can set it as a first-class request field
-//     the pooler can read.
+// The identity deliberately travels only in the request field, not in
+// OpenTelemetry baggage. It used to be mirrored there too, but nothing read the
+// baggage members (the pooler attributes from the typed field) while every RPC
+// on the gateway to pooler hop, one per SQL statement, paid to encode the header
+// on the gateway and parse it on the pooler. Anything that needs the identity
+// in telemetry should take it from the request, as the pooler does.
 //
 // This is attribution (who issued the query), not correlation (which request
 // this is). Correlation is already handled by the OpenTelemetry trace id, which
@@ -37,13 +39,10 @@ package callerid
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/baggage"
-
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-// Telemetry keys for the caller identity, used both as OpenTelemetry baggage
-// members (propagated over gRPC) and as span attributes on the pooler.
+// Telemetry keys for the caller identity, used as span attributes on the pooler.
 const (
 	KeyAuthenticatedUser = "mg.caller.authenticated_user"
 	KeyApplicationName   = "mg.caller.application_name"
@@ -59,34 +58,13 @@ func New(authenticatedUser, clientApplicationName string) *mtrpcpb.CallerID {
 	return &mtrpcpb.CallerID{Principal: authenticatedUser, Component: clientApplicationName}
 }
 
-// NewContext returns a context carrying cid for the typed request field and
-// mirrors the caller identity into OpenTelemetry baggage so it propagates
-// downstream for observability. A nil cid is a no-op.
+// NewContext returns a context carrying cid for the typed request field. A nil
+// cid is a no-op.
 func NewContext(ctx context.Context, cid *mtrpcpb.CallerID) context.Context {
 	if cid == nil {
 		return ctx
 	}
-	ctx = context.WithValue(ctx, callerIDKey{}, cid)
-
-	var members []baggage.Member
-	// NewMemberRaw keeps arbitrary values (e.g. an application_name with spaces)
-	// intact; the SDK encodes them on the wire.
-	if u := cid.GetPrincipal(); u != "" {
-		if m, err := baggage.NewMemberRaw(KeyAuthenticatedUser, u); err == nil {
-			members = append(members, m)
-		}
-	}
-	if a := cid.GetComponent(); a != "" {
-		if m, err := baggage.NewMemberRaw(KeyApplicationName, a); err == nil {
-			members = append(members, m)
-		}
-	}
-	if len(members) > 0 {
-		if bag, err := baggage.New(members...); err == nil {
-			ctx = baggage.ContextWithBaggage(ctx, bag)
-		}
-	}
-	return ctx
+	return context.WithValue(ctx, callerIDKey{}, cid)
 }
 
 // FromContext returns the CallerID stored in ctx by NewContext, or nil.

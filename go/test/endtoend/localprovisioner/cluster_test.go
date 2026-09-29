@@ -260,8 +260,6 @@ func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, db
 				TableGroup:     constants.DefaultTableGroup,
 				Shard:          constants.DefaultShard,
 				ServiceID:      serviceID,
-				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
-				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone
 				HttpPort:       zonePort.MultipoolerHTTPPort,
 				GrpcPort:       zonePort.MultipoolerGRPCPort,
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("multipooler-%s.sock", zoneName)),

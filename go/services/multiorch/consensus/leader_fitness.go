@@ -15,6 +15,10 @@
 package consensus
 
 import (
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -127,3 +131,18 @@ func poolerHealthStateLess(healthByID map[string]*multiorchdatapb.PoolerHealthSt
 		return failoverSlotsReady(a) > failoverSlotsReady(b)
 	}
 }
+
+// QuorumCommitStale reports whether a quorum-commit timestamp is older than
+// staleAfter. A nil or epoch (Seconds == 0) timestamp means no evidence yet,
+// so it's never stale -- GetSeconds() is nil-safe, so this covers both with
+// one check.
+//
+// Shared by the analyzer and AppointLeaderAction's live recheck, so both use
+// the same definition of "stale".
+func QuorumCommitStale(quorumCommitTs *timestamppb.Timestamp, now time.Time, staleAfter time.Duration) bool {
+	return quorumCommitTs.GetSeconds() != 0 && now.Sub(quorumCommitTs.AsTime()) > staleAfter
+}
+
+// DefaultQuorumCommitStaleAfter is the staleness threshold used by both the
+// analyzer's AvailabilityPolicy and AppointLeaderAction's live recheck.
+const DefaultQuorumCommitStaleAfter = 20 * time.Second

@@ -152,7 +152,7 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 	}
 
 	// Get server version if possible
-	result.Version = getServerVersionWithConfig(ctx, config)
+	result.Version = cachedServerVersion(ctx, config)
 
 	// Get uptime (approximate based on pidfile mtime)
 	pidFile := filepath.Join(config.PostgresDataDir, constants.PostmasterPIDFile)

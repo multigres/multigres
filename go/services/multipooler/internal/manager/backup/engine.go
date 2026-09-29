@@ -64,13 +64,21 @@ type RunFunc func(ctx context.Context, cmd *executil.Cmd, operationName string) 
 // whether it should instead track the routing role.
 type RoleFunc func(ctx context.Context) (pgmode.Mode, error)
 
-// ArchiverStats is a snapshot of pg_stat_archiver relevant to WAL archive lag.
-// Zero time fields mean the corresponding timestamp was NULL (never archived /
-// never failed).
+// ArchiverStats is a snapshot of pg_stat_archiver (plus the archive_status
+// backlog) relevant to WAL archive lag. Zero time fields mean the corresponding
+// timestamp was NULL (never archived / never failed / nothing pending).
 type ArchiverStats struct {
 	LastArchived time.Time
 	LastFailed   time.Time
 	FailedCount  int64
+	// PendingCount is the number of completed WAL segments still awaiting
+	// archive (.ready files in archive_status); 0 when archiving is caught up.
+	PendingCount int64
+	// OldestPending is when the oldest still-pending segment became ready to
+	// archive; zero when nothing is pending. now-OldestPending is the true
+	// archive backlog age, which stays 0 on an idle primary (nothing to
+	// archive) unlike the wall-clock "seconds since last archive".
+	OldestPending time.Time
 }
 
 // ArchiverStatsFunc returns pg_stat_archiver stats for the local primary. It is
@@ -96,12 +104,13 @@ type PGSettingsFunc func(ctx context.Context) (PGSettings, error)
 
 // Engine owns all pgBackRest interaction for a single multipooler.
 type Engine struct {
-	logger   *slog.Logger
-	run      RunFunc
-	metrics  *Metrics
-	health   *HealthTracker
-	id       Identity
-	settings Settings
+	listCache listCache
+	logger    *slog.Logger
+	run       RunFunc
+	metrics   *Metrics
+	health    *HealthTracker
+	id        Identity
+	settings  Settings
 
 	// mu guards the config resolved at runtime: the pgbackrest.conf path and
 	// pgpass file (resolved when topology loads), the repo config (resolved
@@ -141,6 +150,7 @@ func (e *Engine) SetConfigPath(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.configPath = path
+	e.listCache.Invalidate()
 }
 
 // SetBackupConfig sets (or replaces) the resolved pgBackRest repo config. The
@@ -149,6 +159,7 @@ func (e *Engine) SetBackupConfig(cfg *commonbackup.Config) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.backupCfg = cfg
+	e.listCache.Invalidate()
 }
 
 // SetPgpassPath sets (or replaces) the path to the libpq password file exported
@@ -158,6 +169,7 @@ func (e *Engine) SetPgpassPath(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.pgpassPath = path
+	e.listCache.Invalidate()
 }
 
 // SetRoleProvider injects the function the health poller uses to learn the local

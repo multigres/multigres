@@ -431,6 +431,7 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 	for _, p := range re.detectedProblems {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
+			ProblemCode:  string(p.Code),
 			DBNamespace:  p.ShardKey.Database,
 			Shard:        p.ShardKey.Shard,
 			EntityID:     p.EntityID(),

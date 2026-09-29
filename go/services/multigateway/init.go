@@ -651,8 +651,6 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	logger.InfoContext(
 		ctx, "multigateway starting up",
-		"cell", mg.cell.Get(),
-		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),

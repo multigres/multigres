@@ -90,11 +90,12 @@ type Logger struct {
 	logOutput viperutil.Value[string]
 
 	// Internal state
-	loggerOnce  sync.Once
-	logger      *slog.Logger
-	loggerMu    sync.Mutex
-	telemetry   *telemetry.Telemetry
-	baseHandler slog.Handler // Handler before telemetry wrapping
+	loggerOnce    sync.Once
+	logger        *slog.Logger
+	loggerMu      sync.Mutex
+	telemetry     *telemetry.Telemetry
+	baseHandler   slog.Handler // Handler before telemetry wrapping
+	identityAttrs []slog.Attr  // Identity shared by local and OTLP log records
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
@@ -159,7 +160,7 @@ func (lg *Logger) OnLoggingChange(f func(*slog.Logger)) {
 
 // SetupLogging initializes the logger based on the configured flags.
 // This should be called after flags are parsed but before any logging occurs.
-func (lg *Logger) SetupLogging() {
+func (lg *Logger) SetupLogging(identityAttrs ...slog.Attr) {
 	lg.loggerOnce.Do(func() {
 		levelStr := lg.logLevel.Get()
 		if levelStr == "" {
@@ -182,12 +183,14 @@ func (lg *Logger) SetupLogging() {
 		// Store base handler before wrapping (for later re-wrapping after telemetry init)
 		lg.loggerMu.Lock()
 		lg.baseHandler = handler
+		lg.identityAttrs = append([]slog.Attr(nil), identityAttrs...)
 		lg.loggerMu.Unlock()
 
 		// Wrap handler with OpenTelemetry bridge to inject trace context
 		if lg.telemetry != nil {
 			handler = lg.telemetry.WrapSlogHandler(handler)
 		}
+		handler = handler.WithAttrs(lg.identityAttrs)
 
 		// Create logger
 		newLogger := slog.New(handler)
@@ -222,7 +225,7 @@ func (lg *Logger) UpdateTelemetryWrapper() {
 		return
 	}
 
-	handler := lg.telemetry.WrapSlogHandler(lg.baseHandler)
+	handler := lg.telemetry.WrapSlogHandler(lg.baseHandler).WithAttrs(lg.identityAttrs)
 	lg.logger = slog.New(handler)
 	slog.SetDefault(lg.logger)
 }

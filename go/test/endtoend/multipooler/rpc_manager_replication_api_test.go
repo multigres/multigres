@@ -666,6 +666,17 @@ func TestReplicationStatus(t *testing.T) {
 		assert.NotNil(t, statusResp.Status.PrimaryStatus.SyncReplicationConfig, "Sync replication config should be present")
 
 		t.Logf("ReplicationStatus on PRIMARY verified: LSN=%s", statusResp.Status.PrimaryStatus.Lsn)
+
+		// quorum_commit_ts/quorum_commit_lsn stay unset until the writer's second
+		// successful heartbeat, so poll rather than asserting on this one snapshot.
+		require.Eventually(t, func() bool {
+			resp, err := primaryManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil || resp.Status == nil || resp.Status.PrimaryStatus == nil {
+				return false
+			}
+			return resp.Status.PrimaryStatus.QuorumCommitTs != nil &&
+				resp.Status.PrimaryStatus.QuorumCommitLsn != ""
+		}, 20*time.Second, 500*time.Millisecond, "leader's own first-hand quorum_commit_ts/quorum_commit_lsn should eventually be populated")
 	})
 
 	t.Run("ReplicationStatus_REPLICA_returns_replication_status", func(t *testing.T) {
@@ -705,6 +716,17 @@ func TestReplicationStatus(t *testing.T) {
 		t.Logf("ReplicationStatus on REPLICA verified: LastReplayLSN=%s, PrimaryHost=%s",
 			statusResp.Status.ReplicationStatus.LastReplayLsn,
 			statusResp.Status.ReplicationStatus.PrimaryConnInfo.Host)
+
+		// quorum_commit_ts/quorum_commit_lsn stay unset until the writer's second
+		// successful heartbeat, so poll rather than asserting on this one snapshot.
+		require.Eventually(t, func() bool {
+			resp, err := standbyManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil || resp.Status == nil || resp.Status.ReplicationStatus == nil {
+				return false
+			}
+			return resp.Status.ReplicationStatus.QuorumCommitTs != nil &&
+				resp.Status.ReplicationStatus.QuorumCommitLsn != ""
+		}, 20*time.Second, 500*time.Millisecond, "quorum_commit_ts/quorum_commit_lsn should eventually be populated")
 	})
 
 	t.Run("ReplicationStatus_unified_API_works_for_both", func(t *testing.T) {

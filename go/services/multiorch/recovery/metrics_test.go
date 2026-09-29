@@ -24,6 +24,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -58,6 +61,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	// Test with multiple problems
 	problems := []types.Problem{
 		{
+			Code:      types.ProblemLeaderUnhealthy,
 			CheckName: "PrimaryIsDead",
 			Scope:     types.ScopePooler,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -72,6 +76,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 			},
 		},
 		{
+			Code:      types.ProblemReplicaNotReplicating,
 			CheckName: "ReplicaNotReplicating",
 			Scope:     types.ScopePooler,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -92,14 +97,98 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 
 	require.Len(t, data, 2)
 	assert.Equal(t, "PrimaryIsDead", data[0].AnalysisType)
+	assert.Equal(t, string(types.ProblemLeaderUnhealthy), data[0].ProblemCode)
 	assert.Equal(t, "testdb", data[0].DBNamespace)
 	assert.Equal(t, "shard1", data[0].Shard)
 	assert.Contains(t, data[0].EntityID, "pooler1")
 
 	assert.Equal(t, "ReplicaNotReplicating", data[1].AnalysisType)
+	assert.Equal(t, string(types.ProblemReplicaNotReplicating), data[1].ProblemCode)
 	assert.Equal(t, "testdb", data[1].DBNamespace)
 	assert.Equal(t, "shard2", data[1].Shard)
 	assert.Contains(t, data[1].EntityID, "pooler2")
+}
+
+// gaugeDataPoints collects from reader and returns the int64 gauge data
+// points for the named metric. Uses a locally-scoped meter/reader rather than
+// NewMetrics()'s global otel.Meter or go/tools/telemetry.SetupTestTelemetry
+// (the latter is known to break on a second use within one package, e.g.
+// TestRecoveryLoop_TracingSpans), so tests can inspect exactly what a
+// callback emits in isolation.
+func gaugeDataPoints(t *testing.T, reader *sdkmetric.ManualReader, name string) []metricdata.DataPoint[int64] {
+	t.Helper()
+	var got metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &got))
+	for _, sm := range got.ScopeMetrics {
+		for _, metricRec := range sm.Metrics {
+			if metricRec.Name != name {
+				continue
+			}
+			gauge, ok := metricRec.Data.(metricdata.Gauge[int64])
+			require.True(t, ok)
+			return gauge.DataPoints
+		}
+	}
+	return nil
+}
+
+// attrValue returns the string value of a data point's attribute, or "" if absent.
+func attrValue(dp metricdata.DataPoint[int64], key string) string {
+	v, _ := dp.Attributes.Value(attribute.Key(key))
+	return v.AsString()
+}
+
+// TestRegisterDetectedProblemsCallback_EmitsAttributes verifies that every
+// DetectedProblemData field is faithfully represented as its own metric attribute.
+func TestRegisterDetectedProblemsCallback_EmitsAttributes(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	m := &Metrics{meter: provider.Meter("test")}
+	gauge, err := m.meter.Int64ObservableGauge("multiorch.recovery.detected_problems")
+	require.NoError(t, err)
+	m.detectedProblems = DetectedProblems{gauge}
+
+	require.NoError(t, m.RegisterDetectedProblemsCallback(func() []DetectedProblemData {
+		return []DetectedProblemData{
+			{AnalysisType: "LeaderNeedsReplacement", ProblemCode: "ShardAtRisk", DBNamespace: "testdb", Shard: "shard1", EntityID: "shard1"},
+		}
+	}))
+
+	dataPoints := gaugeDataPoints(t, reader, "multiorch.recovery.detected_problems")
+	require.Len(t, dataPoints, 1)
+	dp := dataPoints[0]
+
+	assert.Equal(t, int64(1), dp.Value)
+	assert.Equal(t, "LeaderNeedsReplacement", attrValue(dp, "analysis_type"))
+	assert.Equal(t, "ShardAtRisk", attrValue(dp, "problem_code"))
+	assert.Equal(t, "testdb", attrValue(dp, "db.namespace"))
+	assert.Equal(t, "shard1", attrValue(dp, "shard"))
+	assert.Equal(t, "shard1", attrValue(dp, "entity_id"))
+}
+
+// TestRegisterDetectedProblemsCallback_DistinguishesSharedAttributes verifies
+// that two problems agreeing on every other attribute still produce two
+// separate data points rather than colliding into one, as long as their
+// ProblemCode differs.
+func TestRegisterDetectedProblemsCallback_DistinguishesSharedAttributes(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	m := &Metrics{meter: provider.Meter("test")}
+	gauge, err := m.meter.Int64ObservableGauge("multiorch.recovery.detected_problems")
+	require.NoError(t, err)
+	m.detectedProblems = DetectedProblems{gauge}
+
+	require.NoError(t, m.RegisterDetectedProblemsCallback(func() []DetectedProblemData {
+		return []DetectedProblemData{
+			{AnalysisType: "LeaderNeedsReplacement", ProblemCode: "ShardAtRisk", DBNamespace: "testdb", Shard: "shard1", EntityID: "shard1"},
+			{AnalysisType: "LeaderNeedsReplacement", ProblemCode: "LeaderResigned", DBNamespace: "testdb", Shard: "shard1", EntityID: "shard1"},
+		}
+	}))
+
+	dataPoints := gaugeDataPoints(t, reader, "multiorch.recovery.detected_problems")
+	require.Len(t, dataPoints, 2, "two problems differing only in ProblemCode must produce two data points, not one")
+	assert.ElementsMatch(t, []string{"ShardAtRisk", "LeaderResigned"},
+		[]string{attrValue(dataPoints[0], "problem_code"), attrValue(dataPoints[1], "problem_code")})
 }
 
 func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {

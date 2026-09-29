@@ -332,6 +332,10 @@ func printableTypeName(t types.Type) string {
 		return "SliceOf" + printableTypeName(t.Elem())
 	case *types.Named:
 		return t.Obj().Name()
+	case *types.Alias:
+		// An alias (e.g. "type Oid = pgoid.Oid") keeps the name it was
+		// declared with, matching how the aliased fields read in the AST.
+		return t.Obj().Name()
 	case *types.Basic:
 		return internal.Title(t.Name())
 	case *types.Interface:

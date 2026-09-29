@@ -40,6 +40,18 @@ const (
 // Consider contributing a fix upstream to opentelemetry-go/semconv/v1.37.0/dbconv.
 type ConnectionCount struct {
 	counter metric.Int64UpDownCounter
+	// idle and used hold the pool's attribute sets, precomputed by bind.
+	idle metric.MeasurementOption
+	used metric.MeasurementOption
+}
+
+// bind precomputes this pool's immutable labels once, rather than sorting
+// and hashing a new attribute set for every idle-stack push/pop. Every pool
+// binds its own name in NewPool; an unbound instrument records nothing.
+func (c ConnectionCount) bind(poolName string) ConnectionCount {
+	c.idle = metric.WithAttributeSet(attribute.NewSet(attribute.String(attrKeyPoolName, poolName), attribute.String(attrKeyState, string(dbconv.ClientConnectionStateIdle))))
+	c.used = metric.WithAttributeSet(attribute.NewSet(attribute.String(attrKeyPoolName, poolName), attribute.String(attrKeyState, string(dbconv.ClientConnectionStateUsed))))
+	return c
 }
 
 // NewConnectionCount creates a ConnectionCount instrument using the standard
@@ -54,15 +66,16 @@ func NewConnectionCount(m metric.Meter) (ConnectionCount, error) {
 	return ConnectionCount{counter: counter}, err
 }
 
-// Add records a connection count change for the given pool and state.
-func (c ConnectionCount) Add(ctx context.Context, delta int64, poolName string, state dbconv.ClientConnectionStateAttr) {
-	if c.counter == nil {
+// Add records a connection count change for the bound pool and state.
+func (c ConnectionCount) Add(ctx context.Context, delta int64, state dbconv.ClientConnectionStateAttr) {
+	if c.counter == nil || c.idle == nil {
 		return
 	}
-	c.counter.Add(ctx, delta, metric.WithAttributes(
-		attribute.String(attrKeyPoolName, poolName),
-		attribute.String(attrKeyState, string(state)),
-	))
+	opt := c.used
+	if state == dbconv.ClientConnectionStateIdle {
+		opt = c.idle
+	}
+	c.counter.Add(ctx, delta, opt)
 }
 
 // ServerConnMetrics records PostgreSQL server-connection lifecycle events:

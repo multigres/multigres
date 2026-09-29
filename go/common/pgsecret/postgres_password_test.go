@@ -21,8 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/multigres/multigres/go/common/constants"
 )
 
 func writePasswordFile(t *testing.T, contents string) string {
@@ -33,46 +31,7 @@ func writePasswordFile(t *testing.T, contents string) string {
 	return path
 }
 
-func TestReadPostgresPassword_FlagWins(t *testing.T) {
-	flagFile := writePasswordFile(t, "from-flag")
-	envFile := writePasswordFile(t, "from-env-file")
-	t.Setenv(constants.PgPasswordFileEnvVar, envFile)
-	t.Setenv(constants.PgPasswordEnvVar, "from-env")
-
-	got, err := ReadPostgresPassword(flagFile)
-	require.NoError(t, err)
-	assert.Equal(t, "from-flag", got)
-}
-
-func TestReadPostgresPassword_EnvFileBeatsEnvVar(t *testing.T) {
-	envFile := writePasswordFile(t, "from-env-file")
-	t.Setenv(constants.PgPasswordFileEnvVar, envFile)
-	t.Setenv(constants.PgPasswordEnvVar, "from-env")
-
-	got, err := ReadPostgresPassword("")
-	require.NoError(t, err)
-	assert.Equal(t, "from-env-file", got)
-}
-
-func TestReadPostgresPassword_EnvVarFallback(t *testing.T) {
-	t.Setenv(constants.PgPasswordFileEnvVar, "")
-	t.Setenv(constants.PgPasswordEnvVar, "from-env")
-
-	got, err := ReadPostgresPassword("")
-	require.NoError(t, err)
-	assert.Equal(t, "from-env", got)
-}
-
-func TestReadPostgresPassword_AllUnsetReturnsEmpty(t *testing.T) {
-	t.Setenv(constants.PgPasswordFileEnvVar, "")
-	t.Setenv(constants.PgPasswordEnvVar, "")
-
-	got, err := ReadPostgresPassword("")
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestReadPostgresPassword_TrimsTrailingNewline(t *testing.T) {
+func TestReadPasswordFile_TrimsTrailingNewline(t *testing.T) {
 	cases := map[string]string{
 		"lf":    "secret\n",
 		"crlf":  "secret\r\n",
@@ -82,24 +41,15 @@ func TestReadPostgresPassword_TrimsTrailingNewline(t *testing.T) {
 	for name, contents := range cases {
 		t.Run(name, func(t *testing.T) {
 			path := writePasswordFile(t, contents)
-			got, err := ReadPostgresPassword(path)
+			got, err := ReadPasswordFile(path)
 			require.NoError(t, err)
 			assert.Equal(t, "secret", got)
 		})
 	}
 }
 
-func TestReadPostgresPassword_MissingFileFromFlag(t *testing.T) {
-	_, err := ReadPostgresPassword("/definitely/does/not/exist/password")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read postgres password file")
-}
-
-func TestReadPostgresPassword_MissingFileFromEnv(t *testing.T) {
-	t.Setenv(constants.PgPasswordFileEnvVar, "/definitely/does/not/exist/password")
-	t.Setenv(constants.PgPasswordEnvVar, "ignored-because-file-takes-precedence")
-
-	_, err := ReadPostgresPassword("")
+func TestReadPasswordFile_MissingFile(t *testing.T) {
+	_, err := ReadPasswordFile("/definitely/does/not/exist/password")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read postgres password file")
 }

@@ -64,6 +64,7 @@ func roleFromAnnotation(s string) clustermetadatapb.RoutingRole {
 // Backup performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
 func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobID string, pg2Args []string, routingRole clustermetadatapb.RoutingRole) (retBackupID string, retErr error) {
+	defer e.listCache.Invalidate()
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
