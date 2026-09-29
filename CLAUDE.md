@@ -55,6 +55,15 @@ make clean      # Remove build artifacts
 2. Then run integration tests (comprehensive validation)
 3. Use the skill for all test execution - it handles building and provides better output
 
+**When writing tests**:
+
+Use the `/mt-test-writing` skill for comprehensive guidance on writing tests, including:
+
+- Unit vs integration test patterns
+- Test utilities (`utils.WithTimeout()`, `utils.GetFreePort()`, etc.)
+- Common patterns and anti-patterns
+- Code templates for common scenarios
+
 ### Development Workflow
 
 - Run `make proto` after modifying `.proto` files
