@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -28,41 +27,30 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
-func TestStaticLeaderStatus_IsActiveLeader(t *testing.T) {
-	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-
-	status := staticLeaderStatus(id)
-
-	assert.True(t, commonconsensus.IsActiveLeader(status))
-	assert.Equal(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(status))
-}
-
-func TestStaticLeaderStatus_OtherPoolerIsNotLeader(t *testing.T) {
-	self := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"}
-
-	status := staticLeaderStatus(self)
-	status.Id = other
-
-	assert.False(t, commonconsensus.IsActiveLeader(status))
-}
+// staticLeaderStatus, CachedConsensusStatus, StartsAsPrimary,
+// LeaderInRecoveryAction and ResignGuard are unit-tested directly against
+// consensus.ConsensusManager in the consensus package. The tests below only
+// cover the MultipoolerManager-level integration: that startPostgres,
+// determineRemedialAction and ResignLeadership actually consult it.
 
 func TestStartPostgres_AsPrimaryOnlyForStaticLeader(t *testing.T) {
 	tests := []struct {
 		name          string
-		config        *Config
+		staticLeader  bool
 		wantAsPrimary bool
 	}{
-		{name: "no config", config: nil, wantAsPrimary: false},
-		{name: "consensus leader", config: &Config{}, wantAsPrimary: false},
-		{name: "static leader", config: &Config{StaticLeader: true}, wantAsPrimary: true},
+		{name: "consensus leader", staticLeader: false, wantAsPrimary: false},
+		{name: "static leader", staticLeader: true, wantAsPrimary: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockPgctld := &mockPgctldClient{}
-			pm := newTestManager(t)
+			var opts []testManagerOption
+			if tt.staticLeader {
+				opts = append(opts, withStaticLeader())
+			}
+			pm := newTestManager(t, opts...)
 			pm.pgctldClient = mockPgctld
-			pm.config = tt.config
 
 			require.NoError(t, pm.startPostgres(t.Context()))
 
@@ -70,17 +58,6 @@ func TestStartPostgres_AsPrimaryOnlyForStaticLeader(t *testing.T) {
 			assert.Equal(t, tt.wantAsPrimary, mockPgctld.startRequest.GetAsPrimary())
 		})
 	}
-}
-
-func TestRoleConsensusStatus(t *testing.T) {
-	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "self"}
-	pm := newTestManager(t, withServiceID(selfID))
-
-	// Without a static leader the role comes from consensus, which has elected no one.
-	assert.False(t, commonconsensus.IsActiveLeader(pm.roleConsensusStatus()))
-
-	pm.config = &Config{StaticLeader: true}
-	assert.True(t, commonconsensus.IsActiveLeader(pm.roleConsensusStatus()))
 }
 
 func TestDetermineRemedialAction_StaticLeader(t *testing.T) {
@@ -120,8 +97,12 @@ func TestDetermineRemedialAction_StaticLeader(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := newTestManager(t, withServiceID(selfID))
-			pm.config = &Config{StaticLeader: tt.staticLeader}
+			var opts []testManagerOption
+			opts = append(opts, withServiceID(selfID))
+			if tt.staticLeader {
+				opts = append(opts, withStaticLeader())
+			}
+			pm := newTestManager(t, opts...)
 
 			assert.Equal(t, tt.wantAction, pm.determineRemedialAction(t.Context(), tt.state))
 		})
@@ -130,8 +111,7 @@ func TestDetermineRemedialAction_StaticLeader(t *testing.T) {
 
 func TestDetermineRemedialAction_StaticLeaderPrimaryDoesNotPromote(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "self"}
-	pm := newTestManager(t, withServiceID(selfID))
-	pm.config = &Config{StaticLeader: true}
+	pm := newTestManager(t, withServiceID(selfID), withStaticLeader())
 
 	got := pm.determineRemedialAction(t.Context(), postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary})
 
@@ -142,9 +122,8 @@ func TestDetermineRemedialAction_StaticLeaderPrimaryDoesNotPromote(t *testing.T)
 
 func TestResignLeadership_RejectedForStaticLeader(t *testing.T) {
 	mockPgctld := &mockPgctldClient{}
-	pm := newTestManager(t)
+	pm := newTestManager(t, withStaticLeader())
 	pm.pgctldClient = mockPgctld
-	pm.config = &Config{StaticLeader: true}
 
 	_, err := pm.ResignLeadership(t.Context(), &multipoolermanagerdatapb.ResignLeadershipRequest{})
 

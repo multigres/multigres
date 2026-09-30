@@ -106,12 +106,20 @@ type testManagerConfig struct {
 	replicationPrimary   *clustermetadatapb.ReplicationPrimary
 	cohortEligibility    clustermetadatapb.CohortEligibilitySignal
 	resignedLeaderAtTerm int64
+	staticLeader         bool
 }
 
 type testManagerOption func(*testManagerConfig)
 
 func withServiceID(id *clustermetadatapb.ID) testManagerOption {
 	return func(c *testManagerConfig) { c.serviceID = id }
+}
+
+// withStaticLeader builds the manager's ConsensusManager as a static leader
+// (see consensus.ConsensusManager.StartsAsPrimary and friends), as Config.StaticLeader
+// does through the real constructor.
+func withStaticLeader() testManagerOption {
+	return func(c *testManagerConfig) { c.staticLeader = true }
 }
 
 func withRecord(record *poolerRecord) testManagerOption {
@@ -164,6 +172,9 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 // eligibility are seeded separately under the action lock by seedLockedState,
 // since those setters assert the action lock.
 func (cfg *testManagerConfig) consensusManager(t *testing.T) *consensus.ConsensusManager {
+	if cfg.staticLeader {
+		return consensus.NewStaticLeaderManagerForTesting(t, cfg.serviceID, cfg.promises, cfg.rules, nil)
+	}
 	return consensus.NewManagerForTesting(t, cfg.serviceID, cfg.promises, cfg.rules, nil)
 }
 

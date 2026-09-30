@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -60,7 +61,7 @@ import (
 // differently.
 func (pm *MultipoolerManager) highestKnownPosition() *clustermetadatapb.RulePosition {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
-		pm.roleConsensusStatus(),
+		pm.consensusMgr.CachedConsensusStatus(),
 	})
 }
 
@@ -896,28 +897,18 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 
 	// Rule: LEADER
 	// Postgres: STANDBY / RECOVERY MODE
-	// Diagnosis: Non-functioning primary. We could either re-promote or resign leadership.
-	// For now we resign by broadcasting to multiorch that we're not able to fulfill the
-	// leadership role at this term, at which point it may choose to re-promote.
-	//
-	// TODO(leader-led-leader-changes): promote here instead of resigning (reuse
-	// Promote's promoteStandbyToPrimary), and disambiguate resign (we lost our
-	// postgres) from promote (newly elected). Embedding the leader host/port in the
-	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
+	// Diagnosis: non-functioning primary. What to do next differs for a static
+	// leader (self-promote) vs. a coordinated one (resign); see
+	// consensus.ConsensusManager.LeaderInRecoveryAction.
 	if role == commonconsensus.ConsensusRoleLeader && !state.pgMode.OutOfRecovery() {
-		// A static leader has no coordinator to resign to or be re-promoted by,
-		// so it promotes itself. Only on an observed standby: an unknown mode
-		// means the mode could not be read this tick.
-		if pm.isStaticLeader() {
-			if state.pgMode == pgmode.InRecovery {
-				return remedialActionPromoteStaticLeader
-			}
+		switch pm.consensusMgr.LeaderInRecoveryAction(state.pgMode) {
+		case consensus.LeaderRecoveryActionSelfPromote:
+			return remedialActionPromoteStaticLeader
+		case consensus.LeaderRecoveryActionResign:
+			return remedialActionResignLeadership
+		default:
 			return remedialActionNone
 		}
-		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
-			return remedialActionResignLeadership
-		}
-		return remedialActionNone
 	}
 
 	// Re-fan the effective state to components if the last-applied one is stale
@@ -1059,7 +1050,7 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 			// matching the "healthy and role-aligned" contract on PoolerServingStatus.
 			return remedialActionNone
 		}
-		role := commonconsensus.SelfConsensusRole(pm.roleConsensusStatus())
+		role := commonconsensus.SelfConsensusRole(pm.consensusMgr.CachedConsensusStatus())
 		if action := pm.determineRoleAction(role, currentState); action != remedialActionNone {
 			return action
 		}
@@ -1592,7 +1583,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{
 		AllowCrashRecovery:  true,
 		SuspectedDivergence: pm.consensusMgr.SuspectedDivergence(),
-		AsPrimary:           pm.isStaticLeader(),
+		AsPrimary:           pm.consensusMgr.StartsAsPrimary(),
 	})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
