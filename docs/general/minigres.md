@@ -63,16 +63,23 @@ Things to know:
   static leader does not use the policy today (see below).
 - **Status pages:** `/` is an index linking to `/multigateway` and
   `/multipooler`.
+- **Configuration files are not supported yet.** Settings come from flags and
+  `MT_*` environment variables. A config file (`--config-file`, or one found
+  through `--config-name` and `--config-path`) makes `minigres` refuse to start:
+  each half keeps its own settings registry, because both define keys such as
+  `pg-port` with different meanings, so component settings in a file would
+  otherwise be silently ignored. Separate configuration namespaces for the two
+  halves are planned.
 
 ### Flags
 
-| Flag                                                        | Behavior in Minigres                                                                                                   |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `--pg-port`                                                 | The **client-facing** port (the gateway's). The pooler's Postgres port is not a flag; the pooler adopts it from pgctld |
-| `--cell`, `--service-id`, `--enable-slot-based-replication` | Given once and applied to both halves                                                                                  |
-| `--table-group`, `--shard`                                  | Default to `default` and `0-inf`, the only pair the gateway routes to                                                  |
-| servenv, gRPC server and topology flags                     | Defined once for the process                                                                                           |
-| `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see below)                                                   |
+| Flag                                                        | Behavior in Minigres                                                                                                    |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `--pg-port`                                                 | The **client-facing** port (the gateway's). The pooler's Postgres port is not a flag; the pooler adopts it from pgctld  |
+| `--cell`, `--service-id`, `--enable-slot-based-replication` | Given once and applied to both halves. Without a service ID, one is generated and shared by the process and both halves |
+| `--table-group`, `--shard`                                  | Default to `default` and `0-inf`, the only pair the gateway routes to                                                   |
+| servenv, gRPC server and topology flags                     | Defined once for the process                                                                                            |
+| `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see below)                                                    |
 
 A flag that both halves define is rejected at startup, so a new flag that
 collides fails loudly instead of silently shadowing another.
