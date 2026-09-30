@@ -54,3 +54,15 @@ func TestNotificationStream_UsesListenerSetAfterRegistration(t *testing.T) {
 	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
 	require.NoError(t, err)
 }
+
+// NotificationStream is only reachable once the manager has run its startup
+// sequence far enough to call SetPubSubListener. A stream opened before that
+// must fail rather than block forever with no listener to read from.
+func TestNotificationStream_NoPubSubListener(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	srv := &poolerService{pooler: p}
+
+	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
+	require.EqualError(t, err, "PubSubListener not initialized")
+}
