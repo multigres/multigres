@@ -15,8 +15,11 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,4 +129,57 @@ func TestRun_TopoMissingAddresses(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topo-global-server-addresses must be configured")
+}
+
+// newPreRunCommand returns a minigres and a command with its flags registered
+// and parsed from args, ready for preRun.
+func newPreRunCommand(t *testing.T, args ...string) (*minigres, *cobra.Command) {
+	t.Helper()
+	m := newMinigres()
+	cmd := &cobra.Command{Use: "minigres"}
+	require.NoError(t, m.registerFlags(cmd.Flags()))
+	require.NoError(t, cmd.Flags().Parse(args))
+	return m, cmd
+}
+
+func TestPreRun_RejectsConfigFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "minigres.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("pg-require-ssl: true\n"), 0o600))
+	m, cmd := newPreRunCommand(t, "--config-file="+file)
+
+	err := m.preRun(cmd)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support configuration files yet")
+	assert.Contains(t, err.Error(), file)
+}
+
+func TestPreRun_OneServiceIDForProcessAndBothHalves(t *testing.T) {
+	m, cmd := newPreRunCommand(t)
+
+	require.NoError(t, m.preRun(cmd))
+
+	id := cmd.Flags().Lookup("service-id").Value.String()
+	require.NotEmpty(t, id)
+	assert.Equal(t, id, m.poolerFlags.Lookup("service-id").Value.String())
+	assert.Equal(t, id, m.pooler.ServiceIdentity().ServiceInstanceID)
+}
+
+func TestPreRun_KeepsConfiguredServiceID(t *testing.T) {
+	m, cmd := newPreRunCommand(t, "--service-id=svc1")
+
+	require.NoError(t, m.preRun(cmd))
+
+	assert.Equal(t, "svc1", cmd.Flags().Lookup("service-id").Value.String())
+	assert.Equal(t, "svc1", m.pooler.ServiceIdentity().ServiceInstanceID)
+}
+
+func TestPreRun_KeepsServiceIDFromEnvironment(t *testing.T) {
+	t.Setenv("MT_SERVICE_ID", "svc-env")
+	m, cmd := newPreRunCommand(t)
+
+	require.NoError(t, m.preRun(cmd))
+
+	assert.Equal(t, "svc-env", m.pooler.ServiceIdentity().ServiceInstanceID)
+	assert.False(t, cmd.Flags().Lookup("service-id").Changed, "an ID from the environment must not be replaced")
 }

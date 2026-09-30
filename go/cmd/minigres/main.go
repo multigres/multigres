@@ -48,6 +48,9 @@ var omittedPoolerFlags = []string{"pg-port"}
 
 // minigres holds the pieces both halves share and the two halves themselves.
 type minigres struct {
+	// reg is the process registry, which holds the settings of the shared
+	// servenv, gRPC server and topology configuration.
+	reg        *viperutil.Registry
 	senv       *servenv.ServEnv
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
@@ -67,6 +70,7 @@ func newMinigres() *minigres {
 	reg := viperutil.NewRegistry()
 	tel := telemetry.NewTelemetry()
 	m := &minigres{
+		reg:         reg,
 		senv:        servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, tel), viperutil.NewViperConfig(reg), tel),
 		grpcServer:  servenv.NewGrpcServer(reg),
 		topoConfig:  topoclient.NewTopoConfig(reg),
@@ -153,7 +157,35 @@ func (m *minigres) preRun(cmd *cobra.Command) error {
 	if err := m.pooler.CobraPreRunE(cmd); err != nil {
 		return err
 	}
-	return m.senv.CobraPreRunE(cmd)
+	if err := m.senv.CobraPreRunE(cmd); err != nil {
+		return err
+	}
+	// A config file is read only into the process registry: each half keeps its
+	// own registry, because both define keys such as pg-port with different
+	// meanings. Component settings in a file would be silently ignored, so refuse
+	// the file until the halves have separate configuration namespaces.
+	if file := m.reg.ConfigFileLoaded(); file != "" {
+		return fmt.Errorf("config file %s: minigres does not support configuration files yet (MUL-1663); use flags or MT_* environment variables", file)
+	}
+	return ensureServiceID(fs, m.poolerFlags, m.pooler.ServiceIdentity().ServiceInstanceID)
+}
+
+// ensureServiceID gives the process and both halves one service ID. Each half
+// generates its own when none is configured, so without this one process would
+// appear under three IDs: the process identity, the gateway's and the pooler's.
+// configured is the ID already resolved from flags and environment.
+func ensureServiceID(fs, poolerFlags *pflag.FlagSet, configured string) error {
+	if configured != "" {
+		return nil
+	}
+	id := servenv.GenerateRandomServiceID()
+	if err := fs.Set("service-id", id); err != nil {
+		return fmt.Errorf("set service-id: %w", err)
+	}
+	if err := poolerFlags.Set("service-id", id); err != nil {
+		return fmt.Errorf("set multipooler service-id: %w", err)
+	}
+	return nil
 }
 
 func (m *minigres) run(ctx context.Context) error {
@@ -167,12 +199,10 @@ func (m *minigres) run(ctx context.Context) error {
 	defer ts.Close()
 
 	// servenv.Init may only run once per process, so it runs here with the
-	// process identity rather than in either half.
+	// process identity rather than in either half. preRun has resolved the
+	// service ID both halves share.
 	id := m.pooler.ServiceIdentity()
 	id.ServiceName = constants.ServiceMinigres
-	if id.ServiceInstanceID == "" {
-		id.ServiceInstanceID = servenv.GenerateRandomServiceID()
-	}
 	if err := m.senv.Init(id); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
