@@ -163,7 +163,7 @@ func TestParseError(t *testing.T) {
 }
 
 func TestParseErrorAllFields(t *testing.T) {
-	// Build an ErrorResponse message body with all 14 fields.
+	// Build an ErrorResponse message body with all diagnostic fields, including F/L/R.
 	w := NewMessageWriter()
 	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
@@ -193,6 +193,12 @@ func TestParseErrorAllFields(t *testing.T) {
 	w.WriteString("text")
 	w.AppendByte(protocol.FieldConstraint)
 	w.WriteString("users_email_key")
+	w.AppendByte(protocol.FieldFile)
+	w.WriteString("nbtinsert.c")
+	w.AppendByte(protocol.FieldLine)
+	w.WriteString("670")
+	w.AppendByte(protocol.FieldRoutine)
+	w.WriteString("_bt_check_unique")
 	w.AppendByte(0) // Terminator
 
 	conn := &Conn{}
@@ -202,7 +208,7 @@ func TestParseErrorAllFields(t *testing.T) {
 	var diag *mterrors.PgDiagnostic
 	require.True(t, errors.As(err, &diag))
 
-	// Verify all 14 fields.
+	// Verify all fields, including source location (F/L/R).
 	require.NotNil(t, diag)
 	assert.Equal(t, "ERROR", diag.Severity)
 	assert.Equal(t, "23505", diag.Code)
@@ -218,10 +224,13 @@ func TestParseErrorAllFields(t *testing.T) {
 	assert.Equal(t, "email", diag.Column)
 	assert.Equal(t, "text", diag.DataType)
 	assert.Equal(t, "users_email_key", diag.Constraint)
+	assert.Equal(t, "nbtinsert.c", diag.File)
+	assert.Equal(t, int32(670), diag.Line)
+	assert.Equal(t, "_bt_check_unique", diag.Routine)
 }
 
 func TestPgDiagnosticFields(t *testing.T) {
-	// Build an ErrorResponse message body with all 14 fields.
+	// Build an ErrorResponse message body with all diagnostic fields, including F/L/R.
 	w := NewMessageWriter()
 	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
@@ -251,6 +260,12 @@ func TestPgDiagnosticFields(t *testing.T) {
 	w.WriteString("boolean")
 	w.AppendByte(protocol.FieldConstraint)
 	w.WriteString("myconstraint")
+	w.AppendByte(protocol.FieldFile)
+	w.WriteString("bool.c")
+	w.AppendByte(protocol.FieldLine)
+	w.WriteString("123")
+	w.AppendByte(protocol.FieldRoutine)
+	w.WriteString("boolin")
 	w.AppendByte(0) // Terminator
 
 	conn := &Conn{}
@@ -280,6 +295,9 @@ func TestPgDiagnosticFields(t *testing.T) {
 	assert.Equal(t, "mycolumn", diag.Column)
 	assert.Equal(t, "boolean", diag.DataType)
 	assert.Equal(t, "myconstraint", diag.Constraint)
+	assert.Equal(t, "bool.c", diag.File)
+	assert.Equal(t, int32(123), diag.Line)
+	assert.Equal(t, "boolin", diag.Routine)
 }
 
 func TestPgDiagnosticErrorString(t *testing.T) {

@@ -427,6 +427,21 @@ func TestPgDiagnosticToProtoAndBack(t *testing.T) {
 				Column:           "email",
 				DataType:         "character varying",
 				Constraint:       "users_email_key",
+				File:             "nbtinsert.c",
+				Line:             670,
+				Routine:          "_bt_check_unique",
+			},
+		},
+		{
+			name: "source location fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "22012",
+				Message:     "division by zero",
+				File:        "int.c",
+				Line:        870,
+				Routine:     "int4div",
 			},
 		},
 		{
@@ -566,6 +581,9 @@ func TestPgDiagnosticToProtoAndBack(t *testing.T) {
 			assert.Equal(t, tc.diagnostic.Column, protoDiag.ColumnName)
 			assert.Equal(t, tc.diagnostic.DataType, protoDiag.DataTypeName)
 			assert.Equal(t, tc.diagnostic.Constraint, protoDiag.ConstraintName)
+			assert.Equal(t, tc.diagnostic.File, protoDiag.File)
+			assert.Equal(t, tc.diagnostic.Line, protoDiag.Line)
+			assert.Equal(t, tc.diagnostic.Routine, protoDiag.Routine)
 
 			// Convert back
 			recovered := mterrors.PgDiagnosticFromProto(protoDiag)
@@ -587,6 +605,9 @@ func TestPgDiagnosticToProtoAndBack(t *testing.T) {
 			assert.Equal(t, tc.diagnostic.Column, recovered.Column)
 			assert.Equal(t, tc.diagnostic.DataType, recovered.DataType)
 			assert.Equal(t, tc.diagnostic.Constraint, recovered.Constraint)
+			assert.Equal(t, tc.diagnostic.File, recovered.File)
+			assert.Equal(t, tc.diagnostic.Line, recovered.Line)
+			assert.Equal(t, tc.diagnostic.Routine, recovered.Routine)
 		})
 	}
 }
