@@ -215,3 +215,29 @@ func TestReusedStream_StatementDeadlineWaitsForBackendCancel(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, s.streams.Load())
 }
+
+func TestConcludeTransaction_StatementDeadlineHandedToPooler(t *testing.T) {
+	mockClient := &mockMultipoolerServiceClient{
+		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
+			Result: &query.QueryResult{CommandTag: "COMMIT"},
+		},
+	}
+	svc := newTestGRPCQueryService(mockClient)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+
+	_, _, err := svc.ConcludeTransaction(ctx, protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{ReservedConnectionId: 1}, multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false, nil)
+	require.NoError(t, err)
+
+	// COMMIT can wait (synchronous replication, for one), so it gets the same
+	// treatment as a statement body: the budget goes to the pooler and the RPC
+	// outlives the statement deadline.
+	require.InDelta(t, time.Minute, mockClient.concludeReq.GetOptions().GetStatementTimeout().AsDuration(), float64(time.Second))
+	rpcDeadline, ok := mockClient.concludeCtx.Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, deadline.Add(constants.StatementCancelDrainGrace), rpcDeadline, time.Millisecond)
+}

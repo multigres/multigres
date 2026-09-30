@@ -2281,6 +2281,8 @@ func (e *Executor) ConcludeTransaction(
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	user := e.getUserFromOptions(options)
 
@@ -2406,6 +2408,8 @@ func (e *Executor) DiscardTempTables(
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	user := e.getUserFromOptions(options)
 

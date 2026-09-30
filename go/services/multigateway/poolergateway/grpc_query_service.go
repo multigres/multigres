@@ -780,7 +780,9 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error (sqlstate + message); Wrapf adds a debug-context prefix on top
 	// without breaking the errors.As chain to that diagnostic.
-	response, err := g.client.ConcludeTransaction(ctx, req)
+	rpcCtx, cancel := statementRPCContext(ctx, options)
+	defer cancel()
+	response, err := g.client.ConcludeTransaction(rpcCtx, req)
 	if err != nil {
 		return nil, reservedStateFromGRPCErr(err), mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
@@ -848,7 +850,9 @@ func (g *grpcQueryService) DiscardTempTables(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error; Wrapf adds a debug-context prefix without breaking the
 	// errors.As chain to that diagnostic.
-	response, err := g.client.DiscardTempTables(ctx, req)
+	rpcCtx, cancel := statementRPCContext(ctx, options)
+	defer cancel()
+	response, err := g.client.DiscardTempTables(rpcCtx, req)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "discard temp tables")
 	}

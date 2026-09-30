@@ -153,6 +153,8 @@ type mockMultipoolerServiceClient struct {
 	// ConcludeTransaction behavior
 	concludeResponse *multipoolerservice.ConcludeTransactionResponse
 	concludeErr      error
+	concludeCtx      context.Context
+	concludeReq      *multipoolerservice.ConcludeTransactionRequest
 
 	// Describe behavior
 	describeResponse *multipoolerservice.DescribeResponse
@@ -212,6 +214,8 @@ func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, i
 }
 
 func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
+	m.concludeCtx = ctx
+	m.concludeReq = in
 	if m.concludeErr != nil {
 		return nil, m.concludeErr
 	}
