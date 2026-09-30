@@ -54,7 +54,6 @@ type minigres struct {
 	senv       *servenv.ServEnv
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
-	ts         topoclient.Store
 
 	gateway *multigateway.Multigateway
 	pooler  *multipooler.Multipooler
@@ -80,10 +79,10 @@ func newMinigres() *minigres {
 	resources := servenv.ProcessResources{
 		ServEnv:    m.senv,
 		GrpcServer: m.grpcServer,
-		TopoStore:  func() topoclient.Store { return m.ts },
 	}
-	m.pooler = multipooler.NewMultipooler(tel, multipooler.WithSingleProcessMode(resources))
-	m.gateway = multigateway.NewMultigateway(multigateway.WithSingleProcessMode(resources))
+	// The only pooler of its shard leads it without consensus.
+	m.pooler = multipooler.NewMultipooler(tel, resources, "/"+constants.ServiceMultipooler, true)
+	m.gateway = multigateway.NewMultigateway(resources, "/"+constants.ServiceMultigateway)
 	return m
 }
 
@@ -154,9 +153,9 @@ func (m *minigres) preRun(cmd *cobra.Command) error {
 	if err := m.gateway.CobraPreRunE(cmd); err != nil {
 		return err
 	}
-	if err := m.pooler.CobraPreRunE(cmd); err != nil {
-		return err
-	}
+	// The multipooler has no CobraPreRunE of its own (unlike the multigateway,
+	// which needs one for its config-reload channel) — it never constructs its
+	// own servenv, so there is nothing for it to suppress here.
 	if err := m.senv.CobraPreRunE(cmd); err != nil {
 		return err
 	}
@@ -193,7 +192,6 @@ func (m *minigres) run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("topo open: %w", err)
 	}
-	m.ts = ts
 	// Closed only after the serving loop returns, which is after both halves'
 	// shutdown hooks have run.
 	defer ts.Close()
@@ -207,10 +205,10 @@ func (m *minigres) run(ctx context.Context) error {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 
-	if err := m.pooler.Init(ctx); err != nil {
+	if err := m.pooler.Init(ctx, ts); err != nil {
 		return err
 	}
-	if err := m.gateway.Init(ctx); err != nil {
+	if err := m.gateway.Init(ctx, ts); err != nil {
 		return err
 	}
 	m.senv.HTTPHandleFunc("/", handleIndex)

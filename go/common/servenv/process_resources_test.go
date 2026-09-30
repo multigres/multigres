@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -29,13 +28,12 @@ func TestProcessResourcesValidate(t *testing.T) {
 	complete := ProcessResources{
 		ServEnv:    NewServEnv(reg),
 		GrpcServer: NewGrpcServer(reg),
-		TopoStore:  func() topoclient.Store { return nil },
 	}
 	require.NoError(t, complete.Validate())
 
 	err := ProcessResources{}.Validate()
 	require.Error(t, err)
-	for _, missing := range []string{"ServEnv", "GrpcServer", "TopoStore"} {
+	for _, missing := range []string{"ServEnv", "GrpcServer"} {
 		assert.Contains(t, err.Error(), missing)
 	}
 }
