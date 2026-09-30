@@ -21,8 +21,10 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/callerid"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -35,6 +37,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
@@ -101,6 +104,53 @@ func markStreamStartFailure(err error) error {
 	return err
 }
 
+// statementRPCContext returns the context a statement RPC runs on.
+//
+// The multigateway enforces statement_timeout as a deadline on ctx. Using that
+// same deadline for the RPC made gRPC tear the stream down the moment it fired,
+// before the multipooler had cancelled the backend and seen it stop. The client
+// got its timeout error while the backend was still running, so the session's
+// next statement queued behind it and, with a short statement_timeout, timed
+// out itself without ever reaching PostgreSQL (the PostGIS interrupt_buffer
+// regression test reproduces this).
+//
+// Instead the remaining budget is handed to the multipooler in
+// options.StatementTimeout, which enforces it next to the backend and reports
+// query_canceled only once the backend is idle, and the RPC deadline is pushed
+// past the statement deadline by the pooler's cancel-drain grace so that report
+// arrives. Explicit cancellation of ctx (client CancelRequest, connection close)
+// still tears the RPC down immediately, exactly as before.
+//
+// options is mutated in place; callers build a fresh ExecuteOptions per call.
+func statementRPCContext(ctx context.Context, options *querypb.ExecuteOptions) (context.Context, context.CancelFunc) {
+	if options == nil {
+		return ctx, func() {}
+	}
+	options.StatementTimeout = nil
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ctx, func() {}
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return ctx, func() {}
+	}
+	options.StatementTimeout = durationpb.New(remaining)
+
+	rpcCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline.Add(constants.StatementCancelDrainGrace))
+	stop := context.AfterFunc(ctx, func() {
+		// The statement deadline is the one case the RPC must outlive; every
+		// other reason ctx ends is an explicit cancel that must propagate now.
+		if !errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+			cancel()
+		}
+	})
+	return rpcCtx, func() {
+		stop()
+		cancel()
+	}
+}
+
 // StreamExecute executes a query and streams results back via callback.
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (g *grpcQueryService) StreamExecute(
@@ -127,11 +177,19 @@ func (g *grpcQueryService) StreamExecute(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
+	// Both transports below run on rpcCtx rather than ctx: see
+	// statementRPCContext. On the reused stream this also keeps the lease
+	// from being discarded at the statement deadline, so a timed-out
+	// statement completes with a normal completion frame and the stream stays
+	// reusable.
+	rpcCtx, cancel := statementRPCContext(ctx, options)
+	defer cancel()
+
 	var stream interface {
 		Recv() (*multipoolerservice.StreamExecuteResponse, error)
 	}
 	if g.executeStreams != nil {
-		reused, used, err := g.executeStreams.Open(ctx, req)
+		reused, used, err := g.executeStreams.Open(rpcCtx, req)
 		if err != nil {
 			if !used {
 				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start execute stream")
@@ -144,7 +202,7 @@ func (g *grpcQueryService) StreamExecute(
 		}
 	}
 	if stream == nil {
-		legacy, err := g.client.StreamExecute(ctx, req)
+		legacy, err := g.client.StreamExecute(rpcCtx, req)
 		if err != nil {
 			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
 		}
@@ -230,7 +288,9 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 	// way to tell a pick/dial failure from a connection lost after the request
 	// was delivered and possibly executed, so marking it could double-apply a
 	// write on retry.
-	res, err := g.client.ExecuteQuery(ctx, req)
+	rpcCtx, cancel := statementRPCContext(ctx, options)
+	defer cancel()
+	res, err := g.client.ExecuteQuery(rpcCtx, req)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
 	}
@@ -270,7 +330,9 @@ func (g *grpcQueryService) PortalStreamExecute(
 	}
 
 	// Call the gRPC PortalStreamExecute
-	stream, err := g.client.PortalStreamExecute(ctx, req)
+	rpcCtx, cancel := statementRPCContext(ctx, options)
+	defer cancel()
+	stream, err := g.client.PortalStreamExecute(rpcCtx, req)
 	if err != nil {
 		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
 	}

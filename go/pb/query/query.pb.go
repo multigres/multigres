@@ -27,6 +27,7 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -1363,8 +1364,17 @@ type ExecuteOptions struct {
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
 	PassthroughRow bool `protobuf:"varint,8,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// statement_timeout is the remaining statement_timeout budget the
+	// multigateway grants this statement. The multipooler enforces it next to
+	// the backend: when it elapses it cancels the backend and reports
+	// query_canceled only once the backend has actually stopped, so the
+	// session's next statement never queues behind a still-running one. The
+	// multigateway keeps its own RPC deadline past this value so it receives that
+	// report instead of tearing the stream down. Unset or zero means no
+	// pooler-side timeout.
+	StatementTimeout *durationpb.Duration `protobuf:"bytes,9,opt,name=statement_timeout,json=statementTimeout,proto3" json:"statement_timeout,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1451,6 +1461,13 @@ func (x *ExecuteOptions) GetPassthroughRow() bool {
 		return x.PassthroughRow
 	}
 	return false
+}
+
+func (x *ExecuteOptions) GetStatementTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.StatementTimeout
+	}
+	return nil
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1634,7 +1651,7 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc1\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\"\xc1\x01\n" +
 	"\x12QueryResultPayload\x12,\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultH\x00R\x06result\x125\n" +
 	"\n" +
@@ -1732,7 +1749,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x82\x04\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xca\x04\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1741,7 +1758,8 @@ const file_query_proto_rawDesc = "" +
 	"\tuser_auth\x18\x05 \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
 	"\x14client_connection_id\x18\x06 \x01(\rR\x12clientConnectionId\x12g\n" +
 	"\x1eexecute_sql_prepared_statement\x18\a \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12'\n" +
-	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x1aB\n" +
+	"\x0fpassthrough_row\x18\b \x01(\bR\x0epassthroughRow\x12F\n" +
+	"\x11statement_timeout\x18\t \x01(\v2\x19.google.protobuf.DurationR\x10statementTimeout\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
@@ -1799,6 +1817,7 @@ var file_query_proto_goTypes = []any{
 	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
 	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
 	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
+	(*durationpb.Duration)(nil),         // 21: google.protobuf.Duration
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1817,11 +1836,12 @@ var file_query_proto_depIdxs = []int32{
 	18, // 13: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
 	15, // 14: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
 	11, // 15: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	21, // 16: query.ExecuteOptions.statement_timeout:type_name -> google.protobuf.Duration
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
