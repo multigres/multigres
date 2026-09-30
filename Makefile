@@ -32,7 +32,7 @@ PGPROTO_VER = 4.6.6
 export PGPROTO_VER
 
 # List of all commands to build
-CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
+CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver minigres
 BIN_DIR = bin
 
 GIT_COMMIT ?= unknown

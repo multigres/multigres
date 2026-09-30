@@ -137,14 +137,35 @@ type Multipooler struct {
 	// --socket-file was unset. Stored so the /status page reports the live
 	// value rather than the raw flag. Set once during Init.
 	resolvedSocketFilePath string
+
+	// singleProcessMode is set by WithSingleProcessMode: the multipooler runs
+	// in one process with the multigateway, and main performs the process-owner
+	// steps (servenv flags, config and Init, opening and closing the topology
+	// store) instead of the multipooler.
+	singleProcessMode bool
+	// topoStore returns main's topology store in single-process mode.
+	topoStore func() topoclient.Store
+	// statusPath is where the status page is served: "/" when the multipooler
+	// owns the process, under its service name when it shares the HTTP server.
+	statusPath string
+	// staticLeader makes the multipooler its shard's leader without consensus.
+	staticLeader bool
 }
 
 func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
+	if mp.singleProcessMode {
+		// main loads the shared servenv's configuration.
+		return nil
+	}
 	return mp.senv.CobraPreRunE(cmd)
 }
 
 // NewMultipooler creates a new Multipooler instance with default configuration
-func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
+func NewMultipooler(telemetry *telemetry.Telemetry, opts ...Option) *Multipooler {
+	var applied options
+	for _, opt := range opts {
+		opt(&applied)
+	}
 	reg := viperutil.NewRegistry()
 	mp := &Multipooler{
 		reg: reg,
@@ -258,10 +279,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
-		grpcServer:     servenv.NewGrpcServer(reg),
-		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
-		topoConfig:     topoclient.NewTopoConfig(reg),
 		connPoolConfig: connpoolmanager.NewConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
@@ -272,10 +290,32 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			},
 		},
 	}
+	mp.singleProcessMode = applied.single != nil
+	if mp.singleProcessMode {
+		mp.senv = applied.single.ServEnv
+		mp.grpcServer = applied.single.GrpcServer
+		mp.topoStore = applied.single.TopoStore
+		mp.statusPath = "/" + constants.ServiceMultipooler
+	} else {
+		mp.senv = servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry)
+		mp.grpcServer = servenv.NewGrpcServer(reg)
+		mp.topoConfig = topoclient.NewTopoConfig(reg)
+		mp.statusPath = "/"
+	}
+	// The only pooler of its shard leads it without consensus.
+	mp.staticLeader = mp.singleProcessMode
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
 	return mp
+}
+
+// consensusEnabled reports whether the pooler takes part in consensus: whether
+// the consensus service is registered and the manager runs with consensus. A
+// static leader never does, whatever --service-map says: a coordinator's
+// Recruit would demote a pooler that promotes itself back.
+func (mp *Multipooler) consensusEnabled() bool {
+	return !mp.staticLeader && mp.grpcServer.CheckServiceMap("consensus", mp.senv)
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
@@ -328,10 +368,47 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	)
 	mp.flagSet = flags
 
+	mp.connPoolConfig.RegisterFlags(flags)
+	if !mp.singleProcessMode {
+		mp.registerProcessFlags(flags)
+	}
+}
+
+// registerProcessFlags registers the flags of the process-level pieces the
+// multipooler owns when it runs as its own process.
+func (mp *Multipooler) registerProcessFlags(flags *pflag.FlagSet) {
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
-	mp.connPoolConfig.RegisterFlags(flags)
+}
+
+// initProcess performs the process-owner steps of Init: servenv.Init and
+// opening the topology store. In single-process mode main has done both, and
+// the store comes from main.
+func (mp *Multipooler) initProcess(serviceID, cell string) error {
+	if mp.singleProcessMode {
+		mp.ts = mp.topoStore()
+		if mp.ts == nil {
+			return errors.New("topology store is not open: main must open it before Init")
+		}
+		return nil
+	}
+	if err := mp.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
+	}); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
+	var err error
+	mp.ts, err = mp.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
+	return nil
 }
 
 // resolvePgBackRestCipherKeys loads the backup cipher key file if one is
@@ -383,28 +460,15 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	}
 	cell := mp.cell.Get()
 
-	if err := mp.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultipooler,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-		Shard:             mp.shard.Get(),
-		Database:          mp.database.Get(),
-		TableGroup:        mp.tableGroup.Get(),
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
-	// Get the configured logger
-	logger := mp.senv.GetLogger()
-
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
 	// at that point.
-	var err error
-	mp.ts, err = mp.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
+	if err := mp.initProcess(serviceID, cell); err != nil {
+		return err
 	}
+	// Get the configured logger
+	logger := mp.senv.GetLogger()
 
 	logger.InfoContext(
 		startCtx, "multipooler starting up",
@@ -491,6 +555,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return err
 	}
 
+	consensusEnabled := mp.consensusEnabled()
+
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:                 socketFilePath,
@@ -499,7 +565,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
-		ConsensusEnabled:               mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
@@ -511,6 +577,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 
 		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
 		PostgresUnrecoverableMinAttempts: minAttempts,
+
+		StaticLeader: mp.staticLeader,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -522,10 +590,12 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
-	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
+	if consensusEnabled {
+		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
+	}
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
-	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
 
 	// Register /ready probe: ready iff this pooler's own gRPC control plane is
 	// accepting connections. Postgres health is intentionally excluded — a
@@ -573,6 +643,21 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// ServiceIdentity returns the identity the multipooler reports when it
+// initializes its own servenv. ServiceInstanceID is the configured service ID
+// and may be empty. A caller that owns a shared servenv (see WithServEnv) can
+// use it to initialize that servenv with the pooler's cell and shard.
+func (mp *Multipooler) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: mp.serviceID.Get(),
+		Cell:              mp.cell.Get(),
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
+	}
+}
+
 func (mp *Multipooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
@@ -582,7 +667,10 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)
 	}
-	mp.ts.Close()
+	if !mp.singleProcessMode {
+		// In single-process mode main closes the store it opened.
+		mp.ts.Close()
+	}
 }
 
 // flagExplicitlySet reports whether the named flag was explicitly configured:

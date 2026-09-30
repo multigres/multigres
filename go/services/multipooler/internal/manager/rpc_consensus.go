@@ -123,6 +123,13 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
 	defer span.End()
 
+	// A static leader has no other pooler to hand writes to, and would promote
+	// itself straight back: resigning would only cause an outage.
+	if pm.isStaticLeader() {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot resign leadership: this pooler is a static leader, and there is no other pooler to switch to")
+	}
+
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
 	if err != nil {
