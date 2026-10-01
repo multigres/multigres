@@ -1,0 +1,9 @@
+---
+extends: spectral:oas
+overrides:
+  - files:
+      - "../../docs/api/multiadmin.openapi.yaml"
+    rules:
+      # Spectral 6.15 excludes dots from path placeholders. Vanguard uses them for
+      # nested protobuf fields; make openapi-check validates these with Redocly.
+      path-params: off

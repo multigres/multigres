@@ -173,7 +173,7 @@ export class GetCellRequest extends Message<GetCellRequest> {
  */
 export class GetCellResponse extends Message<GetCellResponse> {
   /**
-   * cell contains the Cell protobuf object
+   * Cell metadata.
    *
    * @generated from field: clustermetadata.Cell cell = 1;
    */
@@ -255,7 +255,7 @@ export class GetDatabaseRequest extends Message<GetDatabaseRequest> {
  */
 export class GetDatabaseResponse extends Message<GetDatabaseResponse> {
   /**
-   * database contains the Database protobuf object
+   * Database metadata.
    *
    * @generated from field: clustermetadata.Database database = 1;
    */
@@ -440,7 +440,7 @@ export class GetDatabaseNamesResponse extends Message<GetDatabaseNamesResponse> 
  */
 export class GetGatewaysRequest extends Message<GetGatewaysRequest> {
   /**
-   * cells is a comma-separated list of cell names to filter by (optional)
+   * Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
    *
    * @generated from field: repeated string cells = 1;
    */
@@ -490,6 +490,8 @@ export class GetGatewaysRequest extends Message<GetGatewaysRequest> {
  */
 export class GetGatewaysResponse extends Message<GetGatewaysResponse> {
   /**
+   * Gateways matching the requested cells.
+   *
    * @generated from field: repeated clustermetadata.Multigateway gateways = 1;
    */
   gateways: Multigateway[] = [];
@@ -529,7 +531,7 @@ export class GetGatewaysResponse extends Message<GetGatewaysResponse> {
  */
 export class GetPoolersRequest extends Message<GetPoolersRequest> {
   /**
-   * cells is a comma-separated list of cell names to filter by (optional)
+   * Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
    *
    * @generated from field: repeated string cells = 1;
    */
@@ -586,6 +588,8 @@ export class GetPoolersRequest extends Message<GetPoolersRequest> {
  */
 export class GetPoolersResponse extends Message<GetPoolersResponse> {
   /**
+   * Poolers matching the requested cells, database, and shard.
+   *
    * @generated from field: repeated clustermetadata.Multipooler poolers = 1;
    */
   poolers: Multipooler[] = [];
@@ -625,7 +629,7 @@ export class GetPoolersResponse extends Message<GetPoolersResponse> {
  */
 export class GetOrchsRequest extends Message<GetOrchsRequest> {
   /**
-   * cells is a comma-separated list of cell names to filter by (optional)
+   * Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
    *
    * @generated from field: repeated string cells = 1;
    */
@@ -666,6 +670,7 @@ export class GetOrchsRequest extends Message<GetOrchsRequest> {
  */
 export class GetOrchsResponse extends Message<GetOrchsResponse> {
   /**
+   * Orchestrators matching the requested cells.
    * protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
    *
    * @generated from field: repeated clustermetadata.Multiorch orchs = 1;
@@ -993,27 +998,27 @@ export class GetBackupJobStatusResponse extends Message<GetBackupJobStatusRespon
 }
 
 /**
- * GetBackupsRequest requests a list of backup artifacts with optional filtering
+ * GetBackupsRequest selects a backup repository and limits the returned inventory.
  *
  * @generated from message multiadmin.GetBackupsRequest
  */
 export class GetBackupsRequest extends Message<GetBackupsRequest> {
   /**
-   * database name to filter by (optional, empty means all databases)
+   * Database whose backup inventory to query (required).
    *
    * @generated from field: string database = 1;
    */
   database = "";
 
   /**
-   * table_group name to filter by (optional, empty means all table groups)
+   * Table group whose backup inventory to query (required).
    *
    * @generated from field: string table_group = 2;
    */
   tableGroup = "";
 
   /**
-   * shard name to filter by (optional, empty means all shards)
+   * Shard context. Pooler selection currently uses database and table_group.
    *
    * @generated from field: string shard = 3;
    */
@@ -1268,11 +1273,15 @@ export class VerifyBackupsRequest extends Message<VerifyBackupsRequest> {
  */
 export class VerifyBackupsResponse extends Message<VerifyBackupsResponse> {
   /**
+   * Elapsed verification time, encoded as protobuf seconds (for example, "1.500s").
+   *
    * @generated from field: google.protobuf.Duration duration = 1;
    */
   duration?: Duration;
 
   /**
+   * Diagnostic output from pgbackrest verify.
+   *
    * @generated from field: string raw_output = 2;
    */
   rawOutput = "";
@@ -1977,6 +1986,8 @@ export class UnsafeDeriveCertOptions extends Message<UnsafeDeriveCertOptions> {
 }
 
 /**
+ * ApplyCertifiedRuleChangeResponse contains the installed rule and the certificate used.
+ *
  * @generated from message multiadmin.ApplyCertifiedRuleChangeResponse
  */
 export class ApplyCertifiedRuleChangeResponse extends Message<ApplyCertifiedRuleChangeResponse> {
@@ -2027,6 +2038,8 @@ export class ApplyCertifiedRuleChangeResponse extends Message<ApplyCertifiedRule
 }
 
 /**
+ * SwitchPrimaryRequest identifies the shard and the audit reason for a graceful switchover.
+ *
  * @generated from message multiadmin.SwitchPrimaryRequest
  */
 export class SwitchPrimaryRequest extends Message<SwitchPrimaryRequest> {
@@ -2074,6 +2087,8 @@ export class SwitchPrimaryRequest extends Message<SwitchPrimaryRequest> {
 }
 
 /**
+ * SwitchPrimaryResponse identifies the demoted pooler; election of its replacement is asynchronous.
+ *
  * @generated from message multiadmin.SwitchPrimaryResponse
  */
 export class SwitchPrimaryResponse extends Message<SwitchPrimaryResponse> {

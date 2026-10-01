@@ -545,6 +545,8 @@ install_go_plugins() {
   GOBIN=$MTROOT/bin go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.27.4
   # Install protoc-gen-connect-go (keep in sync with the connectrpc.com/connect version in go.mod)
   GOBIN=$MTROOT/bin go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.2
+  # Generate the Multiadmin REST contract directly as OpenAPI 3.1.
+  GOBIN=$MTROOT/bin go install github.com/sudorandom/protoc-gen-connect-openapi@v0.25.7
 }
 
 install_go_tools() {
