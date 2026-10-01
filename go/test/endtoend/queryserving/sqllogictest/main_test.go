@@ -21,6 +21,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
@@ -29,7 +31,10 @@ import (
 // sub-tests in this package. A separate standalone PostgreSQL is started in
 // the test function itself (not the manager) because it depends on the
 // PostgresBuilder output directory.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t)
+	}
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),
@@ -45,7 +50,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getSharedSetup(t *testing.T) shardsetup.Cluster {
 	t.Helper()
 	return setupManager.Get(t)
 }

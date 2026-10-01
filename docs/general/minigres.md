@@ -147,6 +147,21 @@ and consensus would have to keep running after every restart.
   durability policy: with `AT_LEAST_2`, the rule would make
   `synchronous_standby_names` wait for a standby that cannot exist.
 
+## Testing
+
+The end-to-end harness has a Minigres topology (`go/test/endtoend/minigressetup`)
+that starts etcd, the topology records, one pgctld and one `minigres`, and waits
+until the pooler has bootstrapped, promoted itself and serves a write. The
+`queryserving` tests run against it with the topology switch:
+
+```bash
+MULTIGRES_E2E_TOPOLOGY=minigres go test ./go/test/endtoend/queryserving/
+```
+
+The same tests run against a Multigres shard without the switch. Tests that need
+Multiorch, replicas or several gateways skip themselves under Minigres, with the
+reason in the skip message. CI runs both topologies on every pull request.
+
 ## Known limitations
 
 - Minigres is started by hand; there is no CLI or provisioner support.

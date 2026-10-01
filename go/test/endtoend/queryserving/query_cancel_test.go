@@ -37,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -59,7 +60,7 @@ func TestMultigateway_QueryCancel(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 
@@ -228,6 +229,7 @@ func TestMultigateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found, skipping query cancel tests")
 	}
+	clustersetup.RequireMultigresTopology(t, "cancel forwarding between two gateways")
 
 	caCert, serverCert, serverKey := generateGatewayGRPCTLSFiles(t)
 
@@ -246,7 +248,7 @@ func TestMultigateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
 
 	targetGateway := setup.Multigateway
 	require.NotNil(t, targetGateway)
-	targetPGPort := setup.MultigatewayPgPort
+	targetPGPort := setup.ClientPort()
 
 	// Create a second gateway that receives CancelRequest and forwards to target over gRPC TLS.
 	sourceGateway := setup.CreateMultigatewayInstance(

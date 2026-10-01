@@ -33,11 +33,17 @@ permissions: {}
 
 jobs:
   test-postgrest:
-    name: Run PostgREST spec suite
+    # Runs against Multigres and, under the topology switch, against a single
+    # Minigres process; the Multigres entry keeps the original check name.
+    name: ${{ matrix.topology == 'minigres' && 'Run PostgREST spec suite (Minigres)' || 'Run PostgREST spec suite' }}
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
       contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     environment:
       name: ci
@@ -84,6 +90,7 @@ jobs:
         # open). The divergence count is written to the job summary regardless.
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
           TEST_PRINT_LOGS: "1"
         run: |
           set -o pipefail
@@ -99,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: postgrest-results
+          name: postgrest-results${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: |
             /tmp/multigres_postgrest_cache/results/**/*
             postgrest-results.jsonl
@@ -111,8 +118,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ failure() }}
         with:
-          name: postgrest-cluster-logs
-          path: /tmp/shardsetup_test_*/**/*.log
+          name: postgrest-cluster-logs${{ matrix.topology == 'minigres' && '-minigres' || '' }}
+          path: |
+            /tmp/shardsetup_test_*/**/*.log
+            /tmp/minigres_test_*/**/*.log
           if-no-files-found: warn
           retention-days: 7
 

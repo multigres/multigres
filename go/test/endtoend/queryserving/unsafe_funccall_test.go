@@ -48,7 +48,7 @@ func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -102,7 +102,7 @@ func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 	// the same rewrite or the tracker diverges depending on which driver
 	// feature the client used.
 	t.Run("extended protocol also rewrites", func(t *testing.T) {
-		pgxConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		pgxConnStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		conn, err := pgx.Connect(ctx, pgxConnStr)
 		require.NoError(t, err)
 		defer conn.Close(ctx)
@@ -309,7 +309,7 @@ func TestMultigateway_UnsafeFuncCallRejection(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)

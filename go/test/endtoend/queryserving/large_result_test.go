@@ -44,7 +44,7 @@ func TestLargeResultThroughGateway(t *testing.T) {
 	const sizeBytes = 20 * 1024 * 1024 // One DataRow larger than the 16 MiB gRPC default.
 	query := "SELECT repeat('x', 20971520)"
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			// Low-level pgprotocol client exercises the simple-query response loop.
 			t.Run("low-level", func(t *testing.T) {

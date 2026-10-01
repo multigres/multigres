@@ -66,7 +66,7 @@ func TestPgDump(t *testing.T) {
 
 	// Seed a small schema so the dump has something to emit. Routed through the
 	// gateway to keep setup on the same pooled path the dump will use.
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -95,7 +95,7 @@ func TestPgDump(t *testing.T) {
 			"-d", "postgres")
 		cmd.AddEnv(
 			"PGHOST=localhost",
-			fmt.Sprintf("PGPORT=%d", setup.MultigatewayPgPort),
+			fmt.Sprintf("PGPORT=%d", setup.ClientPort()),
 			"PGUSER="+shardsetup.DefaultTestUser,
 			"PGPASSWORD="+shardsetup.TestPostgresPassword,
 			"PGSSLMODE=disable",

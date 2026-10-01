@@ -53,7 +53,7 @@ func TestMultigateway_PostgreSQLConnection(t *testing.T) {
 	// Set connection timeout
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			// Connect to the target
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
@@ -209,7 +209,7 @@ func TestMultigateway_ExtendedQueryProtocol(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			// Connect using pgx (which uses Extended Query Protocol by default)
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
@@ -1216,7 +1216,7 @@ func TestMultigateway_DatabaseSQLTransactions(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -1365,7 +1365,7 @@ func TestMultigateway_PartialRowsBeforeError(t *testing.T) {
 	for _, proto := range protocols {
 		t.Run(proto.name, func(t *testing.T) {
 			results := map[string]result{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				t.Run(target.Name, func(t *testing.T) {
 					connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 					conn, err := pgconn.Connect(ctx, connStr)

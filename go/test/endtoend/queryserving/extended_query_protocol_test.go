@@ -66,7 +66,7 @@ func TestExtendedQueryProtocol_DescribePortal(t *testing.T) {
 	setup := getSharedSetup(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 
@@ -482,7 +482,7 @@ func TestZeroColumnResults(t *testing.T) {
 		{name: "empty select", query: "SELECT", wantRows: 1},
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("simple protocol zero-column queries", func(t *testing.T) {
 				conn := connectLowLevelToPort(t, ctx, target.Port)
@@ -585,7 +585,7 @@ func TestExtendedProtocol_TransactionIsolation(t *testing.T) {
 
 	// Run against both direct postgres and multigateway so the test pins the
 	// expected behavior (postgres) and catches the proxy regression.
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			// Unique table per target — direct postgres and multigateway share
 			// the same backend, so both subtests would otherwise race on the
@@ -671,7 +671,7 @@ func TestExtendedQueryProtocol_SetConfigBoundParam(t *testing.T) {
 	setup := getSharedSetup(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			// Sub-test 1: text-format text value.
 			// Parse declares the value parameter as TEXT (OID 25); psql's
@@ -806,7 +806,7 @@ func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
 		{"comment only", "-- Commented to have oriole compatibility\n-- ALTER TABLE realtime.messages SET UNLOGGED;\n"},
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			for _, q := range queries {
 				t.Run(q.name, func(t *testing.T) {
@@ -922,7 +922,7 @@ func TestZeroColumnDescribeExtended(t *testing.T) {
 
 	const zeroColQuery = "SELECT FROM generate_series(1, 3)" // 0 columns, 3 rows
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("statement describe returns empty RowDescription not NoData", func(t *testing.T) {
 				conn := connectLowLevelToPort(t, ctx, target.Port)
