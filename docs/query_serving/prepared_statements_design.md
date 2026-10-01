@@ -320,24 +320,32 @@ query against the catalog at PREPARE, and only the backend Describe reports the
 result. Casting to the resolved base type (typmod −1) matches PostgreSQL's own
 EXECUTE coercion (`prepare.c:EvaluateParams`).
 
-Storage (`resolved` field on `PreparedStatementInfo`):
+Storage (`resolvedParams` map in the `Consolidator`, keyed by
+`[connID][statementName]`):
 
-- **Last-writer-wins refresh.** Every PREPARE re-Describes and overwrites the
-  shared resolution. A client PREPARE means "give me current info", so a PREPARE
-  issued after DDL re-Describes and heals the entry for every connection that
-  dedups onto it — the same principle as re-Parsing a stale wire-protocol
-  statement. (A lone PREPARE, then DDL, then EXECUTE needs no heal: like
-  PostgreSQL, parameter types are frozen at PREPARE, and the substituted body is
-  re-planned fresh by PostgreSQL on every EXECUTE.)
+- **Scoped per registration, not per shared statement.** The consolidator
+  deduplicates by `(query, declared types)`, so several connections can share one
+  `PreparedStatementInfo`. But parameter resolution depends on the issuing
+  connection's context — `search_path`, database, and catalog state at PREPARE —
+  so `PREPARE p AS SELECT $1 FROM t` can resolve `$1` to `int4` on one connection
+  and `uuid` on another that sees a different `t`. PostgreSQL freezes each
+  prepared statement's parameter types independently, so the resolution is stored
+  against the `(connID, name)` registration, never on the shared object. This
+  keeps one connection's PREPARE from retroactively changing another's frozen
+  types.
+- **Re-PREPARE on the same name refreshes.** A later PREPARE of the same name on
+  the same connection re-Describes and overwrites its own slot, re-freezing
+  against the current catalog — the self-heal after a schema change. (A lone
+  PREPARE, then DDL, then EXECUTE needs no heal: like PostgreSQL, parameter types
+  are frozen at PREPARE, and the substituted body is re-planned fresh by
+  PostgreSQL on every EXECUTE.) The slot is cleared when the statement is
+  DEALLOCATE'd, replaced, or its connection closes.
 - **Parameter types only, not the result shape.** PostgreSQL freezes parameter
   types at PREPARE, so a frozen copy stays faithful. It does **not** freeze the
   result shape — a Describe re-derives it against the current catalog (and raises
   `0A000` rather than serve a stale shape) — so a stored copy would diverge after
   DDL. Describe of a statement/portal is therefore answered by a live backend
   round-trip, never from stored fields.
-- **Lock-free reads.** An `atomic.Pointer[[]uint32]`: EXECUTE-path reads are
-  lock-free and each refresh is visible across the connections sharing the
-  statement.
 
 ### In-transaction PREPARE
 

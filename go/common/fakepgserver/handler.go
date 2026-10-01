@@ -197,5 +197,16 @@ func (h *fakeHandler) GetPreparedStatementInfo(connID uint32, name string) *prep
 	return nil
 }
 
+// SetResolvedParamTypes is a no-op — fakepgserver does not manage gateway-level
+// prepared statement consolidation.
+func (h *fakeHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+}
+
+// ResolvedParamTypeOids returns nil — fakepgserver does not manage gateway-level
+// prepared statement consolidation.
+func (h *fakeHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return nil
+}
+
 // Ensure fakeHandler implements server.Handler.
 var _ server.Handler = (*fakeHandler)(nil)

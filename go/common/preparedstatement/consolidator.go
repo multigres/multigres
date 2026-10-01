@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -42,6 +41,17 @@ type Consolidator struct {
 	incoming map[uint32]map[string]*PreparedStatementInfo
 	// Reference count: number of connections using each prepared statement
 	usageCount map[*PreparedStatementInfo]int
+
+	// resolvedParams holds the backend-resolved parameter type OIDs recorded by
+	// the Describe at SQL PREPARE time, keyed by [connID][name] — the SAME key as
+	// incoming, NOT the deduplicated *PreparedStatementInfo. Resolution is
+	// connection-context specific (search_path, database, DDL timing at PREPARE),
+	// so two connections that dedup onto one shared PreparedStatementInfo for the
+	// same (query, declared types) can still resolve their parameters to different
+	// concrete types. Storing the resolution per registration keeps each PREPARE's
+	// frozen types independent, mirroring PostgreSQL. See
+	// docs/query_serving/prepared_statements_design.md ("Parameter type resolution").
+	resolvedParams map[uint32]map[string][]uint32
 
 	// lastUsedID is the last id of the statement name that we used.
 	lastUsedID int
@@ -77,47 +87,11 @@ type PortalInfo struct {
 type PreparedStatementInfo struct {
 	*querypb.PreparedStatement
 	astStruct ast.Stmt
-
-	// resolved holds the backend-resolved parameter type OIDs from the Describe
-	// done at PREPARE (nil = unresolved; ResolvedParamTypeOids then falls back to
-	// the declared types). Refreshed last-writer-wins by every PREPARE, and atomic
-	// for lock-free EXECUTE-path reads. Only param types are stored, not the result
-	// shape. See docs/query_serving/prepared_statements_design.md ("Parameter type
-	// resolution") for why.
-	resolved atomic.Pointer[[]uint32]
 }
 
 // AstStmt returns the parsed AST statement for this prepared statement.
 func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
 	return psi.astStruct
-}
-
-// SetResolvedParamTypes records the backend-resolved parameter types from the
-// Describe performed at SQL PREPARE time. Last writer wins: every PREPARE
-// re-Describes and overwrites, so a PREPARE issued after a schema change
-// refreshes the resolution against the current catalog for all connections
-// sharing this consolidated statement (mirroring PostgreSQL, where a fresh
-// PREPARE re-analyzes). A nil description is ignored.
-func (psi *PreparedStatementInfo) SetResolvedParamTypes(desc *querypb.StatementDescription) {
-	if desc == nil {
-		return
-	}
-	oids := make([]uint32, len(desc.GetParameters()))
-	for i, p := range desc.GetParameters() {
-		oids[i] = p.GetDataTypeOid()
-	}
-	psi.resolved.Store(&oids)
-}
-
-// ResolvedParamTypeOids returns the backend-resolved parameter type OIDs when a
-// Describe has populated them, otherwise the declared ParamTypes (which may be
-// empty or carry unspecified 0 entries for undeclared parameters).
-func (psi *PreparedStatementInfo) ResolvedParamTypeOids() []uint32 {
-	if r := psi.resolved.Load(); r != nil {
-		return *r
-	}
-	// GetParamTypes is nil-safe if the embedded proto is unset (degenerate psi).
-	return psi.GetParamTypes()
 }
 
 // IsEmpty reports whether this prepared statement was created from an empty or
@@ -177,10 +151,72 @@ func NewPortalInfo(psi *PreparedStatementInfo, portal *querypb.Portal) *PortalIn
 // used to consolidate and reuse the same prepared statements.
 func NewConsolidator() *Consolidator {
 	return &Consolidator{
-		stmts:      make(map[string]*PreparedStatementInfo),
-		incoming:   make(map[uint32]map[string]*PreparedStatementInfo),
-		usageCount: make(map[*PreparedStatementInfo]int),
-		lastUsedID: 0,
+		stmts:          make(map[string]*PreparedStatementInfo),
+		incoming:       make(map[uint32]map[string]*PreparedStatementInfo),
+		usageCount:     make(map[*PreparedStatementInfo]int),
+		resolvedParams: make(map[uint32]map[string][]uint32),
+		lastUsedID:     0,
+	}
+}
+
+// SetResolvedParamTypes records the backend-resolved parameter types from the
+// Describe performed at SQL PREPARE time for the statement registered as
+// (connId, name). It is scoped per registration, NOT per shared
+// PreparedStatementInfo: parameter resolution depends on the issuing
+// connection's context (search_path, database, catalog state at PREPARE), so
+// two connections sharing one consolidated statement must keep their frozen
+// resolutions independent — mirroring PostgreSQL, where each prepared statement
+// freezes its own parameter types. A later PREPARE on the same (connId, name)
+// overwrites, re-freezing against the current catalog. A nil description is
+// ignored, leaving any earlier resolution intact.
+func (psc *Consolidator) SetResolvedParamTypes(connId uint32, name string, desc *querypb.StatementDescription) {
+	if desc == nil {
+		return
+	}
+	oids := make([]uint32, len(desc.GetParameters()))
+	for i, p := range desc.GetParameters() {
+		oids[i] = p.GetDataTypeOid()
+	}
+
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+	if psc.resolvedParams[connId] == nil {
+		psc.resolvedParams[connId] = make(map[string][]uint32)
+	}
+	psc.resolvedParams[connId][name] = oids
+}
+
+// ResolvedParamTypeOids returns the backend-resolved parameter type OIDs
+// recorded for (connId, name) when a Describe has populated them, otherwise the
+// declared ParamTypes of the registered statement (which may be empty or carry
+// unspecified 0 entries for undeclared parameters). Returns nil if no statement
+// is registered under (connId, name).
+func (psc *Consolidator) ResolvedParamTypeOids(connId uint32, name string) []uint32 {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+	if byName, ok := psc.resolvedParams[connId]; ok {
+		if oids, ok := byName[name]; ok {
+			return oids
+		}
+	}
+	// Fall back to the declared types of the registered statement. Guard the nil
+	// *PreparedStatementInfo explicitly: the promoted GetParamTypes would
+	// dereference it to reach the embedded proto and panic.
+	psi := psc.incoming[connId][name]
+	if psi == nil {
+		return nil
+	}
+	return psi.GetParamTypes()
+}
+
+// clearResolvedParamsLocked drops the resolved parameter types recorded for
+// (connId, name). Callers must hold psc.mu.
+func (psc *Consolidator) clearResolvedParamsLocked(connId uint32, name string) {
+	if byName, ok := psc.resolvedParams[connId]; ok {
+		delete(byName, name)
+		if len(byName) == 0 {
+			delete(psc.resolvedParams, connId)
+		}
 	}
 }
 
@@ -213,6 +249,9 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 			delete(psc.usageCount, existing)
 		}
 		delete(psc.incoming[connId], name)
+		// The prior registration's resolved types belong to the statement being
+		// replaced; drop them so a fresh PREPARE re-Describes into a clean slot.
+		psc.clearResolvedParamsLocked(connId, name)
 	}
 
 	// Let's check if a prepared statement with this (query, paramTypes) already exists.
@@ -261,6 +300,7 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 			delete(psc.usageCount, psi)
 		}
 		delete(psc.incoming[connId], name)
+		psc.clearResolvedParamsLocked(connId, name)
 	}
 }
 
@@ -283,6 +323,7 @@ func (psc *Consolidator) RemoveConnection(connId uint32) {
 		}
 	}
 	delete(psc.incoming, connId)
+	delete(psc.resolvedParams, connId)
 }
 
 // Stats returns statistics about the consolidator's current state.

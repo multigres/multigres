@@ -130,14 +130,16 @@ func ParamTypeNamesFromOids(oids []uint32) []*ast.TypeName {
 // a wrapper statement (EXPLAIN EXECUTE, CREATE TABLE AS EXECUTE, or EXPLAIN of
 // those) and returns a clone of the wrapper with the EXECUTE replaced by the
 // substituted prepared body. wrapper is the full statement; execStmt is the
-// ExecuteStmt node it contains; psi is the prepared statement being executed. The
-// caller's AST is not mutated.
-func MaterializeWrappedExecute(wrapper ast.Stmt, execStmt *ast.ExecuteStmt, psi *preparedstatement.PreparedStatementInfo, portalInfo *preparedstatement.PortalInfo) (ast.Stmt, error) {
+// ExecuteStmt node it contains; psi is the prepared statement being executed;
+// resolvedParamOids are the parameter types resolved for the caller's own PREPARE
+// registration (see Consolidator.ResolvedParamTypeOids). The caller's AST is not
+// mutated.
+func MaterializeWrappedExecute(wrapper ast.Stmt, execStmt *ast.ExecuteStmt, psi *preparedstatement.PreparedStatementInfo, resolvedParamOids []uint32, portalInfo *preparedstatement.PortalInfo) (ast.Stmt, error) {
 	resolvedArgs, err := resolveExecuteArgs(execStmt.Params, portalInfo)
 	if err != nil {
 		return nil, err
 	}
-	substituted, err := RewritePreparedBody(execStmt.Name, psi.AstStmt(), resolvedArgs, ParamTypeNamesFromOids(psi.ResolvedParamTypeOids()))
+	substituted, err := RewritePreparedBody(execStmt.Name, psi.AstStmt(), resolvedArgs, ParamTypeNamesFromOids(resolvedParamOids))
 	if err != nil {
 		return nil, err
 	}

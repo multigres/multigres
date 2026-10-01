@@ -247,7 +247,7 @@ func TestMaterializeExecute(t *testing.T) {
 func TestMaterializeWrappedExecute(t *testing.T) {
 	t.Run("explain execute", func(t *testing.T) {
 		wrapper, exec := parseWrapped(t, "EXPLAIN EXECUTE p (5)")
-		got, err := MaterializeWrappedExecute(wrapper, exec, makePSI(t, "SELECT $1", 20), nil)
+		got, err := MaterializeWrappedExecute(wrapper, exec, makePSI(t, "SELECT $1"), []uint32{20}, nil)
 		require.NoError(t, err)
 		require.Equal(t, "EXPLAIN SELECT CAST(5 AS BIGINT)", got.SqlString())
 		require.Contains(t, wrapper.SqlString(), "EXECUTE", "wrapper AST must not be mutated")
@@ -255,7 +255,7 @@ func TestMaterializeWrappedExecute(t *testing.T) {
 
 	t.Run("create table as execute", func(t *testing.T) {
 		wrapper, exec := parseWrapped(t, "CREATE TABLE t AS EXECUTE p (5)")
-		got, err := MaterializeWrappedExecute(wrapper, exec, makePSI(t, "SELECT $1", 20), nil)
+		got, err := MaterializeWrappedExecute(wrapper, exec, makePSI(t, "SELECT $1"), []uint32{20}, nil)
 		require.NoError(t, err)
 		require.Equal(t, "CREATE TABLE t AS SELECT CAST(5 AS BIGINT)", got.SqlString())
 	})
@@ -263,7 +263,7 @@ func TestMaterializeWrappedExecute(t *testing.T) {
 	t.Run("wrapper without a nested EXECUTE is rejected", func(t *testing.T) {
 		noExec := parseBody(t, "SELECT 1")
 		_, exec := parseWrapped(t, "EXPLAIN EXECUTE p (5)") // borrow an ExecuteStmt node
-		_, err := MaterializeWrappedExecute(noExec, exec, makePSI(t, "SELECT $1", 20), nil)
+		_, err := MaterializeWrappedExecute(noExec, exec, makePSI(t, "SELECT $1"), []uint32{20}, nil)
 		require.ErrorContains(t, err, "could not locate nested EXECUTE")
 	})
 }
@@ -286,13 +286,14 @@ func makePortal(t *testing.T, textValues ...string) *preparedstatement.PortalInf
 	})
 }
 
-// makePSI builds a PreparedStatementInfo for a prepared body with the given
-// resolved parameter type OIDs (surfaced via ResolvedParamTypeOids' proto fallback).
-func makePSI(t *testing.T, body string, paramOids ...uint32) *preparedstatement.PreparedStatementInfo {
+// makePSI builds a PreparedStatementInfo for a prepared body. Resolved parameter
+// types are now passed to MaterializeWrappedExecute explicitly (they live per
+// registration in the Consolidator, not on the shared psi), so callers no longer
+// stash them here.
+func makePSI(t *testing.T, body string) *preparedstatement.PreparedStatementInfo {
 	t.Helper()
 	psi, err := preparedstatement.NewPreparedStatementInfo(&querypb.PreparedStatement{
-		Query:      body,
-		ParamTypes: paramOids,
+		Query: body,
 	})
 	require.NoError(t, err)
 	return psi

@@ -95,7 +95,8 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		}
 	}
 
-	substituted, err := engine.MaterializeWrappedExecute(stmt, execStmt, psi, nil)
+	resolvedParamOids := conn.Handler().ResolvedParamTypeOids(conn.ConnectionID(), execStmt.Name)
+	substituted, err := engine.MaterializeWrappedExecute(stmt, execStmt, psi, resolvedParamOids, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -222,7 +222,11 @@ func (p *PreparedStatementPrimitive) executePrepare(
 			_ = conn.Handler().HandleClose(ctx, conn, 'S', p.stmtName)
 			return err
 		}
-		psi.SetResolvedParamTypes(desc)
+		// Record the resolution scoped to this (connection, name) registration —
+		// not on the shared PreparedStatementInfo — so a concurrent PREPARE of the
+		// same SQL under a different search_path/database/catalog cannot overwrite
+		// this statement's frozen parameter types.
+		conn.Handler().SetResolvedParamTypes(conn.ConnectionID(), p.stmtName, desc)
 	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
 }
@@ -258,7 +262,8 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		body = p.bodyOverride
 	}
 
-	finalSQL, err := materializeExecute(p.stmtName, body, p.executeStmt.Params, psi.ResolvedParamTypeOids(), portalInfo)
+	resolvedParamOids := conn.Handler().ResolvedParamTypeOids(conn.ConnectionID(), p.stmtName)
+	finalSQL, err := materializeExecute(p.stmtName, body, p.executeStmt.Params, resolvedParamOids, portalInfo)
 	if err != nil {
 		return err
 	}
