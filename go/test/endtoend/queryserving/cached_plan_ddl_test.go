@@ -63,7 +63,7 @@ func TestCachedPlanReprepareAfterDDL(t *testing.T) {
 		return got
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			conn := connectLowLevelToPort(t, ctx, target.Port)
 			defer conn.Close()

@@ -141,8 +141,8 @@ func onlyPoolerRecordPublishesMultipooler(m dsl.Matcher) {
 // Use ShardSetup.StopPostgres instead — it disables restarts before stopping and returns
 // a resume function.
 //
-// Excluded: pgctld package tests (no multipooler running) and non-test files (e.g.
-// ShardSetup.StopPostgres itself calls Stop internally in setup.go).
+// Excluded: pgctld package tests (no multipooler running) and the harness
+// packages (e.g. ShardSetup.StopPostgres and ProcessInstance call Stop internally).
 func disallowDirectPgctldStopInTests(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/pgctldservice")
 
@@ -150,7 +150,7 @@ func disallowDirectPgctldStopInTests(m dsl.Matcher) {
 		Where(
 			m["req"].Type.Is("*pgctldservice.StopRequest") &&
 				m.File().PkgPath.Matches(`/test/endtoend/`) &&
-				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
+				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$|/test/endtoend/clustersetup$`)).
 		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
 }
 

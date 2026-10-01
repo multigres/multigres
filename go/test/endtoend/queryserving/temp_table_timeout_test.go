@@ -47,7 +47,7 @@ func TestMultigateway_TempTableSurvivesStatementTimeout(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -94,7 +94,7 @@ func TestMultigateway_StatementTimeoutInTransaction(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()

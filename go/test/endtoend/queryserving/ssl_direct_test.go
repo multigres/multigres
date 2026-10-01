@@ -98,7 +98,7 @@ func TestMultigateway_SSL_DirectNegotiation_Psql(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=require", "sslnegotiation=direct", "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT 41 + 1")
 	require.NoError(t, err, "psql with sslnegotiation=direct should succeed: %s", out)
@@ -119,11 +119,11 @@ func TestMultigateway_SSL_DirectNegotiation_VerifyCA(t *testing.T) {
 
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
-	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+	require.NotNil(t, setup.ClientTLSCertPaths(), "TLS cert paths should be set")
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=verify-ca", "sslnegotiation=direct",
-		"sslrootcert="+setup.MultigatewayTLSCertPaths.CACertFile, "connect_timeout=5")
+		"sslrootcert="+setup.ClientTLSCertPaths().CACertFile, "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT current_user")
 	require.NoError(t, err, "psql direct + verify-ca should succeed: %s", out)
 	assert.Equal(t, shardsetup.DefaultTestUser, strings.TrimSpace(out))
@@ -144,7 +144,7 @@ func TestMultigateway_SSL_DirectNegotiation_RequireSSLGateway(t *testing.T) {
 	setup := getRequireSSLSharedSetup(t)
 	setup.SetupTest(t)
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=require", "sslnegotiation=direct", "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT 1")
 	require.NoError(t, err, "direct TLS must satisfy --pg-require-ssl=true: %s", out)
@@ -167,7 +167,7 @@ func TestMultigateway_SSL_DirectNegotiation_NoTLSGateway_Fails(t *testing.T) {
 	setup := getSharedSetup(t) // no TLS on the gateway
 	setup.SetupTest(t)
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=require", "sslnegotiation=direct", "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT 1")
 	require.Error(t, err, "direct TLS against a non-TLS gateway must fail, got: %s", out)
@@ -189,7 +189,7 @@ func TestMultigateway_SSL_DirectNegotiation_WeakSSLMode_ClientError(t *testing.T
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=prefer", "sslnegotiation=direct", "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT 1")
 	require.Error(t, err, "libpq must reject sslmode=prefer with sslnegotiation=direct, got: %s", out)
@@ -217,7 +217,7 @@ func TestMultigateway_SSL_DirectNegotiation_GoClient(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 	conn, err := pgclient.Connect(ctx, ctx, &pgclient.Config{
 		Host:           "localhost",
-		Port:           setup.MultigatewayPgPort,
+		Port:           setup.ClientPort(),
 		User:           shardsetup.DefaultTestUser,
 		Password:       shardsetup.TestPostgresPassword,
 		Database:       "postgres",
@@ -252,7 +252,7 @@ func TestMultigateway_SSL_DirectNegotiation_NoALPN_Rejected(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	raw, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", setup.MultigatewayPgPort), 5*time.Second)
+	raw, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", setup.ClientPort()), 5*time.Second)
 	require.NoError(t, err)
 	defer raw.Close()
 
@@ -300,7 +300,7 @@ func TestMultigateway_SSL_NegotiatedStillWorks_Regression(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	conninfo := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	conninfo := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=require", "sslnegotiation=postgres", "connect_timeout=5")
 	out, err := runPsql(t, conninfo, "SELECT 1")
 	require.NoError(t, err, "sslnegotiation=postgres must keep working: %s", out)

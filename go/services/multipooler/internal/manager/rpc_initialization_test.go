@@ -338,6 +338,7 @@ type mockPgctldClient struct {
 	statusBlockForever bool
 	startResponse      *pgctldpb.StartResponse
 	startCalled        bool
+	startRequest       *pgctldpb.StartRequest
 	startError         error
 	startBlockForever  bool
 	restartCalled      bool
@@ -369,6 +370,7 @@ func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusReque
 
 func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
 	m.startCalled = true
+	m.startRequest = req
 	if m.startBlockForever {
 		// Simulates a wedged pgctld call: never returns on its own, only
 		// when the caller's ctx is bounded and expires.

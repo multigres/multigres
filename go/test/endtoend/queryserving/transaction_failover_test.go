@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -70,7 +71,7 @@ func TestTransactionAbortedOnFailoverGraceExpiry(t *testing.T) {
 	// Dedicated single connection so the whole transaction stays pinned to one
 	// reserved backend on the current primary.
 	ctx := context.Background()
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(context.Background())
@@ -117,6 +118,7 @@ func TestTransactionAbortedOnFailoverGraceExpiry(t *testing.T) {
 // NOT hide this error — reserved-connection operations bypass the gateway buffer.
 func newFailoverTxnTestCluster(t *testing.T, poolerArgs ...string) (*shardsetup.ShardSetup, func()) {
 	t.Helper()
+	clustersetup.RequireMultigresTopology(t, "Multiorch failover to a standby")
 	bufferArgs := []string{
 		"--buffer-enabled",
 		"--buffer-window", "10s",
@@ -138,7 +140,7 @@ func newFailoverTxnTestCluster(t *testing.T, poolerArgs ...string) (*shardsetup.
 		shardsetup.WithCellName("test-cell"),
 	)
 	setup.StartMultiorchs(t.Context(), t)
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	require.NotNil(t, setup.GetPrimary(t), "primary should exist after bootstrap")
 	t.Logf("Initial primary: %s", setup.PrimaryName)

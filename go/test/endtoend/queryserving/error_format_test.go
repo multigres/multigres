@@ -51,7 +51,7 @@ func TestErrorFormat_UndefinedColumnPosition(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -100,7 +100,7 @@ func TestErrorFormat_TypeErrorSQLState(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -140,7 +140,7 @@ func TestErrorFormat_ConstraintViolation(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -237,7 +237,7 @@ func TestErrorFormat_PLpgSQLWhereField(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -310,7 +310,7 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -369,7 +369,7 @@ func TestErrorFormat_CopyFromStdinContext(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -564,7 +564,7 @@ func TestErrorFormat_UndefinedTable(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -608,7 +608,7 @@ func TestErrorFormat_TerminateBackendFatal(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, err := pgx.Connect(ctx, connStr)
@@ -704,7 +704,7 @@ func TestErrorFormat_ParserDiagnostics(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			diags := map[string]diag{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 				conn, err := pgx.Connect(ctx, connStr)
 				require.NoError(t, err)

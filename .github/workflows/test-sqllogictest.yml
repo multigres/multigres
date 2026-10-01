@@ -26,10 +26,16 @@ permissions: {}
 
 jobs:
   test-sqllogictest:
-    name: Run sqllogictest differential suite
+    # Runs against Multigres and, under the topology switch, against a single
+    # Minigres process; the Multigres entry keeps the original check name.
+    name: ${{ matrix.topology == 'minigres' && 'Run sqllogictest differential suite (Minigres)' || 'Run sqllogictest differential suite' }}
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     environment:
       name: ci
@@ -68,6 +74,7 @@ jobs:
       - name: Run SQLLogicTest suite
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
           TEST_PRINT_LOGS: "1"
           # Run only the committed postgres-passing allowlist, against
           # multigateway only (the postgres baseline is assumed passing by
@@ -124,12 +131,13 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: sqllogictest-results
+          name: sqllogictest-results${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
       - name: Notify Slack on divergence
         if: >-
+          matrix.topology == 'multigres' &&
           !cancelled() &&
           steps.divergences.outputs.found == 'true' &&
           github.event_name == 'schedule'
@@ -161,6 +169,7 @@ jobs:
 
       - name: Notify Slack weekly summary
         if: >-
+          matrix.topology == 'multigres' &&
           !cancelled() &&
           (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
           steps.results.outputs.path != ''
@@ -210,6 +219,7 @@ jobs:
 
       - name: Notify Slack on test infrastructure failure
         if: >-
+          matrix.topology == 'multigres' &&
           !cancelled() &&
           steps.results.outputs.path == '' &&
           github.event_name == 'schedule'

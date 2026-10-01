@@ -87,7 +87,7 @@
 //	setup.ConfigureReplication(t, "standby")
 //
 // This allows tests to set up replication from scratch if needed.
-package shardsetup
+package clustersetup
 
 import (
 	"context"
@@ -127,10 +127,6 @@ func GetPostgresDSN(host string, port int, args ...string) string {
 		host, port, constants.DefaultPostgresUser, TestPostgresPassword, strings.Join(args, " "))
 }
 
-// SetupFunc is a function that creates a ShardSetup for testing.
-// It receives a testing.T that can be used for logging during setup.
-type SetupFunc func(t *testing.T) *ShardSetup
-
 // RunTestMain runs the test suite with proper environment setup.
 // It handles:
 //   - Setting up PATH for binaries
@@ -144,7 +140,7 @@ type SetupFunc func(t *testing.T) *ShardSetup
 // Example usage in main_test.go:
 //
 //	func TestMain(m *testing.M) {
-//		exitCode := shardsetup.RunTestMain(m)
+//		exitCode := clustersetup.RunTestMain(m)
 //		if exitCode != 0 {
 //			setupManager.DumpLogs()
 //		}
@@ -201,26 +197,27 @@ func RunTestMain(m *testing.M) int {
 	return exitCode
 }
 
-// SharedSetupManager manages a shared ShardSetup across tests.
-// Use this when you want to share setup between tests using sync.Once pattern.
-type SharedSetupManager struct {
-	setup       *ShardSetup
-	setupFunc   SetupFunc
+// SharedSetupManager manages a cluster shared by the tests of a package. The
+// cluster is created on first use and cleaned up from TestMain. C is the
+// cluster type: a Multigres shard or a Minigres instance.
+type SharedSetupManager[C Cluster] struct {
+	setup       C
+	setupFunc   func(t *testing.T) C
 	setupDone   bool
 	setupErr    error
 	testsFailed bool
 }
 
-// NewSharedSetupManager creates a new SharedSetupManager.
-func NewSharedSetupManager(setupFunc SetupFunc) *SharedSetupManager {
-	return &SharedSetupManager{
+// NewSharedSetupManager creates a SharedSetupManager that builds its cluster
+// with setupFunc on first use.
+func NewSharedSetupManager[C Cluster](setupFunc func(t *testing.T) C) *SharedSetupManager[C] {
+	return &SharedSetupManager[C]{
 		setupFunc: setupFunc,
 	}
 }
 
-// Get returns the shared setup, creating it if necessary.
-// This is safe to call from multiple tests - the setup is created once.
-func (m *SharedSetupManager) Get(t *testing.T) *ShardSetup {
+// Get returns the shared cluster, creating it on first use.
+func (m *SharedSetupManager[C]) Get(t *testing.T) C {
 	t.Helper()
 
 	if m.setupErr != nil {
@@ -235,22 +232,21 @@ func (m *SharedSetupManager) Get(t *testing.T) *ShardSetup {
 	return m.setup
 }
 
-// Cleanup cleans up the shared setup.
-// Call this from TestMain after tests complete.
-// Only deletes temp directory if tests passed (DumpLogs was not called).
-func (m *SharedSetupManager) Cleanup() {
-	if m.setup != nil {
+// Cleanup cleans up the shared cluster. Call it from TestMain after the tests.
+// The temporary directory is deleted only if the tests passed (DumpLogs was not
+// called).
+func (m *SharedSetupManager[C]) Cleanup() {
+	if m.setupDone {
 		m.setup.Cleanup(m.testsFailed)
 	}
 }
 
-// DumpLogs marks tests as failed and prints log location.
-// Call this from TestMain on test failure (before cleanup).
-// Logs will be kept on disk and their location printed.
-// Set TEST_PRINT_LOGS env var to also print log contents to stdout.
-func (m *SharedSetupManager) DumpLogs() {
+// DumpLogs marks the tests as failed and prints the log location. Call it from
+// TestMain on failure, before Cleanup. Set TEST_PRINT_LOGS to also print the
+// log contents.
+func (m *SharedSetupManager[C]) DumpLogs() {
 	m.testsFailed = true
-	if m.setup != nil {
+	if m.setupDone {
 		m.setup.DumpServiceLogs()
 	}
 }

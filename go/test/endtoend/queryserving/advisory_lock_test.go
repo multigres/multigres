@@ -52,9 +52,9 @@ func skipIfNoRealPostgres(t *testing.T) {
 // openGatewayConn opens a single *sql.Conn to the multigateway PG port. Forcing a
 // single underlying connection means every query goes through the same
 // multigateway session (TCP connection), which is what lets us observe pinning.
-func openGatewayConn(t *testing.T, setup *shardsetup.ShardSetup) *sql.Conn {
+func openGatewayConn(t *testing.T, setup shardsetup.Cluster) *sql.Conn {
 	t.Helper()
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -253,7 +253,7 @@ func TestAdvisoryLock_NoLeakToNextClient(t *testing.T) {
 	skipIfNoRealPostgres(t)
 	setup := getSharedSetup(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	// First client: take the lock and abandon it (disconnect without unlocking).
 	db1, err := sql.Open("postgres", connStr)
@@ -321,9 +321,9 @@ func TestAdvisoryLock_XactLockDoesNotPin(t *testing.T) {
 // openGatewayPgxConn opens a single pgx connection to the multigateway. A single
 // *pgx.Conn means every query rides the same gateway session, so pinning is
 // observable via a stable backend PID.
-func openGatewayPgxConn(t *testing.T, ctx context.Context, setup *shardsetup.ShardSetup) *pgx.Conn {
+func openGatewayPgxConn(t *testing.T, ctx context.Context, setup shardsetup.Cluster) *pgx.Conn {
 	t.Helper()
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	cfg, err := pgx.ParseConfig(connStr)
 	require.NoError(t, err)
 	// QueryExecModeExec still uses the extended protocol with a server-bound
