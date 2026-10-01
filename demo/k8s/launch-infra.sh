@@ -30,6 +30,12 @@ fi
 # Initialize the cluster with etcd
 kind create cluster --config=kind.yaml --name=multidemo
 
+# Point kubectl's active kubeconfig at this cluster. `kind create cluster` usually
+# adds the kind-multidemo context, but when another KUBECONFIG/context is already
+# active it may not be merged in — export it explicitly so the runbook's
+# `kubectl --context kind-multidemo ...` commands work.
+kind export kubeconfig --name=multidemo
+
 # Increase limits on all Kind nodes for high-connection workloads
 for node in $(kind get nodes --name=multidemo); do
   docker exec "$node" sh -c "sysctl -w fs.file-max=2097152"
