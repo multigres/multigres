@@ -132,9 +132,14 @@ func TestTargetFailoverDuringCopy(t *testing.T) {
 	t.Logf("killing primary %s mid-copy: %d/%d data tables copied", oldPrimaryName, copiedAtKill, len(specs))
 
 	// Kill the target primary mid-copy; multiorch promotes a standby that carries
-	// the partial subscription state via physical replication.
+	// the partial subscription state via physical replication. 90s (vs. the 30-60s
+	// used by lighter failover tests) because this scenario runs 3 multiorchs plus
+	// a multi-hundred-thousand-row copy concurrently with the election, which is
+	// measurably slower under the coverage-instrumented CI build (see CI runs on
+	// PR #1457: two coverage-job attempts both hit "new primary not elected within
+	// 1m0s" under that combined load).
 	setup.KillPostgres(t, oldPrimaryName)
-	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 60*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 90*time.Second)
 	require.NotEmpty(t, newPrimaryName, "multiorch must elect a new primary")
 	t.Logf("new primary: %s", newPrimaryName)
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
