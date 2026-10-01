@@ -355,7 +355,7 @@ func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
 	t.Run("startup param sets default", func(t *testing.T) {
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["statement_timeout"] = "2000"
@@ -371,7 +371,7 @@ func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 	})
 
 	t.Run("SET overrides startup param", func(t *testing.T) {
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["statement_timeout"] = "2000"
@@ -390,7 +390,7 @@ func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 	})
 
 	t.Run("RESET reverts to startup param default", func(t *testing.T) {
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["statement_timeout"] = "7000"
@@ -412,7 +412,7 @@ func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 	})
 
 	t.Run("startup param enforces timeout", func(t *testing.T) {
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["statement_timeout"] = "500"
@@ -435,20 +435,20 @@ func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 }
 
 // connectPgx creates a pgx connection to the multigateway (extended query protocol).
-func connectPgx(t *testing.T, ctx context.Context, setup *shardsetup.ShardSetup) *pgx.Conn {
+func connectPgx(t *testing.T, ctx context.Context, setup shardsetup.Cluster) *pgx.Conn {
 	t.Helper()
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err, "failed to connect with pgx")
 	return conn
 }
 
 // connectClient creates a client.Conn to the multigateway (simple query protocol).
-func connectClient(t *testing.T, ctx context.Context, setup *shardsetup.ShardSetup) *client.Conn {
+func connectClient(t *testing.T, ctx context.Context, setup shardsetup.Cluster) *client.Conn {
 	t.Helper()
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
-		Port:        setup.MultigatewayPgPort,
+		Port:        setup.ClientPort(),
 		User:        shardsetup.DefaultTestUser,
 		Password:    shardsetup.TestPostgresPassword,
 		Database:    "postgres",

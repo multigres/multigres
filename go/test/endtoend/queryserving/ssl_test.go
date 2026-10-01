@@ -44,7 +44,7 @@ func TestMultigateway_SSL_RequireMode(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=require", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=require", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -67,9 +67,9 @@ func TestMultigateway_SSL_VerifyCA(t *testing.T) {
 
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
-	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+	require.NotNil(t, setup.ClientTLSCertPaths(), "TLS cert paths should be set")
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=verify-ca", "sslrootcert="+setup.MultigatewayTLSCertPaths.CACertFile, "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=verify-ca", "sslrootcert="+setup.ClientTLSCertPaths().CACertFile, "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -92,11 +92,11 @@ func TestMultigateway_SSL_VerifyFull(t *testing.T) {
 
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
-	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+	require.NotNil(t, setup.ClientTLSCertPaths(), "TLS cert paths should be set")
 
 	// verify-full checks that the server hostname matches the certificate SAN.
 	// Our test certs have SAN=localhost, and we connect to localhost, so this should work.
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=verify-full", "sslrootcert="+setup.MultigatewayTLSCertPaths.CACertFile, "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=verify-full", "sslrootcert="+setup.ClientTLSCertPaths().CACertFile, "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -122,7 +122,7 @@ func TestMultigateway_SSL_DisableStillWorks(t *testing.T) {
 	setup.SetupTest(t)
 
 	// sslmode=disable means the client won't try SSL at all - sends StartupMessage directly.
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -147,7 +147,7 @@ func TestMultigateway_SSL_AuthOverTLS(t *testing.T) {
 	setup.SetupTest(t)
 
 	// First create a test user via the admin connection (using sslmode=require over TLS)
-	adminConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=require", "connect_timeout=5")
+	adminConnStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=require", "connect_timeout=5")
 	adminDB, err := sql.Open("postgres", adminConnStr)
 	require.NoError(t, err)
 	defer adminDB.Close()
@@ -160,7 +160,7 @@ func TestMultigateway_SSL_AuthOverTLS(t *testing.T) {
 
 	// Connect as the test user over TLS
 	userConnStr := fmt.Sprintf("host=localhost port=%d user=ssl_testuser password=ssl_password dbname=postgres sslmode=require connect_timeout=5",
-		setup.MultigatewayPgPort)
+		setup.ClientPort())
 	userDB, err := sql.Open("postgres", userConnStr)
 	require.NoError(t, err)
 	defer userDB.Close()
@@ -173,7 +173,7 @@ func TestMultigateway_SSL_AuthOverTLS(t *testing.T) {
 
 	// Verify wrong password fails even over TLS
 	badConnStr := fmt.Sprintf("host=localhost port=%d user=ssl_testuser password=wrong_password dbname=postgres sslmode=require connect_timeout=5",
-		setup.MultigatewayPgPort)
+		setup.ClientPort())
 	badDB, err := sql.Open("postgres", badConnStr)
 	require.NoError(t, err)
 	defer badDB.Close()
@@ -196,7 +196,7 @@ func TestMultigateway_SSL_MultipleQueries(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=require", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=require", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -224,7 +224,7 @@ func TestMultigateway_SSL_PreferMode_WithTLS(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=prefer", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=prefer", "connect_timeout=5")
 	ctx := utils.WithTimeout(t, 10*time.Second)
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err, "pgx connect with sslmode=prefer should succeed")
@@ -254,7 +254,7 @@ func TestMultigateway_SSL_PreferMode_FallbackToPlaintext(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=prefer", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=prefer", "connect_timeout=5")
 	ctx := utils.WithTimeout(t, 10*time.Second)
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err, "pgx connect with sslmode=prefer should succeed (fallback to plaintext)")
@@ -279,11 +279,11 @@ func TestMultigateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
 
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
-	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+	require.NotNil(t, setup.ClientTLSCertPaths(), "TLS cert paths should be set")
 
 	t.Run("missing root cert", func(t *testing.T) {
 		// sslrootcert points to a nonexistent file — client cannot verify the server cert.
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=verify-ca", "sslrootcert=/nonexistent/ca.crt", "connect_timeout=5")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=verify-ca", "sslrootcert=/nonexistent/ca.crt", "connect_timeout=5")
 		ctx := utils.WithTimeout(t, 10*time.Second)
 		_, err := pgx.Connect(ctx, connStr)
 		require.Error(t, err, "verify-ca with missing root cert should fail")
@@ -295,7 +295,7 @@ func TestMultigateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
 		emptyCAFile := filepath.Join(t.TempDir(), "empty-ca.crt")
 		require.NoError(t, os.WriteFile(emptyCAFile, nil, 0o600))
 
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=verify-ca", "sslrootcert="+emptyCAFile, "connect_timeout=5")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=verify-ca", "sslrootcert="+emptyCAFile, "connect_timeout=5")
 		ctx := utils.WithTimeout(t, 10*time.Second)
 		_, err := pgx.Connect(ctx, connStr)
 		require.Error(t, err, "verify-ca with empty root cert pool should fail")
@@ -316,10 +316,10 @@ func TestMultigateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
 
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
-	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+	require.NotNil(t, setup.ClientTLSCertPaths(), "TLS cert paths should be set")
 
 	// Parse a valid config with verify-full and correct root cert.
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=verify-full", "sslrootcert="+setup.MultigatewayTLSCertPaths.CACertFile, "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=verify-full", "sslrootcert="+setup.ClientTLSCertPaths().CACertFile, "connect_timeout=5")
 	config, err := pgx.ParseConfig(connStr)
 	require.NoError(t, err)
 
@@ -348,7 +348,7 @@ func TestMultigateway_SSL_RequireSSL_RejectsPlaintext(t *testing.T) {
 	setup := getRequireSSLSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -371,7 +371,7 @@ func TestMultigateway_SSL_RequireSSL_AcceptsTLS(t *testing.T) {
 	setup := getRequireSSLSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=require", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=require", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -398,7 +398,7 @@ func TestMultigateway_SSL_AllowMode(t *testing.T) {
 	setup := getTLSSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=allow", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=allow", "connect_timeout=5")
 	ctx := utils.WithTimeout(t, 10*time.Second)
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err, "pgx connect with sslmode=allow should succeed")

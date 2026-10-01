@@ -22,6 +22,7 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -38,6 +39,7 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
+	clustersetup.RequireMultigresTopology(t, "Multiorch re-elects a primary after PostgreSQL stops")
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(2),
@@ -46,9 +48,9 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 	)
 	defer cleanup()
 	setup.StartMultiorchs(t.Context(), t)
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	// Step 1: Verify baseline query works through multigateway.
 	db, err := sql.Open("postgres", connStr)

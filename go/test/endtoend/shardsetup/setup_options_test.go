@@ -79,7 +79,7 @@ func TestAddPgInitdbExtraConfFiles(t *testing.T) {
 		// The snippets only matter if the restarted pgctld is launched with
 		// them: assert the rebuilt argv carries one --pg-initdb-extra-conf per
 		// path, in order.
-		args := buildPgctldServerArgs(inst.Pgctld)
+		args := BuildPgctldServerArgs(inst.Pgctld)
 		var confArgs []string
 		for i, a := range args {
 			if a == "--pg-initdb-extra-conf" {
@@ -111,33 +111,4 @@ func TestMultipoolerExtraArgsMutators(t *testing.T) {
 	assert.Equal(t, []string{"--existing=1", "--foo=bar"}, s.Multipoolers["pooler-1"].Multipooler.ExtraArgs)
 	assert.Equal(t, []string{"--other=true", "--foo=bar"}, s.Multipoolers["pooler-2"].Multipooler.ExtraArgs)
 	assert.Nil(t, s.Multipoolers["pooler-3"].Multipooler)
-}
-
-// TestProcessInstancePgInitdbArgs pins the pgctld arg-construction path
-// that forwards PgInitdbArgs as --pg-initdb-args. Bypasses the actual
-// process spawn (which needs a real pgctld binary on PATH) by reading the
-// argv that startPgctld would assemble.
-func TestProcessInstancePgInitdbArgs(t *testing.T) {
-	t.Run("empty arg omits flag", func(t *testing.T) {
-		p := &ProcessInstance{PgInitdbArgs: ""}
-		args := buildPgctldServerArgs(p)
-		assert.NotContains(t, args, "--pg-initdb-args")
-	})
-
-	t.Run("non-empty arg appends flag and value", func(t *testing.T) {
-		p := &ProcessInstance{PgInitdbArgs: "--no-locale --encoding=UTF8"}
-		args := buildPgctldServerArgs(p)
-		// flag and value are appended as two argv slots so exec preserves
-		// the value as a single argument even with embedded spaces.
-		idx := -1
-		for i, a := range args {
-			if a == "--pg-initdb-args" {
-				idx = i
-				break
-			}
-		}
-		if assert.GreaterOrEqual(t, idx, 0, "--pg-initdb-args flag should be present") {
-			assert.Equal(t, "--no-locale --encoding=UTF8", args[idx+1])
-		}
-	})
 }

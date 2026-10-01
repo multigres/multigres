@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package shardsetup provides shared test infrastructure for end-to-end tests.
-// It sets up the infrastructure for testing a single shard: multipoolers (pgctld + multipooler pairs)
-// and optionally multiorch instances.
-package shardsetup
+package clustersetup
 
 import (
 	"context"
@@ -213,7 +210,60 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	return args
 }
 
-// Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
+// minigresArgs builds the command line of a minigres process, which runs the
+// multigateway and the multipooler in one process. PgPort is the client-facing
+// port. The pooler's Postgres port and pooler directory are not passed: the
+// pooler adopts them from pgctld, as in a real deployment.
+func (p *ProcessInstance) minigresArgs() []string {
+	args := []string{
+		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
+		"--pg-port", strconv.Itoa(p.PgPort),
+		"--pg-bind-address", "127.0.0.1",
+		"--database", "postgres",
+		"--pgctld-addr", p.PgctldAddr,
+		"--topo-global-server-addresses", p.EtcdAddr,
+		"--topo-global-root", p.GlobalRoot,
+		"--cell", p.Cell,
+		"--service-id", p.ServiceID,
+		"--hostname", "localhost",
+		"--log-output", p.LogFile,
+		"--log-level", p.logLevelOrDefault(),
+		// Allow the pooler's graceful shutdown to run to completion, as for
+		// the multipooler.
+		"--onterm-timeout", "80s",
+	}
+	if p.TLSCertFile != "" && p.TLSKeyFile != "" {
+		args = append(args,
+			"--pg-tls-cert-file", p.TLSCertFile,
+			"--pg-tls-key-file", p.TLSKeyFile,
+		)
+	}
+	// Placed last so they can override the defaults above.
+	args = append(args, p.ExtraArgs...)
+	return args
+}
+
+// startMinigres starts a minigres process and waits until its gRPC port
+// accepts connections.
+func (p *ProcessInstance) startMinigres(ctx context.Context, t *testing.T) error {
+	t.Helper()
+
+	t.Logf("Starting %s: binary '%s', PG port %d, gRPC port %d, cell %s", p.Name, p.Binary, p.PgPort, p.GrpcPort, p.Cell)
+
+	p.Process = executil.Command(ctx, p.Binary, p.minigresArgs()...).WithProcessGroup()
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.LogFile))
+
+	t.Logf("Running minigres command: %v", p.Process.Args)
+
+	return p.waitForStartup(ctx, t, 15*time.Second, 30)
+}
+
+// Start starts the process instance (pgctld, multipooler, multiorch, multigateway, multiadmin, or minigres).
 // Follows the proven pattern from multipooler/setup_test.go.
 func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	t.Helper()
@@ -229,15 +279,17 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 		return p.startMultigateway(ctx, t)
 	case "multiadmin":
 		return p.startMultiadmin(ctx, t)
+	case "minigres":
+		return p.startMinigres(ctx, t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
 
-// buildPgctldServerArgs assembles the argv passed to `pgctld server`
+// BuildPgctldServerArgs assembles the argv passed to `pgctld server`
 // from this instance's configuration. Extracted from startPgctld so the
 // flag-forwarding logic (initdb args, extra conf, SQL files/dirs) is
 // unit-testable without spawning a real pgctld binary.
-func buildPgctldServerArgs(p *ProcessInstance) []string {
+func BuildPgctldServerArgs(p *ProcessInstance) []string {
 	args := []string{
 		"server",
 		"--pooler-dir", p.PoolerDir,
@@ -281,7 +333,7 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.PoolerDir, p.GrpcPort, p.PgPort)
 
-	args := buildPgctldServerArgs(p)
+	args := BuildPgctldServerArgs(p)
 
 	p.Process = executil.Command(ctx, p.Binary, args...).WithProcessGroup()
 

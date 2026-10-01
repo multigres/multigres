@@ -45,7 +45,7 @@ func TestMultigateway_StartupParamForwarding(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("DateStyle via pgx RuntimeParams", func(t *testing.T) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
@@ -224,7 +224,7 @@ func TestMultigateway_PGOPTIONSMultipleFlags(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("single -c flag via lib/pq", func(t *testing.T) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5", "options='-c work_mem=64MB'")

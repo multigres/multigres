@@ -93,6 +93,37 @@ go test -v -run TestConnPool ./go/test/endtoend/multipooler/...
 TEST_PRINT_LOGS=1 go test -v -run TestFailover ./go/test/endtoend/multiorch/...
 ```
 
+### Run the query-serving tests against Multigres or Minigres
+
+The `queryserving` tests run against either topology. Without
+`MULTIGRES_E2E_TOPOLOGY` (or with any value other than `minigres`) they run
+against a Multigres shard, as they always have. With
+`MULTIGRES_E2E_TOPOLOGY=minigres` they run against a single Minigres process
+(one pgctld and one `minigres`); tests that need Multiorch, replicas or several
+gateways skip themselves with the reason, and everything else runs unchanged.
+The harness starts and stops every process itself, so there is nothing to start
+by hand: build the binaries and run the tests.
+
+```bash
+make build
+scripts/portpool.sh start   # optional: shares free ports between packages
+
+# Multigres (default)
+MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
+  go test ./go/test/endtoend/queryserving/
+
+# Minigres
+MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock MULTIGRES_E2E_TOPOLOGY=minigres \
+  go test ./go/test/endtoend/queryserving/
+```
+
+`MULTIGRES_PORT_POOL_ADDR` makes the tests take ports from the port pool server,
+which avoids port collisions when several packages run at once; without it each
+package picks free ports itself. The tests that skip under Minigres, and why, are
+listed in [docs/general/minigres.md](../../../docs/general/minigres.md#testing).
+CI runs `queryserving` and `queryserving/pgparity` on both topologies on every
+pull request.
+
 ## Test Packages
 
 | Package            | What it tests                                      |
@@ -100,7 +131,9 @@ TEST_PRINT_LOGS=1 go test -v -run TestFailover ./go/test/endtoend/multiorch/...
 | `endtoend`         | etcd topology, service discovery                   |
 | `localprovisioner` | local cluster provisioning                         |
 | `pgctld`           | PostgreSQL control daemon lifecycle                |
-| `shardsetup`       | shared cluster infrastructure                      |
+| `clustersetup`     | harness pieces shared by both topologies           |
+| `shardsetup`       | Multigres shard harness                            |
+| `minigressetup`    | Minigres harness (one pgctld, one `minigres`)      |
 | `queryserving`     | query routing, SSL, sessions, transactions         |
 | `multipooler`      | connection pooling, backup, replication, consensus |
 | `multiorch`        | failover, bootstrap, replication repair            |

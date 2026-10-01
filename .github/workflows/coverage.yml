@@ -20,7 +20,13 @@ on:
 permissions: {}
 jobs:
   coverage-direct:
-    name: Direct test coverage
+    # Runs against Multigres and, under the topology switch, against a single
+    # Minigres process; the Multigres entry keeps the original check name.
+    name: ${{ matrix.topology == 'minigres' && 'Direct test coverage (Minigres)' || 'Direct test coverage' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     permissions:
       checks: write
@@ -53,8 +59,14 @@ jobs:
       # needs to converge on a clean profile without manual restarts.
       - name: Run tests with direct coverage
         shell: bash
+        env:
+          # Minigres runs the packages that run against it in
+          # test-integration.yml; Multigres runs everything.
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
+          TEST_PACKAGES: ${{ matrix.topology == 'minigres' && './go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/' || './...' }}
         run: |
           set -o pipefail
+          read -ra packages <<<"$TEST_PACKAGES"
           attempt=1
           max_attempts=3
           while [ $attempt -le $max_attempts ]; do
@@ -66,7 +78,7 @@ jobs:
             if go test -json -v -timeout=30m -skip TestPostgreSQLRegression \
                 -cover -covermode=atomic \
                 -coverprofile=coverage-direct.txt \
-                -coverpkg=./... ./... \
+                -coverpkg=./... "${packages[@]}" \
                 | tee coverage-direct-test-results.jsonl \
                 | go tool tparse -follow ; then
               break
@@ -88,18 +100,23 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: coverage-direct
+          name: coverage-direct${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: coverage-direct.txt
           retention-days: 7
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
-          name: Direct Coverage Tests
+          name: Direct Coverage Tests${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
           path: coverage-direct-test-results.jsonl
           reporter: golang-json
   coverage-subprocess:
-    name: Subprocess coverage
+    # See coverage-direct for the topology matrix.
+    name: ${{ matrix.topology == 'minigres' && 'Subprocess coverage (Minigres)' || 'Subprocess coverage' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     permissions:
       checks: write
@@ -127,8 +144,14 @@ jobs:
       # the GOCOVERDIR output (a clean dir is the simplest invariant).
       - name: Run tests with subprocess coverage
         shell: bash
+        env:
+          # Minigres runs the packages that run against it in
+          # test-integration.yml; Multigres runs everything.
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
+          TEST_PACKAGES: ${{ matrix.topology == 'minigres' && './go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/' || './...' }}
         run: |
           set -o pipefail
+          read -ra packages <<<"$TEST_PACKAGES"
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
           attempt=1
@@ -142,7 +165,7 @@ jobs:
             # Match the per-package timeout used by the direct-coverage job
             # and the integration workflow, so a slow package doesn't trip
             # Go's default 10m timeout under load.
-            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression ./... \
+            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression "${packages[@]}" \
                 | tee coverage-subprocess-test-results.jsonl \
                 | go tool tparse -follow ; then
               break
@@ -166,14 +189,14 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: coverage-subprocess
+          name: coverage-subprocess${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: coverage-subprocess.txt
           retention-days: 7
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
-          name: Subprocess Coverage Tests
+          name: Subprocess Coverage Tests${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
           path: coverage-subprocess-test-results.jsonl
           reporter: golang-json
   merge-and-upload:
@@ -194,22 +217,17 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
-      - name: Download direct coverage artifact
+      # One artifact per coverage job and topology, each downloaded into a
+      # directory named after it.
+      - name: Download coverage artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: coverage-direct
-          path: ./coverage-artifacts/direct
-      - name: Download subprocess coverage artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: coverage-subprocess
-          path: ./coverage-artifacts/subprocess
+          pattern: coverage-{direct,subprocess}*
+          path: ./coverage-artifacts
       - name: Merge coverage files
         run: |
-          ./scripts/merge-coverage.sh \
-            coverage-artifacts/direct/coverage-direct.txt \
-            coverage-artifacts/subprocess/coverage-subprocess.txt \
-            coverage-merged.txt
+          mapfile -t inputs < <(find coverage-artifacts -name 'coverage-*.txt' | sort)
+          ./scripts/merge-coverage.sh "${inputs[@]}" coverage-merged.txt
 
           echo ""
           echo "Final coverage summary:"

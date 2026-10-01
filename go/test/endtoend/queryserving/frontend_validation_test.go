@@ -113,7 +113,7 @@ func TestFrontendValidationMatchesPostgres(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var postgresTrace []string
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				trace := frontendTrace(t, ctx, target.Port, tc.wire)
 				if target.Name == "postgres" {
 					postgresTrace = trace
@@ -166,7 +166,7 @@ func TestGatewayManagedShowExtendedProtocolMatchesPostgres(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var postgresTrace []string
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				trace := frontendTrace(t, ctx, target.Port, tc.wire)
 				require.NotEmpty(t, trace)
 				require.Equal(t, "Ready(I)", trace[len(trace)-1], "%s must complete the query", target.Name)
