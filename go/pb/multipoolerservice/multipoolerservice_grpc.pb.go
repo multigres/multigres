@@ -38,6 +38,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MultipoolerService_ExecuteQuery_FullMethodName              = "/multipoolerservice.MultipoolerService/ExecuteQuery"
 	MultipoolerService_StreamExecute_FullMethodName             = "/multipoolerservice.MultipoolerService/StreamExecute"
+	MultipoolerService_ExecuteStream_FullMethodName             = "/multipoolerservice.MultipoolerService/ExecuteStream"
 	MultipoolerService_PortalStreamExecute_FullMethodName       = "/multipoolerservice.MultipoolerService/PortalStreamExecute"
 	MultipoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultipoolerService/Describe"
 	MultipoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultipoolerService/GetAuthCredentials"
@@ -62,6 +63,12 @@ type MultipoolerServiceClient interface {
 	ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error)
+	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// The server sends ready before accepting SQL. Each operation ends in exactly
+	// one completion frame, including on SQL error. Transport loss is NOT safe to
+	// retry after sending SQL. Reservations remain explicit and independent of
+	// this transport; clients must still release them on disconnect.
+	ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecuteStreamRequest, ExecuteStreamResponse], error)
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error)
@@ -155,9 +162,22 @@ func (c *multipoolerServiceClient) StreamExecute(ctx context.Context, in *Stream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultipoolerService_StreamExecuteClient = grpc.ServerStreamingClient[StreamExecuteResponse]
 
+func (c *multipoolerServiceClient) ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecuteStreamRequest, ExecuteStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[1], MultipoolerService_ExecuteStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecuteStreamRequest, ExecuteStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultipoolerService_ExecuteStreamClient = grpc.BidiStreamingClient[ExecuteStreamRequest, ExecuteStreamResponse]
+
 func (c *multipoolerServiceClient) PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[1], MultipoolerService_PortalStreamExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[2], MultipoolerService_PortalStreamExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +216,7 @@ func (c *multipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *G
 
 func (c *multipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[2], MultipoolerService_CopyBidiExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[3], MultipoolerService_CopyBidiExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +229,7 @@ type MultipoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBid
 
 func (c *multipoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[3], MultipoolerService_StreamReplication_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[4], MultipoolerService_StreamReplication_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +272,7 @@ func (c *multipoolerServiceClient) ReleaseReservedConnection(ctx context.Context
 
 func (c *multipoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[4], MultipoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[5], MultipoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +291,7 @@ type MultipoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[St
 
 func (c *multipoolerServiceClient) NotificationStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[NotificationStreamRequest, NotificationStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[5], MultipoolerService_NotificationStream_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[6], MultipoolerService_NotificationStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -294,6 +314,12 @@ type MultipoolerServiceServer interface {
 	ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error
+	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// The server sends ready before accepting SQL. Each operation ends in exactly
+	// one completion frame, including on SQL error. Transport loss is NOT safe to
+	// retry after sending SQL. Reservations remain explicit and independent of
+	// this transport; clients must still release them on disconnect.
+	ExecuteStream(grpc.BidiStreamingServer[ExecuteStreamRequest, ExecuteStreamResponse]) error
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error
@@ -363,6 +389,9 @@ func (UnimplementedMultipoolerServiceServer) ExecuteQuery(context.Context, *Exec
 }
 func (UnimplementedMultipoolerServiceServer) StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamExecute not implemented")
+}
+func (UnimplementedMultipoolerServiceServer) ExecuteStream(grpc.BidiStreamingServer[ExecuteStreamRequest, ExecuteStreamResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ExecuteStream not implemented")
 }
 func (UnimplementedMultipoolerServiceServer) PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method PortalStreamExecute not implemented")
@@ -443,6 +472,13 @@ func _MultipoolerService_StreamExecute_Handler(srv interface{}, stream grpc.Serv
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultipoolerService_StreamExecuteServer = grpc.ServerStreamingServer[StreamExecuteResponse]
+
+func _MultipoolerService_ExecuteStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultipoolerServiceServer).ExecuteStream(&grpc.GenericServerStream[ExecuteStreamRequest, ExecuteStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultipoolerService_ExecuteStreamServer = grpc.BidiStreamingServer[ExecuteStreamRequest, ExecuteStreamResponse]
 
 func _MultipoolerService_PortalStreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(PortalStreamExecuteRequest)
@@ -614,6 +650,12 @@ var MultipoolerService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "StreamExecute",
 			Handler:       _MultipoolerService_StreamExecute_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExecuteStream",
+			Handler:       _MultipoolerService_ExecuteStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 		{
 			StreamName:    "PortalStreamExecute",

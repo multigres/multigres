@@ -99,6 +99,7 @@ pb: $(PROTO_SRCS)
 	--plugin=$(MTROOT)/bin/protoc-gen-go --go_out=. \
 	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
+	--go_opt=Mgoogle/rpc/status.proto=google.golang.org/genproto/googleapis/rpc/status \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
 	--plugin=$(MTROOT)/bin/protoc-gen-connect-go --connect-go_out=. \
 	--connect-go_opt=module=github.com/multigres/multigres \

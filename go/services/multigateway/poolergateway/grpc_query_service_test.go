@@ -163,6 +163,10 @@ type mockMultipoolerServiceClient struct {
 	authErr      error
 }
 
+func (m *mockMultipoolerServiceClient) ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse], error) {
+	return nil, status.Error(codes.Unimplemented, "mock uses legacy StreamExecute")
+}
+
 func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
 	if m.bidiStreamErr != nil {
 		return nil, m.bidiStreamErr
