@@ -56,3 +56,7 @@ ignore:
   # would otherwise show as missing patch coverage.
   - "go/test/endtoend/queryserving/benchmarking/**"
   - "go/test/microbench/**"
+  # Demo CLI tool for the kind-cluster migration demo: run manually against a
+  # live cluster (demo/k8s/run-appclient.sh), never invoked by any Go test, so
+  # every line would otherwise show as missing patch coverage.
+  - "demo/appclient/**"
