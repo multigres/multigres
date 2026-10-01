@@ -39,6 +39,10 @@
 
 set -e
 
+# psql client (see demo-dashboard.sh). Bare `psql` is often not on PATH; override
+# per machine, e.g. PSQL=psql-18.
+PSQL="${PSQL:-psql}"
+
 # Ensure we're in the k8s directory
 if [[ $(basename "$PWD") != "k8s" ]]; then
   echo "Error: This script must be run from the demo/k8s directory"
@@ -102,7 +106,7 @@ pause_for_input
 echo ""
 echo "Creating 'animals' table"
 echo "========================"
-run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
+run_cmd "$PSQL" --host=localhost --port=15433 -U postgres -d postgres -c "
 CREATE TABLE IF NOT EXISTS animals (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL
@@ -110,7 +114,7 @@ CREATE TABLE IF NOT EXISTS animals (
 
 echo ""
 echo "Verifying table structure:"
-run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "\d animals"
+run_cmd "$PSQL" --host=localhost --port=15433 -U postgres -d postgres -c "\d animals"
 
 pause_for_input
 
@@ -118,13 +122,13 @@ pause_for_input
 echo ""
 echo "Inserting rows into 'animals' table"
 echo "===================================="
-run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
+run_cmd "$PSQL" --host=localhost --port=15433 -U postgres -d postgres -c "
 INSERT INTO animals (name)
 SELECT (ARRAY['cat', 'dog', 'bird', 'fish', 'rabbit', 'hamster'])[(random() * 5)::int + 1] || '_' || generate_series(1, 100000);"
 
 echo ""
 echo "Verifying row count:"
-run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
+run_cmd "$PSQL" --host=localhost --port=15433 -U postgres -d postgres -c "
 SELECT COUNT(*) as total_animals FROM animals;"
 
 pause_for_input
