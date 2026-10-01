@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,6 +259,73 @@ func TestStateManager_Register(t *testing.T) {
 
 	assert.Equal(t, 1, comp1.callCount)
 	assert.Equal(t, 1, comp2.callCount)
+}
+
+func TestStateManager_Unregister(t *testing.T) {
+	kept := &testComponent{}
+	removed := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, kept)
+	require.NoError(t, ssm.RegisterAndSync(t.Context(), removed))
+
+	ssm.Unregister(removed)
+	ssm.Unregister(removed) // not registered any more: a no-op
+
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.Primary
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+
+	assert.Equal(t, 1, kept.callCount)
+	assert.Equal(t, 1, removed.callCount, "only the sync from RegisterAndSync, nothing after Unregister")
+}
+
+// blockingComponent parks inside OnStateChange until release is closed.
+type blockingComponent struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingComponent) OnStateChange(context.Context, servingstate.State) error {
+	close(c.entered)
+	<-c.release
+	return nil
+}
+
+// TestStateManager_UnregisterWaitsForInFlightFanOut pins the guarantee
+// closeConnectionsLocked relies on: once Unregister returns, no fan-out is
+// still inside the component's OnStateChange, so closing it next cannot race
+// a fan-out that reopens it.
+func TestStateManager_UnregisterWaitsForInFlightFanOut(t *testing.T) {
+	comp := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, comp)
+
+	mutated := make(chan error, 1)
+	go func() {
+		mutated <- ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+			s.PostgresMode = pgmode.Primary
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		})
+	}()
+	<-comp.entered
+
+	unregistered := make(chan struct{})
+	go func() {
+		ssm.Unregister(comp)
+		close(unregistered)
+	}()
+
+	select {
+	case <-unregistered:
+		t.Fatal("Unregister returned while a fan-out was still inside the component's OnStateChange")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(comp.release)
+	<-unregistered
+	require.NoError(t, <-mutated)
+	assert.Empty(t, ssm.components)
 }
 
 func TestStateManager_RegisterAndSync(t *testing.T) {

@@ -49,6 +49,7 @@ type RoleSwitcher struct {
 	mu        sync.Mutex
 	primary   Toggleable
 	secondary Toggleable
+	closed    bool
 }
 
 // NewRoleSwitcher returns a RoleSwitcher that runs primary while Writable()
@@ -63,11 +64,15 @@ func NewRoleSwitcher(primary, secondary Toggleable) *RoleSwitcher {
 // state.Writable(). No-ops if the target role is already running, so
 // redundant notifications (e.g. a rule-only bump that doesn't change
 // writability) don't needlessly close and reopen an already-running
-// component. Satisfies manager.StateAware structurally.
+// component. After Close it does nothing. Satisfies manager.StateAware
+// structurally.
 func (p *RoleSwitcher) OnStateChange(_ context.Context, state servingstate.State) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.closed {
+		return nil
+	}
 	if state.Writable() {
 		if p.primary.IsOpen() {
 			return nil
@@ -90,9 +95,15 @@ func (p *RoleSwitcher) OnStateChange(_ context.Context, state servingstate.State
 // anything down. Toggleable.Close implementations must be idempotent
 // (heartbeat.Reader/Writer already are, via timer.PeriodicRunner.Stop), so
 // closing an already-closed role here is safe.
+//
+// Close is terminal: later OnStateChange calls are ignored. A closed
+// component can still be reachable from a fan-out it was never removed from,
+// and reopening its writer there would start a second heartbeat writer next
+// to the one that replaced it.
 func (p *RoleSwitcher) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.closed = true
 	p.primary.Close()
 	p.secondary.Close()
 }

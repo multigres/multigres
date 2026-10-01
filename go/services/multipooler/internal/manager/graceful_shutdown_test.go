@@ -440,17 +440,18 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 		"topology Updated nanos must not change on idempotent call")
 }
 
-// TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop is a regression
-// test for the ordering guarantee that cohort-ineligibility is broadcast
-// before pgctld.Stop. If the order flipped, the broadcast would race against
-// stream EOF and the coordinator would have to fall back to LeaderIsDead's
-// grace period instead of firing LeaderResignedAnalyzer immediately on the
-// INELIGIBLE signal.
+// TestGracefulShutdown_AdvertisesCohortIneligibleAfterStop is a regression
+// test verifying that cohort-ineligibility is broadcast only after
+// pgctld.Stop completes, not before. Advertising it first lets multiorch
+// recruit followers (stopping their replication) while this leader's
+// postgres may still be producing WAL — e.g. its own shutdown checkpoint
+// record — leaving WAL no follower ever received and forcing a pg_rewind on
+// rejoin.
 //
 // pgctld.Stop's callback captures the cohort eligibility state at the moment
-// of the call, so the assertion fails if the announce was sequenced after
+// of the call, so the assertion fails if the announce was sequenced before
 // the stop.
-func TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop(t *testing.T) {
+func TestGracefulShutdown_AdvertisesCohortIneligibleAfterStop(t *testing.T) {
 	pm := newGracefulShutdownTestManager(t, nil)
 
 	var atStopSignal clustermetadatapb.CohortEligibilitySignal
@@ -467,15 +468,15 @@ func TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop(t *testing.T) {
 	require.Equal(t, []string{"fast"}, pgctld.modesCalled(),
 		"pgctld.Stop should have been called once (fast succeeded)")
 	require.Equal(t,
-		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 		atStopSignal,
-		"cohort eligibility must be INELIGIBLE before pgctld.Stop runs; if it was "+
-			"the default ELIGIBLE, the announce was sequenced AFTER stop and the "+
-			"broadcast races stream EOF")
+		"cohort eligibility must still be the default ELIGIBLE when pgctld.Stop runs; if it "+
+			"was already INELIGIBLE, the announce was sequenced BEFORE stop and multiorch could "+
+			"recruit followers away while this leader's postgres is still producing WAL")
 
 	finalSignal := pm.consensusMgr.CohortEligibility()
 	require.Equal(t,
 		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
 		finalSignal,
-		"cohort eligibility must remain INELIGIBLE after GracefulShutdown returns")
+		"cohort eligibility must be INELIGIBLE after GracefulShutdown returns")
 }

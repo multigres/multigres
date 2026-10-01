@@ -104,6 +104,15 @@ message StandbyReplicationStatus {
   // not receive_lsn — so a fresh value means the leader is actively streaming new
   // WAL to this standby. Null if the reader has not yet observed a value.
   google.protobuf.Timestamp last_receive_lsn_advance_time = 12;
+
+  // Leader-stamped time of the last heartbeat write proven quorum-acked. A
+  // stale value while last_receive_lsn keeps advancing means quorum commits
+  // have stalled even though WAL is still streaming. Null if unobserved.
+  google.protobuf.Timestamp quorum_commit_ts = 13;
+
+  // The heartbeat table's quorum_commit_lsn, paired with quorum_commit_ts.
+  // Empty if unobserved.
+  string quorum_commit_lsn = 14;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -180,6 +189,14 @@ message PrimaryStatus {
   // wal-sender capacity exhaustion visible: once connected_followers reaches
   // max_wal_senders, additional standbys cannot stream.
   int32 max_wal_senders = 5;
+
+  // The leader's own first-hand view of quorum_commit_ts/quorum_commit_lsn
+  // (its heartbeat writer's last proven-quorum-acked write), mirroring the
+  // same-named fields on StandbyReplicationStatus. Available even when no
+  // follower is reachable to relay the replicated heartbeat row. Null/empty
+  // if the writer hasn't observed a value yet.
+  google.protobuf.Timestamp quorum_commit_ts = 6;
+  string quorum_commit_lsn = 7;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.

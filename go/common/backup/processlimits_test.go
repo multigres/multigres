@@ -25,12 +25,12 @@ func TestComputeProcessLimits(t *testing.T) {
 		cpus int
 		want ProcessLimits
 	}{
-		{0, ProcessLimits{Global: 1, Backup: 1, Get: 1, Push: 1}},
-		{1, ProcessLimits{Global: 1, Backup: 1, Get: 1, Push: 1}},
-		{4, ProcessLimits{Global: 1, Backup: 2, Get: 3, Push: 1}},
+		{0, ProcessLimits{Global: 1, Backup: 1, Get: 1, Push: 2}},
+		{1, ProcessLimits{Global: 1, Backup: 1, Get: 1, Push: 2}},
+		{4, ProcessLimits{Global: 1, Backup: 2, Get: 3, Push: 2}},
 		{8, ProcessLimits{Global: 2, Backup: 4, Get: 6, Push: 2}},
-		{16, ProcessLimits{Global: 4, Backup: 8, Get: 8, Push: 4}},
-		{128, ProcessLimits{Global: 4, Backup: 8, Get: 8, Push: 4}},
+		{16, ProcessLimits{Global: 4, Backup: 8, Get: 8, Push: 2}},
+		{128, ProcessLimits{Global: 4, Backup: 8, Get: 8, Push: 2}},
 	}
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {

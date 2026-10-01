@@ -851,18 +851,25 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 // following openConnectionsLocked wait for it and retry instead of failing with
 // a closed-pool error.
 func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
-	// Close resources (safe to call even if nil/never opened)
+	// Each of these is unregistered before it is closed. openConnectionsLocked
+	// registers a fresh instance, so one left registered would be restarted by
+	// the next fan-out: every reopen during a pg_rewind loop then leaves another
+	// heartbeat writer that starts at the next promotion, all upserting the same
+	// row.
 	if pm.replTracker != nil {
+		pm.stateManager.Unregister(pm.replTracker)
 		pm.replTracker.Close()
 		pm.replTracker = nil
 	}
 
 	if pm.pubsubListener != nil {
+		pm.stateManager.Unregister(pm.pubsubListener)
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
 	}
 
 	if pm.replStats != nil {
+		pm.stateManager.Unregister(pm.replStats)
 		pm.replStats.Close()
 		pm.replStats = nil
 	}
