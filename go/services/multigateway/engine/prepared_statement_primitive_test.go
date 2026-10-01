@@ -44,7 +44,9 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	t.Helper()
 	psi, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{Name: "p", Query: preparedSQL})
 	require.NoError(t, err)
-	parsed, err := parser.ParseSQL("EXECUTE p('value')")
+	// The prepared body carries no parameters, so EXECUTE supplies no arguments;
+	// otherwise the argument-count check would reject it before execution.
+	parsed, err := parser.ParseSQL("EXECUTE p")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
 	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil, nil), h
@@ -205,7 +207,7 @@ func TestPreparedStatementPrimitiveExecuteErrorsAndPortalDispatch(t *testing.T) 
 
 	h.info = &preparedstatement.PreparedStatementInfo{}
 	err = p.StreamExecute(context.Background(), &mockIExecute{}, conn, state, nil, PlanExecInfo{}, nil)
-	require.ErrorContains(t, err, "prepared statement is nil")
+	require.ErrorContains(t, err, "no body to execute")
 
 	p, h = newPreparedPrimitiveConn(t, "SELECT 1")
 	conn = newDiscardTestConn(t, h)
