@@ -440,7 +440,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.stateManager = NewStateManager(logger, pm.record, pm.consensusMgr.CachedConsensusStatus, pm.qsc, pm.healthStreamer)
+	pm.stateManager = NewStateManager(logger, pm.record, pm.roleConsensusStatus, pm.qsc, pm.healthStreamer)
 	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
 		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
 			cancel()

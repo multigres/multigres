@@ -60,7 +60,7 @@ import (
 // differently.
 func (pm *MultipoolerManager) highestKnownPosition() *clustermetadatapb.RulePosition {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
-		pm.consensusMgr.CachedConsensusStatus(),
+		pm.roleConsensusStatus(),
 	})
 }
 
@@ -190,6 +190,9 @@ var remedialActionTimeouts = map[remedialAction]time.Duration{
 	remedialActionRewindToLeader:     longRemedialActionTimeout,
 	remedialActionRestoreFromBackup:  commonbackup.RestoreTimeout,
 	remedialActionCreateFirstBackup:  commonbackup.BackupTimeout,
+	// Promotion waits for the end-of-recovery checkpoint, which can take a while
+	// on a freshly restored node, and a static leader has no one else waiting.
+	remedialActionPromoteStaticLeader: longRemedialActionTimeout,
 }
 
 // remedialActionTimeout returns the timeout budget monitorPostgresIteration
@@ -234,6 +237,11 @@ const (
 	// is running as a standby. We do not self-promote; signal resignation so the
 	// coordinator re-elects.
 	remedialActionResignLeadership
+	// remedialActionPromoteStaticLeader means this pooler is a static leader
+	// (Config.StaticLeader) and postgres is running as a standby, for example
+	// after the bootstrap restore. There is no coordinator to promote it, so the
+	// pooler promotes itself, taking the place of the coordinator's Promote.
+	remedialActionPromoteStaticLeader
 	// remedialActionMarkRewindReady means this pooler is the non-resigned leader,
 	// postgres has checkpointed onto its current timeline (rewindSourceReady), but
 	// the published ReplicationPrimary has not yet advertised rewind_ready. Mark it
@@ -897,6 +905,15 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// postgres) from promote (newly elected). Embedding the leader host/port in the
 	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
 	if role == commonconsensus.ConsensusRoleLeader && !state.pgMode.OutOfRecovery() {
+		// A static leader has no coordinator to resign to or be re-promoted by,
+		// so it promotes itself. Only on an observed standby: an unknown mode
+		// means the mode could not be read this tick.
+		if pm.isStaticLeader() {
+			if state.pgMode == pgmode.InRecovery {
+				return remedialActionPromoteStaticLeader
+			}
+			return remedialActionNone
+		}
 		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
 			return remedialActionResignLeadership
 		}
@@ -1042,7 +1059,7 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 			// matching the "healthy and role-aligned" contract on PoolerServingStatus.
 			return remedialActionNone
 		}
-		role := commonconsensus.SelfConsensusRole(pm.consensusMgr.CachedConsensusStatus())
+		role := commonconsensus.SelfConsensusRole(pm.roleConsensusStatus())
 		if action := pm.determineRoleAction(role, currentState); action != remedialActionNone {
 			return action
 		}
@@ -1345,6 +1362,13 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
+	case remedialActionPromoteStaticLeader:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: static leader's postgres is a standby; promoting") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		if err := pm.promoteStaticLeaderLocked(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to promote static leader, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		}
+
 	case remedialActionFixPrimaryConnInfo:
 		pm.reconcilePrimaryConnInfoToRecorded(ctx, "MonitorPostgres")
 
@@ -1563,10 +1587,12 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// state pg_rewind needs. A clean follower (SuspectedDivergence false) is left to
 	// the postmaster's own standby-mode crash recovery, which follows the timeline
 	// switch — forcing single-user recovery on it would finalize it on the old
-	// timeline and wedge the start on a timeline mismatch.
+	// timeline and wedge the start on a timeline mismatch. A static leader has no
+	// consensus to promote it, so it starts as a primary.
 	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{
 		AllowCrashRecovery:  true,
 		SuspectedDivergence: pm.consensusMgr.SuspectedDivergence(),
+		AsPrimary:           pm.isStaticLeader(),
 	})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
