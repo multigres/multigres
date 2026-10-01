@@ -87,6 +87,31 @@ spec:
         cell: zone1
     spec:
       initContainers:
+        # hostPath volumes ignore fsGroup, so a fresh /data subdir can be created
+        # with the wrong owner (root or the image's nonroot uid). pgctld's postgres
+        # runs as uid 999 and refuses a PGDATA it does not own ("owned by UID …,
+        # expected 999, refusing to start"), which intermittently wedges a fresh
+        # bootstrap. Force 999:999 ownership as root before the main containers run
+        # so the bootstrap is deterministic.
+        - name: chown-data
+          image: busybox:latest
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data
+              chown -R 999:999 /data
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: host-data
+              mountPath: /data
+              subPathExpr: $(POD_NAME)
         - name: setup-certs
           image: busybox:latest
           command:
@@ -107,6 +132,15 @@ spec:
         - name: multipooler
           image: docker.io/multigres/multigres:latest
           imagePullPolicy: IfNotPresent
+          # Run as uid 999 (postgres), the same user pgctld runs as. Both
+          # containers share /data with PGDATA=/data/pg_data; the multigres image
+          # otherwise defaults to uid 65532, so whichever container created
+          # pg_data first set its owner — and a 65532-owned PGDATA makes pgctld's
+          # postgres refuse to start ("expected 999"). Pinning 999 here makes the
+          # ownership deterministic regardless of the create order.
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
           command: ["/multigres/bin/multipooler"]
           args:
             - --http-port=16000
@@ -122,7 +156,10 @@ spec:
             # --pooler-dir, --pg-port, --pgbackrest-port, and the pgbackrest
             # cert paths are adopted from pgctld's Status RPC; --socket-file
             # is derived from the adopted pooler-dir and pg-port.
-            - --grpc-socket-file=/data/multipooler.sock
+            # The gRPC unix socket must live on the pg-sockets emptyDir, not the
+            # /data hostPath: on macOS/Docker Desktop /data is a virtiofs mount
+            # that rejects unix-socket bind ("operation not supported").
+            - --grpc-socket-file=/data/pg_sockets/multipooler.sock
             - --connpool-global-capacity=50
             - --service-map=grpc-pooler
             - --pprof-http=true
@@ -130,6 +167,14 @@ spec:
             # slots and enable per-follower physical slots, primary_slot_name,
             # synchronized_standby_slots, wal_level=logical, hot_standby_feedback.
             - --enable-slot-based-replication=true
+            # EXPORT (fail-back) reverse subscription: advertise the gateway's
+            # replication=database tunnel instead of this pooler's pod FQDN, so the
+            # external source can reach it and the link re-pins across a target
+            # failover. The kind control-plane node is resolvable by name from the
+            # pg-source container on the kind docker network; 31432 is the gateway
+            # Service NodePort (see k8s-multigateway.yaml).
+            - --migration-target-advertise-host=multidemo-control-plane
+            - --migration-target-advertise-port=31432
           ports:
             - containerPort: 16000
               name: http
@@ -159,12 +204,13 @@ spec:
             - name: host-data
               mountPath: /data
               subPathExpr: $(POD_NAME)
-            # macOS/kind fix: the postgres unix socket lives at
+            # macOS/kind fix: the postgres and gRPC unix sockets live under
             # /data/pg_sockets, but on Docker Desktop the hostPath /data is a
-            # virtiofs mount that rejects fchmod on socket files ("could not
-            # set permissions ... Invalid argument"). Overlay just the socket
-            # dir with a pod-local emptyDir (real Linux fs) shared by both
-            # containers so postgres can create its socket.
+            # virtiofs mount that rejects socket operations (fchmod: "could not
+            # set permissions ... Invalid argument"; bind: "operation not
+            # supported"). Overlay just the socket dir with a pod-local emptyDir
+            # (real Linux fs) shared by both containers so postgres and the
+            # pgctld/multipooler gRPC servers can create their sockets.
             - name: pg-sockets
               mountPath: /data/pg_sockets
             # certs and backup-data must be common for all pods.
@@ -213,7 +259,10 @@ spec:
             - --pooler-dir=/data
             - --grpc-port=16200
             - --pg-port=5432
-            - --grpc-socket-file=/data/pgctld.sock
+            # gRPC unix socket on the pg-sockets emptyDir, not the /data
+            # hostPath: macOS/Docker Desktop virtiofs rejects unix-socket bind
+            # ("operation not supported").
+            - --grpc-socket-file=/data/pg_sockets/pgctld.sock
             - --pg-hba-template=/etc/pgctld/pg_hba_template.conf
             - --pgbackrest-port=8432
             - --pgbackrest-cert-dir=/certs
