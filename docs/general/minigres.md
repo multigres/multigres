@@ -32,28 +32,32 @@ make build
 export PATH=$PWD/bin:$PATH # restore_command calls pgctld
 
 # 1. etcd, which may be shared
-etcd --listen-client-urls http://localhost:23790 \
-  --advertise-client-urls http://localhost:23790 ...
+etcd --listen-client-urls http://localhost:35379 \
+  --advertise-client-urls http://localhost:35379 ...
 
 # 2. Cluster metadata, once per database
-multigres createclustermetadata --global-topo-address localhost:23790 \
+multigres createclustermetadata --global-topo-address localhost:35379 \
   --global-topo-root /minigres/global --cells zone1 \
   --durability-policy AT_LEAST_2 --backup-location /path/backups
 
 # 3. pgctld. Do not run `pgctld init`: the pooler initializes the data directory
 export PGDATA=/path/pooler/pg_data POSTGRES_PASSWORD_FILE=/path/pooler/postgres-password
-pgctld server --pooler-dir /path/pooler --pg-port 25432 --grpc-port 25200 \
-  --http-port 25201 --pg-user postgres --pg-database postgres
+pgctld server --pooler-dir /path/pooler --pg-port 45432 --grpc-port 35470 \
+  --http-port 35400 --pg-user postgres --pg-database postgres
 
 # 4. Minigres
-minigres --pg-port 25433 --grpc-port 25100 --http-port 25000 \
-  --topo-global-server-addresses localhost:23790 --topo-global-root /minigres/global \
-  --cell zone1 --service-id db1 --pgctld-addr localhost:25200 --hostname localhost
+minigres --pg-port 35432 --grpc-port 35170 --http-port 35100 \
+  --topo-global-server-addresses localhost:35379 --topo-global-root /minigres/global \
+  --cell zone1 --service-id db1 --pgctld-addr localhost:35470 --hostname localhost
 
-psql "host=localhost port=25433 user=postgres dbname=postgres"
+psql "host=localhost port=35432 user=postgres dbname=postgres"
 ```
 
 Things to know:
+
+- **Ports:** the example mirrors the local Multigres cluster's defaults, shifted
+  by 20000 (gateway `15xxx` to `35xxx`, PostgreSQL `25432` to `45432`), so a
+  Minigres and a local Multigres cluster can run side by side.
 
 - **Don't prepare the data directory with `pgctld init`.** The pooler bootstraps
   it itself, including the Multigres schema and the first backup. A directory
