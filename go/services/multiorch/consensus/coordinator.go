@@ -17,7 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
-	"sort"
+	"math/rand/v2"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -124,20 +124,13 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	}
 
 	poolerByID, healthByID := buildCohortMaps(cohort)
-	less := poolerHealthStateLess(healthByID)
+	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		// Prefer non-resigning nodes when multiple candidates share the highest
-		// LSN. A node signalling REQUESTING_DEMOTION has explicitly asked to be
-		// replaced. Electing it again immediately defeats the purpose of the
-		// switchover.
-		//
-		// A resigning node still wins if it holds a strictly higher LSN than
-		// every other node, but consensus status serves as a tiebreaker when
-		// multiple nodes are at the same WAL position.
-		sort.SliceStable(r.EligibleLeaders, func(i, j int) bool {
-			return less(r.EligibleLeaders[i], r.EligibleLeaders[j])
-		})
-		return buildFailoverProposal(r, poolerByID)
+		if len(r.EligibleLeaders) == 0 {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+		}
+		leader := selectFittestLeader(r.EligibleLeaders, healthByID, rng)
+		return buildFailoverProposal(r, leader, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		return commonconsensus.BuildSafeProposal(rev, statuses, buildProposal)
