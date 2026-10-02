@@ -23,6 +23,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
 // ============================================================================
@@ -84,6 +85,14 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	}
 
 	if err := pm.createShard(ctx); err != nil {
+		return err
+	}
+
+	// migration is the Multigres Migrator table-migration coordinator's state table.
+	// Created here so standbys inherit it via restore and post-failover primaries
+	// already have it; the coordinator also ensures it on first use to cover
+	// shards bootstrapped before this table existed.
+	if err := pm.createMigrationTable(ctx); err != nil {
 		return err
 	}
 
@@ -246,6 +255,42 @@ func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 		UNIQUE (tablegroup_oid, shard_name)
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create shard table")
+	}
+	return nil
+}
+
+// createMigrationTable creates multigres.migration_connection, multigres.migration,
+// and migration's child multigres.migration_tables (the normalized per-migration
+// table list) — the Multigres Migrator coordinator's state. Idempotent (IF NOT
+// EXISTS); no PUBLIC grant, so they stay readable only through the admin
+// (superuser) pool — rows hold the source DSN. The DDL lives with the
+// coordinator (migration.CreateMigrationConnectionSQL / CreateMigrationSQL /
+// CreateMigrationTablesSQL); migration_connection is created first (migration's
+// connection_id column carries a foreign key into it), migration_tables second
+// (it references migration).
+func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Order matters: migration_connection (and its name index) before
+	// migration (connection_id's foreign key target), migration before
+	// migration_tables (its foreign key target), migration_journal's index
+	// after its table.
+	stmts := []struct {
+		label string
+		sql   string
+	}{
+		{"migration_connection table", migration.CreateMigrationConnectionSQL},
+		{"migration_connection name index", migration.MigrationConnectionNameUniqueIndexSQL},
+		{"migration table", migration.CreateMigrationSQL},
+		{"migration_tables table", migration.CreateMigrationTablesSQL},
+		{"migration_journal table", migration.CreateMigrationJournalSQL},
+		{"migration_journal index", migration.MigrationJournalMigrationIndexSQL},
+	}
+	for _, s := range stmts {
+		if err := pm.adminExec(execCtx, s.sql); err != nil {
+			return mterrors.Wrap(err, "failed to create "+s.label)
+		}
 	}
 	return nil
 }

@@ -42,6 +42,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfAlterCollationStmt(parent, node, replacer)
 	case *AlterCompositeTypeStmt:
 		return a.rewriteRefOfAlterCompositeTypeStmt(parent, node, replacer)
+	case *AlterConnectionStmt:
+		return a.rewriteRefOfAlterConnectionStmt(parent, node, replacer)
 	case *AlterDatabaseRefreshCollStmt:
 		return a.rewriteRefOfAlterDatabaseRefreshCollStmt(parent, node, replacer)
 	case *AlterDatabaseSetStmt:
@@ -66,6 +68,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfAlterForeignServerStmt(parent, node, replacer)
 	case *AlterFunctionStmt:
 		return a.rewriteRefOfAlterFunctionStmt(parent, node, replacer)
+	case *AlterMigrationStmt:
+		return a.rewriteRefOfAlterMigrationStmt(parent, node, replacer)
 	case *AlterObjectDependsStmt:
 		return a.rewriteRefOfAlterObjectDependsStmt(parent, node, replacer)
 	case *AlterObjectSchemaStmt:
@@ -184,6 +188,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfCreateAssertionStmt(parent, node, replacer)
 	case *CreateCastStmt:
 		return a.rewriteRefOfCreateCastStmt(parent, node, replacer)
+	case *CreateConnectionStmt:
+		return a.rewriteRefOfCreateConnectionStmt(parent, node, replacer)
 	case *CreateConversionStmt:
 		return a.rewriteRefOfCreateConversionStmt(parent, node, replacer)
 	case *CreateDomainStmt:
@@ -202,6 +208,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfCreateForeignTableStmt(parent, node, replacer)
 	case *CreateFunctionStmt:
 		return a.rewriteRefOfCreateFunctionStmt(parent, node, replacer)
+	case *CreateMigrationStmt:
+		return a.rewriteRefOfCreateMigrationStmt(parent, node, replacer)
 	case *CreateOpClassItem:
 		return a.rewriteRefOfCreateOpClassItem(parent, node, replacer)
 	case *CreateOpClassStmt:
@@ -258,6 +266,10 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfDiscardStmt(parent, node, replacer)
 	case *DoStmt:
 		return a.rewriteRefOfDoStmt(parent, node, replacer)
+	case *DropConnectionStmt:
+		return a.rewriteRefOfDropConnectionStmt(parent, node, replacer)
+	case *DropMigrationStmt:
+		return a.rewriteRefOfDropMigrationStmt(parent, node, replacer)
 	case *DropOwnedStmt:
 		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
 	case *DropReplicationSlotCmd:
@@ -510,6 +522,10 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfSetOperationStmt(parent, node, replacer)
 	case *SetToDefault:
 		return a.rewriteRefOfSetToDefault(parent, node, replacer)
+	case *ShowConnectionsStmt:
+		return a.rewriteRefOfShowConnectionsStmt(parent, node, replacer)
+	case *ShowMigrationsStmt:
+		return a.rewriteRefOfShowMigrationsStmt(parent, node, replacer)
 	case *SinglePartitionSpec:
 		return a.rewriteRefOfSinglePartitionSpec(parent, node, replacer)
 	case *SortBy:
@@ -1001,6 +1017,40 @@ func (a *application) rewriteRefOfAlterCompositeTypeStmt(parent Node, node *Alte
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfAlterConnectionStmt(parent Node, node *AlterConnectionStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Options, func(newNode, parent Node) {
+		parent.(*AlterConnectionStmt).Options = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfAlterDatabaseRefreshCollStmt(parent Node, node *AlterDatabaseRefreshCollStmt, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -1408,6 +1458,40 @@ func (a *application) rewriteRefOfAlterFunctionStmt(parent Node, node *AlterFunc
 	}
 	if !a.rewriteRefOfNodeList(node, node.Actions, func(newNode, parent Node) {
 		parent.(*AlterFunctionStmt).Actions = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfAlterMigrationStmt(parent Node, node *AlterMigrationStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Options, func(newNode, parent Node) {
+		parent.(*AlterMigrationStmt).Options = newNode.(*NodeList)
 	}) {
 		return false
 	}
@@ -3705,6 +3789,40 @@ func (a *application) rewriteRefOfCreateCastStmt(parent Node, node *CreateCastSt
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfCreateConnectionStmt(parent Node, node *CreateConnectionStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Options, func(newNode, parent Node) {
+		parent.(*CreateConnectionStmt).Options = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfCreateConversionStmt(parent Node, node *CreateConversionStmt, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -4056,6 +4174,45 @@ func (a *application) rewriteRefOfCreateFunctionStmt(parent Node, node *CreateFu
 	}
 	if !a.rewriteNode(node, node.SQLBody, func(newNode, parent Node) {
 		parent.(*CreateFunctionStmt).SQLBody = newNode.(Node)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfCreateMigrationStmt(parent Node, node *CreateMigrationStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Objects, func(newNode, parent Node) {
+		parent.(*CreateMigrationStmt).Objects = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfNodeList(node, node.Options, func(newNode, parent Node) {
+		parent.(*CreateMigrationStmt).Options = newNode.(*NodeList)
 	}) {
 		return false
 	}
@@ -5222,6 +5379,74 @@ func (a *application) rewriteRefOfDoStmt(parent Node, node *DoStmt, replacer rep
 	}
 	if !a.rewriteRefOfNodeList(node, node.Args, func(newNode, parent Node) {
 		parent.(*DoStmt).Args = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfDropConnectionStmt(parent Node, node *DropConnectionStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Names, func(newNode, parent Node) {
+		parent.(*DropConnectionStmt).Names = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfDropMigrationStmt(parent Node, node *DropMigrationStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Names, func(newNode, parent Node) {
+		parent.(*DropMigrationStmt).Names = newNode.(*NodeList)
 	}) {
 		return false
 	}
@@ -10730,6 +10955,68 @@ func (a *application) rewriteRefOfSetToDefault(parent Node, node *SetToDefault, 
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfShowConnectionsStmt(parent Node, node *ShowConnectionsStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfShowMigrationsStmt(parent Node, node *ShowMigrationsStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfSinglePartitionSpec(parent Node, node *SinglePartitionSpec, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -10912,6 +11199,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfAlterCollationStmt(parent, node, replacer)
 	case *AlterCompositeTypeStmt:
 		return a.rewriteRefOfAlterCompositeTypeStmt(parent, node, replacer)
+	case *AlterConnectionStmt:
+		return a.rewriteRefOfAlterConnectionStmt(parent, node, replacer)
 	case *AlterDatabaseRefreshCollStmt:
 		return a.rewriteRefOfAlterDatabaseRefreshCollStmt(parent, node, replacer)
 	case *AlterDatabaseSetStmt:
@@ -10936,6 +11225,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfAlterForeignServerStmt(parent, node, replacer)
 	case *AlterFunctionStmt:
 		return a.rewriteRefOfAlterFunctionStmt(parent, node, replacer)
+	case *AlterMigrationStmt:
+		return a.rewriteRefOfAlterMigrationStmt(parent, node, replacer)
 	case *AlterObjectDependsStmt:
 		return a.rewriteRefOfAlterObjectDependsStmt(parent, node, replacer)
 	case *AlterObjectSchemaStmt:
@@ -11002,6 +11293,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfCreateAssertionStmt(parent, node, replacer)
 	case *CreateCastStmt:
 		return a.rewriteRefOfCreateCastStmt(parent, node, replacer)
+	case *CreateConnectionStmt:
+		return a.rewriteRefOfCreateConnectionStmt(parent, node, replacer)
 	case *CreateConversionStmt:
 		return a.rewriteRefOfCreateConversionStmt(parent, node, replacer)
 	case *CreateDomainStmt:
@@ -11020,6 +11313,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfCreateForeignTableStmt(parent, node, replacer)
 	case *CreateFunctionStmt:
 		return a.rewriteRefOfCreateFunctionStmt(parent, node, replacer)
+	case *CreateMigrationStmt:
+		return a.rewriteRefOfCreateMigrationStmt(parent, node, replacer)
 	case *CreateOpClassItem:
 		return a.rewriteRefOfCreateOpClassItem(parent, node, replacer)
 	case *CreateOpClassStmt:
@@ -11072,6 +11367,10 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfDiscardStmt(parent, node, replacer)
 	case *DoStmt:
 		return a.rewriteRefOfDoStmt(parent, node, replacer)
+	case *DropConnectionStmt:
+		return a.rewriteRefOfDropConnectionStmt(parent, node, replacer)
+	case *DropMigrationStmt:
+		return a.rewriteRefOfDropMigrationStmt(parent, node, replacer)
 	case *DropOwnedStmt:
 		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
 	case *DropReplicationSlotCmd:
@@ -11174,6 +11473,10 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfSecLabelStmt(parent, node, replacer)
 	case *SelectStmt:
 		return a.rewriteRefOfSelectStmt(parent, node, replacer)
+	case *ShowConnectionsStmt:
+		return a.rewriteRefOfShowConnectionsStmt(parent, node, replacer)
+	case *ShowMigrationsStmt:
+		return a.rewriteRefOfShowMigrationsStmt(parent, node, replacer)
 	case *SinglePartitionSpec:
 		return a.rewriteRefOfSinglePartitionSpec(parent, node, replacer)
 	case *SortBy:
