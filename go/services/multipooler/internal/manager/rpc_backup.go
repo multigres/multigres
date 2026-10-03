@@ -327,20 +327,43 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup. A partial restore can leave PG_VERSION on disk,
 	// which hasDataDirectory() would misread as "already initialized" next
-	// tick - clean up so it retries instead of starting postgres on unverified
-	// data. Scoped to this call only: later steps run after a successful
-	// restore, so their failures shouldn't discard good data.
+	// tick. Two layers guard against starting postgres on unverified data:
 	//
-	// TODO: doesn't cover a process crash mid-restore (no defer runs then) -
-	// a crash-surviving sentinel, like hasBootstrapSentinel/hasRewindSentinel,
-	// would close that gap.
+	//   - The restore sentinel is written before pgbackrest touches PGDATA, so
+	//     a process crash mid-restore (when no cleanup can run) leaves a
+	//     durable marker; restoreAndStartPostgres uses it to remove the partial
+	//     data directory and restore again.
+	//   - A restore that fails without the process dying is cleaned up here,
+	//     so the next tick retries.
+	//
+	// Both are scoped to the restore itself: later steps run after a
+	// successful restore, so their failures shouldn't discard good data.
+	if err := pm.writeRestoreSentinel(); err != nil {
+		return mterrors.Wrap(err, "failed to write restore sentinel")
+	}
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
 		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
+		// Ordering matters: only clear the sentinel after the data directory is
+		// gone, to preserve the "partial data dir present ⇒ sentinel present"
+		// invariant. If removal fails, the sentinel stays so the next attempt
+		// removes the partial directory instead of starting postgres on it.
 		if removeErr := pm.removeDataDirectory(); removeErr != nil {
 			pm.logger.WarnContext(ctx, "failed to remove partial data directory after failed restore", "error", removeErr)
+			return err
+		}
+		if removeErr := pm.removeRestoreSentinel(); removeErr != nil {
+			pm.logger.WarnContext(ctx, "failed to remove restore sentinel after failed restore", "error", removeErr)
 		}
 		return err
+	}
+
+	// PGDATA now holds a complete restore. Clear the sentinel before the steps
+	// below so a failure in one of them can't get the restored data discarded.
+	// If it can't be cleared, fail the restore: the next attempt redoes it from
+	// scratch, which is wasteful but safe.
+	if err := pm.removeRestoreSentinel(); err != nil {
+		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
 	}
 
 	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
