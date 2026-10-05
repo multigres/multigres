@@ -72,6 +72,14 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 		"terminating connection due to idle-session timeout", "")
 }
 
+// NewAdminShutdown creates a PgDiagnostic for a session terminated by an
+// administrator. SQLSTATE 57P01, severity FATAL — the same diagnostic
+// PostgreSQL emits for pg_terminate_backend.
+func NewAdminShutdown() *PgDiagnostic {
+	return NewPgError("FATAL", "57P01",
+		"terminating connection due to administrator command", "")
+}
+
 // NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
 // connection that was terminated before its in-flight work could continue or
 // be concluded. This fires for several distinct, unrelated reasons — most

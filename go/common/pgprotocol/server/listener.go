@@ -469,6 +469,19 @@ func (l *Listener) CancelLocalConnection(pid, secret uint32) bool {
 	return conn.CancelQuery()
 }
 
+// Conns returns a snapshot of the active client connections. Callers act on
+// the snapshot outside the registry lock, so a connection may already be
+// closing by the time it is visited.
+func (l *Listener) Conns() []*Conn {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	conns := make([]*Conn, 0, len(l.conns))
+	for _, c := range l.conns {
+		conns = append(conns, c)
+	}
+	return conns
+}
+
 // ConnectionCount returns the number of active client connections.
 func (l *Listener) ConnectionCount() int {
 	l.connsMu.Lock()

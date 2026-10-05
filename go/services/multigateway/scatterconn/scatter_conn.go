@@ -94,6 +94,12 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
+// sessionSettings returns the session settings to send with a request: the
+// single place every ScatterConn call site builds them from.
+func (sc *ScatterConn) sessionSettings(_ *server.Conn, state *handler.MultigatewayConnectionState) map[string]string {
+	return state.GetSessionSettings()
+}
+
 // buildTarget constructs a routing target for the given (database,
 // tableGroup, shard). The database comes from the connection's bound
 // database (conn.Database()) so the gateway routes within the database
@@ -243,7 +249,7 @@ func (sc *ScatterConn) StreamExecute(
 		UserAuth:                    userAuthFrom(conn),
 		User:                        conn.User(),
 		ClientConnectionId:          conn.ConnectionID(),
-		SessionSettings:             state.GetSessionSettings(),
+		SessionSettings:             sc.sessionSettings(conn, state),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
@@ -499,7 +505,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 
@@ -684,7 +690,7 @@ func (sc *ScatterConn) Describe(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
@@ -779,7 +785,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// and fails closed.
 	rollbackSessionSettings := state.GetRollbackSessionSettings()
 	if rollbackSessionSettings == nil {
-		rollbackSessionSettings = state.GetSessionSettings()
+		rollbackSessionSettings = sc.sessionSettings(conn, state)
 		if rollbackSessionSettings == nil {
 			rollbackSessionSettings = map[string]string{}
 		}
@@ -811,7 +817,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
+			SessionSettings:      sc.sessionSettings(conn, state),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
@@ -929,7 +935,7 @@ func (sc *ScatterConn) DiscardTempTables(
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
+			SessionSettings:      sc.sessionSettings(conn, state),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
@@ -1021,7 +1027,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 
 	// Reuse an existing reserved connection (e.g. one already held by a
@@ -1109,7 +1115,7 @@ func (sc *ScatterConn) CopyOutStream(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1189,7 +1195,7 @@ func (sc *ScatterConn) CopyInitiate(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 
 	// If there's already a reserved connection for this target (e.g., in a transaction),
@@ -1289,7 +1295,7 @@ func (sc *ScatterConn) CopySendData(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1346,7 +1352,7 @@ func (sc *ScatterConn) CopyFinalize(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1422,7 +1428,7 @@ func (sc *ScatterConn) CopyAbort(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1472,7 +1478,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 	// backend keeps its session state and the current map is the truth.
 	releaseSettings := state.GetRollbackSessionSettings()
 	if releaseSettings == nil {
-		releaseSettings = state.GetSessionSettings()
+		releaseSettings = sc.sessionSettings(conn, state)
 	}
 
 	for _, ss := range state.ShardStates {
