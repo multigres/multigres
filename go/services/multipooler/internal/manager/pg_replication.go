@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -1381,11 +1382,20 @@ func poolerIDSetEqual(a, b []consensus.ReplicaID) bool {
 // Primary-side Replication Queries
 // ----------------------------------------------------------------------------
 
+// connectedFollowersQuery lists the application_name of every connected
+// follower. pg_stat_replication also contains the logical-replication
+// connections that multigateway tunnels through (replication=database); they
+// are not followers and their application_name is not a cell_name ID, so they
+// are excluded by their prefix.
+const connectedFollowersQuery = "SELECT application_name FROM pg_stat_replication" +
+	" WHERE application_name IS NOT NULL AND application_name != ''" +
+	" AND application_name NOT LIKE '" + constants.LogicalReplicationConnAppNamePrefix + "%'"
+
 // getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
 func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
+	sql := connectedFollowersQuery
 	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to query pg_stat_replication", "error", err)
