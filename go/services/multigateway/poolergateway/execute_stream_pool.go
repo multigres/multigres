@@ -214,7 +214,7 @@ func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
 	}
 	f, err := r.lease.stream.Recv()
 	if err != nil {
-		return nil, incompleteOperation(err)
+		return nil, incompleteOperation(r.ctx, err)
 	}
 	if f.Ready || (f.Response == nil) == (f.Completion == nil) {
 		return nil, status.Error(codes.Internal, "invalid execute stream response")
@@ -317,16 +317,26 @@ func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*s
 	r := &streamResponses{lease: l, stop: stop, pool: p, ctx: ctx}
 	if err := l.stream.Send(requestFrame(ctx, req, carrier)); err != nil {
 		r.Release()
-		return nil, true, incompleteOperation(err)
+		return nil, true, incompleteOperation(ctx, err)
 	}
 	return r, true, nil
 }
 
-func incompleteOperation(err error) error {
+func incompleteOperation(ctx context.Context, err error) error {
 	// Unlike the legacy server-streaming RPC, transport EOF is NOT an SQL
 	// success here. Only an explicit completion frame proves completion.
 	if errors.Is(err, io.EOF) {
 		return status.Error(codes.Unavailable, "execute stream ended before operation completion")
+	}
+	// The lease's transport context (streamCtx in Open/take) is a plain
+	// context.WithCancel driven by an AfterFunc on the caller's ctx, so a caller
+	// deadline always surfaces here as a generic Canceled rather than
+	// DeadlineExceeded — the real cause is lost crossing that derivation.
+	// Recover it from the caller's own ctx, mirroring the handshake-failure
+	// path above, so a statement timeout is never misreported as an explicit
+	// cancel (SQLSTATE/message: "canceling statement due to user request").
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return status.FromContextError(ctxErr).Err()
 	}
 	return err
 }
