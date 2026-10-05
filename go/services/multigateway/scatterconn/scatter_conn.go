@@ -112,8 +112,13 @@ func (sc *ScatterConn) SetReadOnlyModes(modes *readonly.Modes) {
 // poolergateway.retryReadOnlyError reads to keep the 25006 from being mistaken
 // for a demoted leader and buffered.
 func (sc *ScatterConn) sessionSettings(conn *server.Conn, state *handler.MultigatewayConnectionState) map[string]string {
-	settings := state.GetSessionSettings()
-	if !sc.readOnly.Get(conn.Database()).Enabled {
+	return sc.withReadOnlyOverlay(conn, state, state.GetSessionSettings())
+}
+
+// withReadOnlyOverlay adds the read-only overlay to settings when readOnlyOverlay
+// says the backend carries it. settings must be the caller's own map.
+func (sc *ScatterConn) withReadOnlyOverlay(conn *server.Conn, state *handler.MultigatewayConnectionState, settings map[string]string) map[string]string {
+	if !sc.readOnlyOverlay(conn, state) {
 		return settings
 	}
 	if settings == nil {
@@ -121,6 +126,22 @@ func (sc *ScatterConn) sessionSettings(conn *server.Conn, state *handler.Multiga
 	}
 	settings[pgsettings.CanonicalGUCName("default_transaction_read_only")] = "on"
 	return settings
+}
+
+// readOnlyOverlay reports whether the settings sent for conn carry the
+// read-only overlay. The pooler applies settings to a backend only at checkout
+// and relabels it on release with the map the gateway sends, so once the
+// session holds a reserved backend the answer is frozen at what that backend
+// was checked out with (state.ReadOnlyOverlay), whichever way the mode has
+// moved since: a label built from the live mode would misdescribe the backend
+// in both directions. Without a reservation it follows the live mode and
+// records it, so a reservation created by this request inherits it.
+func (sc *ScatterConn) readOnlyOverlay(conn *server.Conn, state *handler.MultigatewayConnectionState) bool {
+	if state.HasAnyReservedConnection() {
+		return state.ReadOnlyOverlay
+	}
+	state.ReadOnlyOverlay = sc.readOnly.Get(conn.Database()).Enabled
+	return state.ReadOnlyOverlay
 }
 
 // buildTarget constructs a routing target for the given (database,
@@ -806,7 +827,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// (executeRollback runs RollbackTransaction first), so the current map IS
 	// the rollback map. The pooler treats absence as an invariant violation
 	// and fails closed.
-	rollbackSessionSettings := state.GetRollbackSessionSettings()
+	rollbackSessionSettings := sc.withReadOnlyOverlay(conn, state, state.GetRollbackSessionSettings())
 	if rollbackSessionSettings == nil {
 		rollbackSessionSettings = sc.sessionSettings(conn, state)
 		if rollbackSessionSettings == nil {
@@ -1499,7 +1520,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 	// Transaction frames exist exactly when the pooler-side rollback will run,
 	// so the pick mirrors the pooler's own conditional; with no frames the
 	// backend keeps its session state and the current map is the truth.
-	releaseSettings := state.GetRollbackSessionSettings()
+	releaseSettings := sc.withReadOnlyOverlay(conn, state, state.GetRollbackSessionSettings())
 	if releaseSettings == nil {
 		releaseSettings = sc.sessionSettings(conn, state)
 	}

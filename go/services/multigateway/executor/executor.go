@@ -75,6 +75,18 @@ func (e *Executor) rejectReadOnlyOverride(conn *server.Conn, stmt ast.Stmt) erro
 		fmt.Sprintf("Database %q has been placed in read-only mode by an administrator.", conn.Database()))}
 }
 
+// noteResetAll clears the session's read-only overlay record after a RESET ALL
+// ran: on a pinned backend the statement resets default_transaction_read_only
+// along with everything else, so later release labels must not claim it. For an
+// unpinned session the record is recomputed on the next request anyway. A
+// ROLLBACK restores the record together with the backend's GUCs (see
+// handler.MultigatewayConnectionState.ReadOnlyOverlay).
+func noteResetAll(state *handler.MultigatewayConnectionState, stmt ast.Stmt, err error) {
+	if v, ok := stmt.(*ast.VariableSetStmt); ok && v.Kind == ast.VAR_RESET_ALL && err == nil {
+		state.ReadOnlyOverlay = false
+	}
+}
+
 // SetSlotBasedReplicationEnabled wires the dynamic getter that gates
 // admitting a non-temporary logical failover replication slot created via
 // plain SQL. Must be called before connections are accepted. A nil getter
@@ -174,6 +186,7 @@ func (e *Executor) StreamExecute(
 			"plan", plan.String(),
 			"error", err)
 	}
+	noteResetAll(state, astStmt, err)
 	return result, err
 }
 
@@ -314,6 +327,7 @@ func (e *Executor) PortalStreamExecute(
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"plan", plan.String(), "error", err)
 	}
+	noteResetAll(state, portalInfo.PreparedStatementInfo.AstStmt(), err)
 	return &handler.ExecuteResult{
 		TablesUsed:    plan.TablesUsed,
 		PlanType:      plan.Type,

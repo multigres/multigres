@@ -71,3 +71,14 @@ func (m *Modes) Set(database string, mode Mode) Mode {
 	}
 	return prev
 }
+
+// Databases returns the databases with a non-zero mode.
+func (m *Modes) Databases() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	dbs := make([]string, 0, len(m.dbs))
+	for db := range m.dbs {
+		dbs = append(dbs, db)
+	}
+	return dbs
+}

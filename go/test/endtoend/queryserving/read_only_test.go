@@ -167,6 +167,62 @@ func TestMultigateway_ReadOnlyMode(t *testing.T) {
 		assert.Equal(t, 0, n, "the terminated transaction rolled back")
 	})
 
+	// The pooler relabels a released backend with the map the gateway sends,
+	// so the label must describe the backend's real default_transaction_read_only
+	// whichever way the mode moved while the backend was reserved. A wrong label
+	// is sticky: it misroutes every later borrower of that backend.
+	t.Run("release labels match the backend across mode changes", func(t *testing.T) {
+		const held = 3
+		openInTx := func() []*pgx.Conn {
+			conns := make([]*pgx.Conn, held)
+			for i := range conns {
+				conns[i] = connectPgx(t, ctx, setup)
+				_, err := conns[i].Exec(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conns[i].Exec(ctx, "SELECT 1")
+				require.NoError(t, err)
+			}
+			return conns
+		}
+		concludeAll := func(conns []*pgx.Conn, sql string) {
+			for _, c := range conns {
+				_, err := c.Exec(ctx, sql)
+				require.NoError(t, err)
+				c.Close(ctx)
+			}
+		}
+		expectFreshWrites := func(want string) {
+			for i := range 2 * held {
+				c := connectPgx(t, ctx, setup)
+				_, err := c.Exec(ctx, "INSERT INTO read_only_probe VALUES (9)")
+				assert.Equal(t, want, sqlState(err), "iteration %d: %v", i, err)
+				c.Close(ctx)
+			}
+		}
+
+		// Checked out read-only, rolled back, then the mode is lifted: the
+		// backends still carry the GUC and must be labelled so.
+		setReadOnly(t, ctx, setup, true, false)
+		concludeAll(openInTx(), "ROLLBACK")
+		setReadOnly(t, ctx, setup, false, false)
+		expectFreshWrites("")
+
+		// Checked out read-only, mode lifted mid-transaction, committed.
+		setReadOnly(t, ctx, setup, true, false)
+		conns := openInTx()
+		setReadOnly(t, ctx, setup, false, false)
+		concludeAll(conns, "COMMIT")
+		expectFreshWrites("")
+
+		// Checked out read-write, mode enabled mid-transaction, committed: the
+		// backends never got the GUC, so the pool must still apply it for the
+		// next read-only borrower.
+		conns = openInTx()
+		setReadOnly(t, ctx, setup, true, false)
+		concludeAll(conns, "COMMIT")
+		expectFreshWrites("25006")
+	})
+
 	t.Run("lifting the mode restores writes", func(t *testing.T) {
 		setReadOnly(t, ctx, setup, false, false)
 		conn := connectPgx(t, ctx, setup)

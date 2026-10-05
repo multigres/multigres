@@ -70,4 +70,25 @@ func TestWatchReadOnly_MirrorsTopoRecord(t *testing.T) {
 	require.NoError(t, ts.CreateDatabase(ctx, "late", &clustermetadatapb.Database{Name: "late", ReadOnly: true}))
 	require.Eventually(t, func() bool { return mg.readOnly.Get("late").Enabled }, 5*time.Second, 10*time.Millisecond)
 	require.False(t, mg.readOnly.Get("app").Enabled, "modes are independent per database")
+
+	// Deleting the record clears its mode.
+	require.NoError(t, ts.DeleteDatabase(ctx, "late", true))
+	require.Eventually(t, func() bool { return !mg.readOnly.Get("late").Enabled }, 5*time.Second, 10*time.Millisecond)
+}
+
+// A (re)connect delivers a snapshot, not the changes missed while the watch was
+// down. A database deleted meanwhile must not keep its stale mode.
+func TestWatchReadOnly_InitialSnapshotClearsAbsentDatabases(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ts := memorytopo.NewServer(ctx, "cell1")
+	defer ts.Close()
+	require.NoError(t, ts.CreateDatabase(ctx, "kept", &clustermetadatapb.Database{Name: "kept", ReadOnly: true}))
+
+	mg := &Multigateway{ts: ts, readOnly: readonly.New()}
+	mg.readOnly.Set("gone", readonly.Mode{Enabled: true}) // observed before the outage, deleted during it
+	go mg.watchReadOnly(ctx, slog.Default())
+
+	require.Eventually(t, func() bool { return mg.readOnly.Get("kept").Enabled }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return !mg.readOnly.Get("gone").Enabled }, 5*time.Second, 10*time.Millisecond)
 }

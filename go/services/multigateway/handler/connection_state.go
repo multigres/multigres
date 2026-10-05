@@ -181,6 +181,17 @@ type MultigatewayConnectionState struct {
 	// RollbackTransaction.
 	savepoints []savepointFrame
 
+	// ReadOnlyOverlay records whether the settings last sent to the pooler at a
+	// moment a backend could be checked out carried the read-only overlay
+	// (default_transaction_read_only=on, see the readonly package). While the
+	// session holds a reserved backend this is frozen at what that backend was
+	// checked out with, because the pooler applies settings only at checkout
+	// and every release label must describe the backend's real state whichever
+	// way the mode has moved since. It is snapshotted and restored with the
+	// transaction frames like SessionSettings, since a RESET ALL that clears
+	// the GUC on the backend is itself undone by ROLLBACK.
+	ReadOnlyOverlay bool
+
 	// targetReplica is true when this connection arrived on the replica-reads
 	// listener port. Set once at connection initialization, never changed.
 	targetReplica bool
@@ -193,6 +204,7 @@ type MultigatewayConnectionState struct {
 type savepointFrame struct {
 	name            string
 	sessionSettings map[string]string
+	readOnlyOverlay bool
 	// openHoldCursors snapshots the names of `DECLARE … WITH HOLD`
 	// cursors that were open at the moment the savepoint was pushed.
 	// Used so that `ROLLBACK TO <name>` can compute the set of cursors
@@ -457,6 +469,19 @@ func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard
 	return false
 }
 
+// HasAnyReservedConnection reports whether the session holds a reserved
+// backend on any shard.
+func (m *MultigatewayConnectionState) HasAnyReservedConnection() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearAllReservedConnections removes all reserved connection entries.
 // Called after COMMIT or ROLLBACK to clean up stale shard state.
 func (m *MultigatewayConnectionState) ClearAllReservedConnections() {
@@ -630,6 +655,7 @@ func (m *MultigatewayConnectionState) pushFrameLocked(name string) {
 	m.savepoints = append(m.savepoints, savepointFrame{
 		name:            name,
 		sessionSettings: m.snapshotSessionSettingsLocked(),
+		readOnlyOverlay: m.ReadOnlyOverlay,
 		openHoldCursors: m.snapshotOpenHoldCursorsLocked(),
 	})
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
@@ -754,6 +780,7 @@ func (m *MultigatewayConnectionState) RollbackToSavepoint(name string) {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[idx].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
 	}
+	m.ReadOnlyOverlay = m.savepoints[idx].readOnlyOverlay
 	snapshot := m.savepoints[idx].openHoldCursors
 	surviving := make(map[string]bool, len(snapshot))
 	for cur := range snapshot {
@@ -803,6 +830,7 @@ func (m *MultigatewayConnectionState) RollbackTransaction() {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
 	}
+	m.ReadOnlyOverlay = m.savepoints[0].readOnlyOverlay
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
 		gmv.RestoreFromDepth(0)
 		gmv.ClearSnapshots()

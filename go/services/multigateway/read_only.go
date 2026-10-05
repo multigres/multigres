@@ -16,6 +16,7 @@ package multigateway
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -35,20 +36,7 @@ import (
 // of a database when its force flag is first observed. Blocks until ctx is
 // cancelled; run it in a goroutine.
 func (mg *Multigateway) watchReadOnly(ctx context.Context, logger *slog.Logger) {
-	apply := func(wd *topoclient.WatchDataRecursive) {
-		database, ok := databaseFromRecordPath(wd.Path)
-		if !ok {
-			return
-		}
-		var mode readonly.Mode
-		if wd.Err == nil {
-			rec := &clustermetadatapb.Database{}
-			if err := proto.Unmarshal(wd.Contents, rec); err != nil {
-				logger.ErrorContext(ctx, "ignoring undecodable database record", "path", wd.Path, "error", err)
-				return
-			}
-			mode = readonly.Mode{Enabled: rec.GetReadOnly(), Force: rec.GetReadOnly() && rec.GetReadOnlyForce()}
-		}
+	set := func(database string, mode readonly.Mode) {
 		prev := mg.readOnly.Set(database, mode)
 		if mode == prev {
 			return
@@ -58,10 +46,45 @@ func (mg *Multigateway) watchReadOnly(ctx context.Context, logger *slog.Logger) 
 			mg.terminateWriteSessions(ctx, logger, database)
 		}
 	}
+	// apply mirrors one watch event. Only a confirmed deletion (NoNode) clears
+	// a mode; any other error is a watch problem, not a policy change, and
+	// clearing on it would lift read-only mode mid-incident.
+	apply := func(wd *topoclient.WatchDataRecursive) (database string, ok bool) {
+		database, ok = databaseFromRecordPath(wd.Path)
+		if !ok {
+			return "", false
+		}
+		switch {
+		case wd.Err == nil:
+			rec := &clustermetadatapb.Database{}
+			if err := proto.Unmarshal(wd.Contents, rec); err != nil {
+				logger.ErrorContext(ctx, "ignoring undecodable database record", "path", wd.Path, "error", err)
+				return "", false
+			}
+			set(database, readonly.Mode{Enabled: rec.GetReadOnly(), Force: rec.GetReadOnly() && rec.GetReadOnlyForce()})
+		case errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}):
+			set(database, readonly.Mode{})
+		default:
+			logger.WarnContext(ctx, "ignoring database watch error", "path", wd.Path, "error", wd.Err)
+			return "", false
+		}
+		return database, true
+	}
 	topoclient.WatchPathWithRetry(ctx, mg.ts, topoclient.GlobalCell, topoclient.DatabasesPath, logger,
 		func(initial []*topoclient.WatchDataRecursive) {
+			// A (re)connect delivers a snapshot, not the changes missed while
+			// disconnected, so a database deleted meanwhile has no event:
+			// clear every mode whose record is absent from the snapshot.
+			present := make(map[string]bool, len(initial))
 			for _, wd := range initial {
-				apply(wd)
+				if database, ok := apply(wd); ok {
+					present[database] = true
+				}
+			}
+			for _, database := range mg.readOnly.Databases() {
+				if !present[database] {
+					set(database, readonly.Mode{})
+				}
 			}
 		},
 		func(changes <-chan *topoclient.WatchDataRecursive) {
