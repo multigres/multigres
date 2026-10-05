@@ -101,6 +101,9 @@ const (
 	// MultiadminServiceSwitchPrimaryProcedure is the fully-qualified name of the MultiadminService's
 	// SwitchPrimary RPC.
 	MultiadminServiceSwitchPrimaryProcedure = "/multiadmin.MultiadminService/SwitchPrimary"
+	// MultiadminServiceSetDatabaseReadOnlyProcedure is the fully-qualified name of the
+	// MultiadminService's SetDatabaseReadOnly RPC.
+	MultiadminServiceSetDatabaseReadOnlyProcedure = "/multiadmin.MultiadminService/SetDatabaseReadOnly"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -159,6 +162,11 @@ type MultiadminServiceClient interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+	// mode by updating its topo record. Every multigateway watches the record
+	// and rejects new write transactions while it is set; with force, gateways
+	// also terminate sessions that are mid-transaction or hold a pinned backend.
+	SetDatabaseReadOnly(context.Context, *connect.Request[multiadmin.SetDatabaseReadOnlyRequest]) (*connect.Response[multiadmin.SetDatabaseReadOnlyResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -280,6 +288,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 			connect.WithClientOptions(opts...),
 		),
+		setDatabaseReadOnly: connect.NewClient[multiadmin.SetDatabaseReadOnlyRequest, multiadmin.SetDatabaseReadOnlyResponse](
+			httpClient,
+			baseURL+MultiadminServiceSetDatabaseReadOnlyProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SetDatabaseReadOnly")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -303,6 +317,7 @@ type multiadminServiceClient struct {
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
+	setDatabaseReadOnly        *connect.Client[multiadmin.SetDatabaseReadOnlyRequest, multiadmin.SetDatabaseReadOnlyResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -395,6 +410,11 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connec
 	return c.switchPrimary.CallUnary(ctx, req)
 }
 
+// SetDatabaseReadOnly calls multiadmin.MultiadminService.SetDatabaseReadOnly.
+func (c *multiadminServiceClient) SetDatabaseReadOnly(ctx context.Context, req *connect.Request[multiadmin.SetDatabaseReadOnlyRequest]) (*connect.Response[multiadmin.SetDatabaseReadOnlyResponse], error) {
+	return c.setDatabaseReadOnly.CallUnary(ctx, req)
+}
+
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
 	// GetCell retrieves information about a specific cell
@@ -451,6 +471,11 @@ type MultiadminServiceHandler interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+	// mode by updating its topo record. Every multigateway watches the record
+	// and rejects new write transactions while it is set; with force, gateways
+	// also terminate sessions that are mid-transaction or hold a pinned backend.
+	SetDatabaseReadOnly(context.Context, *connect.Request[multiadmin.SetDatabaseReadOnlyRequest]) (*connect.Response[multiadmin.SetDatabaseReadOnlyResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -568,6 +593,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceSetDatabaseReadOnlyHandler := connect.NewUnaryHandler(
+		MultiadminServiceSetDatabaseReadOnlyProcedure,
+		svc.SetDatabaseReadOnly,
+		connect.WithSchema(multiadminServiceMethods.ByName("SetDatabaseReadOnly")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -606,6 +637,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		case MultiadminServiceSwitchPrimaryProcedure:
 			multiadminServiceSwitchPrimaryHandler.ServeHTTP(w, r)
+		case MultiadminServiceSetDatabaseReadOnlyProcedure:
+			multiadminServiceSetDatabaseReadOnlyHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -685,4 +718,8 @@ func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Co
 
 func (UnimplementedMultiadminServiceHandler) SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SwitchPrimary is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SetDatabaseReadOnly(context.Context, *connect.Request[multiadmin.SetDatabaseReadOnlyRequest]) (*connect.Response[multiadmin.SetDatabaseReadOnlyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SetDatabaseReadOnly is not implemented"))
 }

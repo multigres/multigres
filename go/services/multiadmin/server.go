@@ -475,6 +475,35 @@ func (s *MultiadminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 	return &multiadminpb.SetPostgresRestartsEnabledResponse{}, nil
 }
 
+// SetDatabaseReadOnly records the read-only flags on the database's topo
+// record. Gateways watch the record and enforce the mode; see the
+// multigateway readonly package.
+func (s *MultiadminServer) SetDatabaseReadOnly(ctx context.Context, req *multiadminpb.SetDatabaseReadOnlyRequest) (*multiadminpb.SetDatabaseReadOnlyResponse, error) {
+	if req.GetDatabase() == "" {
+		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
+	}
+	err := s.ts.UpdateDatabaseFields(ctx, req.GetDatabase(), func(db *clustermetadatapb.Database) error {
+		if db.GetName() == "" {
+			return &topoclient.TopoError{Code: topoclient.NoNode}
+		}
+		readOnly, force := req.GetReadOnly(), req.GetReadOnly() && req.GetForce()
+		if db.GetReadOnly() == readOnly && db.GetReadOnlyForce() == force {
+			return &topoclient.TopoError{Code: topoclient.NoUpdateNeeded}
+		}
+		db.ReadOnly, db.ReadOnlyForce = readOnly, force
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "database %q not found", req.GetDatabase())
+		}
+		s.logger.ErrorContext(ctx, "failed to update database read-only mode", "database", req.GetDatabase(), "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to update database: %v", err)
+	}
+	s.logger.InfoContext(ctx, "database read-only mode updated", "database", req.GetDatabase(), "read_only", req.GetReadOnly(), "force", req.GetForce())
+	return &multiadminpb.SetDatabaseReadOnlyResponse{}, nil
+}
+
 // GetGatewayQueries proxies a per-fingerprint query registry snapshot from the
 // target multigateway's MultigatewayManager.GetQueryRegistry RPC.
 func (s *MultiadminServer) GetGatewayQueries(ctx context.Context, req *multiadminpb.GetGatewayQueriesRequest) (*multiadminpb.GetGatewayQueriesResponse, error) {

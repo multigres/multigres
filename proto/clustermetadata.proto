@@ -76,6 +76,18 @@ message Database {
   // bootstrap_durability_policy is the durability policy applied when
   // initializing this database for the first time. Set at database creation.
   DurabilityPolicy bootstrap_durability_policy = 4;
+
+  // read_only makes every multigateway reject new write transactions for
+  // this database (postgres SQLSTATE 25006). Set by multiadmin
+  // SetDatabaseReadOnly, e.g. before a disk fills up. Gateways watch this
+  // record, so the flag survives gateway restarts.
+  bool read_only = 5;
+
+  // read_only_force, together with read_only, also terminates client
+  // sessions that are inside a transaction or hold a pinned backend when a
+  // gateway observes the flag, since those keep their read-write default
+  // until they end. Ignored when read_only is false.
+  bool read_only_force = 6;
 }
 
 // ShardInitClaim records which coordinator claimed the right to initialize a shard

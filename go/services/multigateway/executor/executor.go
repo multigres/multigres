@@ -16,10 +16,12 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -30,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/plancache"
 	"github.com/multigres/multigres/go/services/multigateway/planner"
+	"github.com/multigres/multigres/go/services/multigateway/readonly"
 )
 
 const (
@@ -49,6 +52,27 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+	// readOnly is the per-database read-only switch; nil reads as read-write.
+	readOnly *readonly.Modes
+}
+
+// SetReadOnlyModes wires the per-database read-only switch. Must be called
+// before connections are accepted.
+func (e *Executor) SetReadOnlyModes(modes *readonly.Modes) {
+	e.readOnly = modes
+}
+
+// rejectReadOnlyOverride refuses a statement that would lift the read-only
+// default while conn's database is read-only. It runs at execute time, not plan
+// time, because plans are cached across mode changes and the pass-through SET
+// forms plan as a plain Route.
+func (e *Executor) rejectReadOnlyOverride(conn *server.Conn, stmt ast.Stmt) error {
+	if stmt == nil || !e.readOnly.Get(conn.Database()).Enabled || !planner.ReadOnlyOverride(stmt) {
+		return nil
+	}
+	return &mterrors.GatewayRejection{PgDiagnostic: mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+		"cannot set transaction to read-write mode",
+		fmt.Sprintf("Database %q has been placed in read-only mode by an administrator.", conn.Database()))}
 }
 
 // SetSlotBasedReplicationEnabled wires the dynamic getter that gates
@@ -137,6 +161,10 @@ func (e *Executor) StreamExecute(
 		CacheHit:      cacheHit,
 		NormalizedSQL: normalizedSQL,
 		Fingerprint:   fingerprint,
+	}
+
+	if err := e.rejectReadOnlyOverride(conn, astStmt); err != nil {
+		return result, err
 	}
 
 	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
@@ -266,6 +294,10 @@ func (e *Executor) PortalStreamExecute(
 			NormalizedSQL: normalizedSQL,
 			Fingerprint:   fingerprint,
 		}, err
+	}
+
+	if err := e.rejectReadOnlyOverride(conn, portalInfo.PreparedStatementInfo.AstStmt()); err != nil {
+		return &handler.ExecuteResult{PlanTime: planTime, CacheHit: cacheHit, NormalizedSQL: normalizedSQL, Fingerprint: fingerprint}, err
 	}
 
 	// Hand off to the plan, which delegates to its root primitive's

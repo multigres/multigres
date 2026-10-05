@@ -527,6 +527,26 @@ export class Database extends Message<Database> {
    */
   bootstrapDurabilityPolicy?: DurabilityPolicy;
 
+  /**
+   * read_only makes every multigateway reject new write transactions for
+   * this database (postgres SQLSTATE 25006). Set by multiadmin
+   * SetDatabaseReadOnly, e.g. before a disk fills up. Gateways watch this
+   * record, so the flag survives gateway restarts.
+   *
+   * @generated from field: bool read_only = 5;
+   */
+  readOnly = false;
+
+  /**
+   * read_only_force, together with read_only, also terminates client
+   * sessions that are inside a transaction or hold a pinned backend when a
+   * gateway observes the flag, since those keep their read-write default
+   * until they end. Ignored when read_only is false.
+   *
+   * @generated from field: bool read_only_force = 6;
+   */
+  readOnlyForce = false;
+
   constructor(data?: PartialMessage<Database>) {
     super();
     proto3.util.initPartial(data, this);
@@ -539,6 +559,8 @@ export class Database extends Message<Database> {
     { no: 2, name: "backup_location", kind: "message", T: BackupLocation },
     { no: 3, name: "cells", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "bootstrap_durability_policy", kind: "message", T: DurabilityPolicy },
+    { no: 5, name: "read_only", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 6, name: "read_only_force", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Database {

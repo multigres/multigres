@@ -36,6 +36,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -46,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/readonly"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -58,6 +60,9 @@ type ScatterConn struct {
 	gateway poolergateway.Gateway
 
 	metrics *ScatterMetrics
+
+	// readOnly is the per-database read-only switch; nil reads as read-write.
+	readOnly *readonly.Modes
 }
 
 // NewScatterConn creates a new ScatterConn instance.
@@ -94,10 +99,28 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
-// sessionSettings returns the session settings to send with a request: the
-// single place every ScatterConn call site builds them from.
-func (sc *ScatterConn) sessionSettings(_ *server.Conn, state *handler.MultigatewayConnectionState) map[string]string {
-	return state.GetSessionSettings()
+// SetReadOnlyModes wires the per-database read-only switch consulted by
+// sessionSettings. Must be called before connections are accepted.
+func (sc *ScatterConn) SetReadOnlyModes(modes *readonly.Modes) {
+	sc.readOnly = modes
+}
+
+// sessionSettings returns the session settings to send with a request. While
+// conn's database is read-only it overlays default_transaction_read_only=on so
+// postgres itself rejects writes (SQLSTATE 25006); the overlay never enters the
+// tracked session state, so lifting the mode is immediate. The same key is what
+// poolergateway.retryReadOnlyError reads to keep the 25006 from being mistaken
+// for a demoted leader and buffered.
+func (sc *ScatterConn) sessionSettings(conn *server.Conn, state *handler.MultigatewayConnectionState) map[string]string {
+	settings := state.GetSessionSettings()
+	if !sc.readOnly.Get(conn.Database()).Enabled {
+		return settings
+	}
+	if settings == nil {
+		settings = make(map[string]string, 1)
+	}
+	settings[pgsettings.CanonicalGUCName("default_transaction_read_only")] = "on"
+	return settings
 }
 
 // buildTarget constructs a routing target for the given (database,

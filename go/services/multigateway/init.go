@@ -47,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/readonly"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -100,6 +101,8 @@ type Multigateway struct {
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
+	// readOnly mirrors the per-database read-only flags from topo
+	readOnly *readonly.Modes
 	// executor handles query execution and routing
 	executor *executor.Executor
 	// buffer holds requests during PRIMARY failovers
@@ -464,11 +467,14 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
+	mg.readOnly = readonly.New()
+	mg.scatterConn.SetReadOnlyModes(mg.readOnly)
 
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	mg.executor.SetReadOnlyModes(mg.readOnly)
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
 	// can't start any earlier.
@@ -684,6 +690,9 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
 		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
+
+	// Mirror the topo read-only flags; needs mg.pgListener for force sweeps.
+	go mg.watchReadOnly(mg.shutdownCtx, logger)
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
