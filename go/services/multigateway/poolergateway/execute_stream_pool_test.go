@@ -448,6 +448,43 @@ func TestHandshakeHonoursCallerDeadline(t *testing.T) {
 	require.Empty(t, p.idle)
 }
 
+// TestOperationDeadlineDuringRecvReportsDeadlineExceeded covers the in-flight
+// counterpart to TestHandshakeHonoursCallerDeadline: a caller deadline that
+// expires while Recv is blocked on an already-established stream, rather than
+// during the initial handshake. The lease's transport context is a plain
+// context.WithCancel driven by an AfterFunc on the caller's ctx (see Open), so
+// without recovering the caller's own ctx.Err() in incompleteOperation, this
+// surfaces as the ambiguous codes.Canceled instead of codes.DeadlineExceeded —
+// which the gateway then reports to the SQL client as "canceling statement due
+// to user request" instead of "canceling statement due to statement timeout".
+func TestOperationDeadlineDuringRecvReportsDeadlineExceeded(t *testing.T) {
+	started := make(chan struct{})
+	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
+		if req.Query == "wait" {
+			close(started)
+			<-stream.Context().Done()
+			return stream.Context().Err()
+		}
+		return nil
+	}}
+	_, p := connectStreamPool(t, s)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	r, used, err := p.Open(ctx, &pb.StreamExecuteRequest{Query: "wait"})
+	require.NoError(t, err)
+	require.True(t, used)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not start")
+	}
+	_, err = r.Recv()
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Less(t, time.Since(start), 5*time.Second)
+	r.Release()
+}
+
 func TestDeadTransportDropsIdleStreams(t *testing.T) {
 	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
 	_, p := connectStreamPool(t, s)
