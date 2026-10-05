@@ -106,8 +106,9 @@ func lookupProc(oid Oid) *pgcatalog.Proc {
 
 // FmgrInfoFor builds an FmgrInfo for a function OID, mirroring fmgr_info's
 // builtin fast path (fmgr.c:146): the metadata (nargs, strict, retset) comes
-// straight from the pg_proc row. If a Go implementation is registered for the
-// row's prosrc it becomes FnAddr; otherwise FnAddr is a stub that raises
+// straight from the pg_proc row. Only builtin catalog OIDs can bind a registered
+// Go implementation via prosrc; user-defined functions always get a stub.
+// If no implementation is bound, FnAddr is a stub that raises
 // feature_not_supported when called, so an unimplemented function is resolvable
 // (parse analysis can type-check it) but fails loudly and specifically if the
 // gateway actually has to evaluate it. An unknown OID is a Go error, matching
@@ -118,7 +119,10 @@ func FmgrInfoFor(oid Oid) (*FmgrInfo, error) {
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedFunction,
 			"cache lookup failed for function", "no builtin or tracked function has this OID")
 	}
-	fn := builtins[proc.Src]
+	var fn PGFunction
+	if pgcatalog.ProcByOid(oid) != nil {
+		fn = builtins[proc.Src]
+	}
 	if fn == nil {
 		fn = stubFor(proc)
 	}
@@ -136,7 +140,7 @@ func FmgrInfoFor(oid Oid) (*FmgrInfo, error) {
 // functions live in pg_aggregate and its prosrc is "aggregate_dummy"), so
 // calling one as a scalar is a distinct, permanent error — matching upstream's
 // aggregate_dummy, which errors rather than reporting "not implemented".
-// Everything else is a genuinely not-yet-ported builtin.
+// Other functions are unimplemented builtins or metadata-only user functions.
 func stubFor(proc *pgcatalog.Proc) PGFunction {
 	if proc.Kind == pgcatalog.ProcKindAggregate {
 		return func(FunctionCallInfo) datum.Datum {
