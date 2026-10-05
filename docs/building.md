@@ -13,6 +13,8 @@ in the `go/` directory. The repository contains multiple components including:
 - **multipooler** - Connection pooling service
 - **pgctld** - PostgreSQL control daemon
 - **multigres** - Main CLI tool
+- **minigres** - Multigateway and multipooler in one process, for a database
+  served by a single pooler (see [Minigres](./general/minigres.md))
 
 Each component has its own main entry point under `go/cmd/` and shared libraries
 are organized in the other subdirectories of `go/`.

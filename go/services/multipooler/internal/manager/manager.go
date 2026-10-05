@@ -426,6 +426,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 			ID:           multipooler.Id,
 			Broadcaster:  pm.healthStreamer,
 			LoadPromises: config.ConsensusEnabled,
+			StaticLeader: config.StaticLeader,
 		})
 		if err != nil {
 			cancel()

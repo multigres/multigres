@@ -123,6 +123,10 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
 	defer span.End()
 
+	if err := pm.consensusMgr.ResignGuard(); err != nil {
+		return nil, err
+	}
+
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
 	if err != nil {
