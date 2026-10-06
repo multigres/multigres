@@ -84,6 +84,25 @@ func TestCreateMigrationStmtSqlStringDirectConstruction(t *testing.T) {
 	assert.NotContains(t, cm.SqlString(), "WITH ()")
 }
 
+// TestIsMigrationDDL covers every statement kind it must recognize (none of
+// which are real PostgreSQL syntax) and confirms an ordinary statement is not
+// swept in.
+func TestIsMigrationDDL(t *testing.T) {
+	migrationDDL := []Stmt{
+		NewCreateMigrationStmt("m", "c", &MigrationTables{}, nil, false),
+		NewAlterMigrationStmt("m", false, &MigrationActionSpec{}),
+		NewDropMigrationStmt(NewNodeList(NewString("m")), false, &MigrationDropBehavior{}),
+		NewCreateConnectionStmt("src", nil, false),
+		NewDropConnectionStmt(NewNodeList(NewString("src")), false),
+		NewShowConnectionsStmt(""),
+	}
+	for _, stmt := range migrationDDL {
+		assert.True(t, IsMigrationDDL(stmt), "%T", stmt)
+	}
+
+	assert.False(t, IsMigrationDDL(NewVariableShowStmt("server_version")))
+}
+
 // TestRedactIfCredentialBearing covers both branches: a CREATE CONNECTION
 // statement (whose raw SQL carries a password literal) is redacted, and every
 // other statement type is left alone. Every query-logging call site must

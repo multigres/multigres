@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
@@ -271,6 +272,14 @@ func (pc *poolerConnection) ManagerClient() (multipoolermanagerpb.MultipoolerMan
 // QueryService returns the query execution service for this connection.
 func (pc *poolerConnection) QueryService() queryservice.QueryService {
 	return pc.pooler
+}
+
+// MigratorClient returns a Migrator service client on the same gRPC
+// connection. The Migrator service is registered on the multipooler's gRPC
+// server, so this reaches the migration coordinator on the shard primary. Used
+// by the gateway's migration DDL interface.
+func (pc *poolerConnection) MigratorClient() migratorpb.MigratorClient {
+	return migratorpb.NewMigratorClient(pc.conn)
 }
 
 // Shutdown stops the health stream goroutine and closes the underlying
