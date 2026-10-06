@@ -333,10 +333,12 @@ func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {
 	return p.reservedPool.Get(connID)
 }
 
-// CloseReservedConnections kills all active reserved connections.
-// Used during graceful shutdown when the drain grace period has expired.
+// CloseReservedConnections force-closes active reserved connections when a
+// not-serving transition's drain grace period expires. Logical-replication
+// streaming tunnels are preserved (see reserved.Pool.KillAllForDrain): a
+// read-only walsender must not be severed by the write-serving gate.
 func (p *UserPool) CloseReservedConnections(ctx context.Context) int {
-	return p.reservedPool.KillAll(ctx)
+	return p.reservedPool.KillAllForDrain(ctx)
 }
 
 // Close closes both regular and reserved pools.

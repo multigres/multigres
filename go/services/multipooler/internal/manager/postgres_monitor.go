@@ -362,6 +362,13 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 		}
 		return postgresState{}, err
 	}
+
+	// Refresh the migration serving gate (migrationImportHold) from the replicated
+	// multigres.migration table before the drift check reads it, so a shard still
+	// importing does not serve. Runs on primary and standbys; outside any lock.
+	// Uses the bounded discover context (#1476) so the table read can't hang the tick.
+	pm.refreshMigrationHold(discoverCtx)
+
 	// Determine what remediation is needed
 	action := pm.determineRemedialAction(discoverCtx, currentState)
 	if action == remedialActionNone {
@@ -924,7 +931,7 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// committed rule landing after pg_promote, or a revocation) to the query
 	// server's write gate, and completes a transient DRAINING. hasDrift reads the
 	// consensus snapshot itself, so it and fixDrift derive from the same inputs.
-	if pm.stateManager.hasDrift(state.pgMode, pm.consensusMgr.SuspectedDivergence()) {
+	if pm.stateManager.hasDrift(state.pgMode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()) {
 		return remedialActionReconcileState
 	}
 
@@ -1317,7 +1324,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		// Sync the physical standby role and re-enable reads only after the rewind
 		// path has cleared suspected divergence.
-		if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
@@ -1331,7 +1338,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode.String()) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		if err := pm.stateManager.fixDrift(ctx, state.pgMode, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		if err := pm.stateManager.fixDrift(ctx, state.pgMode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
@@ -1657,7 +1664,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 			return fmt.Errorf("MonitorPostgres: failed to determine role after restart: %w", err)
 		}
 		if pm.stateManager != nil {
-			if err := pm.stateManager.fixDrift(ctx, mode, pm.consensusMgr.SuspectedDivergence()); err != nil {
+			if err := pm.stateManager.fixDrift(ctx, mode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 				return fmt.Errorf("MonitorPostgres: failed to apply role after restart: %w", err)
 			}
 		}
