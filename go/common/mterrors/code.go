@@ -31,6 +31,7 @@ const (
 	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
 	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
 	PgSSUndefinedFunction         = "42883" // undefined_function
+	PgSSUndefinedTable            = "42P01" // undefined_table
 	PgSSActiveTransaction         = "25001" // active_sql_transaction
 	PgSSNoActiveTransaction       = "25P01" // no_active_sql_transaction
 	PgSSInFailedTransaction       = "25P02" // in_failed_sql_transaction

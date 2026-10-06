@@ -62,6 +62,9 @@ const (
 	MigratorSetMigrationDirectionProcedure = "/migrator.Migrator/SetMigrationDirection"
 	// MigratorDropMigrationProcedure is the fully-qualified name of the Migrator's DropMigration RPC.
 	MigratorDropMigrationProcedure = "/migrator.Migrator/DropMigration"
+	// MigratorReseedReverseLinkProcedure is the fully-qualified name of the Migrator's
+	// ReseedReverseLink RPC.
+	MigratorReseedReverseLinkProcedure = "/migrator.Migrator/ReseedReverseLink"
 	// MigratorCreateConnectionProcedure is the fully-qualified name of the Migrator's CreateConnection
 	// RPC.
 	MigratorCreateConnectionProcedure = "/migrator.Migrator/CreateConnection"
@@ -96,6 +99,13 @@ type MigratorClient interface {
 	// DropMigration tears down the subscription/publication/slot and removes
 	// the workflow (default drains first; wait/force modify that).
 	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link (the reverse
+	// subscription's slot is missing or unusable): drops the broken
+	// subscription (if any), recreates the slot fresh, and resubscribes with a
+	// full copy. Explicit, operator-triggered; only valid for an EXPORTING
+	// migration. A no-op (beyond clearing a stale degraded marker) if the link
+	// is already healthy.
+	ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -154,6 +164,12 @@ func NewMigratorClient(httpClient connect.HTTPClient, baseURL string, opts ...co
 			connect.WithSchema(migratorMethods.ByName("DropMigration")),
 			connect.WithClientOptions(opts...),
 		),
+		reseedReverseLink: connect.NewClient[migrator.ReseedReverseLinkRequest, migrator.ReseedReverseLinkResponse](
+			httpClient,
+			baseURL+MigratorReseedReverseLinkProcedure,
+			connect.WithSchema(migratorMethods.ByName("ReseedReverseLink")),
+			connect.WithClientOptions(opts...),
+		),
 		createConnection: connect.NewClient[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse](
 			httpClient,
 			baseURL+MigratorCreateConnectionProcedure,
@@ -189,6 +205,7 @@ type migratorClient struct {
 	getMigrationJournal   *connect.Client[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse]
 	setMigrationDirection *connect.Client[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse]
 	dropMigration         *connect.Client[migrator.DropMigrationRequest, migrator.DropMigrationResponse]
+	reseedReverseLink     *connect.Client[migrator.ReseedReverseLinkRequest, migrator.ReseedReverseLinkResponse]
 	createConnection      *connect.Client[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse]
 	getConnection         *connect.Client[migrator.GetConnectionRequest, migrator.GetConnectionResponse]
 	listConnections       *connect.Client[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse]
@@ -223,6 +240,11 @@ func (c *migratorClient) SetMigrationDirection(ctx context.Context, req *connect
 // DropMigration calls migrator.Migrator.DropMigration.
 func (c *migratorClient) DropMigration(ctx context.Context, req *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
 	return c.dropMigration.CallUnary(ctx, req)
+}
+
+// ReseedReverseLink calls migrator.Migrator.ReseedReverseLink.
+func (c *migratorClient) ReseedReverseLink(ctx context.Context, req *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error) {
+	return c.reseedReverseLink.CallUnary(ctx, req)
 }
 
 // CreateConnection calls migrator.Migrator.CreateConnection.
@@ -267,6 +289,13 @@ type MigratorHandler interface {
 	// DropMigration tears down the subscription/publication/slot and removes
 	// the workflow (default drains first; wait/force modify that).
 	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link (the reverse
+	// subscription's slot is missing or unusable): drops the broken
+	// subscription (if any), recreates the slot fresh, and resubscribes with a
+	// full copy. Explicit, operator-triggered; only valid for an EXPORTING
+	// migration. A no-op (beyond clearing a stale degraded marker) if the link
+	// is already healthy.
+	ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -321,6 +350,12 @@ func NewMigratorHandler(svc MigratorHandler, opts ...connect.HandlerOption) (str
 		connect.WithSchema(migratorMethods.ByName("DropMigration")),
 		connect.WithHandlerOptions(opts...),
 	)
+	migratorReseedReverseLinkHandler := connect.NewUnaryHandler(
+		MigratorReseedReverseLinkProcedure,
+		svc.ReseedReverseLink,
+		connect.WithSchema(migratorMethods.ByName("ReseedReverseLink")),
+		connect.WithHandlerOptions(opts...),
+	)
 	migratorCreateConnectionHandler := connect.NewUnaryHandler(
 		MigratorCreateConnectionProcedure,
 		svc.CreateConnection,
@@ -359,6 +394,8 @@ func NewMigratorHandler(svc MigratorHandler, opts ...connect.HandlerOption) (str
 			migratorSetMigrationDirectionHandler.ServeHTTP(w, r)
 		case MigratorDropMigrationProcedure:
 			migratorDropMigrationHandler.ServeHTTP(w, r)
+		case MigratorReseedReverseLinkProcedure:
+			migratorReseedReverseLinkHandler.ServeHTTP(w, r)
 		case MigratorCreateConnectionProcedure:
 			migratorCreateConnectionHandler.ServeHTTP(w, r)
 		case MigratorGetConnectionProcedure:
@@ -398,6 +435,10 @@ func (UnimplementedMigratorHandler) SetMigrationDirection(context.Context, *conn
 
 func (UnimplementedMigratorHandler) DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("migrator.Migrator.DropMigration is not implemented"))
+}
+
+func (UnimplementedMigratorHandler) ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("migrator.Migrator.ReseedReverseLink is not implemented"))
 }
 
 func (UnimplementedMigratorHandler) CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {
