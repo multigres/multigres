@@ -685,6 +685,59 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
+	t.Run("in-recovery guard takes precedence over a stale quorum-commit watermark", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setLeaderPGStandby(sa)
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnhealthy, problems[0].Code,
+			"the leader-fitness guard fires before the quorum-commit backstop")
+	})
+
+	t.Run("rule support is judged before the in-recovery guard", func(t *testing.T) {
+		// A standby leader that never confirmed its own promotion fails the
+		// rule-support axis first, so it is LeaderUnsupported, not LeaderUnhealthy.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGReady(sa, true)
+			setLeaderPGStandby(sa)
+			sa.HighestPosition.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+			sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus.CurrentPosition.Position.Decision = &clustermetadatapb.ShardRule{
+					LeaderId:   follower1ID,
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnsupported, problems[0].Code)
+	})
+
+	t.Run("anti-flap grace does not consult the quorum-commit backstop", func(t *testing.T) {
+		// A running leader whose postgres recently answered is held healthy while
+		// pg_isready flaps, even if the quorum-commit watermark is stale.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGRunning(sa, true)
+			setLeaderPGReady(sa, false)
+			setLeaderLastReady(sa, time.Now().Add(-5*time.Second))
+			setQuorumCommitTs(sa, follower1ID, sa.Now.Add(-sa.Policy.QuorumCommitStaleAfter-time.Second))
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems)
+	})
+
 	t.Run("ignores healthy leader with fresh quorum-commit watermark", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, true)
