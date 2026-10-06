@@ -50,6 +50,11 @@ func (e *Executor) QueryAdminMultiStatement(ctx context.Context, queryStr string
 	return runMultiStatement(ctx, e.borrowAdmin, queryStr)
 }
 
+// QueryAdminNoQueryText implements InternalQueryService on the admin pool.
+func (e *Executor) QueryAdminNoQueryText(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	return runSingleQueryNoQueryText(ctx, e.borrowAdmin, queryStr)
+}
+
 // BeginAdmin implements InternalQueryService on the admin pool. The returned
 // transaction runs on an admin.TxConn, which has no retry methods at all —
 // see its doc comment for why that matters mid-transaction.

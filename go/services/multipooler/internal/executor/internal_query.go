@@ -73,6 +73,13 @@ type InternalQueryService interface {
 	// the multigres schema DDL that grants privileges alongside CREATE.
 	QueryAdminMultiStatement(ctx context.Context, query string) error
 
+	// QueryAdminNoQueryText is QueryAdmin without recording the SQL text in
+	// tracing spans. Use only when the query text itself carries a secret
+	// that QueryAdmin's blanket IncludeQueryText would otherwise attach to the
+	// span in plaintext (e.g. CREATE SUBSCRIPTION's quoted CONNECTION conninfo,
+	// which may hold a password).
+	QueryAdminNoQueryText(ctx context.Context, query string) (*sqltypes.Result, error)
+
 	// Begin starts a transaction on a reserved connection and returns a handle
 	// for issuing queries within it. Reserved connections are the mechanism for
 	// holding a backend outside the regular pool's checkout/recycle cycle, which
@@ -166,6 +173,27 @@ func withInternalQueryTracing(ctx context.Context) context.Context {
 // result set, erroring if the query did not produce exactly one.
 func runSingleQuery(ctx context.Context, borrow connBorrower, queryStr string) (*sqltypes.Result, error) {
 	ctx = withInternalQueryTracing(ctx)
+	conn, release, err := borrow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	results, err := conn.QueryWithRetry(ctx, queryStr)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, errors.New("unexpected number of results")
+	}
+	return results[0], nil
+}
+
+// runSingleQueryNoQueryText is runSingleQuery without SQL-text tracing, for a
+// query whose text itself carries a secret (see QueryAdminNoQueryText's doc
+// comment on InternalQueryService).
+func runSingleQueryNoQueryText(ctx context.Context, borrow connBorrower, queryStr string) (*sqltypes.Result, error) {
+	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{IncludeQueryText: false})
 	conn, release, err := borrow(ctx)
 	if err != nil {
 		return nil, err

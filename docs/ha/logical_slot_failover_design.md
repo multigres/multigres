@@ -1313,6 +1313,15 @@ subscription must issue the `DROP` / `CREATE` itself. No committed data is lost 
 the re-`COPY` reconstructs current state from the new primary — but a CDC / event consumer loses the intermediate
 change granularity in the gap (§4.4.1).
 
+This pattern is implemented for the Migrator's EXPORT-direction reverse subscription — the one case today where a
+raw, non-Multigateway consumer manages its own subscription against a Multigres-created failover slot. See
+`ensureReverseExportLink` in `go/services/multipooler/internal/migration/coordinator.go`: it checks the target-side
+slot directly (`target.SlotReady`, the same `synced AND NOT temporary AND invalidation_reason IS NULL` predicate as
+above, minus `synced` since it runs against whichever node is currently primary, not a standby) on every reconcile
+tick and on becoming primary, and drives the `DROP SUBSCRIPTION` / `CREATE SUBSCRIPTION ... copy_data=true` re-seed
+itself when the slot is unusable — the Multigateway-side version described above, for generic consumers behind the
+`replication=database` tunnel, remains unbuilt.
+
 **How to reach the safe boundary deliberately (the workaround for the idle-shard case).** To make a fresh
 subscription failover-safe rather than waiting and hoping:
 

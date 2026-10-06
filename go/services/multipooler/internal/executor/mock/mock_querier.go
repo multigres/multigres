@@ -224,6 +224,12 @@ func (m *QueryService) QueryAdmin(ctx context.Context, queryStr string) (*sqltyp
 	return m.Query(ctx, queryStr)
 }
 
+// QueryAdminNoQueryText implements executor.InternalQueryService (delegates to Query).
+func (m *QueryService) QueryAdminNoQueryText(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	m.recordAdminQuery()
+	return m.Query(ctx, queryStr)
+}
+
 // QueryAdminArgs implements executor.InternalQueryService (delegates to Query).
 func (m *QueryService) QueryAdminArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
 	m.recordAdminQuery()
