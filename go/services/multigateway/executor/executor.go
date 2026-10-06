@@ -92,6 +92,12 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	}
 }
 
+// SetMigrationBackend wires the migration/connection DDL backend into the
+// planner so the gateway can intercept and serve those statements.
+func (e *Executor) SetMigrationBackend(b *engine.MigrationBackend) {
+	e.planner.SetMigrationBackend(b)
+}
+
 // StreamExecute executes a query and streams results back via the callback function.
 //
 // For cacheable statements (SELECT, INSERT, UPDATE, DELETE), the executor
@@ -110,8 +116,9 @@ func (e *Executor) StreamExecute(
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
 ) (*handler.ExecuteResult, error) {
+	logQueryStr := logSafeQuery(queryStr, astStmt)
 	e.logger.DebugContext(ctx, "executing query",
-		"query", queryStr,
+		"query", logQueryStr,
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
@@ -121,7 +128,7 @@ func (e *Executor) StreamExecute(
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", queryStr,
+			"query", logQueryStr,
 			"error", err)
 		return &handler.ExecuteResult{
 			PlanTime:      planTime,
@@ -142,11 +149,22 @@ func (e *Executor) StreamExecute(
 	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", queryStr,
+			"query", logQueryStr,
 			"plan", plan.String(),
 			"error", err)
 	}
 	return result, err
+}
+
+// logSafeQuery returns a version of queryStr safe to write to logs. CREATE/ALTER
+// CONNECTION statements carry a source password as a SQL literal in their raw
+// text, so those are redacted rather than logged verbatim (mirrors
+// engine.MigrationDDL.String()'s redaction of the same statement types).
+func logSafeQuery(queryStr string, astStmt ast.Stmt) string {
+	if redacted, ok := ast.RedactIfCredentialBearing(astStmt); ok {
+		return redacted
+	}
+	return queryStr
 }
 
 // resolvePlan obtains a query plan, using the plan cache when possible.
@@ -255,12 +273,14 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
+	logQueryStr := logSafeQuery(portalInfo.PreparedStatementInfo.Query, portalInfo.PreparedStatementInfo.AstStmt())
+
 	planStart := time.Now()
 	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn, state)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query planning failed",
-			"query", portalInfo.PreparedStatementInfo.Query, "error", err)
+			"query", logQueryStr, "error", err)
 		return &handler.ExecuteResult{
 			PlanTime:      planTime,
 			NormalizedSQL: normalizedSQL,
@@ -279,7 +299,7 @@ func (e *Executor) PortalStreamExecute(
 	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query execution failed",
-			"query", portalInfo.PreparedStatementInfo.Query,
+			"query", logQueryStr,
 			"plan", plan.String(), "error", err)
 	}
 	return &handler.ExecuteResult{
