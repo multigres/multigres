@@ -22,9 +22,12 @@ import (
 	"strconv"
 	"time"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -146,6 +149,62 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.rewindSourceReady == b.rewindSourceReady
 }
 
+// defaultRemedialActionTimeout bounds most monitor remedial actions so a hung
+// pgctld/postgres call can't hold the action lock forever, blocking every
+// other actionLock consumer (GracefulShutdown, SetPrimary, Recruit, ...). The
+// monitor's own per-tick ctx (from timer.PeriodicRunner) has no deadline of
+// its own — it is only cancelled when the runner stops — so without this,
+// a wedged call here has no ceiling at all. monitorPostgresIteration applies
+// this bound (via remedialActionTimeout) before calling takeRemedialAction, so
+// a new action gets it for free unless it's added to remedialActionTimeouts.
+const defaultRemedialActionTimeout = 30 * time.Second
+
+// longRemedialActionTimeout is the override in remedialActionTimeouts for
+// actions where truncating early has no benefit, or could leave things worse:
+//   - Demoting a stale primary: nothing else depends on this pooler's
+//     timeliness here, so there's no disruption risk in letting it take a while.
+//   - Restarting-as-standby when a rewind may be involved: the destructive
+//     stop -> pg_rewind -> restart sequence already gets its own generous
+//     backstop once it actually starts (detachRewindOpContext /
+//     rewindOperationTimeout in rpc_manager.go), detached from the caller's
+//     ctx specifically so an RPC-triggered call doesn't inherit it. But the
+//     monitor's own ctx has no bound at all going in, so the safe-to-abort
+//     measurement phase that runs before that point (see restartAsStandbyLocked)
+//     needs its own bound here — rewind runtime scales with retained pg_wal,
+//     so this stays generous rather than fighting the operation for time.
+const longRemedialActionTimeout = 15 * time.Minute
+
+// remedialActionTimeouts overrides defaultRemedialActionTimeout for specific
+// actions. An action absent from this map gets defaultRemedialActionTimeout —
+// the safe, zero-effort default for a newly added action. See
+// remedialActionTimeout.
+//
+// Restore/first-backup use their own operation-level budgets
+// (commonbackup.RestoreTimeout/BackupTimeout) rather than
+// longRemedialActionTimeout: Backup()/Restore() apply that same duration via
+// their own context.WithTimeout, and a context's deadline can never be later
+// than its parent's, so wrapping them in a shorter, independently-chosen
+// outer bound would silently truncate their documented budget. Reusing the
+// same constant here means the two can't drift apart again.
+var remedialActionTimeouts = map[remedialAction]time.Duration{
+	remedialActionDemoteStalePrimary: longRemedialActionTimeout,
+	remedialActionRewindToLeader:     longRemedialActionTimeout,
+	remedialActionRestoreFromBackup:  commonbackup.RestoreTimeout,
+	remedialActionCreateFirstBackup:  commonbackup.BackupTimeout,
+	// Promotion waits for the end-of-recovery checkpoint, which can take a while
+	// on a freshly restored node, and a static leader has no one else waiting.
+	remedialActionPromoteStaticLeader: longRemedialActionTimeout,
+}
+
+// remedialActionTimeout returns the timeout budget monitorPostgresIteration
+// should apply before calling takeRemedialAction for action.
+func remedialActionTimeout(action remedialAction) time.Duration {
+	if t, ok := remedialActionTimeouts[action]; ok {
+		return t
+	}
+	return defaultRemedialActionTimeout
+}
+
 // remedialAction represents actions the postgres monitor can take
 type remedialAction int
 
@@ -179,6 +238,11 @@ const (
 	// is running as a standby. We do not self-promote; signal resignation so the
 	// coordinator re-elects.
 	remedialActionResignLeadership
+	// remedialActionPromoteStaticLeader means this pooler is a static leader
+	// (Config.StaticLeader) and postgres is running as a standby, for example
+	// after the bootstrap restore. There is no coordinator to promote it, so the
+	// pooler promotes itself, taking the place of the coordinator's Promote.
+	remedialActionPromoteStaticLeader
 	// remedialActionMarkRewindReady means this pooler is the non-resigned leader,
 	// postgres has checkpointed onto its current timeline (rewindSourceReady), but
 	// the published ReplicationPrimary has not yet advertised rewind_ready. Mark it
@@ -249,7 +313,15 @@ const standbyStuckDivergenceThreshold = 10 * time.Second
 // Returns the discovered postgres state on success, or an error if the state
 // could not be determined. The caller is responsible for transition detection
 // and broadcasting health updates.
-func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (postgresState, error) {
+//
+// This must not run forever: pm.pgMonitor (timer.PeriodicRunner) schedules
+// the next tick only after this call returns, so a hung iteration stops all
+// auto-recovery for this pooler, not just one check. noTimeoutCtx has no
+// deadline of its own, so every blocking step below derives its own bound —
+// and should reach for one of those bounded contexts, not noTimeoutCtx
+// itself, unless it specifically needs to wait longer than they allow (see
+// the actionLock.Acquire call below for the one case that does).
+func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Context) (postgresState, error) {
 	const (
 		reasonPgctldUnavailable = "pgctld_unavailable"
 		reasonPostgresRunning   = "postgres_running"
@@ -257,35 +329,39 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: manager not ready yet") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.InfoContext(noTimeoutCtx, "MonitorPostgres: manager not ready yet") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return postgresState{}, err
 	}
 
-	// Discover current state
-	currentState, err := pm.discoverPostgresState(ctx)
+	// Discover current state and decide on an action, bounded to
+	// defaultRemedialActionTimeout. Kept alive (not re-derived) across the
+	// post-lock re-check below, so detection and redetection share one 30s
+	// budget rather than getting 30s each.
+	discoverCtx, cancel := context.WithTimeout(noTimeoutCtx, defaultRemedialActionTimeout)
+	defer cancel()
+	currentState, err := pm.discoverPostgresState(discoverCtx)
 	if err != nil {
 		// Log and skip this tick; the next iteration will retry. A persistent
 		// failure keeps the error loud rather than silently triggering the wrong
 		// remediation. pgctld unavailability gets its dedicated reason code so
 		// the monitor's log-dedup path behaves as before.
 		if !currentState.pgctldAvailable {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			pm.logger.ErrorContext(discoverCtx, "MonitorPostgres: pgctld unavailable", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else {
 			// TODO: If we have errors detecting postgres state for long enough, maybe try restarting postgres
 			// just in case? Could have been some kind of a fluke event like failing to create a socket file
 			// that might be resolved by restarting.
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			pm.logger.ErrorContext(discoverCtx, "MonitorPostgres: failed to discover state; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		return postgresState{}, err
 	}
-
 	// Determine what remediation is needed
-	action := pm.determineRemedialAction(ctx, currentState)
+	action := pm.determineRemedialAction(discoverCtx, currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
 		if currentState.postgresRunning {
-			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+			pm.setMonitorReason(discoverCtx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 			// Postgres is up and healthy with no rewind pending: any prior
 			// divergence incident is over (recovered here or via SetPrimary/orch),
 			// so clear the rewind backoff. This keeps the backoff incident-scoped —
@@ -303,37 +379,50 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		return currentState, nil
 	}
 
-	// Acquire action lock before taking remedial action
-	lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
+	// Acquire action lock before taking remedial action, on noTimeoutCtx
+	// rather than discoverCtx: another actionLock holder (GracefulShutdown,
+	// SetPrimary, Recruit, ...) may legitimately need longer than that to
+	// finish, and this wait shouldn't be cut short just because it's slow.
+	lockCtx, err := pm.actionLock.Acquire(noTimeoutCtx, "MonitorPostgres")
 	if err != nil {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: failed to acquire action lock", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.InfoContext(discoverCtx, "MonitorPostgres: failed to acquire action lock", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return postgresState{}, err
 	}
 	defer pm.actionLock.Release(lockCtx)
 
-	// Re-verify state after acquiring lock (conditions may have changed)
-	currentState, err = pm.discoverPostgresState(lockCtx)
+	// Re-verify state and re-decide (conditions may have changed), still on
+	// discoverCtx. If the lock wait ate the whole budget this fails fast with
+	// a deadline-exceeded error; the next tick retries with a fresh one.
+	currentState, err = pm.discoverPostgresState(discoverCtx)
 	if err != nil {
 		if !currentState.pgctldAvailable {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			pm.logger.ErrorContext(discoverCtx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			pm.logger.ErrorContext(discoverCtx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		return postgresState{}, err
 	}
+	action = pm.determineRemedialAction(discoverCtx, currentState)
 
-	// Re-determine action based on current state
-	action = pm.determineRemedialAction(lockCtx, currentState)
-
-	// Take remedial action with lock held
-	actionErr := pm.takeRemedialAction(lockCtx, action, currentState)
+	// Take remedial action with lock held. lockCtx itself has no deadline, so
+	// bound it here before calling in — this tick cannot run forever even if
+	// takeRemedialAction's implementation later forgets to. Actions needing
+	// more than the default get it via remedialActionTimeout/
+	// remedialActionTimeouts, not by reaching past this bound.
+	actionCtx, actionCancel := context.WithTimeout(lockCtx, remedialActionTimeout(action))
+	actionErr := pm.takeRemedialAction(actionCtx, action, currentState)
+	actionCancel()
 
 	// Feed the unrecoverable-FATAL-loop classifier: a postgres that keeps
 	// failing to start (or rewind/restore) for long enough is quarantined so it
 	// gets replaced instead of spinning forever. Runs under the same action lock
 	// so the quarantine record write is serialised with the rest of the tick.
-	pm.trackRecoveryOutcome(lockCtx, action, currentState, actionErr)
+	// Bounded like the rest of this tick: its own writes (record.Mutate,
+	// SetCohortEligibility) are real etcd calls with no bound of their own.
+	trackCtx, trackCancel := context.WithTimeout(lockCtx, defaultRemedialActionTimeout)
+	pm.trackRecoveryOutcome(trackCtx, action, currentState, actionErr)
+	trackCancel()
 
 	return currentState, nil
 }
@@ -359,6 +448,33 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	if err != nil {
 		state.pgctldAvailable = false
 		return state, fmt.Errorf("pgctld status: %w", err)
+	}
+
+	// Keep the pool-capacity fallback seed fresh from pgctld's conf-derived
+	// connection budget. Refreshed on every monitor tick (not just at
+	// startup) because on a fresh cluster the data dir — and therefore the
+	// values — only exist after multiorch bootstraps it, well after Init.
+	// The stored budget carries only concrete values: a reserved-slot GUC
+	// pgctld did not report (older pgctld, or a transient probe failure)
+	// keeps its last known value rather than snapping back to the PostgreSQL
+	// default, and the default applies only when the value was never known.
+	if mc := statusResp.GetMaxConnections(); mc > 0 && pm.config.ConnPoolConfig != nil {
+		budget := connpoolmanager.SeedConnectionBudget{
+			MaxConnections:               int64(mc),
+			SuperuserReservedConnections: constants.PgDefaultSuperuserReservedConnections,
+			ReservedConnections:          constants.PgDefaultReservedConnections,
+		}
+		if prev := pm.config.ConnPoolConfig.SeedConnectionBudget(); prev != nil {
+			budget.SuperuserReservedConnections = prev.SuperuserReservedConnections
+			budget.ReservedConnections = prev.ReservedConnections
+		}
+		if v := statusResp.SuperuserReservedConnections; v != nil {
+			budget.SuperuserReservedConnections = int64(*v)
+		}
+		if v := statusResp.ReservedConnections; v != nil {
+			budget.ReservedConnections = int64(*v)
+		}
+		pm.config.ConnPoolConfig.SetSeedConnectionBudget(budget)
 	}
 
 	// Check if directory is initialized
@@ -781,19 +897,18 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 
 	// Rule: LEADER
 	// Postgres: STANDBY / RECOVERY MODE
-	// Diagnosis: Non-functioning primary. We could either re-promote or resign leadership.
-	// For now we resign by broadcasting to multiorch that we're not able to fulfill the
-	// leadership role at this term, at which point it may choose to re-promote.
-	//
-	// TODO(leader-led-leader-changes): promote here instead of resigning (reuse
-	// Promote's promoteStandbyToPrimary), and disambiguate resign (we lost our
-	// postgres) from promote (newly elected). Embedding the leader host/port in the
-	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
+	// Diagnosis: non-functioning primary. What to do next differs for a static
+	// leader (self-promote) vs. a coordinated one (resign); see
+	// consensus.ConsensusManager.LeaderInRecoveryAction.
 	if role == commonconsensus.ConsensusRoleLeader && !state.pgMode.OutOfRecovery() {
-		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
+		switch pm.consensusMgr.LeaderInRecoveryAction(state.pgMode) {
+		case consensus.LeaderRecoveryActionSelfPromote:
+			return remedialActionPromoteStaticLeader
+		case consensus.LeaderRecoveryActionResign:
 			return remedialActionResignLeadership
+		default:
+			return remedialActionNone
 		}
-		return remedialActionNone
 	}
 
 	// Re-fan the effective state to components if the last-applied one is stale
@@ -1238,6 +1353,13 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
+	case remedialActionPromoteStaticLeader:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: static leader's postgres is a standby; promoting") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		if err := pm.promoteStaticLeaderLocked(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to promote static leader, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		}
+
 	case remedialActionFixPrimaryConnInfo:
 		pm.reconcilePrimaryConnInfoToRecorded(ctx, "MonitorPostgres")
 
@@ -1456,10 +1578,12 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// state pg_rewind needs. A clean follower (SuspectedDivergence false) is left to
 	// the postmaster's own standby-mode crash recovery, which follows the timeline
 	// switch — forcing single-user recovery on it would finalize it on the old
-	// timeline and wedge the start on a timeline mismatch.
+	// timeline and wedge the start on a timeline mismatch. A static leader has no
+	// consensus to promote it, so it starts as a primary.
 	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{
 		AllowCrashRecovery:  true,
 		SuspectedDivergence: pm.consensusMgr.SuspectedDivergence(),
+		AsPrimary:           pm.consensusMgr.StartsAsPrimary(),
 	})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)

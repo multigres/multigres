@@ -335,9 +335,12 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 type mockPgctldClient struct {
 	statusResponse     *pgctldpb.StatusResponse
 	statusError        error
+	statusBlockForever bool
 	startResponse      *pgctldpb.StartResponse
 	startCalled        bool
+	startRequest       *pgctldpb.StartRequest
 	startError         error
+	startBlockForever  bool
 	restartCalled      bool
 	restartError       error
 	reloadConfigCalled bool
@@ -348,6 +351,12 @@ type mockPgctldClient struct {
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
+	if m.statusBlockForever {
+		// Simulates a wedged pgctld call: never returns on its own, only
+		// when the caller's ctx is bounded and expires.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if m.statusError != nil {
 		return nil, m.statusError
 	}
@@ -361,6 +370,13 @@ func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusReque
 
 func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
 	m.startCalled = true
+	m.startRequest = req
+	if m.startBlockForever {
+		// Simulates a wedged pgctld call: never returns on its own, only
+		// when the caller's ctx is bounded and expires.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if m.startError != nil {
 		return nil, m.startError
 	}

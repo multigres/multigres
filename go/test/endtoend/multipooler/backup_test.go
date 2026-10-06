@@ -366,15 +366,21 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 					// Force the current WAL segment to close so archive_command
 					// ships it immediately rather than waiting for it to fill.
-					_, err = db.Exec("SELECT pg_switch_wal()")
-					require.NoError(t, err, "Failed to switch WAL")
+					var switchedSegment string
+					require.NoError(t, db.QueryRow("SELECT pg_walfile_name(pg_switch_wal())").Scan(&switchedSegment), "Failed to switch WAL")
+
+					// archive_status/<segment>.done is postgres's own record that
+					// archive_command succeeded for exactly this segment. The
+					// cumulative pg_stat_archiver counters cannot be used here:
+					// ArchivingOff above deliberately broke archive_command, and
+					// any file the archiver reached in that window (with async
+					// archive-push, typically the previous backup's .backup
+					// history file) leaves failed_count > 0 for good.
+					doneMarker := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "pg_wal", "archive_status", switchedSegment+".done")
 					require.Eventually(t, func() bool {
-						var archived, failed int
-						if err := db.QueryRow("SELECT archived_count, failed_count FROM pg_stat_archiver").Scan(&archived, &failed); err != nil {
-							return false
-						}
-						return failed == 0 && archived > 0
-					}, 10*time.Second, 100*time.Millisecond, "WAL segment with the new rows should be archived")
+						_, statErr := os.Stat(doneMarker)
+						return statErr == nil
+					}, 10*time.Second, 100*time.Millisecond, "WAL segment %s with the new rows should be archived", switchedSegment)
 
 					standbyDB := triggerAutonomousRestoreAndConnect(t, setup, standbyBackupClient)
 					defer standbyDB.Close()

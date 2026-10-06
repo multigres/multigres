@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -92,27 +93,42 @@ func (pm *MultipoolerManager) archiverStats(ctx context.Context) (backupengine.A
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
+	// pg_stat_archiver gives wall-clock recency; the archive_status backlog
+	// (LATERAL over pg_ls_archive_statusdir) gives the true pending age: .ready
+	// files are completed segments awaiting archive, so min(modification) is
+	// when the oldest one became ready. On a caught-up (incl. idle) primary
+	// there are no .ready files, so pending_count is 0 and oldest_pending NULL.
 	sql := `SELECT
-		COALESCE(EXTRACT(EPOCH FROM last_archived_time)::bigint, 0) AS last_archived,
-		COALESCE(EXTRACT(EPOCH FROM last_failed_time)::bigint, 0)   AS last_failed,
-		failed_count
-	FROM pg_stat_archiver`
+		COALESCE(EXTRACT(EPOCH FROM s.last_archived_time)::bigint, 0) AS last_archived,
+		COALESCE(EXTRACT(EPOCH FROM s.last_failed_time)::bigint, 0)   AS last_failed,
+		s.failed_count,
+		COALESCE(p.pending_count, 0)                                 AS pending_count,
+		COALESCE(EXTRACT(EPOCH FROM p.oldest_pending)::bigint, 0)     AS oldest_pending
+	FROM pg_stat_archiver s
+	LEFT JOIN LATERAL (
+		SELECT count(*) AS pending_count, min(modification) AS oldest_pending
+		FROM pg_ls_archive_statusdir()
+		WHERE name LIKE '%.ready'
+	) p ON true`
 	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to query pg_stat_archiver")
 	}
 
-	var lastArchived, lastFailed, failedCount int64
-	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount); err != nil {
+	var lastArchived, lastFailed, failedCount, pendingCount, oldestPending int64
+	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount, &pendingCount, &oldestPending); err != nil {
 		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to scan pg_stat_archiver result")
 	}
 
-	stats := backupengine.ArchiverStats{FailedCount: failedCount}
+	stats := backupengine.ArchiverStats{FailedCount: failedCount, PendingCount: pendingCount}
 	if lastArchived > 0 {
 		stats.LastArchived = time.Unix(lastArchived, 0)
 	}
 	if lastFailed > 0 {
 		stats.LastFailed = time.Unix(lastFailed, 0)
+	}
+	if oldestPending > 0 {
+		stats.OldestPending = time.Unix(oldestPending, 0)
 	}
 	return stats, nil
 }
@@ -349,6 +365,12 @@ func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		if reader := pm.replTracker.HeartbeatReader(); reader != nil {
 			if advanceTime, ok := reader.LastReceiveLSNAdvance(); ok {
 				status.LastReceiveLsnAdvanceTime = timestamppb.New(advanceTime)
+			}
+			if commitTs, ok := reader.QuorumCommitTs(); ok {
+				status.QuorumCommitTs = timestamppb.New(commitTs)
+			}
+			if lsn, ok := reader.QuorumCommitLSN(); ok {
+				status.QuorumCommitLsn = lsn.String()
 			}
 		}
 	}
@@ -1360,11 +1382,20 @@ func poolerIDSetEqual(a, b []consensus.ReplicaID) bool {
 // Primary-side Replication Queries
 // ----------------------------------------------------------------------------
 
+// connectedFollowersQuery lists the application_name of every connected
+// follower. pg_stat_replication also contains the logical-replication
+// connections that multigateway tunnels through (replication=database); they
+// are not followers and their application_name is not a cell_name ID, so they
+// are excluded by their prefix.
+const connectedFollowersQuery = "SELECT application_name FROM pg_stat_replication" +
+	" WHERE application_name IS NOT NULL AND application_name != ''" +
+	" AND application_name NOT LIKE '" + constants.LogicalReplicationConnAppNamePrefix + "%'"
+
 // getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
 func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
+	sql := connectedFollowersQuery
 	result, err := pm.adminQuery(queryCtx, sql)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to query pg_stat_replication", "error", err)

@@ -19,11 +19,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
@@ -38,7 +41,10 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
+	"github.com/multigres/multigres/go/tools/grpccommon"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // defaultPostgresUnrecoverableTimeout defaults the unrecoverable-postgres
@@ -125,14 +131,41 @@ type Multipooler struct {
 	ts            topoclient.Store
 	poolerManager *manager.MultipoolerManager
 	serverStatus  Status
+
+	// resolvedSocketFilePath is the postgres socket path actually in use —
+	// derived from the (possibly pgctld-adopted) pooler-dir and pg-port when
+	// --socket-file was unset. Stored so the /status page reports the live
+	// value rather than the raw flag. Set once during Init.
+	resolvedSocketFilePath string
+
+	// singleProcessMode is set by WithSingleProcessMode: the multipooler runs
+	// in one process with the multigateway, and main performs the process-owner
+	// steps (servenv flags, config and Init, opening and closing the topology
+	// store) instead of the multipooler.
+	singleProcessMode bool
+	// topoStore returns main's topology store in single-process mode.
+	topoStore func() topoclient.Store
+	// statusPath is where the status page is served: "/" when the multipooler
+	// owns the process, under its service name when it shares the HTTP server.
+	statusPath string
+	// staticLeader makes the multipooler its shard's leader without consensus.
+	staticLeader bool
 }
 
 func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
+	if mp.singleProcessMode {
+		// main loads the shared servenv's configuration.
+		return nil
+	}
 	return mp.senv.CobraPreRunE(cmd)
 }
 
 // NewMultipooler creates a new Multipooler instance with default configuration
-func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
+func NewMultipooler(telemetry *telemetry.Telemetry, opts ...Option) *Multipooler {
+	var applied options
+	for _, opt := range opts {
+		opt(&applied)
+	}
 	reg := viperutil.NewRegistry()
 	mp := &Multipooler{
 		reg: reg,
@@ -246,10 +279,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
-		grpcServer:     servenv.NewGrpcServer(reg),
-		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
-		topoConfig:     topoclient.NewTopoConfig(reg),
 		connPoolConfig: connpoolmanager.NewConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
@@ -260,10 +290,32 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			},
 		},
 	}
+	mp.singleProcessMode = applied.single != nil
+	if mp.singleProcessMode {
+		mp.senv = applied.single.ServEnv
+		mp.grpcServer = applied.single.GrpcServer
+		mp.topoStore = applied.single.TopoStore
+		mp.statusPath = "/" + constants.ServiceMultipooler
+	} else {
+		mp.senv = servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry)
+		mp.grpcServer = servenv.NewGrpcServer(reg)
+		mp.topoConfig = topoclient.NewTopoConfig(reg)
+		mp.statusPath = "/"
+	}
+	// The only pooler of its shard leads it without consensus.
+	mp.staticLeader = mp.singleProcessMode
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
 	return mp
+}
+
+// consensusEnabled reports whether the pooler takes part in consensus: whether
+// the consensus service is registered and the manager runs with consensus. A
+// static leader never does, whatever --service-map says: a coordinator's
+// Recruit would demote a pooler that promotes itself back.
+func (mp *Multipooler) consensusEnabled() bool {
+	return !mp.staticLeader && mp.grpcServer.CheckServiceMap("consensus", mp.senv)
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
@@ -316,10 +368,47 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	)
 	mp.flagSet = flags
 
+	mp.connPoolConfig.RegisterFlags(flags)
+	if !mp.singleProcessMode {
+		mp.registerProcessFlags(flags)
+	}
+}
+
+// registerProcessFlags registers the flags of the process-level pieces the
+// multipooler owns when it runs as its own process.
+func (mp *Multipooler) registerProcessFlags(flags *pflag.FlagSet) {
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
-	mp.connPoolConfig.RegisterFlags(flags)
+}
+
+// initProcess performs the process-owner steps of Init: servenv.Init and
+// opening the topology store. In single-process mode main has done both, and
+// the store comes from main.
+func (mp *Multipooler) initProcess(serviceID, cell string) error {
+	if mp.singleProcessMode {
+		mp.ts = mp.topoStore()
+		if mp.ts == nil {
+			return errors.New("topology store is not open: main must open it before Init")
+		}
+		return nil
+	}
+	if err := mp.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
+	}); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
+	var err error
+	mp.ts, err = mp.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
+	return nil
 }
 
 // resolvePgBackRestCipherKeys loads the backup cipher key file if one is
@@ -371,28 +460,15 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	}
 	cell := mp.cell.Get()
 
-	if err := mp.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultipooler,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-		Shard:             mp.shard.Get(),
-		Database:          mp.database.Get(),
-		TableGroup:        mp.tableGroup.Get(),
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
-	// Get the configured logger
-	logger := mp.senv.GetLogger()
-
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
 	// at that point.
-	var err error
-	mp.ts, err = mp.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
+	if err := mp.initProcess(serviceID, cell); err != nil {
+		return err
 	}
+	// Get the configured logger
+	logger := mp.senv.GetLogger()
 
 	logger.InfoContext(
 		startCtx, "multipooler starting up",
@@ -401,9 +477,6 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		"database", mp.database.Get(),
 		"table_group", mp.tableGroup.Get(),
 		"shard", mp.shard.Get(),
-		"socket_file_path", mp.socketFilePath.Get(),
-		"pooler_dir", mp.poolerDir.Get(),
-		"pg_port", mp.pgPort.Get(),
 		"http_port", mp.senv.GetHTTPPort(),
 		"grpc_port", mp.grpcServer.Port(),
 	)
@@ -433,13 +506,23 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return errors.New("PGDATA environment variable is required")
 	}
 
+	// Adopt configuration pgctld owns (postgres port, pooler dir, pgBackRest
+	// port and cert paths) from its Status RPC, unless explicitly configured
+	// here. pgctld is the process that actually applies these values, so
+	// adopting them removes a class of hand-balanced flag duplication.
+	adopted, err := mp.adoptPgctldValues(startCtx, logger)
+	if err != nil {
+		return err
+	}
+
 	// Resolve the postgres socket path: an unset --socket-file derives it from
 	// pooler-dir + pg-port (the same formula pgctld uses to configure
 	// unix_socket_directories), so co-located deployments need not repeat it.
-	socketFilePath := resolveSocketFilePath(mp.socketFilePath.Get(), mp.flagExplicitlySet("socket-file"), mp.poolerDir.Get(), mp.pgPort.Get())
+	socketFilePath := resolveSocketFilePath(mp.socketFilePath.Get(), mp.flagExplicitlySet("socket-file"), adopted.poolerDir, adopted.pgPort)
 	if socketFilePath != mp.socketFilePath.Get() {
 		logger.InfoContext(startCtx, "derived postgres socket file from pooler-dir and pg-port", "socket_file", socketFilePath)
 	}
+	mp.resolvedSocketFilePath = socketFilePath
 
 	// Validate libpq-style sslmode + sslrootcert before any pool opens. A typo
 	// or missing CA bundle should fail startup rather than silently downgrading
@@ -456,21 +539,23 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	multipooler := topoclient.NewMultipooler(serviceID, cell, mp.senv.GetHostname())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
-	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
-	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
+	multipooler.PortMap["postgres"] = int32(adopted.pgPort)
+	multipooler.PortMap["pgbackrest"] = int32(adopted.pgBackRestPort)
 	multipooler.ShardKey = &clustermetadatapb.ShardKey{
 		Database:   mp.database.Get(),
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),
 	}
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
-	multipooler.PoolerDir = mp.poolerDir.Get()
+	multipooler.PoolerDir = adopted.poolerDir
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
 
 	minAttempts := mp.postgresUnrecoverableMinAttempts.Get()
 	if err := validateUnrecoverableMinAttempts(minAttempts); err != nil {
 		return err
 	}
+
+	consensusEnabled := mp.consensusEnabled()
 
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
@@ -480,18 +565,20 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
-		ConsensusEnabled:               mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
-		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
-		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
-		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+		PgBackRestCertFile: adopted.pgBackRestCertFile,
+		PgBackRestKeyFile:  adopted.pgBackRestKeyFile,
+		PgBackRestCAFile:   adopted.pgBackRestCAFile,
 		BackupCipherKeys:   cipherKeys,
 
 		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
 		PostgresUnrecoverableMinAttempts: minAttempts,
+
+		StaticLeader: mp.staticLeader,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -503,10 +590,12 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
-	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
+	if consensusEnabled {
+		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
+	}
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
-	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
 
 	// Register /ready probe: ready iff this pooler's own gRPC control plane is
 	// accepting connections. Postgres health is intentionally excluded — a
@@ -554,6 +643,21 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// ServiceIdentity returns the identity the multipooler reports when it
+// initializes its own servenv. ServiceInstanceID is the configured service ID
+// and may be empty. A caller that owns a shared servenv (see WithServEnv) can
+// use it to initialize that servenv with the pooler's cell and shard.
+func (mp *Multipooler) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: mp.serviceID.Get(),
+		Cell:              mp.cell.Get(),
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
+	}
+}
+
 func (mp *Multipooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
@@ -563,7 +667,10 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)
 	}
-	mp.ts.Close()
+	if !mp.singleProcessMode {
+		// In single-process mode main closes the store it opened.
+		mp.ts.Close()
+	}
 }
 
 // flagExplicitlySet reports whether the named flag was explicitly configured:
@@ -595,4 +702,152 @@ func resolveSocketFilePath(configured string, explicitlySet bool, poolerDir stri
 		return configured
 	}
 	return constants.PostgresSocketFilePath(poolerDir, pgPort)
+}
+
+// pgctldAdoptTimeout bounds how long Init waits for pgctld's Status when at
+// least one adoptable value was not explicitly configured. pgctld is
+// colocated and normally up within seconds. Init runs before the servenv
+// HTTP server binds, so during this window liveness probes get no answer;
+// the timeout must stay comfortably below a default kubelet kill
+// (initialDelay 10s + 3x10s failures = ~40s) so a clear error — not a probe
+// kill — is what lands in the logs when pgctld never comes up.
+const pgctldAdoptTimeout = 30 * time.Second
+
+// adoptedPgctldValues are the settings pgctld owns that the multipooler
+// adopts from its Status RPC instead of redeclaring: the postgres port and
+// pooler directory (pgctld is the process that applies both), and the
+// pgBackRest port and TLS material paths (pgctld serves that endpoint).
+type adoptedPgctldValues struct {
+	pgPort             int
+	poolerDir          string
+	pgBackRestPort     int
+	pgBackRestCertFile string
+	pgBackRestKeyFile  string
+	pgBackRestCAFile   string
+}
+
+// flagValues returns the flag-configured values, used both as the
+// no-adoption-needed fast path and as the per-value explicit override.
+func (mp *Multipooler) flagValues() adoptedPgctldValues {
+	return adoptedPgctldValues{
+		pgPort:             mp.pgPort.Get(),
+		poolerDir:          mp.poolerDir.Get(),
+		pgBackRestPort:     mp.pgBackRestPort.Get(),
+		pgBackRestCertFile: mp.pgBackRestCertFile.Get(),
+		pgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
+		pgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+	}
+}
+
+// resolveAdoptedValues merges the flag-configured values with a pgctld
+// StatusResponse: an explicitly configured flag wins; otherwise the Status
+// value is adopted when pgctld reports one, and the flag default is kept when
+// it does not (e.g. pgBackRest not configured on pgctld).
+func resolveAdoptedValues(flags adoptedPgctldValues, explicit map[string]bool, status *pgctldpb.StatusResponse) adoptedPgctldValues {
+	out := flags
+	if !explicit["pg-port"] && status.GetPort() > 0 {
+		out.pgPort = int(status.GetPort())
+	}
+	if !explicit["pooler-dir"] && status.GetPoolerDir() != "" {
+		out.poolerDir = status.GetPoolerDir()
+	}
+	if !explicit["pgbackrest-port"] && status.GetPgbackrestPort() > 0 {
+		out.pgBackRestPort = int(status.GetPgbackrestPort())
+	}
+	if certDir := status.GetPgbackrestCertDir(); certDir != "" {
+		certFile, keyFile, caFile := constants.PgBackRestCertFiles(certDir)
+		if !explicit["pgbackrest-cert-file"] {
+			out.pgBackRestCertFile = certFile
+		}
+		if !explicit["pgbackrest-key-file"] {
+			out.pgBackRestKeyFile = keyFile
+		}
+		if !explicit["pgbackrest-ca-file"] {
+			out.pgBackRestCAFile = caFile
+		}
+	}
+	return out
+}
+
+// adoptPgctldValues resolves the pgctld-owned settings. When every adoptable
+// flag is explicitly configured the flag values are returned without dialing
+// pgctld. Otherwise pgctld's Status is polled (it answers regardless of
+// postgres state, including before initdb) until pgctldAdoptTimeout.
+//
+// On timeout the outcome depends on what needed adopting. pg-port and
+// pooler-dir are identity: their defaults match no particular deployment, so
+// proceeding without them would be a silent misconfiguration — Init fails
+// with a clear error. The pgBackRest values have workable defaults and the
+// manager explicitly supports running with pgctld unavailable (degraded, so
+// multiorch keeps visibility), so a pgBackRest-only adoption falls back to
+// the flag values with a warning instead of refusing to start.
+func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logger) (adoptedPgctldValues, error) {
+	requiredFlags := []string{"pg-port", "pooler-dir"}
+	optionalFlags := []string{"pgbackrest-port", "pgbackrest-cert-file", "pgbackrest-key-file", "pgbackrest-ca-file"}
+	explicit := make(map[string]bool, len(requiredFlags)+len(optionalFlags))
+	allExplicit, requiredExplicit := true, true
+	for _, name := range requiredFlags {
+		explicit[name] = mp.flagExplicitlySet(name)
+		allExplicit = allExplicit && explicit[name]
+		requiredExplicit = requiredExplicit && explicit[name]
+	}
+	for _, name := range optionalFlags {
+		explicit[name] = mp.flagExplicitlySet(name)
+		allExplicit = allExplicit && explicit[name]
+	}
+	if allExplicit {
+		return mp.flagValues(), nil
+	}
+
+	addr := mp.pgctldAddr.Get()
+	conn, err := grpccommon.NewClient(addr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	if err != nil {
+		return adoptedPgctldValues{}, fmt.Errorf("adopt config from pgctld: create client for %s: %w", addr, err)
+	}
+	defer conn.Close()
+	client := pgctldpb.NewPgCtldClient(conn)
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, pgctldAdoptTimeout)
+	defer cancel()
+	var status *pgctldpb.StatusResponse
+	for {
+		status, err = client.Status(deadlineCtx, &pgctldpb.StatusRequest{})
+		if err == nil {
+			break
+		}
+		select {
+		case <-deadlineCtx.Done():
+			if !requiredExplicit {
+				return adoptedPgctldValues{}, fmt.Errorf("adopt config from pgctld at %s: %w (set --pg-port and --pooler-dir explicitly to start without pgctld); last error: %w", addr, context.Cause(deadlineCtx), err)
+			}
+			logger.WarnContext(ctx, "pgctld unreachable; keeping flag values for pgBackRest settings and starting degraded",
+				"pgctld_addr", addr, "error", err)
+			return mp.flagValues(), nil
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+
+	adopted := resolveAdoptedValues(mp.flagValues(), explicit, status)
+	if !explicit["pooler-dir"] && status.GetPoolerDir() == "" {
+		// Every pgctld that has the pooler_dir Status field reports it
+		// (non-empty is constructor-enforced), so an empty value means an
+		// older pgctld. This must fail, not warn: the pooler directory
+		// anchors durable per-instance state — consensus promise files,
+		// backup configuration, recovery sentinels — and an empty value
+		// makes those paths resolve relative to the working directory,
+		// which co-located poolers share, so instances would overwrite each
+		// other's durable consensus terms. Rolling upgrades are unaffected:
+		// a manifest written for the older pooler necessarily passes
+		// --pooler-dir explicitly (that pooler required it), so adoption is
+		// never triggered until the flag is deliberately removed — which
+		// must wait until pgctld is upgraded.
+		return adoptedPgctldValues{}, fmt.Errorf("pgctld at %s did not report pooler_dir (older pgctld?); upgrade pgctld before removing --pooler-dir, or set --pooler-dir explicitly", addr)
+	}
+	logger.InfoContext(ctx, "adopted configuration from pgctld",
+		"pgctld_addr", addr,
+		"pg_port", adopted.pgPort,
+		"pooler_dir", adopted.poolerDir,
+		"pgbackrest_port", adopted.pgBackRestPort,
+	)
+	return adopted, nil
 }

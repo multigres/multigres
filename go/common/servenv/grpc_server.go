@@ -141,11 +141,18 @@ type GrpcServer struct {
 	// sv is the paired ServEnv, set by Create. It is where --tls-cert/-key/-ca
 	// now live, shared with the HTTP listener - see the field doc there.
 	sv *ServEnv
+
+	// otelInstrumentation controls whether the OpenTelemetry gRPC stats
+	// handler is attached to this process's gRPC server and clients. The
+	// handler runs on every RPC, which on the gateway to pooler hop is once
+	// per SQL statement, so operators can switch it off where its spans are
+	// not exported or its rpc.* metrics are not consumed.
+	otelInstrumentation viperutil.Value[bool]
 }
 
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
 func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
-	return &GrpcServer{
+	g := &GrpcServer{
 		streamWorkers: viperutil.Configure(reg, "grpc-stream-workers", viperutil.Options[uint32]{Default: 64, FlagName: "grpc-stream-workers"}),
 		auth: viperutil.Configure(reg, "grpc-auth-mode", viperutil.Options[string]{
 			Default:  "",
@@ -237,7 +244,34 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 			FlagName: "grpc-socket-file",
 			Dynamic:  false,
 		}),
+		otelInstrumentation: viperutil.Configure(reg, "grpc-otel-instrumentation", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "grpc-otel-instrumentation",
+			EnvVars:  []string{"GRPC_OTEL_INSTRUMENTATION"},
+			Dynamic:  false,
+		}),
 	}
+	// gRPC clients are created by grpccommon.NewClient, which cannot see this
+	// server's flags. Hand it the decision as a function so it reads the
+	// parsed value at dial time, whichever happens first.
+	grpccommon.SetOTelInstrumentationEnabled(g.OTelInstrumentationEnabled)
+	return g
+}
+
+// OTelInstrumentationEnabled reports whether OpenTelemetry gRPC
+// instrumentation is attached to this process's gRPC server and clients
+// (--grpc-otel-instrumentation, default true).
+func (g *GrpcServer) OTelInstrumentationEnabled() bool {
+	return g.otelInstrumentation.Get()
+}
+
+// otelServerOption returns the server option that attaches the OpenTelemetry
+// gRPC stats handler, or nil when instrumentation is disabled.
+func (g *GrpcServer) otelServerOption() grpc.ServerOption {
+	if !g.OTelInstrumentationEnabled() {
+		return nil
+	}
+	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }
 
 // RegisterFlags registers all gRPC server flags with the given FlagSet
@@ -258,6 +292,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
 	fs.String("grpc-socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
+	fs.Bool("grpc-otel-instrumentation", g.otelInstrumentation.Default(), "Attach OpenTelemetry instrumentation (spans and rpc.* metrics) to this process's gRPC server and clients. It runs on every RPC; disable it where traces are not exported and the rpc.* metrics are not consumed (env: GRPC_OTEL_INSTRUMENTATION).")
 
 	// Deprecated: superseded by --tls-cert/-key/-ca, which also cover the
 	// HTTP listener. These configure gRPC alone and remain fully functional -
@@ -298,6 +333,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 		g.cert,
 		g.key,
 		g.ca,
+		g.otelInstrumentation,
 	)
 }
 
@@ -456,9 +492,15 @@ func (g *GrpcServer) Create(sv *ServEnv) error {
 
 	opts = append(opts, grpc.KeepaliveParams(g.keepaliveServerParameters()))
 
-	// Add OpenTelemetry instrumentation for distributed tracing and metrics
-	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
-	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	// OpenTelemetry instrumentation for distributed tracing and rpc.* metrics.
+	// The stats handler does its work (header extraction, span and metric
+	// attribute sets) on every RPC whether or not anything is exported, so it
+	// is optional.
+	if opt := g.otelServerOption(); opt != nil {
+		opts = append(opts, opt)
+	} else {
+		slog.Info("gRPC OpenTelemetry instrumentation disabled")
+	}
 
 	opts = append(opts, g.interceptors()...)
 

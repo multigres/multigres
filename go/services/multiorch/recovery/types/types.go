@@ -44,11 +44,11 @@ const (
 	// the outgoing decision, not the cause.
 	//
 	// Predictors vs backstop: the property we actually care about is whether the
-	// shard is making durable (quorum-commit) write progress. The eventual
-	// LeaderStuck (see TODO below) measures that directly and is the backstop that
-	// catches a stall from any cause. The codes here are faster, higher-confidence
-	// *predictors* of (imminent) stuckness — they let us act before, or explain
-	// why, progress stops — but they are not exhaustive.
+	// shard is making durable (quorum-commit) write progress. LeaderQuorumWritesStalled measures
+	// that directly and is the backstop that catches a stall from any cause. The
+	// other codes here are faster, higher-confidence *predictors* of (imminent)
+	// stuckness — they let us act before, or explain why, progress stops — but
+	// they are not exhaustive.
 	//
 	// The dividing principle is rule-support vs leader-fitness evidence (see
 	// LeaderNeedsReplacementAnalyzer's doc for the two-axis judgment these fall
@@ -67,17 +67,19 @@ const (
 	//   - LeaderUnhealthy: the rule IS supported, but the leader reports its own
 	//     postgres dead/unresponsive. First-hand about itself, so no quorum
 	//     corroboration is required.
-	//
-	// TODO(LeaderStuck): a further cause — leader reachable and claiming health but
-	// the quorum-commit position is not advancing — is not yet split out. Detecting
-	// it correctly needs a quorum-commit signal (per-replica replay lag is not
-	// quorum-safe: standbys replay WAL ahead of the synchronous-quorum ack). That
-	// waits on a quorum-commit watermark in the heartbeat row; see the failover
-	// detection redesign note.
-	ProblemLeaderUnspecified ProblemCode = "LeaderUnspecified"
-	ProblemLeaderUnsupported ProblemCode = "LeaderUnsupported"
-	ProblemLeaderUnhealthy   ProblemCode = "LeaderUnhealthy"
-	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
+	//   - LeaderQuorumWritesStalled: the rule is supported and the leader claims
+	//     healthy, but the heartbeat's quorum-commit watermark isn't advancing —
+	//     replicas can look ahead on raw LSN regardless, since they replay WAL
+	//     ahead of the primary's own quorum ack. Covered by inPromotionGrace like
+	//     the other Leader* causes, plus its own dedicated exemption while the rule
+	//     is still undecided: fresh WAL streaming to a quorum-sufficient set of
+	//     followers (receiveLsnStillAdvancing) is treated as backlog-draining
+	//     during propagation, not a genuine halt.
+	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
+	ProblemLeaderUnsupported         ProblemCode = "LeaderUnsupported"
+	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
+	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
+	ProblemLeaderQuorumWritesStalled ProblemCode = "LeaderQuorumWritesStalled"
 )
 
 // IsFailoverProblem reports whether this problem is resolved by
@@ -87,7 +89,8 @@ func (c ProblemCode) IsFailoverProblem() bool {
 	return c == ProblemLeaderUnspecified ||
 		c == ProblemLeaderUnsupported ||
 		c == ProblemLeaderUnhealthy ||
-		c == ProblemLeaderResigned
+		c == ProblemLeaderResigned ||
+		c == ProblemLeaderQuorumWritesStalled
 }
 
 const (
@@ -126,7 +129,7 @@ const (
 	//     not be recovered from. A warning — the shard is up but fragile.
 	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
 	//     reachable, so progress is halted and cannot resume automatically. Critical
-	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
+	//     — a human must intervene. (Stronger than LeaderQuorumWritesStalled, which is recoverable.)
 	//   - NoHealthyCohortMembers: orch has no fresh, valid health from any initialized
 	//     pooler in the shard, so it is blind — it can determine the leader/rule only
 	//     from stale observations. Rather than convict the leader on stale evidence

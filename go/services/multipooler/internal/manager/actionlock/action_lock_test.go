@@ -224,7 +224,7 @@ func TestCarryLock(t *testing.T) {
 	bare := context.Background()
 	require.Error(t, AssertActionLockHeld(bare), "precondition: bare context holds no lock")
 
-	carried := CarryLock(bare, held)
+	carried := carryLock(bare, held)
 	require.NoError(t, AssertActionLockHeld(carried), "carried context should prove ownership")
 
 	// The same lock value is shared: releasing via the original context also
@@ -233,5 +233,27 @@ func TestCarryLock(t *testing.T) {
 	require.Error(t, AssertActionLockHeld(carried), "carried context should observe the release")
 
 	// No-op when the source holds no lock: returns dst unchanged.
-	require.Error(t, AssertActionLockHeld(CarryLock(bare, context.Background())))
+	require.Error(t, AssertActionLockHeld(carryLock(bare, context.Background())))
+}
+
+// TestDetach verifies the two properties callers rely on: the returned
+// context isn't canceled even if the original already is (the whole point of
+// detaching), and it still proves lock ownership (carryLock) - including
+// observing a Release on the original, since it's the same lock, not a copy.
+func TestDetach(t *testing.T) {
+	lock := NewActionLock()
+
+	parent, cancel := context.WithCancel(context.Background())
+	held, err := lock.Acquire(parent, "op")
+	require.NoError(t, err)
+
+	cancel() // simulates the caller's ctx expiring/being canceled
+	require.Error(t, context.Cause(held), "precondition: the original context is now canceled")
+
+	detached := Detach(held)
+	require.NoError(t, detached.Err(), "a detached context must not be canceled just because its parent was")
+	require.NoError(t, AssertActionLockHeld(detached), "a detached context must still prove lock ownership")
+
+	lock.Release(held)
+	require.Error(t, AssertActionLockHeld(detached), "detached context should observe the release - same lock, not a copy")
 }

@@ -537,12 +537,13 @@ Each suite gets a stable JSON URL under `https://multigres.github.io/multigres/p
 
 <!-- markdownlint-disable MD013 -->
 
-| Suite             | JSON endpoint                                                            | Badge markdown                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Overall           | `https://multigres.github.io/multigres/pgregress/overall.json`           | `![Overall](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/overall.json)`                     |
-| Regression        | `https://multigres.github.io/multigres/pgregress/regression.json`        | `![Regression](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/regression.json)`               |
-| Isolation         | `https://multigres.github.io/multigres/pgregress/isolation.json`         | `![Isolation](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/isolation.json)`                 |
-| Contrib Extension | `https://multigres.github.io/multigres/pgregress/contrib-extension.json` | `![Contrib Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/contrib-extension.json)` |
+| Suite              | JSON endpoint                                                             | Badge markdown                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Overall            | `https://multigres.github.io/multigres/pgregress/overall.json`            | `![Overall](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/overall.json)`                       |
+| Regression         | `https://multigres.github.io/multigres/pgregress/regression.json`         | `![Regression](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/regression.json)`                 |
+| Isolation          | `https://multigres.github.io/multigres/pgregress/isolation.json`          | `![Isolation](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/isolation.json)`                   |
+| Contrib Extension  | `https://multigres.github.io/multigres/pgregress/contrib-extension.json`  | `![Contrib Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/contrib-extension.json)`   |
+| External Extension | `https://multigres.github.io/multigres/pgregress/external-extension.json` | `![External Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/external-extension.json)` |
 
 <!-- markdownlint-enable MD013 -->
 

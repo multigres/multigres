@@ -50,7 +50,11 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 	spoolPath := filepath.Join(pgbackrestDir, "spool")
 	lockPath := filepath.Join(pgbackrestDir, "lock")
 
-	// Create directories
+	// Create directories. The template enables archive-async, so postgres's
+	// archive-push (running as the postgres OS user) writes acks into spool
+	// and takes its lock in lock: both must be writable by that user, which
+	// holds because multipooler and postgres share a uid (postgres already
+	// has to read the 0600 conf written below).
 	for _, dir := range []string{pgbackrestDir, logPath, spoolPath, lockPath} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
@@ -105,11 +109,6 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		SpoolPath string
 		LockPath  string
 
-		// With multiple repositories archive-push must be asynchronous: a
-		// down repo would otherwise hold every healthy repo one WAL segment
-		// behind (pgbackrest pushes to all repos per invocation).
-		ArchiveAsync bool
-
 		RetentionConfig map[string]string
 		RepoConfig      map[string]string
 		RepoCredentials map[string]string
@@ -124,8 +123,6 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		LogPath:   logPath,
 		SpoolPath: spoolPath,
 		LockPath:  lockPath,
-
-		ArchiveAsync: len(ordered) > 1,
 
 		RetentionConfig: retentionConfig,
 		RepoConfig:      repoConfig,

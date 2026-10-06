@@ -91,10 +91,18 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, rechecked types.Reche
 	// this may just be wasting time.
 	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if leader, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
-		if types.LeaderNeedsReplacement(leader.Health()) {
-			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
+	if leader, statusResp, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
+		// LeaderNeedsReplacement alone misses a leader that's reachable and
+		// self-reports fine but simply can't commit writes.
+		// TODO(https://github.com/multigres/multigres/pull/1481): stopgap using
+		// the default threshold directly -- replace once leaderFitnessCause is
+		// shared with this action and it has real policy-lookup access.
+		quorumCommitStale := consensus.QuorumCommitStale(
+			statusResp.GetStatus().GetPrimaryStatus().GetQuorumCommitTs(), time.Now(), consensus.DefaultQuorumCommitStaleAfter)
+		if quorumCommitStale || types.LeaderNeedsReplacement(leader.Health()) {
+			a.logger.InfoContext(ctx, "primary has requested replacement or is stuck, proceeding with election",
 				"primary", leader.Health().Multipooler.Id.Name,
+				"quorum_commit_stale", quorumCommitStale,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		} else {
 			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",

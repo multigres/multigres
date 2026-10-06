@@ -137,7 +137,7 @@ func (mp *Multipooler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mp.serverStatus.Database = mp.database.Get()
 	mp.serverStatus.TableGroup = mp.tableGroup.Get()
 	mp.serverStatus.PgctldAddr = mp.pgctldAddr.Get()
-	mp.serverStatus.SocketFilePath = mp.socketFilePath.Get()
+	mp.serverStatus.SocketFilePath = mp.resolvedSocketFilePath
 	mp.serverStatus.TopoStatus = mp.ts.Status()
 	mp.serverStatus.Backups = mp.backupStatusView()
 	mp.serverStatus.ReplicationStats = mp.replicationStatsView()

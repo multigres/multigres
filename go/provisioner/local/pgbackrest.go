@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 // certDir returns the directory where pgBackRest certificates are stored
@@ -44,14 +46,14 @@ func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 		return nil, fmt.Errorf("failed to create pgBackRest certificate directory: %w", err)
 	}
 
-	caCertFile := filepath.Join(certDir, "ca.crt")
+	// Fixed filenames are the pgctld cert-dir contract (constants.PgBackRestCertFiles):
+	// consumers derive these paths from the directory alone.
+	certFile, keyFile, caCertFile := constants.PgBackRestCertFiles(certDir)
 	caKeyFile := filepath.Join(certDir, "ca.key")
 	if err := GenerateCA(caCertFile, caKeyFile); err != nil {
 		return nil, fmt.Errorf("failed to generate CA for pgBackRest: %w", err)
 	}
 
-	certFile := filepath.Join(certDir, "pgbackrest.crt")
-	keyFile := filepath.Join(certDir, "pgbackrest.key")
 	if err := GenerateCert(caCertFile, caKeyFile, certFile, keyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
 		return nil, fmt.Errorf("failed to generate certificate for pgBackRest: %w", err)
 	}

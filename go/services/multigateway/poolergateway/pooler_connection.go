@@ -165,6 +165,7 @@ func newPoolerConnection(
 	pooler *clustermetadatapb.Multipooler,
 	logger *slog.Logger,
 	grpcDialOpt grpc.DialOption,
+	reuseQueryStreams bool,
 	onHealthUpdate func(*poolerConnection),
 ) (*poolerConnection, error) {
 	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
@@ -190,7 +191,7 @@ func newPoolerConnection(
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Create QueryService wrapper
-	queryService := newGRPCQueryService(conn, poolerID, logger)
+	queryService := newGRPCQueryService(conn, poolerID, logger, reuseQueryStreams)
 
 	// Initialize health state to DISABLED until the health stream provides data.
 	// Shard identity is available via poolerInfo; the gateway derives role from

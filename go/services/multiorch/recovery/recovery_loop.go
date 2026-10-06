@@ -174,6 +174,7 @@ func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 // and drops any that aren't ready to execute yet (logging why via
 // recordGated) — attemptRecovery only ever runs on problems already known to
 // be ready:
+//   - Drops alert-only problems entirely; they can never execute
 //   - Sorts by priority (highest first)
 //   - Returns the highest-priority actionable shard-wide problem that's ready
 //     now, if any (gated ones are skipped, not just the top one)
@@ -182,25 +183,26 @@ func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 //   - Otherwise, return the highest-priority ready problem per pooler
 //     (different poolers run in parallel)
 func (re *Engine) filterAndPrioritize(ctx context.Context, problems []types.Problem) []types.Problem {
-	if len(problems) == 0 {
-		return problems
+	// Alert-only problems can never execute, so they're dropped up front.
+	// They're still visible via the detected_problems gauge.
+	actionable := make([]types.Problem, 0, len(problems))
+	for _, p := range problems {
+		if p.RecoveryAction.Metadata().Name != actions.AlertOnlyActionName {
+			actionable = append(actionable, p)
+		}
+	}
+	if len(actionable) == 0 {
+		return nil
 	}
 
 	// Sort by priority (highest priority first)
-	sort.SliceStable(problems, func(i, j int) bool {
-		return problems[i].Priority > problems[j].Priority
+	sort.SliceStable(actionable, func(i, j int) bool {
+		return actionable[i].Priority > actionable[j].Priority
 	})
 
-	// Separate alert-only shard-wide problems (no remediation, so nothing to
-	// preempt for) from ones with a real recovery action.
-	var shardWideProblems, alertOnlyShardWideProblems []types.Problem
-	for _, problem := range problems {
-		if !problem.IsShardWide() {
-			continue
-		}
-		if _, ok := problem.RecoveryAction.(*actions.AlertOnlyAction); ok {
-			alertOnlyShardWideProblems = append(alertOnlyShardWideProblems, problem)
-		} else {
+	var shardWideProblems []types.Problem
+	for _, problem := range actionable {
+		if problem.IsShardWide() {
 			shardWideProblems = append(shardWideProblems, problem)
 		}
 	}
@@ -243,10 +245,7 @@ func (re *Engine) filterAndPrioritize(ctx context.Context, problems []types.Prob
 	// per pooler wins), then keep only the ones actually ready to run.
 	seen := make(map[topoclient.ComponentID]bool)
 	var candidates []types.Problem
-	if len(alertOnlyShardWideProblems) > 0 {
-		candidates = append(candidates, alertOnlyShardWideProblems[0])
-	}
-	for _, p := range problems {
+	for _, p := range actionable {
 		if p.IsShardWide() {
 			continue
 		}
@@ -329,6 +328,11 @@ func (re *Engine) recordPreempted(ctx context.Context, problem types.Problem) {
 func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	entityID := problem.EntityID()
 	actionName := problem.RecoveryAction.Metadata().Name
+
+	if actionName == actions.AlertOnlyActionName {
+		// Marker action, not a real recovery attempt - nothing to run or record.
+		return
+	}
 
 	ctx, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
 		trace.WithAttributes(recoveryAttemptAttributes(problem)...))

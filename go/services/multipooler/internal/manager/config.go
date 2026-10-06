@@ -76,4 +76,10 @@ type Config struct {
 	// the key file at startup (nil when no key file is configured). Loaded
 	// once at process start, like the postgres password.
 	BackupCipherKeys backup.CipherKeys
+
+	// StaticLeader makes this pooler its shard's leader without consensus, for a
+	// shard served by a single pooler (Minigres). Routing-role derivation uses a
+	// fixed consensus status naming this pooler as leader, and the postgres
+	// monitor starts postgres as a primary rather than a standby.
+	StaticLeader bool
 }
