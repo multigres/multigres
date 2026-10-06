@@ -50,6 +50,13 @@ const (
 	PgSSSerializationFailure      = "40001" // serialization_failure
 )
 
+// PostgreSQL data exceptions raised by scalar evaluation.
+const (
+	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
+	PgSSDivisionByZero                  = "22012" // division_by_zero
+	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
+)
+
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
 // (e.g. CancelRequest). SQLSTATE 57014 (query_canceled).
 func NewQueryCanceled() *PgDiagnostic {
