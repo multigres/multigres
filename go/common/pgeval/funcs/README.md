@@ -110,11 +110,14 @@ failures and semantic mismatches still fail.
 /mt-dev integration pgeval TestScalarsAgainstPostgres -race -timeout=20m
 ```
 
-The scheduled/manual/PR-label PostgreSQL compatibility workflow explicitly
-opts in and checks build prerequisites first, so missing tools fail CI rather
-than silently skip coverage. Ordinary PR integration jobs do not opt in. The
-source checkout is cached, but each invocation rebuilds and installs PostgreSQL
-into an isolated directory.
+The `Expression Engine Differential Tests` workflow
+(`.github/workflows/test-pgeval-differential.yml`) runs it weekly, on manual
+dispatch, and on pull requests labeled `Run Extended Query Serving Tests` or
+`Run all Query Serving Tests`, as its own check next to the PostgreSQL
+compatibility suites. It opts in explicitly and checks build prerequisites
+first, so missing tools fail CI rather than silently skip coverage. Ordinary PR
+integration jobs do not opt in. The source checkout is cached, but each
+invocation rebuilds and installs PostgreSQL into an isolated directory.
 
 The differential test builds pinned PostgreSQL 17.6 using `pgbuilder` and starts
 one standalone server. It compares direct local fmgr calls, not gateway

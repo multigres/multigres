@@ -103,23 +103,7 @@ jobs:
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
-      - name: Run expression differential tests
-        if: ${{ !cancelled() }}
-        timeout-minutes: 20
-        env:
-          RUN_PGEVAL_DIFFERENTIAL: "1"
-        run: |
-          set -euo pipefail
-          # The local test skips missing tools; CI must fail rather than
-          # silently lose its PostgreSQL oracle coverage.
-          command -v make
-          command -v gcc
-          go test -json -v -count=1 -run '^TestScalarsAgainstPostgres$' \
-            -timeout=20m ./go/test/endtoend/pgeval \
-            | tee pgeval-test-results.jsonl | go tool tparse -follow
-
       - name: Stop port pool server
-        if: ${{ !cancelled() }}
         run: kill "$PORT_POOL_PID" || true
 
       - name: Find results.json
@@ -165,9 +149,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: postgres-compatibility-results
-          path: |
-            /tmp/multigres_pg_cache/results/**/*
-            pgeval-test-results.jsonl
+          path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
       # Publish the shields.io endpoint JSON to the gh-pages branch so the
