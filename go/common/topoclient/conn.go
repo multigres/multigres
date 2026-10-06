@@ -108,6 +108,9 @@ type ConnFile interface {
 	// connection underneath. Nothing at this layer re-creates the file:
 	// only its owner knows it should exist, so owners keep it alive by
 	// writing it again periodically (see servenv/toporeg's WithReassert).
+	// Backends make that re-write cheap: when the file already holds
+	// contents on a live binding, it may return without writing, so a
+	// steady-state re-assertion does not churn watchers.
 	//
 	// Ephemeral files must only be written through PutEphemeral: a plain
 	// Update on the same path would sever the liveness binding, making

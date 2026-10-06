@@ -270,7 +270,11 @@ func (ts *store) RegisterMultiorch(ctx context.Context, mtorch *clustermetadatap
 		}
 	}
 
-	data, err := proto.Marshal(mtorch)
+	// Deterministic: PutEphemeral skips the write when the stored bytes
+	// already match, and the default encoding orders port_map entries
+	// differently from one call to the next, so an unchanged record would
+	// otherwise be re-written on most re-assertions.
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(mtorch)
 	if err != nil {
 		return err
 	}
