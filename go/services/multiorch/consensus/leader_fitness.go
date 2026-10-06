@@ -42,10 +42,17 @@ import (
 //     — so a retried failover doesn't keep proposing the same candidate
 //     forever if its Promote keeps failing for an unrelated reason.
 //
-// TODO: criteria 1-2 manually chain two Less funcs (poolerHealthStateLess
-// itself already chains two more criteria internally). If a third fitness
-// signal shows up, generalize to an ordered list of criteria instead of
-// nested if-returns.
+// Readiness outranks REQUESTING_DEMOTION deliberately: the former is a hard
+// feasibility signal, the latter a soft preference. But that signal currently
+// conflates "replace me" (SwitchPrimary) with self-detected drift, so a ready
+// resigner can beat a not-ready peer and defeat a switchover.
+//
+// TODO: model hard-unable (departing; excluded upstream via INELIGIBLE),
+// soft-unwilling (resigning), and transiently-not-ready as distinct states,
+// and consider a bounded wait for a ready non-resigner before falling back
+// to a resigner. Also, criteria 1-2 manually chain two Less funcs
+// (poolerHealthStateLess itself chains two more); generalize to an ordered
+// list of criteria if another fitness signal shows up.
 func selectFittestLeader(candidates []*clustermetadatapb.ConsensusStatus, healthByID map[string]*multiorchdatapb.PoolerHealthState, rng *rand.Rand) *clustermetadatapb.ConsensusStatus {
 	if len(candidates) == 0 {
 		return nil
