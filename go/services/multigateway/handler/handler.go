@@ -304,11 +304,24 @@ func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
 	return true
 }
 
+// logSafeQuery returns a version of queryStr safe to write to logs.
+// CREATE/ALTER CONNECTION statements carry a source password as a SQL literal
+// in their raw text, so if any statement in asts needs redaction, the whole
+// batch is redacted rather than logged verbatim. This mirrors
+// executor.logSafeQuery's redaction of the same statement types.
+func logSafeQuery(queryStr string, asts []ast.Stmt) string {
+	for _, stmt := range asts {
+		if redacted, ok := ast.RedactIfCredentialBearing(stmt); ok {
+			return redacted
+		}
+	}
+	return queryStr
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
-	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 	st := h.getConnectionState(conn)
 	ctx = h.callerContext(ctx, conn, st)
 
@@ -336,6 +349,10 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
 		return err
 	}
+
+	// Logged only now that the AST is available, so logSafeQuery can redact
+	// CREATE CONNECTION's embedded password before anything reaches the log.
+	h.logger.DebugContext(ctx, "handling query", "query", logSafeQuery(queryStr, asts), "user", conn.User(), "database", conn.Database())
 
 	// Handle empty query (e.g., just a semicolon or whitespace).
 	// Call callback with nil to signal empty query response.
@@ -501,8 +518,6 @@ func (h *MultigatewayHandler) getConnectionState(conn *server.Conn) *Multigatewa
 // HandleParse processes a Parse message ('P') for the extended query protocol.
 // Creates and stores a prepared statement.
 func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
-	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
-
 	// Fold gateway-provided functions (e.g. multigres.version()) into constants
 	// before storing or eagerly parsing the prepared statement, so the folded
 	// text is what Describe and Execute later forward to the backend. A no-op for
@@ -532,6 +547,12 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	if err != nil {
 		return err
 	}
+
+	// Logged only now that the AST is available, so logSafeQuery can redact a
+	// credential-bearing statement before anything reaches the log. psi.IsEmpty()
+	// leaves AstStmt() nil for an empty/comment-only query; logSafeQuery's default
+	// case handles that the same as any other non-connection statement.
+	h.logger.DebugContext(ctx, "parse", "name", name, "query", logSafeQuery(queryStr, []ast.Stmt{psi.AstStmt()}), "param_count", len(paramTypes))
 
 	// The original SQL is already prepared on the transaction's backend.
 	// Only an execution-time semantic rewrite needs a separate materialization;
