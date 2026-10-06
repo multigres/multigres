@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -36,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -145,6 +147,23 @@ func newTestExecutor(mock *mockExec) *Executor {
 	}
 }
 
+// newMigrationConfiguredExecutor is newTestExecutor with a migration backend
+// wired to a spyMigratorClient, so a migration/connection DDL statement can
+// actually execute (not just plan) instead of failing with an unrelated
+// "not configured" error.
+func newMigrationConfiguredExecutor(mock *mockExec) *Executor {
+	logger := slog.Default()
+	txnMetrics, _ := engine.NewTransactionMetrics()
+	p := planner.NewPlanner(DefaultTableGroup, logger, txnMetrics)
+	p.SetMigrationBackend(&engine.MigrationBackend{Client: func() migratorpb.MigratorClient { return &spyMigratorClient{} }})
+	return &Executor{
+		planner:   p,
+		exec:      mock,
+		logger:    logger,
+		planCache: plancache.NewForTest(1024 * 1024),
+	}
+}
+
 func testConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn
 }
@@ -167,12 +186,17 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 
 func makePortalInfo(t *testing.T, sql string) *preparedstatement.PortalInfo {
 	t.Helper()
+	return makePortalInfoWithResultFormats(t, sql, nil)
+}
+
+func makePortalInfoWithResultFormats(t *testing.T, sql string, resultFormats []int32) *preparedstatement.PortalInfo {
+	t.Helper()
 	psi, err := preparedstatement.NewPreparedStatementInfo(&querypb.PreparedStatement{
 		Name:  "",
 		Query: sql,
 	})
 	require.NoError(t, err)
-	return preparedstatement.NewPortalInfo(psi, &querypb.Portal{Name: ""})
+	return preparedstatement.NewPortalInfo(psi, &querypb.Portal{Name: "", ResultFormats: resultFormats})
 }
 
 func TestPrepareInTransaction(t *testing.T) {
@@ -188,6 +212,157 @@ func TestPrepareInTransaction(t *testing.T) {
 	assert.Equal(t, "SELECT $1", ps.GetQuery())
 	assert.Equal(t, []uint32{23}, ps.GetParamTypes())
 	assert.True(t, ps.GetForceReparse())
+}
+
+// TestIsCacheable_ExcludesStatMigrationSelect is the regression test for the
+// finding this guards against: a recognized multigres.stat_migration query
+// (e.g. "... WHERE migration_name = 'foo-move'") was cacheable, so the
+// gateway's literal-to-$1 normalization ran on it before
+// engine.IsStatMigrationSelect ever saw the AST — the recognizer requires an
+// *ast.A_Const filter value and treats a bind parameter as unrecognized,
+// silently falling back to ordinary (gated) routing and defeating the whole
+// point of the bypass (checking migration progress while NOT_SERVING).
+func TestIsCacheable_ExcludesStatMigrationSelect(t *testing.T) {
+	t.Run("filtered stat_migration select is not cacheable", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT * FROM multigres.stat_migration WHERE migration_name = 'foo-move'")
+		assert.False(t, isCacheable(stmt))
+	})
+	t.Run("unfiltered stat_migration select is not cacheable", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT * FROM multigres.stat_migration")
+		assert.False(t, isCacheable(stmt))
+	})
+	t.Run("an ordinary select stays cacheable", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT * FROM t WHERE id = 'x'")
+		assert.True(t, isCacheable(stmt))
+	})
+}
+
+// spyMigratorClient tracks whether any migrator RPC was invoked, standing in
+// for a real migrator connection in TestStatMigrationSelect_SupportedVsNearbyUnsupported.
+// Embeds the nil interface so an unexpected method call panics rather than
+// silently succeeding.
+type spyMigratorClient struct {
+	migratorpb.MigratorClient
+	called atomic.Bool
+}
+
+func (s *spyMigratorClient) GetMigration(context.Context, *migratorpb.GetMigrationRequest, ...grpc.CallOption) (*migratorpb.GetMigrationResponse, error) {
+	s.called.Store(true)
+	return &migratorpb.GetMigrationResponse{}, nil
+}
+
+func (s *spyMigratorClient) ListMigrations(context.Context, *migratorpb.ListMigrationsRequest, ...grpc.CallOption) (*migratorpb.ListMigrationsResponse, error) {
+	s.called.Store(true)
+	return &migratorpb.ListMigrationsResponse{}, nil
+}
+
+// CreateMigration is a bare no-op implementation, only present so
+// newMigrationConfiguredExecutor's spy can actually execute a mutating
+// migration DDL statement end to end in tests that don't care about its
+// result, just that it doesn't panic on the embedded nil interface.
+func (s *spyMigratorClient) CreateMigration(context.Context, *migratorpb.CreateMigrationRequest, ...grpc.CallOption) (*migratorpb.CreateMigrationResponse, error) {
+	return &migratorpb.CreateMigrationResponse{}, nil
+}
+
+// migrationPrivilegedTestConn returns a *server.Conn whose cached credentials
+// satisfy checkMigrationDDLPrivilege, so a recognized stat_migration query
+// reaches the migrator RPC instead of being rejected before it gets there.
+func migrationPrivilegedTestConn() *server.Conn {
+	return server.NewTestConn(&bytes.Buffer{},
+		server.WithTestCredentials(&server.Credentials{CanCreateMigration: true})).Conn
+}
+
+// TestStatMigrationSelect_SupportedVsNearbyUnsupported draws the exact
+// boundary of the multigres.stat_migration SELECT bypass end to end, through
+// the real StreamExecute -> resolvePlan -> Plan() pipeline — not Plan() called
+// directly (TestPlan_StatMigrationSelectRouting in the planner package), which
+// never exercises ast.Normalize and so would miss the normalization bug
+// isCacheable's stat_migration exclusion guards against. Each "supported"
+// query must reach the migrator RPC and never touch the ordinary backend;
+// each "not supported" query is a near miss of a different kind (wrong
+// operator, wrong column, an extra clause, a genuine bind parameter, ...) and
+// must fall through to ordinary, serving-gated routing against the real view
+// instead, never reaching the migrator RPC.
+func TestStatMigrationSelect_SupportedVsNearbyUnsupported(t *testing.T) {
+	runCase := func(t *testing.T, sql string) (migratorRPCCalled bool, ordinaryRoutingCalls int32) {
+		t.Helper()
+		spy := &spyMigratorClient{}
+		p := planner.NewPlanner(DefaultTableGroup, slog.Default(), nil)
+		p.SetMigrationBackend(&engine.MigrationBackend{Client: func() migratorpb.MigratorClient { return spy }})
+		mock := &mockExec{}
+		exec := &Executor{planner: p, exec: mock, logger: slog.Default(), planCache: plancache.NewForTest(1024 * 1024)}
+		defer exec.planCache.Close()
+
+		stmt := parseOne(t, sql)
+		_, err := exec.StreamExecute(context.Background(), migrationPrivilegedTestConn(),
+			handler.NewMultigatewayConnectionState(), sql, stmt, noopCallback)
+		require.NoError(t, err)
+		return spy.called.Load(), mock.streamExecuteCalls.Load()
+	}
+
+	supported := []string{
+		// Bare, unfiltered.
+		"SELECT * FROM multigres.stat_migration",
+		// A specific column list, still unfiltered.
+		"SELECT migration_name, lag_bytes FROM multigres.stat_migration",
+		// Filtered by a literal — the exact case normalization used to break.
+		"SELECT * FROM multigres.stat_migration WHERE migration_name = 'foo-move'",
+		// Filtered by migration_id, an integer literal.
+		"SELECT * FROM multigres.stat_migration WHERE migration_id = 5",
+		// Operand order reversed: constant on the left.
+		"SELECT * FROM multigres.stat_migration WHERE 'foo-move' = migration_name",
+	}
+	for _, sql := range supported {
+		t.Run("supported: "+sql, func(t *testing.T) {
+			rpcCalled, ordinaryCalls := runCase(t, sql)
+			assert.True(t, rpcCalled, "expected the migrator RPC to be called")
+			assert.Zero(t, ordinaryCalls, "ordinary routing must not be used")
+		})
+	}
+
+	notSupported := []struct {
+		name, sql string
+	}{
+		{
+			"a join against another table",
+			"SELECT a.migration_name FROM multigres.stat_migration a JOIN other b ON a.migration_id = b.id",
+		},
+		{
+			"a genuinely parameterized filter (a real client Bind, not gateway normalization)",
+			"SELECT * FROM multigres.stat_migration WHERE migration_name = $1",
+		},
+		{
+			"a comparison operator other than =",
+			"SELECT * FROM multigres.stat_migration WHERE migration_name <> 'foo-move'",
+		},
+		{
+			"a filter column other than migration_name/migration_id",
+			"SELECT * FROM multigres.stat_migration WHERE lag_bytes = 100",
+		},
+		{
+			"two ANDed conditions, not a single comparison",
+			"SELECT * FROM multigres.stat_migration WHERE migration_name = 'a' AND migration_id = 1",
+		},
+		{
+			"an aliased FROM clause",
+			"SELECT * FROM multigres.stat_migration AS sm",
+		},
+		{
+			"an aggregate target list",
+			"SELECT count(*) FROM multigres.stat_migration",
+		},
+		{
+			"a LIMIT clause",
+			"SELECT * FROM multigres.stat_migration LIMIT 1",
+		},
+	}
+	for _, tc := range notSupported {
+		t.Run("not supported: "+tc.name, func(t *testing.T) {
+			rpcCalled, ordinaryCalls := runCase(t, tc.sql)
+			assert.False(t, rpcCalled, "the migrator RPC must not be reached")
+			assert.Equal(t, int32(1), ordinaryCalls, "expected ordinary routing to the backend")
+		})
+	}
 }
 
 // ---------- StreamExecute plan cache tests ----------
@@ -835,4 +1010,158 @@ func TestTableGroupDDL_NeverReachesTheBackendForParseOrDescribe(t *testing.T) {
 	desc, err := exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, "SELECT 1"), nil)
 	require.NoError(t, err)
 	assert.Nil(t, desc, "forwarded to the backend mock")
+}
+
+// Migration/connection DDL is not PostgreSQL syntax either: the backend must
+// never be asked to prepare or describe it. This is the regression test for
+// the finding this guards against: a client driving the extended query
+// protocol (Parse, then Describe separately from Execute — the default for
+// most real client libraries) used to fail at Parse with a backend syntax
+// error, since Postgres has never heard of CREATE MIGRATION.
+func TestMigrationDDL_NeverReachesTheBackendForParseOrDescribe(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	state := handler.NewMultigatewayConnectionState()
+
+	for _, sql := range []string{
+		"CREATE MIGRATION m CONNECTION c FOR ALL TABLES",
+		"ALTER MIGRATION m PHASE IMPORT",
+		"DROP MIGRATION IF EXISTS m",
+		"CREATE CONNECTION c OPTIONS (host 'h')",
+		"DROP CONNECTION IF EXISTS c",
+	} {
+		require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), state, sql, nil))
+		desc, err := exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, sql), nil)
+		require.NoError(t, err)
+		require.NotNil(t, desc, "answered locally: %s", sql)
+		assert.Empty(t, desc.GetFields(), "no rows: %s", sql)
+		assert.Empty(t, desc.GetParameters(), "no parameters: %s", sql)
+	}
+	assert.Zero(t, mock.streamExecuteCalls.Load())
+
+	// SHOW CONNECTION name (explicit) returns rows, so it gets its fixed column
+	// list instead of an empty description, but still never reaches the backend.
+	sql := "SHOW CONNECTION c"
+	require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), state, sql, nil))
+	desc, err := exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, sql), nil)
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	require.Len(t, desc.GetFields(), 6)
+	assert.Equal(t, "name", desc.GetFields()[0].GetName())
+	assert.Zero(t, mock.streamExecuteCalls.Load())
+
+	// The bare plural SHOW CONNECTIONS has no dedicated grammar production (it
+	// parses as an ordinary SHOW of a GUC that doesn't exist — see
+	// engine.IsShowConnections), so Parse is not skipped for it, but Describe
+	// must still answer it the same way as the explicit form.
+	sql = "SHOW CONNECTIONS"
+	desc, err = exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, sql), nil)
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	require.Len(t, desc.GetFields(), 6)
+	assert.Equal(t, "name", desc.GetFields()[0].GetName())
+
+	// A recognized multigres.stat_migration query answers with its exact
+	// projected columns, also without reaching the backend.
+	sql = "SELECT migration_id, lag_bytes FROM multigres.stat_migration"
+	desc, err = exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, sql), nil)
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	require.Len(t, desc.GetFields(), 2)
+	assert.Equal(t, "migration_id", desc.GetFields()[0].GetName())
+	assert.Equal(t, "lag_bytes", desc.GetFields()[1].GetName())
+
+	// Anything else still goes to the backend, including SQL that only
+	// mentions the words "migration"/"connection", and an ordinary query
+	// against multigres.stat_migration outside the recognized shape (the view
+	// is real, so the backend can describe it).
+	require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), state, "SELECT migration FROM t", nil))
+	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
+	desc, err = exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, "SELECT * FROM multigres.stat_migration JOIN t ON true"), nil)
+	require.NoError(t, err)
+	assert.Nil(t, desc, "forwarded to the backend mock")
+}
+
+// TestMigrationDDL_RejectsBinaryResultFormat is the regression test for the
+// finding this guards against: MigrationDDL always synthesizes its rows as
+// text, so silently answering Describe/Execute as if a requested binary
+// format were honored would send text bytes tagged as binary. A portal
+// Describe or Execute that requested a non-text format for a row-returning
+// statement (SHOW CONNECTION[S], a recognized multigres.stat_migration query)
+// must be rejected instead; a statement Describe (no Bind yet) and a
+// non-row-returning statement (no columns to misdescribe) are unaffected.
+func TestMigrationDDL_RejectsBinaryResultFormat(t *testing.T) {
+	ctx := context.Background()
+	state := handler.NewMultigatewayConnectionState()
+
+	rowReturningSQL := []string{
+		"SHOW CONNECTIONS",
+		"SELECT migration_id FROM multigres.stat_migration",
+	}
+
+	for _, sql := range rowReturningSQL {
+		t.Run("Describe rejects a binary portal request: "+sql, func(t *testing.T) {
+			mock := &mockExec{}
+			exec := newTestExecutor(mock)
+			defer exec.planCache.Close()
+
+			_, err := exec.Describe(ctx, testConn(), state, makePortalInfoWithResultFormats(t, sql, []int32{1}), nil)
+			require.Error(t, err)
+			assert.Equal(t, "0A000", mterrors.ExtractSQLSTATE(err))
+		})
+		t.Run("Describe allows an explicit text portal request: "+sql, func(t *testing.T) {
+			mock := &mockExec{}
+			exec := newTestExecutor(mock)
+			defer exec.planCache.Close()
+
+			desc, err := exec.Describe(ctx, testConn(), state, makePortalInfoWithResultFormats(t, sql, []int32{0}), nil)
+			require.NoError(t, err)
+			assert.NotNil(t, desc)
+		})
+		t.Run("statement Describe (no Bind yet) is unaffected: "+sql, func(t *testing.T) {
+			mock := &mockExec{}
+			exec := newTestExecutor(mock)
+			defer exec.planCache.Close()
+
+			psi, err := preparedstatement.NewPreparedStatementInfo(&querypb.PreparedStatement{Query: sql})
+			require.NoError(t, err)
+			desc, err := exec.Describe(ctx, testConn(), state, nil, psi)
+			require.NoError(t, err)
+			assert.NotNil(t, desc)
+		})
+		t.Run("PortalStreamExecute rejects a binary portal request: "+sql, func(t *testing.T) {
+			mock := &mockExec{}
+			// A migration backend must be configured, or the stat_migration
+			// SELECT case never routes to MigrationDDL in the first place
+			// (that bypass itself is gated on a configured backend) — this
+			// would otherwise pass vacuously via ordinary routing instead of
+			// actually exercising the rejection.
+			exec := newMigrationConfiguredExecutor(mock)
+			defer exec.planCache.Close()
+
+			_, err := exec.PortalStreamExecute(ctx, migrationPrivilegedTestConn(), state,
+				makePortalInfoWithResultFormats(t, sql, []int32{1}), 0, false, noopCallback)
+			require.Error(t, err)
+			assert.Equal(t, "0A000", mterrors.ExtractSQLSTATE(err))
+			assert.Zero(t, mock.streamExecuteCalls.Load())
+		})
+	}
+
+	// A non-row-returning statement has no columns to misdescribe, so a
+	// binary request is moot and must not be rejected.
+	t.Run("a non-row-returning statement ignores the requested format", func(t *testing.T) {
+		mock := &mockExec{}
+		exec := newMigrationConfiguredExecutor(mock)
+		defer exec.planCache.Close()
+		sql := "CREATE MIGRATION m CONNECTION c FOR ALL TABLES"
+
+		desc, err := exec.Describe(ctx, testConn(), state, makePortalInfoWithResultFormats(t, sql, []int32{1}), nil)
+		require.NoError(t, err)
+		assert.NotNil(t, desc)
+
+		_, err = exec.PortalStreamExecute(ctx, migrationPrivilegedTestConn(), state,
+			makePortalInfoWithResultFormats(t, sql, []int32{1}), 0, false, noopCallback)
+		require.NoError(t, err)
+	})
 }

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -108,6 +109,12 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	}
 }
 
+// SetMigrationBackend wires the migration/connection DDL backend into the
+// planner so the gateway can intercept and serve those statements.
+func (e *Executor) SetMigrationBackend(b *engine.MigrationBackend) {
+	e.planner.SetMigrationBackend(b)
+}
+
 // StreamExecute executes a query and streams results back via the callback function.
 //
 // For cacheable statements (SELECT, INSERT, UPDATE, DELETE), the executor
@@ -126,8 +133,9 @@ func (e *Executor) StreamExecute(
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
 ) (*handler.ExecuteResult, error) {
+	logQueryStr := ast.LogSafeQuery(queryStr, astStmt)
 	e.logger.DebugContext(ctx, "executing query",
-		"query", queryStr,
+		"query", logQueryStr,
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
@@ -137,7 +145,7 @@ func (e *Executor) StreamExecute(
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", queryStr,
+			"query", logQueryStr,
 			"error", err)
 		return &handler.ExecuteResult{
 			PlanTime:      planTime,
@@ -158,7 +166,7 @@ func (e *Executor) StreamExecute(
 	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", queryStr,
+			"query", logQueryStr,
 			"plan", plan.String(),
 			"error", err)
 	}
@@ -240,10 +248,23 @@ func (e *Executor) resolvePlan(
 func isCacheable(stmt ast.Stmt) bool {
 	switch stmt.NodeTag() {
 	case ast.T_SelectStmt:
+		ss, ok := stmt.(*ast.SelectStmt)
+		if !ok {
+			return true
+		}
 		// Exclude SELECT INTO — temp-table variants use a different primitive
 		// (TempTableRoute), and non-temp variants are DDL-like (they create a
 		// table), so caching their plans is not useful.
-		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.LeafIntoClause() != nil {
+		if ss.LeafIntoClause() != nil {
+			return false
+		}
+		// Exclude a recognized multigres.stat_migration query: normalizing it
+		// would replace its migration_name/migration_id literal filter with a
+		// $1 bind parameter before the planner's IsStatMigrationSelect ever
+		// sees it, which that recognizer treats as unsupported and silently
+		// falls back to ordinary (gated) routing — defeating the whole point
+		// of the bypass (checking migration progress while NOT_SERVING).
+		if engine.IsStatMigrationSelect(ss) {
 			return false
 		}
 		return true
@@ -276,7 +297,7 @@ func (e *Executor) PortalStreamExecute(
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query planning failed",
-			"query", portalInfo.PreparedStatementInfo.Query, "error", err)
+			"query", ast.LogSafeQuery(portalInfo.PreparedStatementInfo.Query, portalInfo.PreparedStatementInfo.AstStmt()), "error", err)
 		return &handler.ExecuteResult{
 			PlanTime:      planTime,
 			NormalizedSQL: normalizedSQL,
@@ -295,7 +316,7 @@ func (e *Executor) PortalStreamExecute(
 	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query execution failed",
-			"query", portalInfo.PreparedStatementInfo.Query,
+			"query", ast.LogSafeQuery(portalInfo.PreparedStatementInfo.Query, portalInfo.PreparedStatementInfo.AstStmt()),
 			"plan", plan.String(), "error", err)
 	}
 	return &handler.ExecuteResult{
@@ -422,6 +443,37 @@ func (e *Executor) Describe(
 		return &query.StatementDescription{}, nil
 	}
 
+	// Migration/connection DDL and SHOW CONNECTION[S] are not PostgreSQL syntax
+	// either, for the same reason (SHOW CONNECTIONS, the bare plural, is an
+	// exception: it parses as an ordinary SHOW of a GUC that doesn't exist, so
+	// Parse succeeds on a real backend regardless — see IsShowConnections).
+	// SHOW CONNECTION[S] returns rows, so it needs its own fixed column
+	// metadata; everything else in the family (CREATE/ALTER/DROP MIGRATION,
+	// CREATE/DROP CONNECTION) takes no parameters and returns no rows, exactly
+	// like tablegroup DDL above.
+	if stmt != nil {
+		if engine.IsShowConnections(stmt) {
+			if engine.RequestsNonTextResultFormat(portalInfo) {
+				return nil, mterrors.NewFeatureNotSupported("binary result format is not supported for SHOW CONNECTION[S]")
+			}
+			return engine.ShowConnectionsDescription(), nil
+		}
+		if ast.IsMigrationDDL(stmt) {
+			return &query.StatementDescription{}, nil
+		}
+		// multigres.stat_migration is a real view, so a query against it that
+		// doesn't match the recognized pseudo-view shape falls through to
+		// ordinary routing below — the backend can describe the real view.
+		if ss, ok := stmt.(*ast.SelectStmt); ok {
+			if desc, ok := engine.StatMigrationSelectDescription(ss); ok {
+				if engine.RequestsNonTextResultFormat(portalInfo) {
+					return nil, mterrors.NewFeatureNotSupported("binary result format is not supported for multigres.stat_migration queries")
+				}
+				return desc, nil
+			}
+		}
+	}
+
 	// A statement reading a cluster view (multigres.multipoolers, ...) names a
 	// relation the backend doesn't have. Describe the statement with each view
 	// folded to its empty, typed subquery instead: same columns, no data, and
@@ -528,6 +580,12 @@ func (e *Executor) PrepareInTransaction(
 	if isTableGroupDDLText(queryStr) {
 		return nil
 	}
+	// Migration/connection DDL and SHOW CONNECTION[S] are not PostgreSQL syntax
+	// either, and never run on a backend: Execute answers them entirely at the
+	// gateway (engine.MigrationDDL), the same way tablegroup DDL does above.
+	if isMigrationDDLText(queryStr) {
+		return nil
+	}
 	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
 		Query:        queryStr,
 		ParamTypes:   paramTypes,
@@ -543,6 +601,18 @@ func isTableGroupDDLText(queryStr string) bool {
 	}
 	stmts, err := parser.ParseSQL(queryStr)
 	return err == nil && len(stmts) == 1 && ast.IsTableGroupDDL(stmts[0])
+}
+
+// isMigrationDDLText reports whether queryStr is a single migration/connection
+// DDL or SHOW CONNECTION[S] statement. The substring check skips the parse for
+// everything else.
+func isMigrationDDLText(queryStr string) bool {
+	lower := strings.ToLower(queryStr)
+	if !strings.Contains(lower, "migration") && !strings.Contains(lower, "connection") {
+		return false
+	}
+	stmts, err := parser.ParseSQL(queryStr)
+	return err == nil && len(stmts) == 1 && ast.IsMigrationDDL(stmts[0])
 }
 
 // StreamReplication routes a logical-replication connection to the PRIMARY
