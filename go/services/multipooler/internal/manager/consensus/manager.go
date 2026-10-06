@@ -25,9 +25,12 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -86,6 +89,11 @@ type ConsensusManager struct {
 	// promises and rules are immutable after construction (see Concurrency above).
 	promises *ConsensusPromises
 	rules    RuleStorer
+	// staticLeader makes this pooler its shard's leader without consensus, for a
+	// shard served by a single pooler (Minigres). Immutable after construction;
+	// see CachedConsensusStatus, StartsAsPrimary, LeaderInRecoveryAction and
+	// ResignGuard for the behavior it changes.
+	staticLeader bool
 	// broadcaster pushes an immediate health snapshot after a change the
 	// coordinator should see promptly. Immutable after construction; may be nil
 	// (then broadcasts are skipped — used by unit tests with no health stream).
@@ -150,6 +158,9 @@ type Deps struct {
 	ID           *clustermetadatapb.ID
 	Broadcaster  Broadcaster
 	LoadPromises bool
+	// StaticLeader makes this pooler its shard's leader without consensus (see
+	// ConsensusManager.staticLeader).
+	StaticLeader bool
 }
 
 // NewConsensusManager builds a ConsensusManager and the components it owns — the
@@ -165,7 +176,9 @@ func NewConsensusManager(deps Deps) (*ConsensusManager, error) {
 		}
 	}
 	rules := NewRuleStore(deps.Logger, deps.QueryService, NewSyncStandbyManager(deps.Logger, deps.QueryService, deps.ID))
-	return newConsensusManager(deps.ID, promises, rules, deps.Broadcaster), nil
+	cm := newConsensusManager(deps.ID, promises, rules, deps.Broadcaster)
+	cm.staticLeader = deps.StaticLeader
+	return cm, nil
 }
 
 // newConsensusManager wires a ConsensusManager over already-constructed
@@ -215,12 +228,108 @@ func (cm *ConsensusManager) ConsensusStatus(ctx context.Context) (*clustermetada
 // the rule store's cached position; it never queries postgres or disk. The action
 // lock must be held by the caller (it prevents concurrent term updates). Returns
 // nil if no position has been cached yet.
+//
+// For a static leader (see staticLeader) it instead returns a fixed status
+// naming this pooler leader, regardless of the rule store: there is no
+// coordinator to write a rule, and every caller of this method (routing-role
+// derivation, the postgres monitor, the consensus RPCs) must agree that this
+// pooler is the leader.
 func (cm *ConsensusManager) CachedConsensusStatus() *clustermetadatapb.ConsensusStatus {
+	if cm.staticLeader {
+		return staticLeaderStatus(cm.id)
+	}
 	pos := cm.rules.CachedPosition()
 	if pos == nil {
 		return nil
 	}
 	return cm.buildStatus(cm.promises.GetInconsistentRevocation(), pos)
+}
+
+// StartsAsPrimary reports whether postgres should be started as a primary
+// rather than a standby. True only for a static leader, which has no
+// consensus to promote it.
+func (cm *ConsensusManager) StartsAsPrimary() bool {
+	return cm.staticLeader
+}
+
+// LeaderRecoveryAction is what a pooler should do when its role is leader but
+// postgres is not out of recovery — a non-functioning primary.
+type LeaderRecoveryAction int
+
+const (
+	// LeaderRecoveryActionNone means no action: either postgres's mode could
+	// not be read this tick (static leader), or this node has already
+	// broadcast its resignation and is waiting for a coordinator (default).
+	LeaderRecoveryActionNone LeaderRecoveryAction = iota
+	// LeaderRecoveryActionResign means the caller should signal resignation so
+	// a coordinator re-elects.
+	LeaderRecoveryActionResign
+	// LeaderRecoveryActionSelfPromote means the caller should promote postgres
+	// itself: there is no coordinator to ask (static leader).
+	LeaderRecoveryActionSelfPromote
+)
+
+// LeaderInRecoveryAction decides what to do about a leader (mode) that is not
+// out of recovery.
+//
+// Default: diagnosis is a non-functioning primary. We could either re-promote
+// or resign leadership. For now we resign by broadcasting to multiorch that we
+// are not able to fulfill the leadership role at this term, at which point it
+// may choose to re-promote.
+//
+// TODO(leader-led-leader-changes): promote here instead of resigning (reuse
+// Promote's promoteStandbyToPrimary), and disambiguate resign (we lost our
+// postgres) from promote (newly elected). Embedding the leader host/port in
+// the WAL rule would also let replicas reconcile without waiting for
+// SetPrimary.
+//
+// Static leader: there is no coordinator to resign to or be re-promoted by, so
+// the caller self-promotes — but only on an observed standby (mode ==
+// pgmode.InRecovery); an unknown mode means the mode could not be read this
+// tick.
+func (cm *ConsensusManager) LeaderInRecoveryAction(mode pgmode.Mode) LeaderRecoveryAction {
+	if cm.staticLeader {
+		if mode == pgmode.InRecovery {
+			return LeaderRecoveryActionSelfPromote
+		}
+		return LeaderRecoveryActionNone
+	}
+	if cm.ResignedLeaderAtTerm() == 0 {
+		return LeaderRecoveryActionResign
+	}
+	return LeaderRecoveryActionNone
+}
+
+// ResignGuard returns an error if ResignLeadership must be refused outright,
+// before any of its RPC-level work (draining, restart) begins. A static leader
+// has no other pooler to hand writes to, and would promote itself straight
+// back, so resigning would only cause an outage.
+func (cm *ConsensusManager) ResignGuard() error {
+	if cm.staticLeader {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot resign leadership: this pooler is a static leader, and there is no other pooler to switch to")
+	}
+	return nil
+}
+
+// staticLeaderStatus returns a consensus status in which the pooler with the
+// given ID is the active leader: a decided rule names it as leader and sole
+// cohort member, with no pending proposal and no term revocation. The rule
+// number only breaks ties between poolers claiming PRIMARY, which cannot
+// happen with a single pooler, so a fixed value is enough.
+func staticLeaderStatus(id *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:      id,
+					CohortMembers: []*clustermetadatapb.ID{id},
+				},
+			},
+		},
+	}
 }
 
 // InconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres

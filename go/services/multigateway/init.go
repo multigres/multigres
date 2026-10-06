@@ -68,6 +68,7 @@ type Multigateway struct {
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
 	// slots in the replication preamble (default off, dynamic/reloadable).
 	slotBasedReplicationEnabled viperutil.Value[bool]
+	queryStreamReuse            viperutil.Value[bool]
 	// keepTransactionOnGatewayRejection, when enabled, leaves an open explicit
 	// transaction in-block after a gateway policy rejection (feature_not_supported)
 	// instead of aborting it. Off by default so clients see PostgreSQL's contract
@@ -158,9 +159,24 @@ type Multigateway struct {
 	// to all long-running goroutines (health streams, discovery, etc.)
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+
+	// singleProcessMode is set by WithSingleProcessMode: the multigateway runs
+	// in one process with the multipooler, and main performs the process-owner
+	// steps (servenv flags, config and Init, opening and closing the topology
+	// store) instead of the multigateway.
+	singleProcessMode bool
+	// topoStore returns main's topology store in single-process mode.
+	topoStore func() topoclient.Store
+	// statusPath is where the status page is served: "/" when the multigateway
+	// owns the process, under its service name when it shares the HTTP server.
+	statusPath string
 }
 
-func NewMultigateway() *Multigateway {
+func NewMultigateway(opts ...Option) *Multigateway {
+	var applied options
+	for _, opt := range opts {
+		opt(&applied)
+	}
 	reg := viperutil.NewRegistry()
 	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
@@ -247,6 +263,9 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
+		queryStreamReuse: viperutil.Configure(reg, "query-stream-reuse", viperutil.Options[bool]{
+			Default: true, FlagName: "query-stream-reuse", EnvVars: []string{"MT_QUERY_STREAM_REUSE"},
+		}),
 		keepTransactionOnGatewayRejection: viperutil.Configure(reg, "keep-transaction-on-gateway-rejection", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "keep-transaction-on-gateway-rejection",
@@ -272,11 +291,8 @@ func NewMultigateway() *Multigateway {
 			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_MS"},
 		}),
 		bufferConfig: buffer.NewConfig(reg),
-		grpcServer:   servenv.NewGrpcServer(reg),
-		senv:         servenv.NewServEnv(reg),
 		reg:          reg,
 		connConfig:   rpcclient.NewConnConfig(reg),
-		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -285,6 +301,18 @@ func NewMultigateway() *Multigateway {
 				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
+	}
+	mg.singleProcessMode = applied.single != nil
+	if mg.singleProcessMode {
+		mg.senv = applied.single.ServEnv
+		mg.grpcServer = applied.single.GrpcServer
+		mg.topoStore = applied.single.TopoStore
+		mg.statusPath = "/" + constants.ServiceMultigateway
+	} else {
+		mg.senv = servenv.NewServEnv(reg)
+		mg.grpcServer = servenv.NewGrpcServer(reg)
+		mg.topoConfig = topoclient.NewTopoConfig(reg)
+		mg.statusPath = "/"
 	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
@@ -302,6 +330,7 @@ func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 }
 
 func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Bool("query-stream-reuse", mg.queryStreamReuse.Default(), "Reuse simple-query RPC streams; false restores per-query RPCs (requires restart)")
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
@@ -322,6 +351,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
 	viperutil.BindFlags(
 		fs,
+		mg.queryStreamReuse,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
@@ -342,10 +372,44 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
+	mg.connConfig.RegisterFlags(fs)
+	if !mg.singleProcessMode {
+		mg.registerProcessFlags(fs)
+	}
+}
+
+// registerProcessFlags registers the flags of the process-level pieces the
+// multigateway owns when it runs as its own process.
+func (mg *Multigateway) registerProcessFlags(fs *pflag.FlagSet) {
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
-	mg.connConfig.RegisterFlags(fs)
 	mg.topoConfig.RegisterFlags(fs)
+}
+
+// initProcess performs the process-owner steps of Init: servenv.Init and
+// opening the topology store. In single-process mode main has done both, and
+// the store comes from main.
+func (mg *Multigateway) initProcess(serviceID, cell string) error {
+	if mg.singleProcessMode {
+		mg.ts = mg.topoStore()
+		if mg.ts == nil {
+			return errors.New("topology store is not open: main must open it before Init")
+		}
+		return nil
+	}
+	if err := mg.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+	}); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
+	var err error
+	mg.ts, err = mg.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
+	return nil
 }
 
 // Init initializes the multigateway. If any services fail to start,
@@ -359,20 +423,10 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	}
 	cell := mg.cell.Get()
 
-	if err := mg.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultigateway,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
+	if err := mg.initProcess(serviceID, cell); err != nil {
+		return err
 	}
 	logger := mg.senv.GetLogger()
-
-	var err error
-	mg.ts, err = mg.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
 
 	// This doesn't change
 	mg.serverStatus.LocalCell = mg.cell.Get()
@@ -396,14 +450,15 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	}
 
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		Ctx:           mg.shutdownCtx,
-		Source:        mg.ts,
-		LocalCell:     mg.cell.Get(),
-		Logger:        logger,
-		DialOpt:       poolerTransportCreds,
-		Buffer:        mg.buffer,
-		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
-		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
+		Ctx:                     mg.shutdownCtx,
+		Source:                  mg.ts,
+		LocalCell:               mg.cell.Get(),
+		Logger:                  logger,
+		DialOpt:                 poolerTransportCreds,
+		Buffer:                  mg.buffer,
+		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
@@ -658,7 +713,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		"pid_prefix", pidPrefix,
 	)
 
-	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
+	mg.senv.HTTPHandleFunc(mg.statusPath, mg.handleIndex)
 
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -734,6 +789,10 @@ func (mg *Multigateway) RunDefault() error {
 func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	mg.configReloaded = make(chan struct{}, 1)
 	viperutil.NotifyConfigReload(mg.reg, mg.configReloaded)
+	if mg.singleProcessMode {
+		// main loads the shared servenv's configuration.
+		return nil
+	}
 	return mg.senv.CobraPreRunE(cmd)
 }
 
@@ -795,7 +854,10 @@ func (mg *Multigateway) Shutdown() {
 	}
 
 	mg.tr.Unregister()
-	mg.ts.Close()
+	if !mg.singleProcessMode {
+		// In single-process mode main closes the store it opened.
+		mg.ts.Close()
+	}
 }
 
 // claimUnusedPrefix atomically claims a PID prefix for this gateway and

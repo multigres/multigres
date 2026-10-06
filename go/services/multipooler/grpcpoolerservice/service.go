@@ -41,24 +41,19 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
-	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 )
 
 // poolerService is the gRPC wrapper for Multipooler
 type poolerService struct {
 	multipoolerpb.UnimplementedMultipoolerServiceServer
 	pooler *poolerserver.QueryPoolerServer
-	pubsub *pubsub.Listener
 }
 
 func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
 	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.QueryPoolerServer) {
 		if grpc.CheckServiceMap("pooler", senv) {
-			srv := &poolerService{
-				pooler: p,
-				pubsub: p.PubSubListener(),
-			}
+			srv := &poolerService{pooler: p}
 			multipoolerpb.RegisterMultipoolerServiceServer(grpc.Server, srv)
 		}
 	})
@@ -1061,8 +1056,15 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 // NotificationStream keeps one ordered notification stream per gateway client
 // session. Subscription updates and notification delivery share notifCh, so
 // cross-channel notifications preserve PostgreSQL's delivery order.
+//
+// The listener is looked up per stream, not once at registration: the manager
+// replaces it on every connection reopen, and a stale one stays stopped. A
+// stream stays bound to the listener it started on; when that listener stops,
+// it closes notifCh and the stream ends, and the gateway's next subscription
+// update reconnects to the current one.
 func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerService_NotificationStreamServer) error {
-	if s.pubsub == nil {
+	listener := s.pooler.PubSubListener()
+	if listener == nil {
 		return errors.New("PubSubListener not initialized")
 	}
 
@@ -1070,7 +1072,7 @@ func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerServi
 	subscribed := make(map[string]bool)
 	defer func() {
 		for ch := range subscribed {
-			s.pubsub.Unsubscribe(ch, notifCh)
+			listener.Unsubscribe(ch, notifCh)
 		}
 	}()
 
@@ -1103,19 +1105,19 @@ func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerServi
 		case req := <-reqCh:
 			if req.GetUnsubscribeAll() {
 				for ch := range subscribed {
-					s.pubsub.Unsubscribe(ch, notifCh)
+					listener.Unsubscribe(ch, notifCh)
 					delete(subscribed, ch)
 				}
 			}
 			for _, ch := range req.GetUnsubscribeChannels() {
 				if subscribed[ch] {
-					s.pubsub.Unsubscribe(ch, notifCh)
+					listener.Unsubscribe(ch, notifCh)
 					delete(subscribed, ch)
 				}
 			}
 			for _, ch := range req.GetSubscribeChannels() {
 				if !subscribed[ch] {
-					s.pubsub.SubscribeCh(ch, notifCh)
+					listener.SubscribeCh(ch, notifCh)
 					subscribed[ch] = true
 				}
 			}

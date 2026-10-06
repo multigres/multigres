@@ -57,7 +57,7 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 	})
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, true, lb.onPoolerHealthUpdate)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

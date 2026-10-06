@@ -31,6 +31,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -923,4 +925,54 @@ func TestPause_RestartsBackupHealthPoller(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return pm.backup.Health().Snapshot().LastRefresh.After(beforeResume)
 	}, 2*time.Second, 25*time.Millisecond, "poller should refresh again after resume")
+}
+
+// TestReopenConnections_DoesNotLeakHeartbeatWriters is a regression test for
+// a leak where closeConnectionsLocked closed the ReplTracker but left it
+// registered with the StateManager. Each reopen registered a fresh tracker
+// beside the old ones, and the next writable fan-out reopened every old
+// writer, so a primary that had been through a pg_rewind loop ran one
+// heartbeat writer per reopen, all upserting the same row.
+func TestReopenConnections_DoesNotLeakHeartbeatWriters(t *testing.T) {
+	pm := newGracefulShutdownTestManager(t, nil)
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+	pm.config.HeartbeatIntervalMs = 250
+	pm.stateManager = NewStateManager(pm.logger, pm.record, selfLeaderConsensusStatus, pm.healthStreamer)
+	setPostgresMode := func(mode pgmode.Mode) {
+		t.Helper()
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-set-postgres-mode")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+		require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+			s.PostgresMode = mode
+		}))
+	}
+	setPostgresMode(pgmode.Primary)
+
+	pm.mu.Lock()
+	pm.openConnectionsLocked()
+	pm.mu.Unlock()
+	registered := len(pm.stateManager.components)
+
+	var old []*heartbeat.ReplTracker
+	for range 3 {
+		old = append(old, pm.replTracker)
+		pm.reopenConnections(t.Context())
+	}
+	t.Cleanup(func() {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		pm.closeConnectionsLocked(false /* forReopen */)
+	})
+
+	// Demote and promote, the transition the rewind loop repeats.
+	setPostgresMode(pgmode.InRecovery)
+	setPostgresMode(pgmode.Primary)
+
+	assert.Len(t, pm.stateManager.components, registered,
+		"reopening must replace the connection components, not add to them")
+	for i, rt := range old {
+		assert.False(t, rt.HeartbeatWriter().IsOpen(), "tracker %d was closed by a reopen and must stay closed", i)
+	}
+	assert.True(t, pm.replTracker.HeartbeatWriter().IsOpen(), "the current tracker must write heartbeats")
 }
