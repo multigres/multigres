@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 )
@@ -225,6 +226,87 @@ func (a *connectAdapter) ApplyCertifiedRuleChange(ctx context.Context, req *conn
 
 func (a *connectAdapter) SwitchPrimary(ctx context.Context, req *connect.Request[multiadminpb.SwitchPrimaryRequest]) (*connect.Response[multiadminpb.SwitchPrimaryResponse], error) {
 	resp, err := a.MultiadminServer.SwitchPrimary(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// CreateMigration forwards to the Multigres Migrator service.
+func (a *connectAdapter) CreateMigration(ctx context.Context, req *connect.Request[migratorpb.CreateMigrationRequest]) (*connect.Response[migratorpb.CreateMigrationResponse], error) {
+	resp, err := a.MultiadminServer.CreateMigration(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// SetMigrationDirection forwards to the Multigres Migrator service.
+func (a *connectAdapter) SetMigrationDirection(ctx context.Context, req *connect.Request[migratorpb.SetMigrationDirectionRequest]) (*connect.Response[migratorpb.SetMigrationDirectionResponse], error) {
+	resp, err := a.MultiadminServer.SetMigrationDirection(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// GetMigration forwards to the Multigres Migrator service.
+func (a *connectAdapter) GetMigration(ctx context.Context, req *connect.Request[migratorpb.GetMigrationRequest]) (*connect.Response[migratorpb.GetMigrationResponse], error) {
+	resp, err := a.MultiadminServer.GetMigration(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ListMigrations forwards to the Multigres Migrator service.
+func (a *connectAdapter) ListMigrations(ctx context.Context, req *connect.Request[migratorpb.ListMigrationsRequest]) (*connect.Response[migratorpb.ListMigrationsResponse], error) {
+	resp, err := a.MultiadminServer.ListMigrations(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// DropMigration forwards to the Multigres Migrator service.
+func (a *connectAdapter) DropMigration(ctx context.Context, req *connect.Request[migratorpb.DropMigrationRequest]) (*connect.Response[migratorpb.DropMigrationResponse], error) {
+	resp, err := a.MultiadminServer.DropMigration(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// CreateConnection forwards to the Multigres Migrator service.
+func (a *connectAdapter) CreateConnection(ctx context.Context, req *connect.Request[migratorpb.CreateConnectionRequest]) (*connect.Response[migratorpb.CreateConnectionResponse], error) {
+	resp, err := a.MultiadminServer.CreateConnection(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// GetConnection forwards to the Multigres Migrator service.
+func (a *connectAdapter) GetConnection(ctx context.Context, req *connect.Request[migratorpb.GetConnectionRequest]) (*connect.Response[migratorpb.GetConnectionResponse], error) {
+	resp, err := a.MultiadminServer.GetConnection(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ListConnections forwards to the Multigres Migrator service.
+func (a *connectAdapter) ListConnections(ctx context.Context, req *connect.Request[migratorpb.ListConnectionsRequest]) (*connect.Response[migratorpb.ListConnectionsResponse], error) {
+	resp, err := a.MultiadminServer.ListConnections(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// DropConnection forwards to the Multigres Migrator service.
+func (a *connectAdapter) DropConnection(ctx context.Context, req *connect.Request[migratorpb.DropConnectionRequest]) (*connect.Response[migratorpb.DropConnectionResponse], error) {
+	resp, err := a.MultiadminServer.DropConnection(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

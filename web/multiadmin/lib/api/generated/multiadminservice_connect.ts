@@ -19,6 +19,7 @@
 
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
+import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -354,6 +355,107 @@ export const MultiadminService = {
       name: "SwitchPrimary",
       I: SwitchPrimaryRequest,
       O: SwitchPrimaryResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * CreateMigration records a migration's configuration (no database changes).
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateMigration
+     */
+    createMigration: {
+      name: "CreateMigration",
+      I: CreateMigrationRequest,
+      O: CreateMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetMigration returns status for one migration, addressed by ref (id or name).
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetMigration
+     */
+    getMigration: {
+      name: "GetMigration",
+      I: GetMigrationRequest,
+      O: GetMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ListMigrations returns the ids of every migration.
+     *
+     * @generated from rpc multiadmin.MultiadminService.ListMigrations
+     */
+    listMigrations: {
+      name: "ListMigrations",
+      I: ListMigrationsRequest,
+      O: ListMigrationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetMigrationDirection sets the active direction: on a not-yet-started
+     * migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+     * the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetMigrationDirection
+     */
+    setMigrationDirection: {
+      name: "SetMigrationDirection",
+      I: SetMigrationDirectionRequest,
+      O: SetMigrationDirectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DropMigration tears down and removes a migration.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DropMigration
+     */
+    dropMigration: {
+      name: "DropMigration",
+      I: DropMigrationRequest,
+      O: DropMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * CreateConnection stores a named source conninfo, shard-scoped.
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateConnection
+     */
+    createConnection: {
+      name: "CreateConnection",
+      I: CreateConnectionRequest,
+      O: CreateConnectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetConnection returns one connection, addressed by ref (id or name).
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetConnection
+     */
+    getConnection: {
+      name: "GetConnection",
+      I: GetConnectionRequest,
+      O: GetConnectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ListConnections returns every stored connection in full.
+     *
+     * @generated from rpc multiadmin.MultiadminService.ListConnections
+     */
+    listConnections: {
+      name: "ListConnections",
+      I: ListConnectionsRequest,
+      O: ListConnectionsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DropConnection removes a connection.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DropConnection
+     */
+    dropConnection: {
+      name: "DropConnection",
+      I: DropConnectionRequest,
+      O: DropConnectionResponse,
       kind: MethodKind.Unary,
     },
   }

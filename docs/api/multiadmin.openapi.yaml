@@ -35,6 +35,10 @@ tags:
     name: shards
   - description: Asynchronous backup and restore jobs.
     name: jobs
+  - description: Table migration into Multigres via logical replication.
+    name: migrations
+  - description: Stored source connections for table migrations.
+    name: connections
 paths:
   /api/v1/backups:
     get:
@@ -282,6 +286,129 @@ paths:
       summary: Get a cell
       tags:
         - cells
+  /api/v1/connections:
+    get:
+      description: ListConnections returns every stored connection in full.
+      operationId: multiadmin.MultiadminService.ListConnections
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.ListConnectionsResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: List connections
+      tags:
+        - connections
+    post:
+      description: CreateConnection stores a named source conninfo, shard-scoped.
+      operationId: multiadmin.MultiadminService.CreateConnection
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/migrator.CreateConnectionRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.CreateConnectionResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create a connection
+      tags:
+        - connections
+  /api/v1/connections/{ref.id}:
+    delete:
+      description: DropConnection removes a connection.
+      operationId: multiadmin.MultiadminService.DropConnection
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+        - in: query
+          name: ref.name
+          schema:
+            title: name
+            type: string
+        - in: query
+          name: ifExists
+          schema:
+            title: if_exists
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.DropConnectionResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Drop a connection
+      tags:
+        - connections
+    get:
+      description: GetConnection returns one connection, addressed by ref (id or name).
+      operationId: multiadmin.MultiadminService.GetConnection
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+        - in: query
+          name: ref.name
+          schema:
+            title: name
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.GetConnectionResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Get a connection
+      tags:
+        - connections
   /api/v1/databases:
     get:
       description: |-
@@ -558,6 +685,240 @@ paths:
       summary: Get backup or restore job status
       tags:
         - jobs
+  /api/v1/migrations:
+    get:
+      description: ListMigrations returns the ids of every migration.
+      operationId: multiadmin.MultiadminService.ListMigrations
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.ListMigrationsResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: List migrations
+      tags:
+        - migrations
+    post:
+      description: CreateMigration records a migration's configuration (no database changes).
+      operationId: multiadmin.MultiadminService.CreateMigration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/migrator.CreateMigrationRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.CreateMigrationResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create a migration
+      tags:
+        - migrations
+  /api/v1/migrations/{ref.id}:
+    delete:
+      description: DropMigration tears down and removes a migration.
+      operationId: multiadmin.MultiadminService.DropMigration
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+        - in: query
+          name: ref.name
+          schema:
+            title: name
+            type: string
+        - description: |-
+            wait blocks until the migration reaches a completable (caught-up) state,
+             then drains and tears down. Mutually exclusive with force.
+          in: query
+          name: wait
+          schema:
+            title: wait
+            type: boolean
+        - description: wait_timeout_seconds bounds wait (0 = no timeout).
+          in: query
+          name: waitTimeoutSeconds
+          schema:
+            pattern: ^-?[0-9]+$
+            title: wait_timeout_seconds
+            type: string
+        - description: force skips the drain and tears down from any phase.
+          in: query
+          name: force
+          schema:
+            title: force
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.DropMigrationResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Drop a migration
+      tags:
+        - migrations
+    get:
+      description: GetMigration returns status for one migration, addressed by ref (id or name).
+      operationId: multiadmin.MultiadminService.GetMigration
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+        - in: query
+          name: ref.name
+          schema:
+            title: name
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.GetMigrationResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Get a migration
+      tags:
+        - migrations
+  /api/v1/migrations/{ref.id}/direction:
+    post:
+      description: |-
+        SetMigrationDirection sets the active direction: on a not-yet-started
+         migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+         the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+      operationId: multiadmin.MultiadminService.SetMigrationDirection
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                SetMigrationDirectionRequest declaratively sets the migration's active
+                 direction. Setting the current direction is a no-op. For a migration that
+                 has not yet started (still short of COPYING), direction=IMPORT runs the
+                 initial setup pipeline (validate, schema copy, publication, subscription,
+                 catch-up) — there is no separate start action, since there is nothing yet
+                 to resume. Otherwise this performs the symmetric cutover/rollback: drain
+                 the current publisher, flip direction, establish the reverse link.
+                 Requires a caught-up STREAMING state for an already-running migration.
+              properties:
+                callerRole:
+                  description: |-
+                    caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+                     client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
+                     ... PHASE): it gates the destructive DropTables step a not-yet-started
+                     IMPORT runs, so a caller who merely has database CREATE +
+                     pg_create_subscription (enough to pass the gateway's migration-DDL
+                     authorization gate) cannot name an existing target table it does not own
+                     and have it dropped via the admin pool. Left empty on the CLI/multiadmin
+                     path, which has no SQL-authenticated identity to set it from; the check
+                     is skipped in that case, unchanged from before this field existed.
+                  title: caller_role
+                  type: string
+                direction:
+                  $ref: '#/components/schemas/migrator.MigrationDirection'
+                  title: direction
+                maxLagBytes:
+                  description: |-
+                    max_lag_bytes is the readiness threshold for a cutover to EXPORT. Before
+                     quiescing the source, the switch polls the live replication lag (the bytes
+                     of source WAL the target has not yet confirmed-consumed) and proceeds only
+                     once it is at or below this many bytes, so the residual drain under the
+                     read-only barrier completes inside the gateway's failover-buffer window
+                     (queries buffered during the cutover are replayed, not refused). 0 uses
+                     the server default. Choosing it too large relative to the gateway buffer
+                     window risks the buffer overflowing mid-cutover; keeping it small enough
+                     is the operator's responsibility (not enforced here). Only meaningful for
+                     direction=EXPORT on a migration currently IMPORTING; ignored otherwise.
+                  pattern: ^[0-9]+$
+                  title: max_lag_bytes
+                  type: string
+                ref:
+                  $ref: '#/components/schemas/migrator.MigrationRef'
+                  title: ref
+                waitTimeoutSeconds:
+                  description: |-
+                    wait_timeout_seconds bounds how long the switch blocks waiting for the lag
+                     to fall to max_lag_bytes. 0 uses the server default. If the threshold is
+                     not reached within the timeout, the call fails with a precondition error
+                     and the migration stays in the IMPORT direction (no cutover, no serving
+                     change). Only meaningful alongside max_lag_bytes.
+                  pattern: ^-?[0-9]+$
+                  title: wait_timeout_seconds
+                  type: string
+              title: SetMigrationDirectionRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.SetMigrationDirectionResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Set a migration's direction
+      tags:
+        - migrations
   /api/v1/orchs:
     get:
       description: |-
@@ -2108,6 +2469,405 @@ components:
         message:
           description: A developer-facing error message.
           type: string
+      type: object
+    migrator.Connection:
+      additionalProperties: false
+      description: |-
+        Connection is a stored, named source conninfo. It is scoped to the shard
+         whose Migrator created it — its row lives only in that shard's own
+         multigres.migration_connection, so which shard it belongs to is implied by
+         which Migrator you asked, not a field on the message. Every migration
+         references one by id via Migration.connection_name. Connections are
+         immutable once created: there is no in-place update, only create/drop —
+         so a migration's resolved source never changes underneath it except by
+         pointing it at a different, newly-created connection.
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/google.protobuf.Timestamp'
+          title: created_at
+        dsn:
+          description: |-
+            dsn is a full libpq conninfo (may include TLS options). Returned as-is on
+             read paths, which may expose a password — same trust model as
+             Migration.connection_name's resolved source; see that field's doc comment.
+          title: dsn
+          type: string
+        id:
+          pattern: ^-?[0-9]+$
+          title: id
+          type: string
+        name:
+          description: |-
+            name is the unique, required identifier used to reference this connection
+             from Migration.connection_name.
+          title: name
+          type: string
+      title: Connection
+      type: object
+    migrator.CreateConnectionRequest:
+      additionalProperties: false
+      properties:
+        connection:
+          $ref: '#/components/schemas/migrator.Connection'
+          title: connection
+      title: CreateConnectionRequest
+      type: object
+    migrator.CreateConnectionResponse:
+      additionalProperties: false
+      properties:
+        connection:
+          $ref: '#/components/schemas/migrator.Connection'
+          title: connection
+      title: CreateConnectionResponse
+      type: object
+    migrator.CreateMigrationRequest:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        options:
+          $ref: '#/components/schemas/migrator.MigrationOptions'
+          title: options
+        quiesceRoles:
+          description: |-
+            quiesce_roles are optional application role names on the source whose CONNECT
+             privilege is revoked during the ACTIVATE cutover (and restored on a deactivate
+             rollback or teardown), so they cannot reconnect and write to the source once it
+             becomes a subscriber. The hard quiesce always freezes and terminates existing
+             client backends; naming roles here additionally fences reconnects that would
+             otherwise diverge. Each role must exist on the source and must not be the DSN's
+             own role (validated at create time). Empty leaves the terminate + read-only
+             barrier as the only guard.
+          items:
+            type: string
+          title: quiesce_roles
+          type: array
+      title: CreateMigrationRequest
+      type: object
+    migrator.CreateMigrationResponse:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        status:
+          $ref: '#/components/schemas/migrator.MigrationStatus'
+          title: status
+      title: CreateMigrationResponse
+      type: object
+    migrator.DropConnectionResponse:
+      additionalProperties: false
+      title: DropConnectionResponse
+      type: object
+    migrator.DropMigrationResponse:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        status:
+          $ref: '#/components/schemas/migrator.MigrationStatus'
+          title: status
+      title: DropMigrationResponse
+      type: object
+    migrator.GetConnectionResponse:
+      additionalProperties: false
+      properties:
+        connection:
+          $ref: '#/components/schemas/migrator.Connection'
+          title: connection
+      title: GetConnectionResponse
+      type: object
+    migrator.GetMigrationResponse:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        status:
+          $ref: '#/components/schemas/migrator.MigrationStatus'
+          title: status
+      title: GetMigrationResponse
+      type: object
+    migrator.ListConnectionsResponse:
+      additionalProperties: false
+      properties:
+        connections:
+          items:
+            $ref: '#/components/schemas/migrator.Connection'
+          title: connections
+          type: array
+      title: ListConnectionsResponse
+      type: object
+    migrator.ListMigrationsResponse:
+      additionalProperties: false
+      properties:
+        ids:
+          items:
+            pattern: ^-?[0-9]+$
+            type: string
+          title: ids
+          type: array
+      title: ListMigrationsResponse
+      type: object
+    migrator.MigrationDirection:
+      description: MigrationDirection is which side is currently the publisher.
+      enum:
+        - MIGRATION_DIRECTION_UNSPECIFIED
+        - MIGRATION_DIRECTION_IMPORT
+        - MIGRATION_DIRECTION_EXPORT
+      title: MigrationDirection
+      type: string
+    migrator.MigrationOptions:
+      additionalProperties: false
+      properties:
+        skipCopyData:
+          description: |-
+            skip_copy_data skips the initial COPY at subscription setup (the data is
+             assumed to be seeded out-of-band). false (the default) performs the
+             initial COPY.
+          title: skip_copy_data
+          type: boolean
+        skipSchemaCopy:
+          description: skip_schema_copy skips the pg_dump --schema-only step (target schema exists).
+          title: skip_schema_copy
+          type: boolean
+      title: MigrationOptions
+      type: object
+    migrator.MigrationPhase:
+      description: MigrationPhase is the lifecycle phase of a migration workflow.
+      enum:
+        - MIGRATION_PHASE_UNSPECIFIED
+        - MIGRATION_PHASE_CREATED
+        - MIGRATION_PHASE_VALIDATING
+        - MIGRATION_PHASE_SCHEMA_COPY
+        - MIGRATION_PHASE_CREATE_PUBLICATION
+        - MIGRATION_PHASE_COPYING
+        - MIGRATION_PHASE_DROPPED
+        - MIGRATION_PHASE_FAILED
+        - MIGRATION_PHASE_COMPLETING
+        - MIGRATION_PHASE_IMPORTING
+        - MIGRATION_PHASE_EXPORTING
+        - MIGRATION_PHASE_SWITCHING_TO_IMPORT
+        - MIGRATION_PHASE_SWITCHING_TO_EXPORT
+      title: MigrationPhase
+      type: string
+    migrator.MigrationRecord:
+      additionalProperties: false
+      description: |-
+        Migration is the static, immutable configuration of a migration workflow —
+         everything a caller supplies in CreateMigrationRequest. Live state (phase,
+         progress, errors) is reported separately by MigrationStatus.
+      properties:
+        connectionName:
+          description: |-
+            connection_name is the name of the stored Connection this migration reads
+             its source DSN from, live, for as long as the migration exists (see
+             Connection) — required, every migration has one. This is a standing
+             reference, not a one-time copy: altering the named connection takes
+             effect on the migration's very next action, not just at create time.
+          title: connection_name
+          type: string
+        id:
+          pattern: ^-?[0-9]+$
+          title: id
+          type: string
+        name:
+          description: |-
+            name is the optional, human-friendly identifier, unique per target database.
+             Empty for migrations created without one. The generated id remains the stable
+             internal key.
+          title: name
+          type: string
+        objects:
+          $ref: '#/components/schemas/migrator.SelectionObject'
+          title: objects
+        sequenceMargin:
+          description: |-
+            sequence_margin is added past each sequence's max at a direction switch.
+             Set at create time; not currently changeable afterward.
+          pattern: ^-?[0-9]+$
+          title: sequence_margin
+          type: string
+        target:
+          $ref: '#/components/schemas/clustermetadata.ShardKey'
+          description: |-
+            target identifies the destination shard (database, table_group, shard).
+             Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+             same across the topology and routing layers (see query.Target, which
+             reuses it for the same reason) — a database can have multiple
+             tablegroups, each with its own shard namespace, so database+shard alone
+             do not uniquely identify a shard.
+          title: target
+      title: MigrationRecord
+      type: object
+    migrator.MigrationRef:
+      description: 'MigrationRef addresses one migration: by id, or by its unique name.'
+      oneOf:
+        - properties:
+            id:
+              pattern: ^-?[0-9]+$
+              title: id
+              type: string
+          required:
+            - id
+          title: id
+          type: object
+        - properties:
+            name:
+              title: name
+              type: string
+          required:
+            - name
+          title: name
+          type: object
+        - properties:
+            id: false
+            name: false
+      title: MigrationRef
+      type: object
+      unevaluatedProperties: false
+    migrator.MigrationStatus:
+      additionalProperties: false
+      description: |-
+        MigrationStatus is the live, observed state of a migration workflow:
+         everything that changes after creation. Every RPC that hands back a
+         migration returns both it and the migration's static Migration.
+      properties:
+        activeDirection:
+          $ref: '#/components/schemas/migrator.MigrationDirection'
+          description: active_direction is which side is currently the publisher.
+          title: active_direction
+        caughtUp:
+          title: caught_up
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/google.protobuf.Timestamp'
+          title: created_at
+        id:
+          pattern: ^-?[0-9]+$
+          title: id
+          type: string
+        lagBytes:
+          description: |-
+            lag_bytes / lag_seconds are the live replication lag measured on the current
+             publisher (the external source in IMPORT, the Multigres target in EXPORT):
+             lag_bytes = pg_current_wal_lsn() - confirmed_flush_lsn, lag_seconds = the
+             walsender's replay_lag. Both are 0 when the migration is not streaming or the
+             lag cannot be read. lag_bytes is the same measure
+             SetMigrationDirectionRequest.max_lag_bytes gates on.
+          pattern: ^[0-9]+$
+          title: lag_bytes
+          type: string
+        lagSeconds:
+          format: double
+          title: lag_seconds
+          type: number
+        lastError:
+          description: last_error is the failure reason, set when phase is FAILED.
+          title: last_error
+          type: string
+        phase:
+          $ref: '#/components/schemas/migrator.MigrationPhase'
+          title: phase
+        publicationName:
+          title: publication_name
+          type: string
+        readyRelations:
+          pattern: ^-?[0-9]+$
+          title: ready_relations
+          type: string
+        streamingSince:
+          $ref: '#/components/schemas/google.protobuf.Timestamp'
+          description: streaming_since is set when the migration first reaches STREAMING.
+          title: streaming_since
+        subscriptionName:
+          title: subscription_name
+          type: string
+        totalRelations:
+          description: total_relations / ready_relations report initial-copy progress (srsubstate).
+          pattern: ^-?[0-9]+$
+          title: total_relations
+          type: string
+      title: MigrationStatus
+      type: object
+    migrator.SchemaSpec:
+      additionalProperties: false
+      description: |-
+        SchemaSpec selects tables in a schema rather than tables and matches
+         FOR TABLES IN SCHEMA name [, ...] construction.
+      properties:
+        schemata:
+          items:
+            type: string
+          title: schemata
+          type: array
+      title: SchemaSpec
+      type: object
+    migrator.SelectionObject:
+      description: |-
+        SelectionObject is one entry in a migration's table selection: either a table
+         (optionally with per-table clauses, see TableSpec) or a whole schema. Schema
+         selection is a SNAPSHOT of the tables owned by the source role in that schema
+         at create time — tables added to the schema later are NOT auto-included
+         (native dynamic FOR TABLES IN SCHEMA would require superuser on the source).
+      oneOf:
+        - properties:
+            all:
+              title: all
+              type: boolean
+          required:
+            - all
+          title: all
+          type: object
+        - properties:
+            schema:
+              $ref: '#/components/schemas/migrator.SchemaSpec'
+              title: schema
+          required:
+            - schema
+          title: schema
+          type: object
+        - properties:
+            table:
+              $ref: '#/components/schemas/migrator.TableSpec'
+              title: table
+          required:
+            - table
+          title: table
+          type: object
+        - properties:
+            all: false
+            schema: false
+            table: false
+      title: SelectionObject
+      type: object
+      unevaluatedProperties: false
+    migrator.SetMigrationDirectionResponse:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        status:
+          $ref: '#/components/schemas/migrator.MigrationStatus'
+          title: status
+      title: SetMigrationDirectionResponse
+      type: object
+    migrator.TableSpec:
+      additionalProperties: false
+      description: |-
+        TableSpec selects tables for a migration, mirroring one CREATE PUBLICATION
+         "FOR TABLE" entry. qualified_names are the (optionally schema-qualified)
+         table names ("schema.table").
+      properties:
+        qualifiedNames:
+          items:
+            type: string
+          title: qualified_names
+          type: array
+      title: TableSpec
       type: object
     multiadmin.ApplyCertifiedRuleChangeResponse:
       additionalProperties: false
