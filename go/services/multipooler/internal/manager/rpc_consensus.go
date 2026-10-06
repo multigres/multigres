@@ -168,6 +168,10 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
 	// drives the election. Best-effort: if this fails the caller can still poll
 	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
+	//
+	// TODO: publish after the restart in step 5, even if it fails, as the doc
+	// comment says. Publishing first lets Recruit disconnect standbys before
+	// the shutdown checkpoint WAL reaches them, risking a pg_rewind on rejoin.
 	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
 		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
 			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
