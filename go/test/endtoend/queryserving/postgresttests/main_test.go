@@ -18,6 +18,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
@@ -27,4 +29,21 @@ import (
 // while etcd/run_in_test.sh still resolve from the repo bin.
 func TestMain(m *testing.M) {
 	os.Exit(shardsetup.RunTestMain(m)) //nolint:forbidigo // TestMain may call os.Exit
+}
+
+// newPostgRESTCluster starts a cluster for one PostgREST run, on the topology
+// chosen by MULTIGRES_E2E_TOPOLOGY: a Multigres shard (two poolers and a
+// gateway) or a single Minigres process. Pooled capacity stays under the
+// generated max_connections=60 ceiling.
+func newPostgRESTCluster(t *testing.T) shardsetup.Cluster {
+	t.Helper()
+	const capacity = "--connpool-global-capacity=50"
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t, minigressetup.WithExtraArgs(capacity))
+	}
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby
+		shardsetup.WithMultigateway(),
+		shardsetup.WithMultipoolerExtraArgs(capacity),
+	)
 }

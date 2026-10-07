@@ -39,7 +39,7 @@ func TestListenNotify(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 

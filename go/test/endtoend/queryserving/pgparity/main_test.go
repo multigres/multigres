@@ -18,11 +18,16 @@ import (
 	"os"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // setupManager manages the shared test setup for pgparity runs.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t, minigressetup.WithLogLevel("warn"))
+	}
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PG clients
@@ -41,7 +46,7 @@ func TestMain(m *testing.M) {
 }
 
 // getSharedSetup returns the shared setup for tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getSharedSetup(t *testing.T) shardsetup.Cluster {
 	t.Helper()
 	return setupManager.Get(t)
 }

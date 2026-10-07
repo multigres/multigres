@@ -87,7 +87,7 @@ func TestNoticeFormat_TableInheritanceColumnMerge(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, collector := connectWithNotices(ctx, t, connStr)
@@ -141,7 +141,7 @@ func TestNoticeFormat_RaiseNotice(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("single_raise_notice", func(t *testing.T) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
@@ -215,7 +215,7 @@ func TestNoticeFormat_DetailAndHint(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, collector := connectWithNotices(ctx, t, connStr)
@@ -261,7 +261,7 @@ func TestNoticeFormat_PLpgSQLWhereField(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			conn, collector := connectWithNotices(ctx, t, connStr)

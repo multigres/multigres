@@ -12,82 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package shardsetup provides shared test infrastructure for end-to-end tests of a single shard.
-//
-// # Overview
-//
-// This package provides a ShardSetup struct that manages the infrastructure for testing
-// a PostgreSQL shard: multipoolers (pgctld + multipooler pairs) and optionally multiorch instances.
-//
-// # Usage
-//
-// To use this package, follow these steps:
-//
-// 1. Create a main_test.go file in your test package with TestMain:
-//
-//	package yourpackage
-//
-//	import (
-//		"os"
-//		"testing"
-//
-//		"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-//	)
-//
-//	var sharedSetup *shardsetup.ShardSetup
-//
-//	func TestMain(m *testing.M) {
-//		exitCode := shardsetup.RunTestMain(m, func(t *testing.T) *shardsetup.ShardSetup {
-//			sharedSetup = shardsetup.New(t,
-//				shardsetup.WithMultipoolerCount(2), // primary + standby
-//				shardsetup.WithMultiorchCount(0),   // no multiorch for basic tests
-//			)
-//			return sharedSetup
-//		})
-//		os.Exit(exitCode)
-//	}
-//
-// 2. In your tests, use the shared setup:
-//
-//	func TestSomething(t *testing.T) {
-//		sharedSetup.SetupTest(t) // Validates clean state and registers cleanup
-//
-//		// Your test code here
-//		client := sharedSetup.NewPrimaryClient(t)
-//		defer client.Close()
-//		// ...
-//	}
-//
-// # Naming Convention
-//
-// Multipooler instances are named by index:
-//   - Index 0: "primary"
-//   - Index 1: "standby"
-//   - Index 2+: "standby2", "standby3", etc.
-//
-// Access instances by name:
-//
-//	setup.GetMultipoolerInstance("primary")
-//	setup.GetMultipoolerInstance("standby")
-//	setup.PrimaryMultipooler() // shorthand for GetMultipooler("primary")
-//	setup.StandbyMultipooler() // shorthand for GetMultipooler("standby")
-//
-// # Test Isolation
-//
-// The SetupTest method provides test isolation:
-//   - Validates all nodes are in expected clean state before test
-//   - Registers cleanup handler to reset state after test
-//   - Clean state means: terms=1, types=PRIMARY/REPLICA, GUCs reset, WAL replay active
-//
-// # Replication
-//
-// By default, standbys are created in recovery mode but NOT actively replicating.
-// To configure replication during a test:
-//
-//	setup.ConfigureReplication(t, "standby")
-//
-// This allows tests to set up replication from scratch if needed.
-package shardsetup
+// Package clustersetup holds the end-to-end test harness pieces shared by the
+// Multigres topology (shardsetup) and the Minigres topology (minigressetup):
+// process management, etcd and topology records, clients, the Cluster interface
+// that query-serving tests use, and the MULTIGRES_E2E_TOPOLOGY switch.
+package clustersetup
 
 import (
 	"context"
@@ -127,10 +56,6 @@ func GetPostgresDSN(host string, port int, args ...string) string {
 		host, port, constants.DefaultPostgresUser, TestPostgresPassword, strings.Join(args, " "))
 }
 
-// SetupFunc is a function that creates a ShardSetup for testing.
-// It receives a testing.T that can be used for logging during setup.
-type SetupFunc func(t *testing.T) *ShardSetup
-
 // RunTestMain runs the test suite with proper environment setup.
 // It handles:
 //   - Setting up PATH for binaries
@@ -144,7 +69,7 @@ type SetupFunc func(t *testing.T) *ShardSetup
 // Example usage in main_test.go:
 //
 //	func TestMain(m *testing.M) {
-//		exitCode := shardsetup.RunTestMain(m)
+//		exitCode := clustersetup.RunTestMain(m)
 //		if exitCode != 0 {
 //			setupManager.DumpLogs()
 //		}
@@ -201,26 +126,27 @@ func RunTestMain(m *testing.M) int {
 	return exitCode
 }
 
-// SharedSetupManager manages a shared ShardSetup across tests.
-// Use this when you want to share setup between tests using sync.Once pattern.
-type SharedSetupManager struct {
-	setup       *ShardSetup
-	setupFunc   SetupFunc
+// SharedSetupManager manages a cluster shared by the tests of a package. The
+// cluster is created on first use and cleaned up from TestMain. C is the
+// cluster type: a Multigres shard or a Minigres instance.
+type SharedSetupManager[C Cluster] struct {
+	setup       C
+	setupFunc   func(t *testing.T) C
 	setupDone   bool
 	setupErr    error
 	testsFailed bool
 }
 
-// NewSharedSetupManager creates a new SharedSetupManager.
-func NewSharedSetupManager(setupFunc SetupFunc) *SharedSetupManager {
-	return &SharedSetupManager{
+// NewSharedSetupManager creates a SharedSetupManager that builds its cluster
+// with setupFunc on first use.
+func NewSharedSetupManager[C Cluster](setupFunc func(t *testing.T) C) *SharedSetupManager[C] {
+	return &SharedSetupManager[C]{
 		setupFunc: setupFunc,
 	}
 }
 
-// Get returns the shared setup, creating it if necessary.
-// This is safe to call from multiple tests - the setup is created once.
-func (m *SharedSetupManager) Get(t *testing.T) *ShardSetup {
+// Get returns the shared cluster, creating it on first use.
+func (m *SharedSetupManager[C]) Get(t *testing.T) C {
 	t.Helper()
 
 	if m.setupErr != nil {
@@ -235,22 +161,21 @@ func (m *SharedSetupManager) Get(t *testing.T) *ShardSetup {
 	return m.setup
 }
 
-// Cleanup cleans up the shared setup.
-// Call this from TestMain after tests complete.
-// Only deletes temp directory if tests passed (DumpLogs was not called).
-func (m *SharedSetupManager) Cleanup() {
-	if m.setup != nil {
+// Cleanup cleans up the shared cluster. Call it from TestMain after the tests.
+// The temporary directory is deleted only if the tests passed (DumpLogs was not
+// called).
+func (m *SharedSetupManager[C]) Cleanup() {
+	if m.setupDone {
 		m.setup.Cleanup(m.testsFailed)
 	}
 }
 
-// DumpLogs marks tests as failed and prints log location.
-// Call this from TestMain on test failure (before cleanup).
-// Logs will be kept on disk and their location printed.
-// Set TEST_PRINT_LOGS env var to also print log contents to stdout.
-func (m *SharedSetupManager) DumpLogs() {
+// DumpLogs marks the tests as failed and prints the log location. Call it from
+// TestMain on failure, before Cleanup. Set TEST_PRINT_LOGS to also print the
+// log contents.
+func (m *SharedSetupManager[C]) DumpLogs() {
 	m.testsFailed = true
-	if m.setup != nil {
+	if m.setupDone {
 		m.setup.DumpServiceLogs()
 	}
 }

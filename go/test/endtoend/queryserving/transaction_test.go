@@ -122,7 +122,7 @@ func TestTransactionScenarios(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			t.Run("MultiStatement", func(t *testing.T) {
 				runTransactionTests(t, target.Port, multiStatementTestCases())

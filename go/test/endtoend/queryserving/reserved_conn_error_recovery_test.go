@@ -43,7 +43,7 @@ func TestReservedConnRecoversFromStatementError(t *testing.T) {
 	setup := getSharedSetup(t)
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connect := func(t *testing.T) *pgx.Conn {
 				dsn := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")

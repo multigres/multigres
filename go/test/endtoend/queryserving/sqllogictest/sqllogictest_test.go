@@ -204,7 +204,7 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	mgTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "127.0.0.1",
-		Port: setup.MultigatewayPgPort,
+		Port: setup.ClientPort(),
 		User: shardsetup.DefaultTestUser,
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
@@ -231,11 +231,10 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	if !regressionMode {
 		pgResetter = suiteutil.NewSchemaResetterWithCleanup(t, pgTarget)
 	}
-	primary := setup.GetPrimary(t)
 	mgResetTarget := suiteutil.Target{
 		Name: "multigateway-pg-direct",
 		Host: "127.0.0.1",
-		Port: primary.Pgctld.PgPort,
+		Port: setup.PostgresPort(t),
 		User: pgconstants.DefaultPostgresUser,
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",

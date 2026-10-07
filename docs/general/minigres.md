@@ -154,6 +154,40 @@ and consensus would have to keep running after every restart.
   durability policy: with `AT_LEAST_2`, the rule would make
   `synchronous_standby_names` wait for a standby that cannot exist.
 
+## Testing
+
+The end-to-end harness has a Minigres topology (`go/test/endtoend/minigressetup`)
+that starts etcd, the topology records, one pgctld and one `minigres`, and waits
+until the pooler has bootstrapped, promoted itself and serves a write. The
+`queryserving` tests run against it with the topology switch:
+
+```bash
+MULTIGRES_E2E_TOPOLOGY=minigres go test ./go/test/endtoend/queryserving/
+```
+
+The same tests run against a Multigres shard without the switch. Tests that need
+something Minigres doesn't have skip themselves under Minigres, with the reason
+in the skip message (`clustersetup.RequireMultigresTopology`):
+
+| Tests                                                                                                     | File                              | Why they need Multigres                                          |
+| --------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------- |
+| `TestReplicaReads_*`                                                                                      | `replica_reads_test.go`           | The replica-reads port routes to replicas, and Minigres has none |
+| `TestMultigateway_LogicalReplicationSlotFailoverAdmission`                                                | `replication_slot_test.go`        | Slot-based replication to replicas                               |
+| `TestBufferPlannedFailover`, `TestBufferMultipleFailovers`, `TestBufferTransactionsAndPreparedStatements` | `buffer_test.go`                  | Multiorch fails over to a standby while the gateway buffers      |
+| `TestTransactionAbortedOnFailoverGraceExpiry`                                                             | `transaction_failover_test.go`    | Multiorch fails over to a standby                                |
+| `TestUnloggedTablesAfterFailover`                                                                         | `unlogged_test.go`                | Multiorch fails over to a standby                                |
+| `TestMultigateway_PostgresCrashRecovery`                                                                  | `postgres_crash_recovery_test.go` | Multiorch elects a new primary after PostgreSQL stops            |
+| `TestGateway_EvictsStrandedPrimaryOnStaleHealthStream`                                                    | `stale_primary_eviction_test.go`  | Another pooler takes over a stranded primary                     |
+| `TestMultigateway_QueryCancel_ForwardedOverGRPCTLS`                                                       | `query_cancel_test.go`            | Cancel forwarding between two gateways                           |
+
+Everything else in `queryserving` runs unchanged on Minigres, including the
+TLS, authentication, session, transaction, COPY and statement-timeout tests.
+
+In CI, `queryserving` and `queryserving/pgparity` run on both topologies on
+every pull request. The pgproto, sqllogictest and PostgREST suites run on both
+topologies when their pull request label is set; pgproto and sqllogictest also
+run daily.
+
 ## Known limitations
 
 - Minigres is started by hand; there is no CLI or provisioner support.

@@ -70,16 +70,12 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping")
 	}
 
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
-		shardsetup.WithMultigateway(),
-		shardsetup.WithMultipoolerExtraArgs(reservedStalePoolCapacity, reservedStaleReservedRatio, reservedStaleRebalanceFast),
-	)
+	setup, cleanup := newIsolatedCluster(t, reservedStalePoolCapacity, reservedStaleReservedRatio, reservedStaleRebalanceFast)
 	defer cleanup()
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	// Settle the user's pool (both sub-pools) down to a single backend each,
 	// so the two client connections' reservations below are forced to share
@@ -119,7 +115,7 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 
 	// Client A: creates the table, then reserves a backend for an explicit
 	// transaction and warms the canonical prepared statement on it.
-	connA := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	connA := connectLowLevelToPort(t, ctx, setup.ClientPort())
 	defer connA.Close()
 
 	_, err = connA.Query(ctx, "DROP TABLE IF EXISTS restest")
@@ -132,7 +128,7 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 	// function's own defers (including shardsetup's cluster teardown below),
 	// so a t.Cleanup here would try to connect after the cluster is gone.
 	defer func() {
-		c := connectLowLevelToPort(t, context.Background(), setup.MultigatewayPgPort)
+		c := connectLowLevelToPort(t, context.Background(), setup.ClientPort())
 		defer c.Close()
 		_, _ = c.Query(context.Background(), "DROP TABLE IF EXISTS restest")
 	}()
@@ -160,7 +156,7 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 	// client A used — the one with a stale PREPARE cached from before the
 	// DDL. Its fresh Parse forces a re-Parse of that backend statement, so the
 	// Execute returns the current post-DDL shape rather than the stale one.
-	connB := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	connB := connectLowLevelToPort(t, ctx, setup.ClientPort())
 	defer connB.Close()
 
 	_, err = connB.Query(ctx, "BEGIN")
