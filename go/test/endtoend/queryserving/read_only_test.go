@@ -131,8 +131,16 @@ func TestMultigateway_ReadOnlyMode(t *testing.T) {
 		assert.Equal(t, "25006", sqlState(err))
 		_, err = conn.Exec(ctx, "ROLLBACK")
 		require.NoError(t, err)
+		// Keeping the transaction read-only is allowed. Inside a transaction
+		// block only: in autocommit, postgres records transaction_read_only as
+		// session-source state that the gateway's pass-through does not track,
+		// and the session scrubber would replace the backend for it.
+		_, err = conn.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
 		_, err = conn.Exec(ctx, "SET transaction_read_only = on")
-		require.NoError(t, err, "keeping the session read-only is allowed")
+		require.NoError(t, err, "keeping the transaction read-only is allowed")
+		_, err = conn.Exec(ctx, "ROLLBACK")
+		require.NoError(t, err)
 	})
 
 	t.Run("force terminates open transactions", func(t *testing.T) {
