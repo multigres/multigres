@@ -486,6 +486,15 @@ func (c *Conn) UnsafeConnection() bool {
 	return c.unsafeConnection
 }
 
+// CanCreateMigration reports whether the authenticated role could itself
+// perform the logical-replication setup a migration drives (see
+// Credentials.CanCreateMigration). Trust-auth connections (test-only) have no
+// cached credentials and fail closed to false, matching the rest of the
+// codebase's fail-closed handling of an unverifiable privilege check.
+func (c *Conn) CanCreateMigration() bool {
+	return c.credentials != nil && c.credentials.CanCreateMigration
+}
+
 // LatchUnsafeConnection turns unsafe connection on for this connection. It is a
 // one-way latch (never turned off). Idempotent. Called from the connect-time
 // option handling and the `SET multigres.unsafe_connection` primitive.

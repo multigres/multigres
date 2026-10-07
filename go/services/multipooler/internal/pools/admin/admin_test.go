@@ -248,18 +248,19 @@ func TestConn_ResetAllSettings_Noop(t *testing.T) {
 // fake PG. Kept once so updates to the SQL only need to land in one place.
 const getRolPasswordQueryPattern = `SELECT rolpassword, rolcanlogin, ` +
 	`\(rolvaliduntil IS NULL OR rolvaliduntil > now\(\)\) AS password_valid, ` +
-	`rolreplication ` +
+	`rolreplication, rolsuper OR \(has_database_privilege\(rolname, current_database\(\), 'CREATE'\) ` +
+	`AND pg_has_role\(rolname, 'pg_create_subscription', 'MEMBER'\)\) AS can_create_migration ` +
 	`FROM pg_catalog\.pg_authid WHERE rolname = '%s' LIMIT 1`
 
-// rolpassword / rolcanlogin / password_valid / rolreplication row shape
-// returned by pg_authid in the updated query. Helpers below wrap MakeResult
-// to keep tests readable.
-func authRow(pw any, canLogin, pwValid, rolReplication string) [][]any {
-	return [][]any{{pw, canLogin, pwValid, rolReplication}}
+// rolpassword / rolcanlogin / password_valid / rolreplication / can_create_migration
+// row shape returned by pg_authid in the updated query. Helpers below wrap
+// MakeResult to keep tests readable.
+func authRow(pw any, canLogin, pwValid, rolReplication, canCreateMigration string) [][]any {
+	return [][]any{{pw, canLogin, pwValid, rolReplication, canCreateMigration}}
 }
 
 // authCols is the column header set returned by the GetRolAuthInfo query.
-var authCols = []string{"rolpassword", "rolcanlogin", "password_valid", "rolreplication"}
+var authCols = []string{"rolpassword", "rolcanlogin", "password_valid", "rolreplication", "can_create_migration"}
 
 func TestConn_GetRolAuthInfo(t *testing.T) {
 	server := fakepgserver.New(t)
@@ -269,8 +270,9 @@ func TestConn_GetRolAuthInfo(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "testuser"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "f"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -299,8 +301,9 @@ func TestConn_GetRolAuthInfo_ReplicationRole(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "repl_user"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "t"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "t", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -316,6 +319,38 @@ func TestConn_GetRolAuthInfo_ReplicationRole(t *testing.T) {
 	server.VerifyAllPatternsUsedOrFail()
 }
 
+// TestConn_GetRolAuthInfo_CanCreateMigration is the regression test for the
+// HIGH finding this query addition guards against: the gateway must be able
+// to tell whether an authenticated role could itself perform the
+// logical-replication setup a migration drives (CREATE PUBLICATION/CREATE
+// SUBSCRIPTION), so migration/connection DDL isn't reachable by an arbitrary
+// client with no such capability.
+func TestConn_GetRolAuthInfo_CanCreateMigration(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQueryPattern(
+		fmt.Sprintf(getRolPasswordQueryPattern, "migrator_user"),
+		fakepgserver.MakeResult(
+			authCols,
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "f", "t"),
+		),
+	)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	pooled, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	info, err := pooled.Conn.GetRolAuthInfo(context.Background(), "migrator_user")
+	require.NoError(t, err)
+	assert.True(t, info.CanCreateMigration)
+
+	server.VerifyAllPatternsUsedOrFail()
+}
+
 func TestConn_GetRolAuthInfo_UserNotFound(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -325,7 +360,8 @@ func TestConn_GetRolAuthInfo_UserNotFound(t *testing.T) {
 		fakepgserver.MakeResult(
 			authCols,
 			[][]any{}, // No rows
-		))
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -351,8 +387,9 @@ func TestConn_GetRolAuthInfo_NullPassword(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "nopasswd"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow(nil, "t", "t", "f"),
-		))
+			authRow(nil, "t", "t", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -380,8 +417,9 @@ func TestConn_GetRolAuthInfo_LoginDisabled(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "nologin_user"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "t", "f"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "t", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -407,8 +445,9 @@ func TestConn_GetRolAuthInfo_PasswordExpired(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "expired_user"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "f", "f"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "f", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -436,8 +475,9 @@ func TestConn_GetRolAuthInfo_LoginDisabledBeatsPasswordExpired(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "double_disabled"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "f", "f"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "f", "f", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -464,8 +504,9 @@ func TestConn_GetRolAuthInfo_SQLInjection(t *testing.T) {
 		fmt.Sprintf(getRolPasswordQueryPattern, "user''s"),
 		fakepgserver.MakeResult(
 			authCols,
-			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "f"),
-		))
+			authRow("SCRAM-SHA-256$4096:salt$hash", "t", "t", "f", "f"),
+		),
+	)
 
 	pool := newTestPool(t, server)
 	defer pool.Close()

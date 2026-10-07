@@ -1213,8 +1213,19 @@ type GetAuthCredentialsResponse struct {
 	// replication=true / replication=database startup parameter. The gateway
 	// enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
 	IsReplicationRole bool `protobuf:"varint,2,opt,name=is_replication_role,json=isReplicationRole,proto3" json:"is_replication_role,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// can_create_migration mirrors whether this role could itself perform the
+	// logical-replication setup a migration drives: rolsuper, or (CREATE
+	// privilege on the connected database AND membership in the
+	// pg_create_subscription predefined role) — the same two checks PostgreSQL
+	// itself enforces for CREATE PUBLICATION (database CREATE + table
+	// ownership, not re-checked here since it's per-table and dynamic) and
+	// CREATE SUBSCRIPTION (superuser, or pg_create_subscription + database
+	// CREATE, PG16+). The gateway gates migration/connection DDL on this so an
+	// authenticated client without this capability can't trigger migration
+	// setup, cutover, or source-credential storage it couldn't do directly.
+	CanCreateMigration bool `protobuf:"varint,3,opt,name=can_create_migration,json=canCreateMigration,proto3" json:"can_create_migration,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetAuthCredentialsResponse) Reset() {
@@ -1257,6 +1268,13 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 func (x *GetAuthCredentialsResponse) GetIsReplicationRole() bool {
 	if x != nil {
 		return x.IsReplicationRole
+	}
+	return false
+}
+
+func (x *GetAuthCredentialsResponse) GetCanCreateMigration() bool {
+	if x != nil {
+		return x.CanCreateMigration
 	}
 	return false
 }
@@ -2668,11 +2686,12 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\vdescription\x18\x01 \x01(\v2\x1b.query.StatementDescriptionR\vdescription\"S\n" +
 	"\x19GetAuthCredentialsRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"k\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\x9d\x01\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
 	"scram_hash\x18\x01 \x01(\tR\tscramHash\x12.\n" +
-	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\"\xb6\x04\n" +
+	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\x120\n" +
+	"\x14can_create_migration\x18\x03 \x01(\bR\x12canCreateMigration\"\xb6\x04\n" +
 	"\x16CopyBidiExecuteRequest\x12F\n" +
 	"\x05phase\x18\x01 \x01(\x0e20.multipoolerservice.CopyBidiExecuteRequest.PhaseR\x05phase\x12R\n" +
 	"\tdirection\x18\t \x01(\x0e24.multipoolerservice.CopyBidiExecuteRequest.DirectionR\tdirection\x12\x14\n" +
