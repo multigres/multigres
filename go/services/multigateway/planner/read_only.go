@@ -54,6 +54,20 @@ func ReadOnlyOverride(stmt ast.Stmt) bool {
 	return false
 }
 
+// NonAtomicProcedure reports whether stmt is a CALL or DO. Executed outside a
+// transaction block, a procedure body may COMMIT, which ends the read-only
+// transaction and starts a fresh one it can switch to read-write before any
+// query (SET TRANSACTION READ WRITE, or a changed default_transaction_read_only)
+// and then write through. Inside a transaction block postgres refuses the
+// COMMIT, so the gateway only refuses the non-atomic form while read-only.
+func NonAtomicProcedure(stmt ast.Stmt) bool {
+	switch stmt.(type) {
+	case *ast.CallStmt, *ast.DoStmt:
+		return true
+	}
+	return false
+}
+
 func isReadOnlyGUC(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_read_only", "default_transaction_read_only":

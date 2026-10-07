@@ -68,3 +68,19 @@ func TestReadOnlyOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestNonAtomicProcedure(t *testing.T) {
+	for sql, want := range map[string]bool{
+		"CALL p()":                      true,
+		"DO $$ BEGIN PERFORM 1; END $$": true,
+		"SELECT f()":                    false,
+		"EXECUTE s":                     false,
+		"BEGIN":                         false,
+		"INSERT INTO t VALUES (1)":      false,
+	} {
+		stmts, err := parser.ParseSQL(sql)
+		require.NoError(t, err, sql)
+		require.Len(t, stmts, 1, sql)
+		require.Equal(t, want, NonAtomicProcedure(stmts[0]), sql)
+	}
+}

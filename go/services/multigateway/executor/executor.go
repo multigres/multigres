@@ -67,12 +67,21 @@ func (e *Executor) SetReadOnlyModes(modes *readonly.Modes) {
 // time, because plans are cached across mode changes and the pass-through SET
 // forms plan as a plain Route.
 func (e *Executor) rejectReadOnlyOverride(conn *server.Conn, stmt ast.Stmt) error {
-	if stmt == nil || !e.readOnly.Get(conn.Database()).Enabled || !planner.ReadOnlyOverride(stmt) {
+	if stmt == nil || !e.readOnly.Get(conn.Database()).Enabled {
 		return nil
 	}
-	return &mterrors.GatewayRejection{PgDiagnostic: mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
-		"cannot set transaction to read-write mode",
-		fmt.Sprintf("Database %q has been placed in read-only mode by an administrator.", conn.Database()))}
+	detail := fmt.Sprintf("Database %q has been placed in read-only mode by an administrator.", conn.Database())
+	switch {
+	case planner.ReadOnlyOverride(stmt):
+		return &mterrors.GatewayRejection{PgDiagnostic: mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+			"cannot set transaction to read-write mode", detail)}
+	case planner.NonAtomicProcedure(stmt) && !conn.IsInTransaction():
+		diag := mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+			"cannot execute CALL or DO outside a transaction block in a read-only database", detail)
+		diag.Hint = "Run it inside BEGIN ... COMMIT: a procedure body may otherwise COMMIT and start a read-write transaction."
+		return &mterrors.GatewayRejection{PgDiagnostic: diag}
+	}
+	return nil
 }
 
 // noteResetAll clears the session's read-only overlay record after a RESET ALL

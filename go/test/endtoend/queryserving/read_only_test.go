@@ -160,6 +160,64 @@ func TestMultigateway_ReadOnlyMode(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	// A procedure run outside a transaction block may COMMIT, which ends the
+	// read-only transaction and starts a fresh one it can switch to read-write
+	// before any query. The gateway cannot see into the body, so it refuses the
+	// non-atomic form; inside a transaction block postgres refuses the COMMIT.
+	t.Run("procedures cannot escape through transaction control", func(t *testing.T) {
+		// Installed directly on the primary: the body is deliberately the escape.
+		primary, err := pgx.Connect(ctx, shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5"))
+		require.NoError(t, err)
+		defer primary.Close(ctx)
+		_, err = primary.Exec(ctx, `CREATE PROCEDURE read_only_escape() LANGUAGE plpgsql AS $$
+			BEGIN
+				COMMIT;
+				SET TRANSACTION READ WRITE;
+				INSERT INTO read_only_probe VALUES (10);
+			END $$`)
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = primary.Exec(context.Background(), "DROP PROCEDURE IF EXISTS read_only_escape()") })
+
+		// The escape is real on bare postgres with only the session default set,
+		// which is exactly what the gateway's overlay gives a backend. If this
+		// ever stops holding, the refusal below can be relaxed.
+		_, err = primary.Exec(ctx, "SET default_transaction_read_only = on")
+		require.NoError(t, err)
+		_, err = primary.Exec(ctx, "CALL read_only_escape()")
+		require.NoError(t, err, "bare postgres lets a non-atomic procedure write past the session default")
+		_, err = primary.Exec(ctx, "RESET default_transaction_read_only")
+		require.NoError(t, err)
+		_, err = primary.Exec(ctx, "DELETE FROM read_only_probe WHERE id = 10")
+		require.NoError(t, err)
+
+		for _, mode := range []pgx.QueryExecMode{pgx.QueryExecModeSimpleProtocol, pgx.QueryExecModeExec} {
+			conn := connectPgx(t, ctx, setup)
+			_, err := conn.Exec(ctx, "CALL read_only_escape()", mode)
+			assert.Equal(t, "25006", sqlState(err), "autocommit CALL (%v): %v", mode, err)
+			_, err = conn.Exec(ctx, "DO $$ BEGIN PERFORM 1; END $$", mode)
+			assert.Equal(t, "25006", sqlState(err), "autocommit DO (%v): %v", mode, err)
+
+			_, err = conn.Exec(ctx, "BEGIN")
+			require.NoError(t, err)
+			_, err = conn.Exec(ctx, "CALL read_only_escape()", mode)
+			assert.Equal(t, "2D000", sqlState(err), "in-block CALL (%v): postgres must refuse the COMMIT: %v", mode, err)
+			_, err = conn.Exec(ctx, "ROLLBACK")
+			require.NoError(t, err)
+
+			_, err = conn.Exec(ctx, "BEGIN")
+			require.NoError(t, err)
+			_, err = conn.Exec(ctx, "DO $$ BEGIN PERFORM 1; END $$", mode)
+			require.NoError(t, err, "a read-only DO inside a transaction block works (%v)", mode)
+			_, err = conn.Exec(ctx, "COMMIT")
+			require.NoError(t, err)
+			conn.Close(ctx)
+		}
+
+		var n int
+		require.NoError(t, admin.QueryRow(ctx, "SELECT count(*) FROM read_only_probe WHERE id = 10").Scan(&n))
+		assert.Equal(t, 0, n, "nothing got written through the procedure")
+	})
+
 	t.Run("force terminates open transactions", func(t *testing.T) {
 		// Start the transaction while still read-write, so the backend's
 		// transaction is genuinely read-write: exactly the session that plain
