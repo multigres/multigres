@@ -61,7 +61,11 @@ func (s *streamTestServer) ExecuteStream(stream pb.MultipoolerService_ExecuteStr
 	if s.custom != nil {
 		return s.custom(stream)
 	}
-	return queryrpc.Serve(stream, s.execute)
+	return queryrpc.Serve(stream, s)
+}
+
+func (s *streamTestServer) StreamExecute(req *pb.StreamExecuteRequest, out pb.MultipoolerService_StreamExecuteServer) error {
+	return s.execute(req, out)
 }
 
 func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServiceClient, *streamPool) {
@@ -244,7 +248,7 @@ func TestMetadataAndInvalidPropagation(t *testing.T) {
 		ready, err := stream.Recv()
 		require.NoError(t, err)
 		require.True(t, ready.Ready)
-		require.NoError(t, stream.Send(&pb.ExecuteStreamRequest{Request: &pb.StreamExecuteRequest{}, Propagation: carrier}))
+		require.NoError(t, stream.Send(&pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_Request{Request: &pb.StreamExecuteRequest{}}, Propagation: carrier}))
 		_, err = stream.Recv()
 		require.Equal(t, codes.InvalidArgument, status.Code(err))
 		cancel()
@@ -309,7 +313,7 @@ func TestRetirementAndLateCancellation(t *testing.T) {
 }
 
 func TestMalformedFrames(t *testing.T) {
-	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Response: &pb.StreamExecuteResponse{}, Completion: &statuspb.Status{}}} {
+	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Result: &pb.ExecuteStreamResponse_Response{Response: &pb.StreamExecuteResponse{}}, Completion: &statuspb.Status{}}} {
 		s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
 				return err
@@ -370,7 +374,7 @@ func TestTransportEOFCannotReportSuccess(t *testing.T) {
 		}
 		// A server ending the transport successfully is not proof that the
 		// operation completed, even if it sent some rows first.
-		return stream.Send(&pb.ExecuteStreamResponse{Response: &pb.StreamExecuteResponse{}})
+		return stream.Send(&pb.ExecuteStreamResponse{Result: &pb.ExecuteStreamResponse_Response{Response: &pb.StreamExecuteResponse{}}})
 	}}
 	_, p := connectStreamPool(t, s)
 	require.Equal(t, codes.Unavailable, status.Code(streamQuery(t, p, t.Context(), "write")))

@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/queryrpc"
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -52,10 +53,11 @@ type streamPool struct {
 }
 
 type streamLease struct {
-	stream   pb.MultipoolerService_ExecuteStreamClient
-	cancel   context.CancelFunc
-	timer    *time.Timer
-	requests uint32
+	stream     pb.MultipoolerService_ExecuteStreamClient
+	cancel     context.CancelFunc
+	timer      *time.Timer
+	requests   uint32
+	operations map[pb.ExecuteStreamOperation]bool
 }
 
 // streamStateConn is the connectivity view of the *grpc.ClientConn carrying the
@@ -200,15 +202,28 @@ func (p *streamPool) put(l *streamLease) {
 // streamResponses exposes the same receive contract as the old server-streaming RPC.
 // A completion frame is translated to EOF or its original gRPC status/details.
 type streamResponses struct {
-	lease    *streamLease
-	done     bool
-	stop     func() bool
-	pool     *streamPool
-	ctx      context.Context
-	released bool
+	lease     *streamLease
+	done      bool
+	stop      func() bool
+	pool      *streamPool
+	ctx       context.Context
+	released  bool
+	operation pb.ExecuteStreamOperation
+	invalid   bool
 }
 
 func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
+	return receiveTyped[*pb.StreamExecuteResponse](r)
+}
+
+func (r *streamResponses) protocolError(message string) error {
+	r.invalid = true
+	return status.Error(codes.Internal, message)
+}
+
+// recv validates framing and operation identity before exposing a response.
+// Handler status/details are passed through unchanged, including unary errors.
+func (r *streamResponses) recv() (proto.Message, error) {
 	if r.done || r.released {
 		return nil, io.EOF
 	}
@@ -216,11 +231,15 @@ func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
 	if err != nil {
 		return nil, incompleteOperation(r.ctx, err)
 	}
-	if f.Ready || (f.Response == nil) == (f.Completion == nil) {
-		return nil, status.Error(codes.Internal, "invalid execute stream response")
+	if f.Ready || len(f.SupportedOperations) != 0 || (f.Result == nil) == (f.Completion == nil) {
+		return nil, r.protocolError("invalid execute stream response")
 	}
-	if f.Response != nil {
-		return f.Response, nil
+	if f.Result != nil {
+		op, response := queryrpc.Response(f)
+		if op != r.operation || response == nil {
+			return nil, r.protocolError("execute stream response does not match operation")
+		}
+		return response, nil
 	}
 	r.done = true
 	if c := f.Completion; c.GetCode() != int32(codes.OK) {
@@ -244,7 +263,7 @@ func (r *streamResponses) Release() {
 	case !stopped || r.ctx.Err() != nil:
 		r.lease.cancel()
 		p.m.discards.Add(p.ctx, 1, discardAttr[discardCancelled])
-	case !r.done:
+	case !r.done || r.invalid:
 		r.lease.cancel()
 		p.m.discards.Add(p.ctx, 1, discardAttr[discardIncomplete])
 	default:
@@ -256,6 +275,16 @@ func (r *streamResponses) Release() {
 // sent. The caller must NOT retry a returned error after used=true. In
 // particular, even Send returning EOF is ambiguous and cannot be replayed.
 func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*streamResponses, bool, error) {
+	return p.open(ctx, queryrpc.Request(req))
+}
+
+// open handles all typed operations with the same exclusive lease and retry
+// boundary. A capability fallback is allowed only before submitting a request.
+func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (*streamResponses, bool, error) {
+	operation := queryrpc.Operation(frame)
+	if operation == pb.ExecuteStreamOperation_EXECUTE_STREAM_OPERATION_UNSPECIFIED {
+		return nil, false, status.Error(codes.InvalidArgument, "missing execute stream operation")
+	}
 	if p.unsupported.Load() {
 		p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
 		return nil, false, nil
@@ -283,11 +312,11 @@ func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*s
 		// The caller's cancellation/deadline governs the handshake too; the
 		// stream itself stays pool-owned once the lease is returned.
 		stop = context.AfterFunc(ctx, cancel)
+		var ready *pb.ExecuteStreamResponse
 		stream, err := p.client.ExecuteStream(streamCtx)
 		if err == nil {
-			var ready *pb.ExecuteStreamResponse
 			ready, err = stream.Recv()
-			if err == nil && (!ready.Ready || ready.Response != nil || ready.Completion != nil) {
+			if err == nil && (!ready.Ready || ready.Result != nil || ready.Completion != nil) {
 				err = status.Error(codes.Internal, "missing execute stream handshake")
 			}
 		}
@@ -307,15 +336,38 @@ func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*s
 			// No SQL has been sent, but leave classification to the caller.
 			return nil, false, err
 		}
-		l = &streamLease{stream: stream, cancel: cancel}
+		l = &streamLease{stream: stream, cancel: cancel, operations: make(map[pb.ExecuteStreamOperation]bool)}
+		if len(ready.SupportedOperations) == 0 {
+			// Original peers only understand field 1 (StreamExecute).
+			l.operations[pb.ExecuteStreamOperation_STREAM_EXECUTE] = true
+		} else {
+			for _, op := range ready.SupportedOperations {
+				l.operations[op] = true
+			}
+		}
 	} else {
 		stop = context.AfterFunc(ctx, l.cancel)
+	}
+	if !l.operations[operation] {
+		// Stop this caller's cancellation hook before retaining the unused
+		// stream. A callback already running makes the lease unsafe to reuse.
+		if !stop() || ctx.Err() != nil {
+			l.cancel()
+		} else {
+			p.put(l)
+		}
+		p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
+		return nil, false, nil
 	}
 	l.requests++
 	p.m.operations.Add(p.ctx, 1, transport)
 	p.m.active.Add(p.ctx, 1)
-	r := &streamResponses{lease: l, stop: stop, pool: p, ctx: ctx}
-	if err := l.stream.Send(requestFrame(ctx, req, carrier)); err != nil {
+	r := &streamResponses{lease: l, stop: stop, pool: p, ctx: ctx, operation: operation}
+	frame.Propagation = carrier
+	if deadline, ok := ctx.Deadline(); ok {
+		frame.TimeoutNanos = max(1, int64(time.Until(deadline)))
+	}
+	if err := l.stream.Send(frame); err != nil {
 		r.Release()
 		return nil, true, incompleteOperation(ctx, err)
 	}
@@ -339,12 +391,4 @@ func incompleteOperation(ctx context.Context, err error) error {
 		return status.FromContextError(ctxErr).Err()
 	}
 	return err
-}
-
-func requestFrame(ctx context.Context, req *pb.StreamExecuteRequest, carrier map[string]string) *pb.ExecuteStreamRequest {
-	f := &pb.ExecuteStreamRequest{Request: req, Propagation: carrier}
-	if deadline, ok := ctx.Deadline(); ok {
-		f.TimeoutNanos = max(1, int64(time.Until(deadline)))
-	}
-	return f
 }

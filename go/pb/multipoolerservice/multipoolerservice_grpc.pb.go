@@ -63,7 +63,7 @@ type MultipoolerServiceClient interface {
 	ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error)
-	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// ExecuteStream amortizes RPC setup over sequential query-service operations.
 	// The server sends ready before accepting SQL. Each operation ends in exactly
 	// one completion frame, including on SQL error. Transport loss is NOT safe to
 	// retry after sending SQL. Reservations remain explicit and independent of
@@ -314,7 +314,7 @@ type MultipoolerServiceServer interface {
 	ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error
-	// ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+	// ExecuteStream amortizes RPC setup over sequential query-service operations.
 	// The server sends ready before accepting SQL. Each operation ends in exactly
 	// one completion frame, including on SQL error. Transport loss is NOT safe to
 	// retry after sending SQL. Reservations remain explicit and independent of
