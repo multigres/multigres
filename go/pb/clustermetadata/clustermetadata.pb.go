@@ -713,8 +713,18 @@ type Database struct {
 	// bootstrap_durability_policy is the durability policy applied when
 	// initializing this database for the first time. Set at database creation.
 	BootstrapDurabilityPolicy *DurabilityPolicy `protobuf:"bytes,4,opt,name=bootstrap_durability_policy,json=bootstrapDurabilityPolicy,proto3" json:"bootstrap_durability_policy,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// read_only makes every multigateway reject new write transactions for
+	// this database (postgres SQLSTATE 25006). Set by multiadmin
+	// SetDatabaseReadOnly, e.g. before a disk fills up. Gateways watch this
+	// record, so the flag survives gateway restarts.
+	ReadOnly bool `protobuf:"varint,5,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	// read_only_force, together with read_only, also terminates client
+	// sessions that are inside a transaction or hold a pinned backend when a
+	// gateway observes the flag, since those keep their read-write default
+	// until they end. Ignored when read_only is false.
+	ReadOnlyForce bool `protobuf:"varint,6,opt,name=read_only_force,json=readOnlyForce,proto3" json:"read_only_force,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Database) Reset() {
@@ -773,6 +783,20 @@ func (x *Database) GetBootstrapDurabilityPolicy() *DurabilityPolicy {
 		return x.BootstrapDurabilityPolicy
 	}
 	return nil
+}
+
+func (x *Database) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
+}
+
+func (x *Database) GetReadOnlyForce() bool {
+	if x != nil {
+		return x.ReadOnlyForce
+	}
+	return false
 }
 
 // ShardInitClaim records which coordinator claimed the right to initialize a shard
@@ -3015,12 +3039,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
 	"\x04root\x18\x03 \x01(\tR\x04root\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xe1\x01\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xa6\x02\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
 	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12\x14\n" +
 	"\x05cells\x18\x03 \x03(\tR\x05cells\x12a\n" +
-	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\"\x80\x01\n" +
+	"\x1bbootstrap_durability_policy\x18\x04 \x01(\v2!.clustermetadata.DurabilityPolicyR\x19bootstrapDurabilityPolicy\x12\x1b\n" +
+	"\tread_only\x18\x05 \x01(\bR\breadOnly\x12&\n" +
+	"\x0fread_only_force\x18\x06 \x01(\bR\rreadOnlyForce\"\x80\x01\n" +
 	"\x0eShardInitClaim\x122\n" +
 	"\n" +
 	"claimer_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tclaimerId\x12:\n" +

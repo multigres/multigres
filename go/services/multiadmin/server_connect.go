@@ -223,6 +223,14 @@ func (a *connectAdapter) ApplyCertifiedRuleChange(ctx context.Context, req *conn
 	return connect.NewResponse(resp), nil
 }
 
+func (a *connectAdapter) SetDatabaseReadOnly(ctx context.Context, req *connect.Request[multiadminpb.SetDatabaseReadOnlyRequest]) (*connect.Response[multiadminpb.SetDatabaseReadOnlyResponse], error) {
+	resp, err := a.MultiadminServer.SetDatabaseReadOnly(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (a *connectAdapter) SwitchPrimary(ctx context.Context, req *connect.Request[multiadminpb.SwitchPrimaryRequest]) (*connect.Response[multiadminpb.SwitchPrimaryResponse], error) {
 	resp, err := a.MultiadminServer.SwitchPrimary(ctx, req.Msg)
 	if err != nil {

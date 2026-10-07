@@ -36,6 +36,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -46,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/readonly"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -58,6 +60,9 @@ type ScatterConn struct {
 	gateway poolergateway.Gateway
 
 	metrics *ScatterMetrics
+
+	// readOnly is the per-database read-only switch; nil reads as read-write.
+	readOnly *readonly.Modes
 }
 
 // NewScatterConn creates a new ScatterConn instance.
@@ -92,6 +97,51 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 		ClientKey: append([]byte(nil), clientKey...),
 		ServerKey: append([]byte(nil), serverKey...),
 	}
+}
+
+// SetReadOnlyModes wires the per-database read-only switch consulted by
+// sessionSettings. Must be called before connections are accepted.
+func (sc *ScatterConn) SetReadOnlyModes(modes *readonly.Modes) {
+	sc.readOnly = modes
+}
+
+// sessionSettings returns the session settings to send with a request. While
+// conn's database is read-only it overlays default_transaction_read_only=on so
+// postgres itself rejects writes (SQLSTATE 25006); the overlay never enters the
+// tracked session state, so lifting the mode is immediate. The same key is what
+// poolergateway.retryReadOnlyError reads to keep the 25006 from being mistaken
+// for a demoted leader and buffered.
+func (sc *ScatterConn) sessionSettings(conn *server.Conn, state *handler.MultigatewayConnectionState) map[string]string {
+	return sc.withReadOnlyOverlay(conn, state, state.GetSessionSettings())
+}
+
+// withReadOnlyOverlay adds the read-only overlay to settings when readOnlyOverlay
+// says the backend carries it. settings must be the caller's own map.
+func (sc *ScatterConn) withReadOnlyOverlay(conn *server.Conn, state *handler.MultigatewayConnectionState, settings map[string]string) map[string]string {
+	if !sc.readOnlyOverlay(conn, state) {
+		return settings
+	}
+	if settings == nil {
+		settings = make(map[string]string, 1)
+	}
+	settings[pgsettings.CanonicalGUCName("default_transaction_read_only")] = "on"
+	return settings
+}
+
+// readOnlyOverlay reports whether the settings sent for conn carry the
+// read-only overlay. The pooler applies settings to a backend only at checkout
+// and relabels it on release with the map the gateway sends, so once the
+// session holds a reserved backend the answer is frozen at what that backend
+// was checked out with (state.ReadOnlyOverlay), whichever way the mode has
+// moved since: a label built from the live mode would misdescribe the backend
+// in both directions. Without a reservation it follows the live mode and
+// records it, so a reservation created by this request inherits it.
+func (sc *ScatterConn) readOnlyOverlay(conn *server.Conn, state *handler.MultigatewayConnectionState) bool {
+	if state.HasAnyReservedConnection() {
+		return state.ReadOnlyOverlay
+	}
+	state.ReadOnlyOverlay = sc.readOnly.Get(conn.Database()).Enabled
+	return state.ReadOnlyOverlay
 }
 
 // buildTarget constructs a routing target for the given (database,
@@ -243,7 +293,7 @@ func (sc *ScatterConn) StreamExecute(
 		UserAuth:                    userAuthFrom(conn),
 		User:                        conn.User(),
 		ClientConnectionId:          conn.ConnectionID(),
-		SessionSettings:             state.GetSessionSettings(),
+		SessionSettings:             sc.sessionSettings(conn, state),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
@@ -499,7 +549,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 
@@ -684,7 +734,7 @@ func (sc *ScatterConn) Describe(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
@@ -777,9 +827,9 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// (executeRollback runs RollbackTransaction first), so the current map IS
 	// the rollback map. The pooler treats absence as an invariant violation
 	// and fails closed.
-	rollbackSessionSettings := state.GetRollbackSessionSettings()
+	rollbackSessionSettings := sc.withReadOnlyOverlay(conn, state, state.GetRollbackSessionSettings())
 	if rollbackSessionSettings == nil {
-		rollbackSessionSettings = state.GetSessionSettings()
+		rollbackSessionSettings = sc.sessionSettings(conn, state)
 		if rollbackSessionSettings == nil {
 			rollbackSessionSettings = map[string]string{}
 		}
@@ -811,7 +861,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
+			SessionSettings:      sc.sessionSettings(conn, state),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
@@ -929,7 +979,7 @@ func (sc *ScatterConn) DiscardTempTables(
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
+			SessionSettings:      sc.sessionSettings(conn, state),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
@@ -1021,7 +1071,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 
 	// Reuse an existing reserved connection (e.g. one already held by a
@@ -1109,7 +1159,7 @@ func (sc *ScatterConn) CopyOutStream(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1189,7 +1239,7 @@ func (sc *ScatterConn) CopyInitiate(
 		UserAuth:           userAuthFrom(conn),
 		User:               conn.User(),
 		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
+		SessionSettings:    sc.sessionSettings(conn, state),
 	}
 
 	// If there's already a reserved connection for this target (e.g., in a transaction),
@@ -1289,7 +1339,7 @@ func (sc *ScatterConn) CopySendData(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1346,7 +1396,7 @@ func (sc *ScatterConn) CopyFinalize(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1422,7 +1472,7 @@ func (sc *ScatterConn) CopyAbort(
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
 		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      sc.sessionSettings(conn, state),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
@@ -1470,9 +1520,9 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 	// Transaction frames exist exactly when the pooler-side rollback will run,
 	// so the pick mirrors the pooler's own conditional; with no frames the
 	// backend keeps its session state and the current map is the truth.
-	releaseSettings := state.GetRollbackSessionSettings()
+	releaseSettings := sc.withReadOnlyOverlay(conn, state, state.GetRollbackSessionSettings())
 	if releaseSettings == nil {
-		releaseSettings = state.GetSessionSettings()
+		releaseSettings = sc.sessionSettings(conn, state)
 	}
 
 	for _, ss := range state.ShardStates {

@@ -16,10 +16,12 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -30,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/plancache"
 	"github.com/multigres/multigres/go/services/multigateway/planner"
+	"github.com/multigres/multigres/go/services/multigateway/readonly"
 )
 
 const (
@@ -49,6 +52,48 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+	// readOnly is the per-database read-only switch; nil reads as read-write.
+	readOnly *readonly.Modes
+}
+
+// SetReadOnlyModes wires the per-database read-only switch. Must be called
+// before connections are accepted.
+func (e *Executor) SetReadOnlyModes(modes *readonly.Modes) {
+	e.readOnly = modes
+}
+
+// rejectReadOnlyOverride refuses a statement that would lift the read-only
+// default while conn's database is read-only. It runs at execute time, not plan
+// time, because plans are cached across mode changes and the pass-through SET
+// forms plan as a plain Route.
+func (e *Executor) rejectReadOnlyOverride(conn *server.Conn, stmt ast.Stmt) error {
+	if stmt == nil || !e.readOnly.Get(conn.Database()).Enabled {
+		return nil
+	}
+	detail := fmt.Sprintf("Database %q has been placed in read-only mode by an administrator.", conn.Database())
+	switch {
+	case planner.ReadOnlyOverride(stmt):
+		return &mterrors.GatewayRejection{PgDiagnostic: mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+			"cannot set transaction to read-write mode", detail)}
+	case planner.NonAtomicProcedure(stmt) && !conn.IsInTransaction():
+		diag := mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+			"cannot execute CALL or DO outside a transaction block in a read-only database", detail)
+		diag.Hint = "Run it inside BEGIN ... COMMIT: a procedure body may otherwise COMMIT and start a read-write transaction."
+		return &mterrors.GatewayRejection{PgDiagnostic: diag}
+	}
+	return nil
+}
+
+// noteResetAll clears the session's read-only overlay record after a RESET ALL
+// ran: on a pinned backend the statement resets default_transaction_read_only
+// along with everything else, so later release labels must not claim it. For an
+// unpinned session the record is recomputed on the next request anyway. A
+// ROLLBACK restores the record together with the backend's GUCs (see
+// handler.MultigatewayConnectionState.ReadOnlyOverlay).
+func noteResetAll(state *handler.MultigatewayConnectionState, stmt ast.Stmt, err error) {
+	if v, ok := stmt.(*ast.VariableSetStmt); ok && v.Kind == ast.VAR_RESET_ALL && err == nil {
+		state.ReadOnlyOverlay = false
+	}
 }
 
 // SetSlotBasedReplicationEnabled wires the dynamic getter that gates
@@ -139,6 +184,10 @@ func (e *Executor) StreamExecute(
 		Fingerprint:   fingerprint,
 	}
 
+	if err := e.rejectReadOnlyOverride(conn, astStmt); err != nil {
+		return result, err
+	}
+
 	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
@@ -146,6 +195,7 @@ func (e *Executor) StreamExecute(
 			"plan", plan.String(),
 			"error", err)
 	}
+	noteResetAll(state, astStmt, err)
 	return result, err
 }
 
@@ -268,6 +318,10 @@ func (e *Executor) PortalStreamExecute(
 		}, err
 	}
 
+	if err := e.rejectReadOnlyOverride(conn, portalInfo.PreparedStatementInfo.AstStmt()); err != nil {
+		return &handler.ExecuteResult{PlanTime: planTime, CacheHit: cacheHit, NormalizedSQL: normalizedSQL, Fingerprint: fingerprint}, err
+	}
+
 	// Hand off to the plan, which delegates to its root primitive's
 	// PortalStreamExecute. Each primitive owns its portal-mode behavior:
 	// Route reissues the portal to the multipooler, Sequence iterates children
@@ -282,6 +336,7 @@ func (e *Executor) PortalStreamExecute(
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"plan", plan.String(), "error", err)
 	}
+	noteResetAll(state, portalInfo.PreparedStatementInfo.AstStmt(), err)
 	return &handler.ExecuteResult{
 		TablesUsed:    plan.TablesUsed,
 		PlanType:      plan.Type,

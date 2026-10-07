@@ -1639,6 +1639,100 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
 }
 
 /**
+ * SetDatabaseReadOnlyRequest identifies the database and the mode to set.
+ *
+ * @generated from message multiadmin.SetDatabaseReadOnlyRequest
+ */
+export class SetDatabaseReadOnlyRequest extends Message<SetDatabaseReadOnlyRequest> {
+  /**
+   * database is the name of the database to update (required).
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * read_only enables (true) or lifts (false) read-only mode.
+   *
+   * @generated from field: bool read_only = 2;
+   */
+  readOnly = false;
+
+  /**
+   * force, with read_only, also terminates sessions that are inside a
+   * transaction or hold a pinned backend. Ignored when read_only is false.
+   *
+   * @generated from field: bool force = 3;
+   */
+  force = false;
+
+  constructor(data?: PartialMessage<SetDatabaseReadOnlyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.SetDatabaseReadOnlyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "read_only", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "force", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetDatabaseReadOnlyRequest {
+    return new SetDatabaseReadOnlyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetDatabaseReadOnlyRequest {
+    return new SetDatabaseReadOnlyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetDatabaseReadOnlyRequest {
+    return new SetDatabaseReadOnlyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetDatabaseReadOnlyRequest | PlainMessage<SetDatabaseReadOnlyRequest> | undefined, b: SetDatabaseReadOnlyRequest | PlainMessage<SetDatabaseReadOnlyRequest> | undefined): boolean {
+    return proto3.util.equals(SetDatabaseReadOnlyRequest, a, b);
+  }
+}
+
+/**
+ * SetDatabaseReadOnlyResponse confirms that the record was updated.
+ * Errors are returned via gRPC status codes, not in the response body.
+ *
+ * Empty - success indicated by no error
+ *
+ * @generated from message multiadmin.SetDatabaseReadOnlyResponse
+ */
+export class SetDatabaseReadOnlyResponse extends Message<SetDatabaseReadOnlyResponse> {
+  constructor(data?: PartialMessage<SetDatabaseReadOnlyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.SetDatabaseReadOnlyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetDatabaseReadOnlyResponse {
+    return new SetDatabaseReadOnlyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetDatabaseReadOnlyResponse {
+    return new SetDatabaseReadOnlyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetDatabaseReadOnlyResponse {
+    return new SetDatabaseReadOnlyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetDatabaseReadOnlyResponse | PlainMessage<SetDatabaseReadOnlyResponse> | undefined, b: SetDatabaseReadOnlyResponse | PlainMessage<SetDatabaseReadOnlyResponse> | undefined): boolean {
+    return proto3.util.equals(SetDatabaseReadOnlyResponse, a, b);
+  }
+}
+
+/**
  * GetGatewayQueriesRequest specifies which gateway to query and how to bound
  * the response.
  *

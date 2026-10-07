@@ -168,6 +168,21 @@ service MultiadminService {
       body: "*"
     };
   }
+
+  //
+  // Database read-only mode
+  //
+
+  // SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+  // mode by updating its topo record. Every multigateway watches the record
+  // and rejects new write transactions while it is set; with force, gateways
+  // also terminate sessions that are mid-transaction or hold a pinned backend.
+  rpc SetDatabaseReadOnly(SetDatabaseReadOnlyRequest) returns (SetDatabaseReadOnlyResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/databases/{database}/read-only"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -464,6 +479,27 @@ message SetPostgresRestartsEnabledRequest {
 // SetPostgresRestartsEnabledResponse confirms that the flag was updated
 // Errors are returned via gRPC status codes, not in the response body
 message SetPostgresRestartsEnabledResponse {
+  // Empty - success indicated by no error
+}
+
+// Database read-only mode messages
+
+// SetDatabaseReadOnlyRequest identifies the database and the mode to set.
+message SetDatabaseReadOnlyRequest {
+  // database is the name of the database to update (required).
+  string database = 1;
+
+  // read_only enables (true) or lifts (false) read-only mode.
+  bool read_only = 2;
+
+  // force, with read_only, also terminates sessions that are inside a
+  // transaction or hold a pinned backend. Ignored when read_only is false.
+  bool force = 3;
+}
+
+// SetDatabaseReadOnlyResponse confirms that the record was updated.
+// Errors are returned via gRPC status codes, not in the response body.
+message SetDatabaseReadOnlyResponse {
   // Empty - success indicated by no error
 }
 

@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetDatabaseReadOnlyRequest, SetDatabaseReadOnlyResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -242,6 +242,20 @@ export const MultiadminService = {
       name: "SwitchPrimary",
       I: SwitchPrimaryRequest,
       O: SwitchPrimaryResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+     * mode by updating its topo record. Every multigateway watches the record
+     * and rejects new write transactions while it is set; with force, gateways
+     * also terminate sessions that are mid-transaction or hold a pinned backend.
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetDatabaseReadOnly
+     */
+    setDatabaseReadOnly: {
+      name: "SetDatabaseReadOnly",
+      I: SetDatabaseReadOnlyRequest,
+      O: SetDatabaseReadOnlyResponse,
       kind: MethodKind.Unary,
     },
   }

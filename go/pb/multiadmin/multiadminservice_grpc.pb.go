@@ -51,6 +51,7 @@ const (
 	MultiadminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiadminService/GetGatewayConsolidator"
 	MultiadminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
 	MultiadminService_SwitchPrimary_FullMethodName              = "/multiadmin.MultiadminService/SwitchPrimary"
+	MultiadminService_SetDatabaseReadOnly_FullMethodName        = "/multiadmin.MultiadminService/SetDatabaseReadOnly"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -113,6 +114,11 @@ type MultiadminServiceClient interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(ctx context.Context, in *SwitchPrimaryRequest, opts ...grpc.CallOption) (*SwitchPrimaryResponse, error)
+	// SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+	// mode by updating its topo record. Every multigateway watches the record
+	// and rejects new write transactions while it is set; with force, gateways
+	// also terminate sessions that are mid-transaction or hold a pinned backend.
+	SetDatabaseReadOnly(ctx context.Context, in *SetDatabaseReadOnlyRequest, opts ...grpc.CallOption) (*SetDatabaseReadOnlyResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -303,6 +309,16 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, in *SwitchP
 	return out, nil
 }
 
+func (c *multiadminServiceClient) SetDatabaseReadOnly(ctx context.Context, in *SetDatabaseReadOnlyRequest, opts ...grpc.CallOption) (*SetDatabaseReadOnlyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDatabaseReadOnlyResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SetDatabaseReadOnly_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -363,6 +379,11 @@ type MultiadminServiceServer interface {
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
 	SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error)
+	// SetDatabaseReadOnly puts a database into, or takes it out of, read-only
+	// mode by updating its topo record. Every multigateway watches the record
+	// and rejects new write transactions while it is set; with force, gateways
+	// also terminate sessions that are mid-transaction or hold a pinned backend.
+	SetDatabaseReadOnly(context.Context, *SetDatabaseReadOnlyRequest) (*SetDatabaseReadOnlyResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -426,6 +447,9 @@ func (UnimplementedMultiadminServiceServer) ApplyCertifiedRuleChange(context.Con
 }
 func (UnimplementedMultiadminServiceServer) SwitchPrimary(context.Context, *SwitchPrimaryRequest) (*SwitchPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwitchPrimary not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SetDatabaseReadOnly(context.Context, *SetDatabaseReadOnlyRequest) (*SetDatabaseReadOnlyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetDatabaseReadOnly not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -772,6 +796,24 @@ func _MultiadminService_SwitchPrimary_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_SetDatabaseReadOnly_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDatabaseReadOnlyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SetDatabaseReadOnly(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SetDatabaseReadOnly_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SetDatabaseReadOnly(ctx, req.(*SetDatabaseReadOnlyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -850,6 +892,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SwitchPrimary",
 			Handler:    _MultiadminService_SwitchPrimary_Handler,
+		},
+		{
+			MethodName: "SetDatabaseReadOnly",
+			Handler:    _MultiadminService_SetDatabaseReadOnly_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

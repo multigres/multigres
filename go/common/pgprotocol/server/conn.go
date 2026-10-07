@@ -239,6 +239,10 @@ type Conn struct {
 	// closed indicates whether the connection has been closed.
 	closed atomic.Bool
 
+	// terminated is set by Terminate. The command loop checks it at the next
+	// command boundary and closes the session with FATAL 57P01.
+	terminated atomic.Bool
+
 	// deferredPortalDescribe captures Describe('P') messages so an immediately
 	// following Execute on the same portal can fold both into one backend
 	// call via HandleExecute(includeDescribe=true). When the deferred state
@@ -582,6 +586,29 @@ func (c *Conn) CancelQuery() bool {
 	return false
 }
 
+// Terminate asks the connection to close with FATAL 57P01 (admin_shutdown) at
+// its next command boundary, like pg_terminate_backend. Any in-flight query is
+// cancelled first and the blocking read is unblocked with an immediate read
+// deadline. Safe to call from any goroutine: the FATAL is written by the
+// connection's own command loop (see handleTerminate), never concurrently.
+func (c *Conn) Terminate() {
+	c.terminated.Store(true)
+	c.CancelQuery()
+	_ = c.conn.SetReadDeadline(time.Now())
+}
+
+// handleTerminate sends the FATAL 57P01 requested by Terminate and lets the
+// connection teardown path close the socket. Mirrors handleIdleSessionTimeout.
+func (c *Conn) handleTerminate() error {
+	c.logger.Debug("connection terminated by administrator")
+	_ = c.conn.SetReadDeadline(time.Time{})
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	c.startWriterBuffering()
+	_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAdminShutdown())
+	_ = c.endWriterBuffering()
+	return nil
+}
+
 // queryContextError maps context-related errors to the appropriate PostgreSQL
 // protocol error. Cancel requests take priority since they indicate explicit
 // user action. If no context-related error is detected, the original error is
@@ -854,6 +881,9 @@ func (c *Conn) serve() error {
 		if c.closed.Load() {
 			return nil
 		}
+		if c.terminated.Load() {
+			return c.handleTerminate()
+		}
 
 		// Read the message type (1 byte). If the handler manages
 		// idle_session_timeout, arm a read deadline only while waiting for the
@@ -873,6 +903,9 @@ func (c *Conn) serve() error {
 			}
 		}
 		if err != nil {
+			if c.terminated.Load() {
+				return c.handleTerminate()
+			}
 			if idleDeadlineArmed && isNetTimeout(err) {
 				return c.handleIdleSessionTimeout()
 			}
