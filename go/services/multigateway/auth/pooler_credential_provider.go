@@ -139,8 +139,9 @@ func (p *PoolerCredentialProvider) GetCredentials(ctx context.Context, username,
 	}
 
 	return &server.Credentials{
-		Hash:              hash,
-		IsReplicationRole: resp.IsReplicationRole,
+		Hash:               hash,
+		IsReplicationRole:  resp.IsReplicationRole,
+		CanCreateMigration: resp.CanCreateMigration,
 	}, nil
 }
 
