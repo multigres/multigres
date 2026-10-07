@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -37,6 +38,22 @@ func TestNewTelemetry(t *testing.T) {
 	assert.Nil(t, tel.tracerProvider)
 	assert.Nil(t, tel.meterProvider)
 	assert.Nil(t, tel.loggerProvider)
+}
+
+// TestInitForCommand_WithoutSpanReturnsEndableSpan pins that a long-running
+// command such as `pgctld server`, which skips the command span, still gets a
+// span its post-run hook can End.
+func TestInitForCommand_WithoutSpanReturnsEndableSpan(t *testing.T) {
+	setup := SetupTestTelemetry(t)
+	cmd := &cobra.Command{Use: "server"}
+	cmd.SetContext(context.Background())
+
+	span, err := setup.Telemetry.InitForCommand(cmd, "test-service", false)
+	require.NoError(t, err)
+	require.NotNil(t, span)
+	assert.False(t, span.IsRecording())
+	assert.NotPanics(t, func() { span.End() })
+	require.NoError(t, setup.Telemetry.ShutdownTelemetry(context.Background()))
 }
 
 func TestInitTelemetry_DefaultServiceName(t *testing.T) {
