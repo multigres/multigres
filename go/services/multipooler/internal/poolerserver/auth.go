@@ -130,7 +130,8 @@ func (s *QueryPoolerServer) GetAuthCredentials(ctx context.Context, req *multipo
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash:         authInfo.ScramHash,
-		IsReplicationRole: authInfo.IsReplicationRole,
+		ScramHash:          authInfo.ScramHash,
+		IsReplicationRole:  authInfo.IsReplicationRole,
+		CanCreateMigration: authInfo.CanCreateMigration,
 	}, nil
 }
