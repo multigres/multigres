@@ -38,7 +38,7 @@ service MultipoolerService {
   // StreamExecute executes a SQL query and streams the results back
   rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
 
-  // ExecuteStream amortizes RPC setup over sequential StreamExecute operations.
+  // ExecuteStream amortizes RPC setup over sequential query-service operations.
   // The server sends ready before accepting SQL. Each operation ends in exactly
   // one completion frame, including on SQL error. Transport loss is NOT safe to
   // retry after sending SQL. Reservations remain explicit and independent of
@@ -166,8 +166,30 @@ message StreamExecuteResponse {
   query.ReservedState reserved_state = 5;
 }
 
+// Operation capabilities advertised by ExecuteStream's initial ready frame.
+// A peer with no capability list supports only STREAM_EXECUTE (the original protocol).
+enum ExecuteStreamOperation {
+  EXECUTE_STREAM_OPERATION_UNSPECIFIED = 0;
+  STREAM_EXECUTE = 1;
+  PORTAL_STREAM_EXECUTE = 2;
+  EXECUTE_QUERY = 3;
+  DESCRIBE = 4;
+  CONCLUDE_TRANSACTION = 5;
+  DISCARD_TEMP_TABLES = 6;
+  RELEASE_RESERVED_CONNECTION = 7;
+}
+
 message ExecuteStreamRequest {
-  StreamExecuteRequest request = 1;
+  // One complete typed request per operation; field 1 retains wire compatibility.
+  oneof operation {
+    StreamExecuteRequest request = 1;
+    PortalStreamExecuteRequest portal_stream_execute = 4;
+    ExecuteQueryRequest execute_query = 5;
+    DescribeRequest describe = 6;
+    ConcludeTransactionRequest conclude_transaction = 7;
+    DiscardTempTablesRequest discard_temp_tables = 8;
+    ReleaseReservedConnectionRequest release_reserved_connection = 9;
+  }
   // Only telemetry propagation fields, never authentication metadata.
   map<string, string> propagation = 2;
   // Remaining operation timeout; zero means no deadline. Cancellation also
@@ -177,10 +199,21 @@ message ExecuteStreamRequest {
 
 message ExecuteStreamResponse {
   bool ready = 1;
-  StreamExecuteResponse response = 2;
-  // Terminal frame for this operation: the operation's gRPC status, including
-  // PostgreSQL diagnostics in details. Code OK means the operation succeeded.
+  // Streamed operations may send many results; unary operations send exactly
+  // one on success. Every operation ends with a separate completion frame.
+  oneof result {
+    StreamExecuteResponse response = 2;
+    PortalStreamExecuteResponse portal_stream_execute = 5;
+    ExecuteQueryResponse execute_query = 6;
+    DescribeResponse describe = 7;
+    ConcludeTransactionResponse conclude_transaction = 8;
+    DiscardTempTablesResponse discard_temp_tables = 9;
+    ReleaseReservedConnectionResponse release_reserved_connection = 10;
+  }
+  // Original gRPC status and details. Transport EOF is never completion.
   google.rpc.Status completion = 3;
+  // Only present in the initial ready frame; negotiate before submitting work.
+  repeated ExecuteStreamOperation supported_operations = 4;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results

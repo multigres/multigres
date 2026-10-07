@@ -20,5 +20,5 @@ import (
 )
 
 func (s *poolerService) ExecuteStream(stream pb.MultipoolerService_ExecuteStreamServer) error {
-	return queryrpc.Serve(stream, s.StreamExecute)
+	return queryrpc.Serve(stream, s)
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryrpc"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -230,7 +231,7 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 	// way to tell a pick/dial failure from a connection lost after the request
 	// was delivered and possibly executed, so marking it could double-apply a
 	// write on retry.
-	res, err := g.client.ExecuteQuery(ctx, req)
+	res, err := callUnary(ctx, g, req, g.client.ExecuteQuery)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
 	}
@@ -269,10 +270,28 @@ func (g *grpcQueryService) PortalStreamExecute(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
-	// Call the gRPC PortalStreamExecute
-	stream, err := g.client.PortalStreamExecute(ctx, req)
-	if err != nil {
-		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
+	var stream interface {
+		Recv() (*multipoolerservice.PortalStreamExecuteResponse, error)
+	}
+	if g.executeStreams != nil {
+		reused, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
+		if err != nil {
+			if !used {
+				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal execute stream")
+			}
+			return nil, mterrors.FromGRPC(err)
+		}
+		if used {
+			defer reused.Release()
+			stream = executionStream[*multipoolerservice.PortalStreamExecuteResponse]{reused}
+		}
+	}
+	if stream == nil {
+		legacy, err := g.client.PortalStreamExecute(ctx, req)
+		if err != nil {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
+		}
+		stream = legacy
 	}
 
 	var reservedState *querypb.ReservedState
@@ -352,7 +371,7 @@ func (g *grpcQueryService) Describe(
 	}
 
 	// Call the gRPC Describe
-	response, err := g.client.Describe(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.Describe)
 	if err != nil {
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "describe failed")
 	}
@@ -718,7 +737,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error (sqlstate + message); Wrapf adds a debug-context prefix on top
 	// without breaking the errors.As chain to that diagnostic.
-	response, err := g.client.ConcludeTransaction(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.ConcludeTransaction)
 	if err != nil {
 		return nil, reservedStateFromGRPCErr(err), mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
@@ -786,7 +805,7 @@ func (g *grpcQueryService) DiscardTempTables(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error; Wrapf adds a debug-context prefix without breaking the
 	// errors.As chain to that diagnostic.
-	response, err := g.client.DiscardTempTables(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.DiscardTempTables)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "discard temp tables")
 	}
@@ -844,7 +863,7 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
 	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
 	// prefix without breaking the errors.As chain to that diagnostic.
-	resp, err := g.client.ReleaseReservedConnection(ctx, req)
+	resp, err := callUnary(ctx, g, req, g.client.ReleaseReservedConnection)
 	if err != nil {
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}

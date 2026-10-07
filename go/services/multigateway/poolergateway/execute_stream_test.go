@@ -38,16 +38,18 @@ type reusableServer struct {
 
 func (s *reusableServer) ExecuteStream(stream pb.MultipoolerService_ExecuteStreamServer) error {
 	s.streams.Add(1)
-	return queryrpc.Serve(stream, func(req *pb.StreamExecuteRequest, out pb.MultipoolerService_StreamExecuteServer) error {
-		s.calls.Add(1)
-		if err := out.Send(&pb.StreamExecuteResponse{ReservedState: &query.ReservedState{ReservedConnectionId: req.Options.GetReservedConnectionId()}}); err != nil {
-			return err
-		}
-		if req.Query == "unavailable" {
-			return status.Error(codes.Unavailable, "may already have executed")
-		}
-		return nil
-	})
+	return queryrpc.Serve(stream, s)
+}
+
+func (s *reusableServer) StreamExecute(req *pb.StreamExecuteRequest, out pb.MultipoolerService_StreamExecuteServer) error {
+	s.calls.Add(1)
+	if err := out.Send(&pb.StreamExecuteResponse{ReservedState: &query.ReservedState{ReservedConnectionId: req.Options.GetReservedConnectionId()}}); err != nil {
+		return err
+	}
+	if req.Query == "unavailable" {
+		return status.Error(codes.Unavailable, "may already have executed")
+	}
+	return nil
 }
 
 func TestReusableStreamReservationAndRetryBoundary(t *testing.T) {

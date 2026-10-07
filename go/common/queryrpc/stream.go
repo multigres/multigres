@@ -15,7 +15,7 @@
 // Package queryrpc holds the wire contract of the reusable ExecuteStream SQL
 // transport shared by multigateway (client pool, see poolergateway) and
 // multipooler (server loop below): frame validation, propagation rules and the
-// server-side adaptation onto the ordinary StreamExecute handler. It does not
+// server-side adaptation onto the existing query-service handlers. It does not
 // own database sessions or reserved connections.
 package queryrpc
 
@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -61,15 +60,15 @@ func ValidPropagation(carrier map[string]string) bool {
 	return size <= 16*1024
 }
 
-// Serve reuses the ordinary StreamExecute handler, including admission,
-// reservation validation and PostgreSQL diagnostics, once per operation.
-func Serve(stream pb.MultipoolerService_ExecuteStreamServer, execute func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error) error {
+// Serve runs one query-service operation at a time. Every operation carries
+// its own deadline and ends with a status frame, including on handler error.
+func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) error {
 	// Per-call authorization headers must be revalidated by the ordinary RPC
 	// interceptor. Never silently widen their lifetime through transport reuse.
 	if md, ok := metadata.FromIncomingContext(stream.Context()); ok && len(md.Get("authorization")) != 0 {
-		return status.Error(codes.Unimplemented, "per-call authorization requires StreamExecute")
+		return status.Error(codes.Unimplemented, "per-call authorization requires a dedicated RPC")
 	}
-	if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+	if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: supportedOperations}); err != nil {
 		return err
 	}
 	tracer := otel.Tracer("github.com/multigres/multigres/go/common/queryrpc")
@@ -83,19 +82,19 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, execute func(*pb.St
 		if err != nil {
 			return err
 		}
-		if req.GetRequest() == nil || req.TimeoutNanos < 0 || !ValidPropagation(req.GetPropagation()) {
+		if Operation(req) == pb.ExecuteStreamOperation_EXECUTE_STREAM_OPERATION_UNSPECIFIED || req.TimeoutNanos < 0 || !ValidPropagation(req.GetPropagation()) {
 			return status.Error(codes.InvalidArgument, "invalid execute stream request")
 		}
 		// The enclosing RPC has no SQL session identity. Reconstruct each
 		// operation's telemetry context independently; never inherit a prior one.
 		ctx := otel.GetTextMapPropagator().Extract(baseCtx, propagation.MapCarrier(req.Propagation))
-		ctx, span := tracer.Start(ctx, "StreamExecute", trace.WithSpanKind(trace.SpanKindServer))
+		ctx, span := tracer.Start(ctx, operationName(Operation(req)), trace.WithSpanKind(trace.SpanKindServer))
 		var cancel context.CancelFunc
 		if req.TimeoutNanos > 0 {
 			ctx, cancel = context.WithTimeout(ctx, time.Duration(req.TimeoutNanos))
 		}
-		adapter := &responseStream{ServerStream: stream, ctx: ctx, stream: stream}
-		err = execute(req.Request, adapter)
+		adapter := &operationStream{ServerStream: stream, ctx: ctx, stream: stream}
+		err = dispatch(req, service, adapter)
 		if cancel != nil {
 			cancel()
 		}
@@ -113,20 +112,4 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, execute func(*pb.St
 			return err
 		}
 	}
-}
-
-type responseStream struct {
-	grpc.ServerStream
-	ctx     context.Context
-	stream  pb.MultipoolerService_ExecuteStreamServer
-	sendErr error
-}
-
-func (s *responseStream) Context() context.Context { return s.ctx }
-func (s *responseStream) Send(r *pb.StreamExecuteResponse) error {
-	if s.sendErr != nil {
-		return s.sendErr
-	}
-	s.sendErr = s.stream.Send(&pb.ExecuteStreamResponse{Response: r})
-	return s.sendErr
 }
