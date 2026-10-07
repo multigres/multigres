@@ -26,17 +26,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+// topoStore returns the cluster's topology store. The Cluster interface does
+// not expose it; both topologies keep it in a field of the same name.
+func topoStore(t *testing.T, setup shardsetup.Cluster) topoclient.Store {
+	t.Helper()
+	switch c := setup.(type) {
+	case *shardsetup.ShardSetup:
+		return c.TopoServer
+	case *minigressetup.Setup:
+		return c.TopoServer
+	default:
+		t.Fatalf("no topology store for cluster type %T", setup)
+		return nil
+	}
+}
+
 // setReadOnly flips the database's topo read-only flags the way multiadmin
 // SetDatabaseReadOnly does, and waits until the gateway has picked it up: an
 // autocommit INSERT is rejected with 25006 while read-only, accepted otherwise.
-func setReadOnly(t *testing.T, ctx context.Context, setup *shardsetup.ShardSetup, readOnly, force bool) {
+func setReadOnly(t *testing.T, ctx context.Context, setup shardsetup.Cluster, readOnly, force bool) {
 	t.Helper()
-	require.NoError(t, setup.TopoServer.UpdateDatabaseFields(ctx, constants.DefaultPostgresDatabase, func(db *clustermetadatapb.Database) error {
+	require.NoError(t, topoStore(t, setup).UpdateDatabaseFields(ctx, constants.DefaultPostgresDatabase, func(db *clustermetadatapb.Database) error {
 		db.ReadOnly, db.ReadOnlyForce = readOnly, readOnly && force
 		return nil
 	}))
