@@ -91,20 +91,23 @@ collides fails loudly instead of silently shadowing another.
 ## How it is wired
 
 `servenv.ProcessResources` (`go/common/servenv/process_resources.go`) holds what
-a process has only one of: the servenv, the gRPC server, and a function that
-returns the topology store. `main` opens the store after parsing flags, so the
-halves read it during `Init`, and `Init` fails if it is not open yet.
+a process has only one of: the servenv and the gRPC server. Every binary's
+`main` creates them and hands them to the halves it runs:
+`multigateway.NewMultigateway` and `multipooler.NewMultipooler` always take them,
+together with the path of the half's status page. The halves never create these
+resources themselves, and they never register the process flags, call
+`servenv.Init`, or open or close the topology store; `main` does all of that.
+`main` opens the store after parsing flags and passes it to each half's `Init`.
+`main` also passes the settings registry each half configures its own settings
+on. `cmd/multigateway` and `cmd/multipooler` pass the registry their servenv
+uses, so a configuration file sets the half's settings too. `cmd/minigres`
+gives each half its own registry, because both define keys such as `pg-port`
+with different meanings; that is why it refuses configuration files for now.
 
-`multigateway.WithSingleProcessMode` and `multipooler.WithSingleProcessMode`
-hand a half those resources. The half records this once, in a
-`singleProcessMode` field, and then skips the steps `main` owns: registering the
-process flags, calling `servenv.Init`, loading the configuration, and opening
-and closing the store. Without the option, both halves behave exactly as their
-Multigres binaries.
-
-`go/cmd/minigres` opens the store, calls `servenv.Init` once with the service
-name `minigres` and the pooler's identity, then runs the pooler's `Init`, the
-gateway's `Init`, and the serving loop.
+`cmd/multigateway` and `cmd/multipooler` do this for one half each, and
+`cmd/minigres` does it once for both. `cmd/minigres` opens the store, calls
+`servenv.Init` once with the service name `minigres` and the pooler's identity,
+then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
 ## Where Minigres diverges from Multigres, and why
 
@@ -123,8 +126,9 @@ pooler's bootstrap, and shutdown.
 
 ### The static leader
 
-The pooler's single-process mode sets `StaticLeader` in the pooler manager's
-configuration, and the consensus manager handles it
+`cmd/minigres` constructs the pooler as a static leader, which sets
+`StaticLeader` in the pooler manager's configuration, and the consensus manager
+handles it
 (`go/services/multipooler/internal/manager/consensus/manager.go`): it answers
 the role, how PostgreSQL starts, what to do about a standby, and whether
 resigning is allowed. There is no Multiorch, so nothing else would ever make

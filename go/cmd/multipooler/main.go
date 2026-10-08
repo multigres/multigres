@@ -58,7 +58,9 @@ func newStandaloneMultipooler(tel *telemetry.Telemetry) *standaloneMultipooler {
 		ServEnv:    s.senv,
 		GrpcServer: s.grpcServer,
 	}
-	s.mp = multipooler.NewMultipooler(tel, resources, "/", false)
+	// The multipooler's settings share the process's registry, so a
+	// configuration file loaded by servenv reaches them.
+	s.mp = multipooler.NewMultipooler(tel, reg, resources, "/", false)
 	return s
 }
 

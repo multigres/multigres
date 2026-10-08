@@ -19,10 +19,17 @@ import (
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestQueryStreamReuseFlag(t *testing.T) {
-	mg := NewMultigateway()
+	reg := viperutil.NewRegistry()
+	mg := NewMultigateway(reg, servenv.ProcessResources{
+		ServEnv:    servenv.NewServEnv(reg),
+		GrpcServer: servenv.NewGrpcServer(reg),
+	}, "/")
 	require.True(t, mg.queryStreamReuse.Default())
 	fs := pflag.NewFlagSet("query-stream-test", pflag.ContinueOnError)
 	mg.RegisterFlags(fs)
