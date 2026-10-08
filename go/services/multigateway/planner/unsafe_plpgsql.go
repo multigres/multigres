@@ -229,6 +229,7 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 type varResolver struct {
 	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
 	tainted   map[string]bool                       // names written by a form we cannot reduce
+	lossy     map[string]bool                       // names declared with a type that can change an assigned string
 	scopes    []map[string]bool                     // lexical scope stack of in-scope DECLARE'd locals
 	resolving map[string]bool                       // names on the current resolution stack (cycle guard)
 }
@@ -244,6 +245,7 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 	r := &varResolver{
 		assigns:   map[string][]*plpgsqlast.PLpgSQL_expr{},
 		tainted:   map[string]bool{},
+		lossy:     map[string]bool{},
 		resolving: map[string]bool{},
 	}
 	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
@@ -257,8 +259,16 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 				switch decl := d.(type) {
 				case *plpgsqlast.PLpgSQL_var:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
+					// Flow-insensitive like assigns: any lossy declaration of a name
+					// makes every use of that name lossy.
+					if !textPreservingDeclType(decl.DataType) {
+						r.lossy[decl.Refname] = true
+					}
 				case *plpgsqlast.PLpgSQL_rec:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
+					// A record or %ROWTYPE value is printed in the composite format,
+					// not as written, so it is never a text constant.
+					r.lossy[decl.Refname] = true
 				}
 			}
 		case *plpgsqlast.PLpgSQL_stmt_call:
@@ -857,6 +867,23 @@ func textPreservingCast(tn *ast.TypeName) bool {
 	return false
 }
 
+// textPreservingDeclType reports whether a variable declared with type t keeps an
+// assigned string unchanged: text, or varchar with no length. name truncates to 63
+// bytes, and "char", char(n) and varchar(n) truncate, pad or drop trailing spaces,
+// so the constants assigned to such a variable are not what a %s argument sees.
+// t.TypeName is the type as written, so it is normalized first; quoted names and
+// anything else are refused rather than proven safe.
+func textPreservingDeclType(t *plpgsqlast.PLpgSQL_type) bool {
+	if t == nil {
+		return false
+	}
+	switch strings.ToLower(strings.Join(strings.Fields(t.TypeName), " ")) {
+	case "text", "varchar", "character varying", "pg_catalog.text", "pg_catalog.varchar":
+		return true
+	}
+	return false
+}
+
 // safeExecuteSkeleton reduces an EXECUTE payload expression built from
 // PostgreSQL's injection-safe primitives to a fixed statement skeleton plus the
 // value expressions it interpolates. The final bool is false if the expression
@@ -1216,7 +1243,9 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 			return nil, false
 		}
 		name := s.SVal
-		if !res.resolvable(name) || visited[name] {
+		// A lossy type changes the assigned text before %s sees it, so the constants
+		// we would analyze are not what PostgreSQL substitutes.
+		if !res.resolvable(name) || visited[name] || res.lossy[name] {
 			return nil, false
 		}
 		exprs, ok := res.assigns[name]

@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -546,6 +547,75 @@ func TestAnalyzeDynamicExecute_CastedConstantS(t *testing.T) {
 		"varchar without length":    `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::varchar); END $$`,
 		"character varying, no len": `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::character varying); END $$`,
 		"text in CASE branches":     `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', CASE WHEN true THEN 'asc'::text ELSE 'desc'::text END); END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyzeDynamicExecute_TypedVariableS checks that a %s argument fed by a
+// variable respects the variable's declared type. A `name` variable silently
+// truncates what is assigned to it to 63 bytes, so the analyzer can check the full
+// value (and the empty one) while PostgreSQL runs the truncated one: here, the
+// truncated value makes `aaaa$q$` one identifier and the set_config call runs.
+func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
+	hidden := "1 AS " + strings.Repeat("a", 58) + " --"
+	const format = `format('SELECT %s$q$, set_config(''work_mem'',''1GB'',false) AS b, 1 AS c$q$', d)`
+	declared := func(typ string) string {
+		return "DO $$ DECLARE d " + typ + " := '" + hidden + "'; BEGIN EXECUTE " + format + "; END $$"
+	}
+	assigned := func(typ string) string {
+		return "DO $$ DECLARE d " + typ + "; BEGIN d := '" + hidden + "'; EXECUTE " + format + "; END $$"
+	}
+
+	reject := map[string]string{
+		"name, declared":       declared("name"),
+		"name, assigned":       assigned("name"),
+		"char(n)":              assigned("char(3)"),
+		"bare char":            assigned("char"),
+		"varchar(n)":           declared("varchar(80)"),
+		"character varying(n)": assigned("character varying(80)"),
+		"quoted char":          assigned(`"char"`),
+		"bpchar":               assigned("bpchar"),
+		"text array":           assigned("text[]"),
+		"domain":               assigned("public.mydomain"),
+		"%TYPE":                assigned("tab.col%TYPE"),
+		"quoted text":          assigned(`"text"`),
+		"transitive from name": "DO $$ DECLARE d name; w text; BEGIN d := '" + hidden + "'; w := d; EXECUTE " + strings.Replace(format, ", d)", ", w)", 1) + "; END $$",
+		"shadowed by a name":   "DO $$ DECLARE d text; BEGIN DECLARE d name; BEGIN d := '" + hidden + "'; END; EXECUTE " + format + "; END $$",
+		// A record variable is never a text constant: PostgreSQL prints a composite
+		// value in its own format, so it is refused whatever it was set to.
+		"record, declared":         "DO $$ DECLARE d record := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"record, assigned":         "DO $$ DECLARE d record; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"%ROWTYPE, declared":       "DO $$ DECLARE d pg_namespace%ROWTYPE := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"%ROWTYPE, assigned":       "DO $$ DECLARE d pg_namespace%ROWTYPE; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"composite type, assigned": "DO $$ DECLARE d mycomposite; BEGIN d := '( x , \"a b\" )'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.Error(t, err)
+		})
+	}
+
+	// The same payloads with a type that keeps the text are only caught by the
+	// content of the statement, not by the type; the safe variants below must stay
+	// accepted.
+	accept := map[string]string{
+		"text":                    `DO $$ DECLARE d text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"TEXT":                    `DO $$ DECLARE d TEXT := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"varchar":                 `DO $$ DECLARE d varchar := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"character varying":       `DO $$ DECLARE d character varying := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"pg_catalog.text":         `DO $$ DECLARE d pg_catalog.text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text COLLATE":            `DO $$ DECLARE d text COLLATE "C" := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"CONSTANT text":           `DO $$ DECLARE d CONSTANT text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text NOT NULL":           `DO $$ DECLARE d text NOT NULL := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text, assigned":          `DO $$ DECLARE d text; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"name holding the stmt":   `DO $$ DECLARE v name := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
+		"varchar(n) holding stmt": `DO $$ DECLARE v varchar(100); BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
