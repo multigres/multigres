@@ -810,7 +810,33 @@ func executeArgExpr(exprText string) ast.Node {
 	if !ok {
 		return nil
 	}
-	return rt.Val
+	// `EXECUTE (x)` is `EXECUTE x`: analyze the grouped expression.
+	return unwrapParens(rt.Val)
+}
+
+// unwrapParens strips ParenExpr wrappers from n. Parentheses are pure grouping,
+// so the inner expression gets the same analysis it would without them.
+func unwrapParens(n ast.Node) ast.Node {
+	for {
+		p, ok := n.(*ast.ParenExpr)
+		if !ok {
+			return n
+		}
+		n = p.Expr
+	}
+}
+
+// unwrapGrouping strips ParenExpr and text-preserving TypeCast wrappers from n, in
+// any order, so `('asc')`, `'asc'::text` and `(('asc')::text)` all reduce to the
+// literal.
+func unwrapGrouping(n ast.Node) ast.Node {
+	for {
+		next := unwrapTextCasts(unwrapParens(n))
+		if next == n {
+			return n
+		}
+		n = next
+	}
 }
 
 // unwrapTextCasts strips TypeCast wrappers from n while they cannot change the
@@ -919,7 +945,7 @@ func safeExecuteSkeleton(exprText string) (string, []ast.Node, bool) {
 // not have; matching pg_catalog.<name> only would instead reject the ubiquitous
 // unqualified idiom. Accepted as-is for now.
 func reduceSafeExpr(node ast.Node, sb *strings.Builder, values *[]ast.Node) bool {
-	switch v := node.(type) {
+	switch v := unwrapParens(node).(type) {
 	case *ast.A_Const:
 		s, ok := v.Val.(*ast.String)
 		if v.Isnull || !ok {
@@ -962,7 +988,7 @@ func reduceSafeFormat(fc *ast.FuncCall, sb *strings.Builder, values *[]ast.Node)
 	if fc.Args == nil || fc.Args.Len() < 1 {
 		return false
 	}
-	fmtConst, ok := fc.Args.Items[0].(*ast.A_Const)
+	fmtConst, ok := unwrapParens(fc.Args.Items[0]).(*ast.A_Const)
 	if !ok || fmtConst.Isnull {
 		return false
 	}
@@ -1092,7 +1118,7 @@ func reduceConstrainedFormat(fc *ast.FuncCall, res *varResolver) (variants []str
 	if fc.Args == nil || fc.Args.Len() < 1 {
 		return nil, nil, false
 	}
-	fmtConst, isConst := fc.Args.Items[0].(*ast.A_Const)
+	fmtConst, isConst := unwrapParens(fc.Args.Items[0]).(*ast.A_Const)
 	if !isConst || fmtConst.Isnull {
 		return nil, nil, false
 	}
@@ -1203,7 +1229,7 @@ func enumerateFormatVariants(literalChunks []string, svalSets [][]string) []stri
 // substitute each returned value and re-analyze the result, a hostile constant
 // is still caught; the only requirement here is that the set be complete.
 func constStringValues(node ast.Node, res *varResolver, visited map[string]bool) ([]string, bool) {
-	switch n := unwrapTextCasts(node).(type) {
+	switch n := unwrapGrouping(node).(type) {
 	case *ast.A_Const:
 		if n.Isnull {
 			return nil, false

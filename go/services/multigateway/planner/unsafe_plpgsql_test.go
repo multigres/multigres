@@ -624,3 +624,62 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 		})
 	}
 }
+
+// TestAnalyzeDynamicExecute_Parentheses checks that parentheses around an EXECUTE
+// payload or its sub-expressions are pure grouping: accepted shapes stay
+// accepted with them, and nothing rejected becomes acceptable.
+func TestAnalyzeDynamicExecute_Parentheses(t *testing.T) {
+	accept := map[string]string{
+		"parenthesized literal":          `DO $$ BEGIN EXECUTE('SELECT 1'); END $$`,
+		"parenthesized literal, spaced":  `DO $$ BEGIN EXECUTE ('SELECT 1'); END $$`,
+		"parenthesized format %I":        `DO $$ DECLARE t text; BEGIN EXECUTE(format('CREATE TABLE %I AS SELECT 1', t)); END $$`,
+		"double parentheses":             `DO $$ DECLARE t text; BEGIN EXECUTE((format('CREATE TABLE %I AS SELECT 1', t))); END $$`,
+		"parenthesized || operand":       `DO $$ DECLARE t text; BEGIN EXECUTE 'select count(*) from ' || (quote_ident(t)); END $$`,
+		"parenthesized || chain":         `DO $$ DECLARE t text; BEGIN EXECUTE ('select count(*) from ' || quote_ident(t)); END $$`,
+		"parenthesized format string":    `DO $$ DECLARE t text; BEGIN EXECUTE format(('CREATE TABLE %I AS SELECT 1'), t); END $$`,
+		"parenthesized %I argument":      `DO $$ DECLARE t text; BEGIN EXECUTE format('CREATE TABLE %I AS SELECT 1', (t)); END $$`,
+		"parenthesized %I subselect":     `DO $$ BEGIN EXECUTE(format('grant select on table %I.%I to anon', (select n.nspname from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.oid = 1), (select relname from pg_class where oid = 1))); END $$`,
+		"two statements, positional %I":  `DO $$ DECLARE p text; BEGIN EXECUTE(format('drop publication %1$I; create publication %1$I;', p)); END $$`,
+		"parenthesized %s constant":      `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', ('asc')); END $$`,
+		"parenthesized %s cast constant": `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', (('asc')::text)); END $$`,
+		"parenthesized %s CASE":          `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', (CASE WHEN true THEN 'asc' ELSE 'desc' END)); END $$`,
+		"parenthesized bare variable":    `DO $$ DECLARE v text; BEGIN v := 'SELECT 1'; EXECUTE (v); END $$`,
+		"parenthesized assignment":       `DO $$ DECLARE v text; BEGIN v := (format('SELECT * FROM %I', 't')); EXECUTE v; END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.NoError(t, err)
+		})
+	}
+
+	reject := map[string]string{
+		// Still analyzed, not skipped.
+		"SET in parenthesized literal":      `DO $$ BEGIN EXECUTE('SET work_mem = ''1GB'''); END $$`,
+		"SET via parenthesized format %L":   `DO $$ DECLARE v text; BEGIN EXECUTE(format('SET work_mem = %L', v)); END $$`,
+		"set_config via parenthesized ||":   `DO $$ DECLARE a text; BEGIN EXECUTE ('SELECT set_config(' || quote_literal(a) || ',''1'',false)'); END $$`,
+		"blocklisted in parenthesized call": `DO $$ DECLARE x text; BEGIN EXECUTE(format('SELECT dblink(%L, %L)', x, x)); END $$`,
+		"blocklisted in %I value":           `DO $$ BEGIN EXECUTE(format('CREATE TABLE %I AS SELECT 1', quote_literal(lo_import('/etc/passwd')))); END $$`,
+		// Parentheses don't make a runtime value constant.
+		"parenthesized bare param":         `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE (q); END $$ LANGUAGE plpgsql`,
+		"parenthesized raw concat":         `DO $$ DECLARE q text; BEGIN EXECUTE ('explain analyze ' || q); END $$`,
+		"parenthesized raw concat operand": `DO $$ DECLARE q text; BEGIN EXECUTE 'explain analyze ' || (q); END $$`,
+		"parenthesized %s param":           `CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE(format('explain %s', (q))); END $$ LANGUAGE plpgsql`,
+		"parenthesized %s non-constant":    `CREATE FUNCTION f(so text) RETURNS void AS $$ DECLARE d text; BEGIN d := lower(so); EXECUTE format('SELECT 1 ORDER BY x %s', (d)); END $$ LANGUAGE plpgsql`,
+		"parenthesized %s tainted var":     `DO $$ DECLARE d text; BEGIN d := 'asc'; SELECT relname INTO d FROM pg_class LIMIT 1; EXECUTE format('SELECT 1 ORDER BY x %s', (d)); END $$`,
+		"parenthesized subquery payload":   `DO $$ BEGIN EXECUTE (SELECT 'SELECT 1'); END $$`,
+		"parenthesized var, tainted":       `DO $$ DECLARE v text; BEGIN SELECT relname INTO v FROM pg_class LIMIT 1; EXECUTE (v); END $$`,
+		// An injected statement in a parenthesized constant is still re-analyzed.
+		"injected set_config via parenthesized %s": `DO $$ BEGIN EXECUTE format('SELECT count(*) FROM t WHERE a IN (%s)', ('x); SELECT set_config(''work_mem'',''1GB'',false')); END $$`,
+		// Parentheses don't hide a cast or a variable type that changes the text.
+		"parenthesized char(n) cast":           `DO $$ BEGIN EXECUTE format('SELECT 1 %s, set_config(''work_mem'',''1GB'',false)', (' AS a --')::char(5)); END $$`,
+		"double-parenthesized varchar(n) cast": `DO $$ BEGIN EXECUTE format('SELECT 1 %s, set_config(''work_mem'',''1GB'',false)', ((' AS a --'))::varchar(5)); END $$`,
+		"parenthesized name variable":          "DO $$ DECLARE d name := '1 AS " + strings.Repeat("a", 58) + " --'; BEGIN EXECUTE format('SELECT %s$q$, set_config(''work_mem'',''1GB'',false) AS b, 1 AS c$q$', (d)); END $$",
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.Error(t, err)
+		})
+	}
+}
