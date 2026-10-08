@@ -16,17 +16,21 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
 // newSentinelTestManager builds a manager whose pooler directory is a writable
@@ -219,6 +223,100 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 		present, err := pm.hasRewindSentinel()
 		require.NoError(t, err)
 		assert.False(t, present, "no sentinel written when there is no divergence")
+	})
+}
+
+// TestRunPgRewind_RestoreTargetWAL checks that both pg_rewind runs get
+// --restore-target-wal and a temporary restore_command that is always removed,
+// and that without a pgbackrest config no -c is passed.
+func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
+	const diverged = "servers diverged at 0/5000000 on timeline 2"
+
+	setup := func(t *testing.T, withBackupConfig bool) (*MultipoolerManager, *mockPgctldClient, string) {
+		t.Helper()
+		pgdata := t.TempDir()
+		t.Setenv(constants.PgDataDirEnvVar, pgdata)
+		autoConf := filepath.Join(pgdata, "postgresql.auto.conf")
+		require.NoError(t, os.WriteFile(autoConf, []byte("primary_conninfo = 'host=x'\n"), 0o600))
+
+		pm := newSentinelTestManager(t)
+		pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+		if withBackupConfig {
+			pm.backup.SetConfigPath("/etc/pgbackrest.conf")
+		}
+		return pm, &mockPgctldClient{pgRewindResponse: &pgctldpb.PgRewindResponse{Output: diverged}}, autoConf
+	}
+	read := func(t *testing.T, path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return string(b)
+	}
+
+	t.Run("passes -c and sets restore_command for dry-run and real run", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		var confAtCall []string
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) { confAtCall = append(confAtCall, read(t, autoConf)) }
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.True(t, performed)
+
+		require.Len(t, client.pgRewindReqs, 2)
+		assert.True(t, client.pgRewindReqs[0].DryRun)
+		assert.Equal(t, []string{"--restore-target-wal"}, client.pgRewindReqs[0].ExtraArgs)
+		assert.False(t, client.pgRewindReqs[1].DryRun)
+		assert.Equal(t, []string{"-R", "--restore-target-wal"}, client.pgRewindReqs[1].ExtraArgs)
+
+		for _, conf := range confAtCall {
+			assert.Contains(t, conf, "restore_command = ")
+			assert.Contains(t, conf, "pgctld restore-wrapper")
+			assert.Contains(t, conf, "archive-get")
+			assert.Contains(t, conf, constants.RestoreCommandPIDFile)
+		}
+		assert.Equal(t, "primary_conninfo = 'host=x'\n", read(t, autoConf), "restore_command must be removed after the rewind")
+	})
+
+	t.Run("removes restore_command when pg_rewind fails", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindError = errors.New("pg_rewind boom")
+		pm.pgctldClient = client
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.Error(t, err)
+		assert.False(t, strings.Contains(read(t, autoConf), "restore_command"))
+	})
+
+	t.Run("removes restore_command when dry-run finds no divergence", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindResponse = &pgctldpb.PgRewindResponse{Output: "no rewind required"}
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.False(t, performed)
+		require.Len(t, client.pgRewindReqs, 1)
+		assert.Equal(t, []string{"--restore-target-wal"}, client.pgRewindReqs[0].ExtraArgs)
+		assert.NotContains(t, read(t, autoConf), "restore_command")
+	})
+
+	t.Run("falls back to no -c without a pgbackrest config", func(t *testing.T) {
+		pm, client, autoConf := setup(t, false)
+		var confAtCall []string
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) { confAtCall = append(confAtCall, read(t, autoConf)) }
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.True(t, performed)
+
+		require.Len(t, client.pgRewindReqs, 2)
+		assert.Empty(t, client.pgRewindReqs[0].ExtraArgs)
+		assert.Equal(t, []string{"-R"}, client.pgRewindReqs[1].ExtraArgs)
+		for _, conf := range confAtCall {
+			assert.NotContains(t, conf, "restore_command")
+		}
 	})
 }
 
