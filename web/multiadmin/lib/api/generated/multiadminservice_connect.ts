@@ -17,11 +17,11 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, CreateCellRequest, CreateCellResponse, CreateDatabaseRequest, CreateDatabaseResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolerRegistrationRequest, GetPoolerRegistrationResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, RetirePoolerRequest, RetirePoolerResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * MultiadminService provides administrative gRPC APIs for querying cluster metadata
+ * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
  *
  * @generated from service multiadmin.MultiadminService
  */
@@ -29,7 +29,91 @@ export const MultiadminService = {
   typeName: "multiadmin.MultiadminService",
   methods: {
     /**
+     * CreateCell creates a cell or adopts identical existing configuration.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates invalid configuration. AlreadyExists (6), HTTP 409, means existing
+     * configuration differs; nothing is overwritten. Equality includes every field and repeated-field
+     * order; an omitted stored name uses its topology key. A timeout or Unavailable (14) leaves creation
+     * uncertain: repeat the same request or use GetCell to reconcile. This configures topology access;
+     * it does not provision infrastructure.
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateCell
+     */
+    createCell: {
+      name: "CreateCell",
+      I: CreateCellRequest,
+      O: CreateCellResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * CreateDatabase creates database configuration or adopts an identical existing record.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates invalid configuration. FailedPrecondition (9) means a referenced cell
+     * is missing. AlreadyExists (6), HTTP 409, means existing configuration differs; nothing is overwritten.
+     * Equality includes every field and repeated-field order; an omitted stored name uses its topology key.
+     * After a timeout or Unavailable (14), repeat the same request or reconcile with GetDatabase.
+     * bootstrapDurabilityPolicy initializes new shards; this operation never changes the consensus policy
+     * of a running shard or provisions infrastructure.
+     *
+     * @generated from rpc multiadmin.MultiadminService.CreateDatabase
+     */
+    createDatabase: {
+      name: "CreateDatabase",
+      I: CreateDatabaseRequest,
+      O: CreateDatabaseResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetPoolerRegistration reads topology without contacting the pooler process.
+     * Errors and recovery:
+     * NotFound (5) means the registration is absent; missing cell configuration is FailedPrecondition (9).
+     * A dependency error is never evidence of absence: retry Unavailable (14) or DeadlineExceeded (4)
+     * with backoff. Save incarnationId and version
+     * with the member identity and shard before fencing it. After an uncertain retirement, absence or a
+     * different incarnation establishes that the old registration is gone; it does not identify which
+     * request removed it. A surviving matching incarnation still needs reconciliation.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetPoolerRegistration
+     */
+    getPoolerRegistration: {
+      name: "GetPoolerRegistration",
+      I: GetPoolerRegistrationRequest,
+      O: GetPoolerRegistrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RetirePooler conditionally removes the registration of an already-fenced process incarnation.
+     * The caller must positively establish that this exact pooler process and its PostgreSQL process
+     * are stopped or permanently isolated from topology, peers, and clients, and that restart or
+     * reconnection is prevented. A failed probe, timeout, or partition is not fencing evidence.
+     * fencingAcknowledged is the caller's assertion of this infrastructure precondition, not verification
+     * by Multiadmin. This operation does not stop processes, fence machines, change consensus membership,
+     * promote a replica, or drive replication. Multigres owns elections and consensus transitions.
+     * Errors and recovery:
+     * InvalidArgument (3) indicates missing identity, shard, incarnation, or version. FailedPrecondition (9)
+     * means fencing was not acknowledged or the registration predates incarnation IDs. Aborted (10), HTTP
+     * 409, means an identity, shard, or version precondition no longer matches; nothing is removed.
+     * Deletion atomically checks the observed version. An already-absent registration succeeds. Repeat an
+     * identical request safely after an uncertain response: it cannot delete a newer registration. A newer
+     * registration returns Aborted; use GetPoolerRegistration to determine whether the old incarnation is
+     * gone. Unavailable (14) or DeadlineExceeded (4) may occur after deletion committed. Never replace
+     * preconditions with a newer incarnation merely to make a retry succeed.
+     *
+     * @generated from rpc multiadmin.MultiadminService.RetirePooler
+     */
+    retirePooler: {
+      name: "RetirePooler",
+      I: RetirePoolerRequest,
+      O: RetirePoolerResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
      * GetCell retrieves information about a specific cell
+     *
+     * Errors and recovery:
+     * InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+     * cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+     * after a transient dependency failure.
      *
      * @generated from rpc multiadmin.MultiadminService.GetCell
      */
@@ -42,6 +126,11 @@ export const MultiadminService = {
     /**
      * GetDatabase retrieves information about a specific database
      *
+     * Errors and recovery:
+     * InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+     * database; other topology failures become Internal (13). This read can be retried with bounded
+     * backoff after a transient dependency failure.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetDatabase
      */
     getDatabase: {
@@ -52,6 +141,10 @@ export const MultiadminService = {
     },
     /**
      * GetCellNames retrieves all cell names in the cluster
+     *
+     * Errors and recovery:
+     * Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+     * transient dependency failure; an error is not an empty inventory.
      *
      * @generated from rpc multiadmin.MultiadminService.GetCellNames
      */
@@ -64,6 +157,10 @@ export const MultiadminService = {
     /**
      * GetDatabaseNames retrieves all database names in the cluster
      *
+     * Errors and recovery:
+     * Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+     * transient dependency failure; an error is not an empty inventory.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetDatabaseNames
      */
     getDatabaseNames: {
@@ -74,6 +171,11 @@ export const MultiadminService = {
     },
     /**
      * GetGateways retrieves gateways filtered by cells
+     *
+     * Errors and recovery:
+     * Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+     * the REST error response does not include partial inventory. Retry this read with bounded backoff and
+     * do not treat lookup failure as resource absence.
      *
      * @generated from rpc multiadmin.MultiadminService.GetGateways
      */
@@ -86,6 +188,11 @@ export const MultiadminService = {
     /**
      * GetPoolers retrieves poolers filtered by cells and/or database
      *
+     * Errors and recovery:
+     * Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+     * the REST error response does not include partial inventory. Retry this read with bounded backoff and
+     * do not treat lookup failure as resource absence.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetPoolers
      */
     getPoolers: {
@@ -96,6 +203,11 @@ export const MultiadminService = {
     },
     /**
      * GetOrchs retrieves orchestrators filtered by cells
+     *
+     * Errors and recovery:
+     * Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+     * the REST error response does not include partial inventory. Retry this read with bounded backoff and
+     * do not treat lookup failure as resource absence.
      *
      * @generated from rpc multiadmin.MultiadminService.GetOrchs
      */
@@ -108,6 +220,14 @@ export const MultiadminService = {
     /**
      * Backup starts an async backup of a specific shard
      *
+     * Errors and recovery:
+     * HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+     * GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+     * JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+     * FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+     * the response is lost, a job may already be running: reconcile job status and backup inventory before
+     * submitting another backup. An empty inventory alone does not rule out an in-progress job.
+     *
      * @generated from rpc multiadmin.MultiadminService.Backup
      */
     backup: {
@@ -119,6 +239,14 @@ export const MultiadminService = {
     /**
      * GetBackupJobStatus checks the status of a backup or restore job
      *
+     * Errors and recovery:
+     * After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+     * back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+     * selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+     * does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+     * and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+     * returned status and errorMessage to distinguish job failure from lookup failure.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetBackupJobStatus
      */
     getBackupJobStatus: {
@@ -128,7 +256,13 @@ export const MultiadminService = {
       kind: MethodKind.Unary,
     },
     /**
-     * GetBackups lists backup artifacts with optional filtering
+     * GetBackups lists backup artifacts for a database and table group.
+     *
+     * Errors and recovery:
+     * Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+     * NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+     * including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+     * and retry this read with bounded backoff.
      *
      * @generated from rpc multiadmin.MultiadminService.GetBackups
      */
@@ -141,6 +275,12 @@ export const MultiadminService = {
     /**
      * ExpireBackups removes old backups according to retention policy
      *
+     * Errors and recovery:
+     * Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+     * NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+     * Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+     * review retention overrides before retrying; errors do not imply rollback.
+     *
      * @generated from rpc multiadmin.MultiadminService.ExpireBackups
      */
     expireBackups: {
@@ -151,6 +291,12 @@ export const MultiadminService = {
     },
     /**
      * VerifyBackups runs pgbackrest verify for a shard.
+     *
+     * Errors and recovery:
+     * Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+     * NotFound (5), including topology failures; every downstream verification error becomes Internal
+     * (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+     * execution state before launching another verification to avoid overlapping runs.
      *
      * @generated from rpc multiadmin.MultiadminService.VerifyBackups
      */
@@ -164,6 +310,12 @@ export const MultiadminService = {
      * GetPoolerStatus retrieves the unified status of a specific pooler.
      * This proxies the request to the target pooler's MultipoolerManager.Status RPC.
      *
+     * Errors and recovery:
+     * InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+     * (5), while other topology errors become Internal (13). Every downstream Status error becomes
+     * Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+     * code 14 alone does not identify the underlying cause.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetPoolerStatus
      */
     getPoolerStatus: {
@@ -175,6 +327,12 @@ export const MultiadminService = {
     /**
      * SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
      * This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+     *
+     * Errors and recovery:
+     * InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+     * (5), while other topology errors become Internal (13). Every downstream update error becomes
+     * Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+     * intended setting and reconcile the pooler state before retrying the update.
      *
      * @generated from rpc multiadmin.MultiadminService.SetPostgresRestartsEnabled
      */
@@ -189,6 +347,13 @@ export const MultiadminService = {
      * specific multigateway. This proxies the request to the target gateway's
      * MultigatewayManager.GetQueryRegistry RPC.
      *
+     * Errors and recovery:
+     * InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+     * (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+     * FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+     * of their original code. Retry this read with bounded backoff after checking gateway health and
+     * configuration.
+     *
      * @generated from rpc multiadmin.MultiadminService.GetGatewayQueries
      */
     getGatewayQueries: {
@@ -201,6 +366,13 @@ export const MultiadminService = {
      * GetGatewayConsolidator retrieves the prepared-statement consolidator
      * snapshot of a specific multigateway. This proxies the request to the
      * target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+     *
+     * Errors and recovery:
+     * InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+     * (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+     * FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+     * of their original code. Retry this read with bounded backoff after checking gateway health and
+     * configuration.
      *
      * @generated from rpc multiadmin.MultiadminService.GetGatewayConsolidator
      */
@@ -220,6 +392,16 @@ export const MultiadminService = {
      * the proposed cohort. Multiadmin then forwards the request to the shard's
      * multiorch.
      *
+     * Errors and recovery:
+     * Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+     * multiorch failures can occur before or after recruitment has modified consensus state. An error,
+     * timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+     * Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+     * compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+     * Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+     * preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+     * unsafe certificate or assume an old certificate is still valid solely from the error code.
+     *
      * @generated from rpc multiadmin.MultiadminService.ApplyCertifiedRuleChange
      */
     applyCertifiedRuleChange: {
@@ -235,6 +417,15 @@ export const MultiadminService = {
      * leader through the normal consensus flow. The RPC returns as soon as the
      * old primary has been quiesced — it does not wait for the new leader to
      * appear.
+     *
+     * Errors and recovery:
+     * FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+     * means discovery found no primary; cell lookup failures can also hide a primary. Every
+     * ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+     * Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+     * GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+     * election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+     * that a replacement primary is serving. Blind retry can demote the replacement primary.
      *
      * @generated from rpc multiadmin.MultiadminService.SwitchPrimary
      */

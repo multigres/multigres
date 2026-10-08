@@ -1,4 +1,7 @@
 lint:
+  directories:
+    exclude:
+      - proto/openapiv3
   rules:
     remove:
       - ENUM_FIELD_NAMES_PREFIX

@@ -1205,7 +1205,12 @@ type Multipooler struct {
 	// leaves routing_state unset entirely. This rule-dropping is specific to
 	// that publish path (pooler_record.go), not a constraint of the
 	// RoutingState message itself — see RoutingState below.
-	RoutingState  *RoutingState `protobuf:"bytes,13,opt,name=routing_state,json=routingState,proto3" json:"routing_state,omitempty"`
+	RoutingState *RoutingState `protobuf:"bytes,13,opt,name=routing_state,json=routingState,proto3" json:"routing_state,omitempty"`
+	// incarnation_id identifies this process lifetime. Generated at startup and
+	// preserved across publication retries; a restarted or replacement process
+	// gets a new value even when its ID and addresses are reused. Older processes
+	// leave this empty and cannot be retired through the conditional public API.
+	IncarnationId string `protobuf:"bytes,14,opt,name=incarnation_id,json=incarnationId,proto3" json:"incarnation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1316,6 +1321,13 @@ func (x *Multipooler) GetRoutingState() *RoutingState {
 		return x.RoutingState
 	}
 	return nil
+}
+
+func (x *Multipooler) GetIncarnationId() string {
+	if x != nil {
+		return x.IncarnationId
+	}
+	return ""
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
@@ -3046,7 +3058,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rPoolerAddress\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
-	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x92\x05\n" +
+	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\xb9\x05\n" +
 	"\vMultipooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
 	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
@@ -3060,7 +3072,8 @@ const file_clustermetadata_proto_rawDesc = "" +
 	" \x01(\tR\tpoolerDir\x12\x1e\n" +
 	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x12K\n" +
 	"\x10lifecycle_status\x18\f \x01(\v2 .clustermetadata.PoolerLifecycleR\x0flifecycleStatus\x12B\n" +
-	"\rrouting_state\x18\r \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x1a:\n" +
+	"\rrouting_state\x18\r \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12%\n" +
+	"\x0eincarnation_id\x18\x0e \x01(\tR\rincarnationId\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +

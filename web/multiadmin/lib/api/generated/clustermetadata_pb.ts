@@ -988,6 +988,16 @@ export class Multipooler extends Message<Multipooler> {
    */
   routingState?: RoutingState;
 
+  /**
+   * incarnation_id identifies this process lifetime. Generated at startup and
+   * preserved across publication retries; a restarted or replacement process
+   * gets a new value even when its ID and addresses are reused. Older processes
+   * leave this empty and cannot be retired through the conditional public API.
+   *
+   * @generated from field: string incarnation_id = 14;
+   */
+  incarnationId = "";
+
   constructor(data?: PartialMessage<Multipooler>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1007,6 +1017,7 @@ export class Multipooler extends Message<Multipooler> {
     { no: 11, name: "pg_data_dir", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "lifecycle_status", kind: "message", T: PoolerLifecycle },
     { no: 13, name: "routing_state", kind: "message", T: RoutingState },
+    { no: 14, name: "incarnation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {
