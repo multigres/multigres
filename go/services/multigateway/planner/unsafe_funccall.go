@@ -1005,12 +1005,13 @@ func pgSettingsNameQualifiers(ss *ast.SelectStmt) (map[string]struct{}, bool) {
 }
 
 // isPgSettingsRelation reports whether rv names the pg_settings view, either
-// bare or qualified with pg_catalog.
+// bare or qualified with pg_catalog. A database prefix is ignored: PostgreSQL
+// only accepts the current database there.
 func isPgSettingsRelation(rv *ast.RangeVar) bool {
 	if rv == nil || !strings.EqualFold(rv.RelName, "pg_settings") {
 		return false
 	}
-	return rv.CatalogName == "" && (rv.SchemaName == "" || strings.EqualFold(rv.SchemaName, "pg_catalog"))
+	return rv.SchemaName == "" || strings.EqualFold(rv.SchemaName, "pg_catalog")
 }
 
 func isDynamicTextSetConfigArg(n ast.Node) bool {

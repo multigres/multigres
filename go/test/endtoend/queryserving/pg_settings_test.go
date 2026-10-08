@@ -49,6 +49,7 @@ func TestUpdatePgSettingsRejected(t *testing.T) {
 	for _, sql := range []string{
 		"UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'",
 		"UPDATE pg_settings SET setting = 'pg_temp, public' WHERE name = 'search_path'",
+		"UPDATE postgres.pg_catalog.pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'",
 	} {
 		_, err = conn.Exec(ctx, sql)
 		pgErr := utils.RequirePgError(t, err, "0A000")
