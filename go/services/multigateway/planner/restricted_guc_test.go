@@ -179,6 +179,9 @@ func TestUpdatePgSettingsRejected(t *testing.T) {
 		{"EXPLAIN ANALYZE UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
 		{"PREPARE p AS UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
 		{"DO $$ BEGIN UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'; END $$", true},
+		{"CREATE RULE r AS ON INSERT TO t DO ALSO UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"CREATE FUNCTION f() RETURNS void LANGUAGE sql BEGIN ATOMIC UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'; END", true},
+		{"WITH s AS (UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit' RETURNING name) SELECT * FROM s", true},
 
 		{"UPDATE app.pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", false},
 		{"UPDATE settings SET setting = 'off' WHERE name = 'synchronous_commit'", false},
