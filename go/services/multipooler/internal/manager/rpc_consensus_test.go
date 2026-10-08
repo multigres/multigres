@@ -129,6 +129,8 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
+	err = os.WriteFile(pgDataDir+"/postgresql.auto.conf", nil, 0o600)
+	require.NoError(t, err)
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 	return pm, tmpDir

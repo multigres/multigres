@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1100,7 +1101,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// Postgres is stopped here, so this edits the file directly rather than
 		// using ALTER SYSTEM.
 		if err := pm.dropRestoreCommandFromAutoConf(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
+			return false, mterrors.Wrap(err, "remove restore_command after pg_rewind")
 		}
 	}
 
@@ -1207,7 +1208,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 
 // runPgRewind runs pg_rewind to sync with source.
 // Returns true if rewind was performed, false if not needed.
-func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (bool, error) {
+func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (performed bool, err error) {
 	if pm.pgctldClient == nil {
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
@@ -1219,8 +1220,8 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	if rewindExtraArgs != nil {
 		// Always remove the temporary restore_command, even if the rewind fails.
 		defer func() {
-			if err := pm.dropRestoreCommandFromAutoConf(context.WithoutCancel(ctx)); err != nil {
-				pm.logger.ErrorContext(ctx, "failed to remove temporary restore_command after pg_rewind", "error", err)
+			if cleanupErr := pm.dropRestoreCommandFromAutoConf(context.WithoutCancel(ctx)); cleanupErr != nil {
+				err = errors.Join(err, mterrors.Wrap(cleanupErr, "remove temporary restore_command after pg_rewind"))
 			}
 		}()
 	}
