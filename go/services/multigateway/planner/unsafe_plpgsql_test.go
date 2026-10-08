@@ -506,3 +506,51 @@ func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
 	_, err := analyzeStatement(parseOne(t, "DO $$ this is not plpgsql $$"), false, false)
 	require.ErrorContains(t, err, "could not be parsed for safety analysis")
 }
+
+// TestAnalyzeDynamicExecute_CastedConstantS checks casts on a constant %s
+// argument. PostgreSQL substitutes the cast's output, so char(n), varchar(n),
+// name and the like truncate or pad it: `' AS a --'::char(5)` is analyzed with
+// the comment but runs as `SELECT 1 AS a, set_config(...)`. Only text and an
+// unbounded varchar may be looked through.
+func TestAnalyzeDynamicExecute_CastedConstantS(t *testing.T) {
+	const exploit = `' AS a --'`
+	wrap := func(arg string) string {
+		return `DO $$ BEGIN EXECUTE format('SELECT 1 %s, set_config(''work_mem'',''1GB'',false)', ` + arg + `); END $$`
+	}
+
+	reject := map[string]string{
+		"char(n)":                   wrap(exploit + `::char(5)`),
+		"varchar(n)":                wrap(exploit + `::varchar(5)`),
+		"character varying(n)":      wrap(exploit + `::character varying(5)`),
+		"character(n)":              wrap(exploit + `::character(5)`),
+		"name":                      wrap(exploit + `::name`),
+		"bare char (char(1))":       wrap(exploit + `::char`),
+		"quoted char":               wrap(exploit + `::"char"`),
+		"bpchar":                    wrap(exploit + `::bpchar`),
+		"text array":                wrap(exploit + `::text[]`),
+		"qualified user type":       wrap(exploit + `::myschema.text`),
+		"cast inside CASE branches": wrap(`CASE WHEN true THEN ` + exploit + `::char(5) ELSE ' AS b --'::char(5) END`),
+		"nested casts":              wrap(exploit + `::text::char(5)`),
+		"blocklisted call, char(n)": `DO $$ BEGIN EXECUTE format('SELECT 1 %s, dblink_exec(''x'',''y'')', ' AS a --'::char(5)); END $$`,
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.Error(t, err)
+		})
+	}
+
+	accept := map[string]string{
+		"text":                      `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::text); END $$`,
+		"pg_catalog.text":           `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::pg_catalog.text); END $$`,
+		"varchar without length":    `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::varchar); END $$`,
+		"character varying, no len": `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::character varying); END $$`,
+		"text in CASE branches":     `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', CASE WHEN true THEN 'asc'::text ELSE 'desc'::text END); END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.NoError(t, err)
+		})
+	}
+}
