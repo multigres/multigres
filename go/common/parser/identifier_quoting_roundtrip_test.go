@@ -577,6 +577,65 @@ func TestIdentifierQuotingOnDeparse(t *testing.T) {
 			sql:         `merge into t using s on t.id = s.id when matched then update set "weird col" = s.x`,
 			mustContain: `"weird col" = s.x`,
 		},
+
+		// ----------------------------------------------------------------
+		// Embedded quotes in role names and utility-statement string literals.
+		// ----------------------------------------------------------------
+		{
+			name:        "CREATE ROLE name with embedded double quote",
+			sql:         `create role "o""brien"`,
+			mustContain: `CREATE ROLE "o""brien"`,
+		},
+		{
+			name:        "CREATE TYPE AS ENUM labels",
+			sql:         `create type mood as enum ('happy', 'don''t know')`,
+			mustContain: `('happy', 'don''t know')`,
+		},
+		{
+			name:        "ALTER TYPE ADD VALUE and neighbor",
+			sql:         `alter type mood add value 'it''s' before 'don''t know'`,
+			mustContain: `ADD VALUE 'it''s' BEFORE 'don''t know'`,
+		},
+		{
+			name:        "ALTER TYPE RENAME VALUE",
+			sql:         `alter type mood rename value 'it''s' to 'it''ll'`,
+			mustContain: `RENAME VALUE 'it''s' TO 'it''ll'`,
+		},
+		{
+			name:        "COPY file name",
+			sql:         `copy t from '/data/o''brien.csv'`,
+			mustContain: `FROM '/data/o''brien.csv'`,
+		},
+		{
+			name:        "PREPARE TRANSACTION gid",
+			sql:         `prepare transaction 'o''brien'`,
+			mustContain: `PREPARE TRANSACTION 'o''brien'`,
+		},
+		{
+			name:        "COMMIT PREPARED gid",
+			sql:         `commit prepared 'o''brien'`,
+			mustContain: `COMMIT PREPARED 'o''brien'`,
+		},
+		{
+			name:        "CREATE TRIGGER arguments",
+			sql:         `create trigger tr after insert on t for each row execute function f('o''brien', 1)`,
+			mustContain: `f('o''brien', '1')`,
+		},
+		{
+			name:        "CREATE EVENT TRIGGER tag filter",
+			sql:         `create event trigger et on ddl_command_start when tag in ('o''brien') execute function f()`,
+			mustContain: `IN ('o''brien')`,
+		},
+		{
+			name:        "SECURITY LABEL",
+			sql:         `security label on table t is 'o''brien'`,
+			mustContain: `IS 'o''brien'`,
+		},
+		{
+			name:        "LOAD file name",
+			sql:         `load 'o''brien'`,
+			mustContain: `LOAD 'o''brien'`,
+		},
 	}
 
 	for _, tc := range tests {

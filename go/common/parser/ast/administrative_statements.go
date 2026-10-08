@@ -1104,14 +1104,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 		if cts.Args != nil && len(cts.Args.Items) > 0 {
 			for _, arg := range cts.Args.Items {
 				if str, ok := arg.(*String); ok {
-					// Check if it's a numeric string or needs quotes
-					if _, err := fmt.Sscanf(str.SVal, "%d", new(int)); err != nil {
-						// Not a number, add quotes
-						argStrs = append(argStrs, fmt.Sprintf("'%s'", str.SVal))
-					} else {
-						// It's a number
-						argStrs = append(argStrs, str.SVal)
-					}
+					argStrs = append(argStrs, QuoteStringLiteral(str.SVal))
 				}
 			}
 		}

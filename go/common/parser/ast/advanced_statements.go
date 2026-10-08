@@ -957,7 +957,7 @@ func (n *SecLabelStmt) SqlString() string {
 	parts = append(parts, "SECURITY LABEL")
 
 	if n.Provider != "" {
-		parts = append(parts, "FOR", n.Provider)
+		parts = append(parts, "FOR", QuoteIdentifier(n.Provider))
 	}
 
 	// Format object name as qualified identifier, not string literal
@@ -965,7 +965,7 @@ func (n *SecLabelStmt) SqlString() string {
 	parts = append(parts, "ON", n.Objtype.String(), objectName, "IS")
 
 	if n.Label != "" {
-		parts = append(parts, "'"+n.Label+"'")
+		parts = append(parts, QuoteStringLiteral(n.Label))
 	} else {
 		parts = append(parts, "NULL")
 	}

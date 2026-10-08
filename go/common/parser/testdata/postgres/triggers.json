@@ -114,12 +114,12 @@
   {
     "comment": "triggers - Statement 24",
     "query": "create trigger check_pkeys_fkey_cascade before delete or update on pkeys for each row execute procedure check_foreign_key (2, 'cascade', 'pkey1', 'pkey2', 'fkeys', 'fkey1', 'fkey2', 'fkeys2', 'fkey21', 'fkey22')",
-    "expected": "CREATE TRIGGER check_pkeys_fkey_cascade BEFORE UPDATE OR DELETE ON pkeys FOR EACH ROW EXECUTE FUNCTION check_foreign_key(2, 'cascade', 'pkey1', 'pkey2', 'fkeys', 'fkey1', 'fkey2', 'fkeys2', 'fkey21', 'fkey22')"
+    "expected": "CREATE TRIGGER check_pkeys_fkey_cascade BEFORE UPDATE OR DELETE ON pkeys FOR EACH ROW EXECUTE FUNCTION check_foreign_key('2', 'cascade', 'pkey1', 'pkey2', 'fkeys', 'fkey1', 'fkey2', 'fkeys2', 'fkey21', 'fkey22')"
   },
   {
     "comment": "triggers - Statement 25",
     "query": "create trigger check_fkeys2_fkey_restrict before delete or update on fkeys2 for each row execute procedure check_foreign_key (1, 'restrict', 'pkey23', 'fkeys', 'fkey3')",
-    "expected": "CREATE TRIGGER check_fkeys2_fkey_restrict BEFORE UPDATE OR DELETE ON fkeys2 FOR EACH ROW EXECUTE FUNCTION check_foreign_key(1, 'restrict', 'pkey23', 'fkeys', 'fkey3')"
+    "expected": "CREATE TRIGGER check_fkeys2_fkey_restrict BEFORE UPDATE OR DELETE ON fkeys2 FOR EACH ROW EXECUTE FUNCTION check_foreign_key('1', 'restrict', 'pkey23', 'fkeys', 'fkey3')"
   },
   {
     "comment": "triggers - Statement 26",
@@ -858,7 +858,7 @@
   {
     "comment": "triggers - Statement 179",
     "query": "CREATE TRIGGER show_trigger_data_trig BEFORE INSERT OR UPDATE OR DELETE ON trigger_test FOR EACH ROW EXECUTE PROCEDURE trigger_data(23,'skidoo')",
-    "expected": "CREATE TRIGGER show_trigger_data_trig BEFORE INSERT OR UPDATE OR DELETE ON trigger_test FOR EACH ROW EXECUTE FUNCTION trigger_data(23, 'skidoo')"
+    "expected": "CREATE TRIGGER show_trigger_data_trig BEFORE INSERT OR UPDATE OR DELETE ON trigger_test FOR EACH ROW EXECUTE FUNCTION trigger_data('23', 'skidoo')"
   },
   {
     "comment": "triggers - Statement 180",
@@ -2251,7 +2251,7 @@
   {
     "comment": "triggers - Statement 465",
     "query": "create trigger aaa after insert on parted_trig for each row execute procedure trigger_notice('quirky', 1)",
-    "expected": "CREATE TRIGGER aaa AFTER INSERT ON parted_trig FOR EACH ROW EXECUTE FUNCTION trigger_notice('quirky', 1)"
+    "expected": "CREATE TRIGGER aaa AFTER INSERT ON parted_trig FOR EACH ROW EXECUTE FUNCTION trigger_notice('quirky', '1')"
   },
   {
     "comment": "triggers - Statement 466",
