@@ -30,6 +30,7 @@ import (
 
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/test/utils/openapitest"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -136,8 +137,8 @@ func TestMultiadminGRPC(t *testing.T) {
 	})
 }
 
-// TestMultiadminHTTPAPI hits the grpc-gateway REST endpoints exposed under
-// /api/v1/ on the multiadmin HTTP port — this is what the Next.js UI talks to.
+// TestMultiadminHTTPAPI validates Vanguard REST responses against the generated
+// OpenAPI contract.
 func TestMultiadminHTTPAPI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -148,45 +149,58 @@ func TestMultiadminHTTPAPI(t *testing.T) {
 
 	setup := getSharedSetup(t)
 	base := fmt.Sprintf("http://localhost:%d/api/v1", setup.MultiadminHttpPort)
+	contract := openapitest.Validator(t)
 
-	getJSON := func(t *testing.T, path string) map[string]any {
+	getJSON := func(t *testing.T, path string, expectedStatus int) map[string]any {
 		t.Helper()
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+path, nil)
 		require.NoError(t, err)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err, "GET %s failed", path)
 		defer resp.Body.Close()
+		valid, failures := contract.ValidateHttpResponse(req, resp)
+		require.True(t, valid, "GET %s violates OpenAPI: %+v", path, failures)
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode, "GET %s status=%d body=%s", path, resp.StatusCode, string(body))
+		require.Equal(t, expectedStatus, resp.StatusCode, "GET %s status=%d body=%s", path, resp.StatusCode, string(body))
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(body, &out), "invalid JSON from %s: %s", path, string(body))
 		return out
 	}
 
+	t.Run("cell", func(t *testing.T) {
+		out := getJSON(t, "/cells/"+setup.CellName, http.StatusOK)
+		require.Contains(t, out, "cell")
+	})
+	t.Run("missing cell", func(t *testing.T) {
+		out := getJSON(t, "/cells/openapi-nonexistent-cell", http.StatusNotFound)
+		assert.Equal(t, float64(5), out["code"], "Vanguard serializes the numeric gRPC NotFound code")
+		assert.NotEmpty(t, out["message"])
+	})
+
 	t.Run("cells", func(t *testing.T) {
-		out := getJSON(t, "/cells")
+		out := getJSON(t, "/cells", http.StatusOK)
 		names, ok := out["names"].([]any)
 		require.True(t, ok, "expected 'names' array, got %v", out)
 		assert.Contains(t, names, setup.CellName)
 	})
 
 	t.Run("databases", func(t *testing.T) {
-		out := getJSON(t, "/databases")
+		out := getJSON(t, "/databases", http.StatusOK)
 		names, ok := out["names"].([]any)
 		require.True(t, ok, "expected 'names' array, got %v", out)
 		assert.NotEmpty(t, names)
 	})
 
 	t.Run("poolers", func(t *testing.T) {
-		out := getJSON(t, "/poolers?cells="+setup.CellName)
+		out := getJSON(t, "/poolers?cells="+setup.CellName, http.StatusOK)
 		poolers, ok := out["poolers"].([]any)
 		require.True(t, ok, "expected 'poolers' array, got %v", out)
 		assert.Len(t, poolers, 2)
 	})
 
 	t.Run("gateways", func(t *testing.T) {
-		out := getJSON(t, "/gateways?cells="+setup.CellName)
+		out := getJSON(t, "/gateways?cells="+setup.CellName, http.StatusOK)
 		gateways, ok := out["gateways"].([]any)
 		require.True(t, ok, "expected 'gateways' array, got %v", out)
 		assert.Len(t, gateways, 1)

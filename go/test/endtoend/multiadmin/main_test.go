@@ -14,7 +14,7 @@
 
 // Package multiadmin contains end-to-end tests that exercise the multiadmin
 // service started via shardsetup's WithMultiadmin() option, covering its
-// gRPC API, HTTP/REST grpc-gateway, and the multigres CLI that talks to it.
+// gRPC and Vanguard REST APIs, plus the multigres CLI.
 package multiadmin
 
 import (
