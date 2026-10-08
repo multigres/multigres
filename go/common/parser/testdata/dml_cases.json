@@ -1,5 +1,17 @@
 [
   {
+    "comment": "INSERT into database-qualified table",
+    "query": "INSERT INTO mydb.public.users (id) VALUES (1)"
+  },
+  {
+    "comment": "UPDATE database-qualified table",
+    "query": "UPDATE mydb.public.accounts SET balance = 0 WHERE id = 5"
+  },
+  {
+    "comment": "DELETE from database-qualified table",
+    "query": "DELETE FROM mydb.public.users WHERE id = 1"
+  },
+  {
     "comment": "COPY FROM basic",
     "query": "COPY users FROM '/path/to/file.csv'"
   },

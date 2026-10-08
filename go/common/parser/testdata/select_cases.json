@@ -20,6 +20,20 @@
     "query": "SELECT * FROM public.users"
   },
   {
+    "comment": "SELECT from database-qualified table",
+    "query": "SELECT * FROM mydb.public.users WHERE id = 1"
+  },
+  {
+    "comment": "Relation name with too many dotted names",
+    "query": "SELECT * FROM a.b.c.d",
+    "error": "improper qualified name (too many dotted names): a.b.c.d"
+  },
+  {
+    "comment": "Relation name with a star indirection",
+    "query": "SELECT * FROM a.*",
+    "error": "syntax error at end of input"
+  },
+  {
     "comment": "WHERE with equality",
     "query": "SELECT * FROM users WHERE id = 1"
   },
