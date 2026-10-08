@@ -174,6 +174,7 @@ func TestUpdatePgSettingsRejected(t *testing.T) {
 	}{
 		{"UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
 		{"UPDATE pg_catalog.pg_settings SET setting = '64MB' WHERE name = 'work_mem'", true},
+		{"UPDATE mydb.pg_catalog.pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
 		{"UPDATE pg_settings AS s SET setting = 'pg_temp, public' WHERE s.name = 'search_path'", true},
 		{"EXPLAIN ANALYZE UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
 		{"PREPARE p AS UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
