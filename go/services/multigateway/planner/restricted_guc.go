@@ -38,6 +38,10 @@ func restrictedGUCError(name string) error {
 // blocked wholesale as a Tier 2 statement; set_config(...) is handled in the
 // expression walker.)
 //
+// UPDATE pg_settings is rejected for every GUC: PostgreSQL's pg_settings_u
+// rule turns it into set_config(name, setting, false), a session-level change
+// that would stay on the pooled backend without the gateway tracking it.
+//
 // Reverts are allowed because they can only restore the cluster-managed value:
 // RESET, RESET ALL, and SET ... TO DEFAULT. SET ... FROM CURRENT is refused
 // for every GUC on every surface: its value lives on the backend rather than
@@ -60,6 +64,18 @@ func checkRestrictedGUCChange(stmt ast.Stmt) error {
 		return checkRestrictedFunctionOptions(s.Options)
 	case *ast.AlterFunctionStmt:
 		return checkRestrictedFunctionOptions(s.Actions)
+	case *ast.UpdateStmt:
+		if isPgSettingsRelation(s.Relation) {
+			return mterrors.NewFeatureNotSupported(
+				"UPDATE pg_settings is not supported under connection pooling: the change would apply to a pooled backend, not to the client session; use SET or set_config() instead")
+		}
+		return nil
+	case *ast.ExplainStmt:
+		// EXPLAIN ANALYZE executes the statement it wraps.
+		if inner, ok := s.Query.(ast.Stmt); ok {
+			return checkRestrictedGUCChange(inner)
+		}
+		return nil
 	default:
 		return nil
 	}
