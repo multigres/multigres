@@ -348,6 +348,9 @@ type mockPgctldClient struct {
 	pgRewindResponse   *pgctldpb.PgRewindResponse
 	pgRewindError      error
 	pgRewindCalls      int
+	// pgRewindOnCall, if set, runs on every PgRewind call.
+	pgRewindOnCall func(*pgctldpb.PgRewindRequest)
+	pgRewindReqs   []*pgctldpb.PgRewindRequest
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
@@ -416,6 +419,10 @@ func (m *mockPgctldClient) Version(ctx context.Context, req *pgctldpb.VersionReq
 
 func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
 	m.pgRewindCalls++
+	m.pgRewindReqs = append(m.pgRewindReqs, req)
+	if m.pgRewindOnCall != nil {
+		m.pgRewindOnCall(req)
+	}
 	if m.pgRewindError != nil {
 		return m.pgRewindResponse, m.pgRewindError
 	}

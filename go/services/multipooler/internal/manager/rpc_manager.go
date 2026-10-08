@@ -1215,6 +1215,16 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Get application name for replication connection
 	pid := pm.servicePoolerID
 
+	rewindExtraArgs := pm.prepareRewindRestoreSource(ctx)
+	if rewindExtraArgs != nil {
+		// Always remove the temporary restore_command, even if the rewind fails.
+		defer func() {
+			if err := pm.dropRestoreCommandFromAutoConf(context.WithoutCancel(ctx)); err != nil {
+				pm.logger.ErrorContext(ctx, "failed to remove temporary restore_command after pg_rewind", "error", err)
+			}
+		}()
+	}
+
 	pm.logger.InfoContext(ctx, "running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
 
@@ -1224,6 +1234,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		SourcePort:      sourcePort,
 		DryRun:          true,
 		ApplicationName: pid.AppName(),
+		ExtraArgs:       rewindExtraArgs,
 	}
 	dryRunStart := time.Now()
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
@@ -1257,7 +1268,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			SourcePort:      sourcePort,
 			DryRun:          false,
 			ApplicationName: pid.AppName(),
-			ExtraArgs:       []string{"-R"},
+			ExtraArgs:       append([]string{"-R"}, rewindExtraArgs...),
 		}
 		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
@@ -1276,6 +1287,36 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	pm.logger.InfoContext(ctx, "no divergence, skipping rewind")
 	return false, nil
+}
+
+// prepareRewindRestoreSource temporarily sets restore_command in
+// postgresql.auto.conf and returns the pg_rewind args that use it, so pg_rewind
+// can fetch WAL already recycled from local pg_wal.
+//
+// This keeps the "cohort members never replay from the archive" invariant (see
+// resetRestoreCommand): pg_rewind only reads WAL to find the last common
+// checkpoint, and the caller removes the setting once the rewind ends.
+//
+// Returns nil, meaning rewind without -c, if no backup config is available or
+// the setting cannot be written.
+func (pm *MultipoolerManager) prepareRewindRestoreSource(ctx context.Context) []string {
+	pm.mu.Lock()
+	poolerDir := pm.record.PoolerDir()
+	pm.mu.Unlock()
+
+	if pm.backup == nil {
+		return nil
+	}
+	restoreCommand, err := pm.backup.RestoreCommand(poolerDir)
+	if err != nil {
+		pm.logger.InfoContext(ctx, "no backup config; running pg_rewind without --restore-target-wal", "reason", err.Error())
+		return nil
+	}
+	if err := pm.setAutoConfSetting(ctx, "restore_command", restoreCommand); err != nil {
+		pm.logger.WarnContext(ctx, "failed to set restore_command for pg_rewind; running without --restore-target-wal", "error", err)
+		return nil
+	}
+	return []string{"--restore-target-wal"}
 }
 
 // fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf
