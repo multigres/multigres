@@ -803,6 +803,60 @@ func executeArgExpr(exprText string) ast.Node {
 	return rt.Val
 }
 
+// unwrapTextCasts strips TypeCast wrappers from n while they cannot change the
+// text, so `'asc'::text` reduces to the literal. Any other cast is kept, which
+// makes the value non-constant.
+func unwrapTextCasts(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok || !textPreservingCast(tc.TypeName) {
+			return n
+		}
+		n = tc.Arg
+	}
+}
+
+// textPreservingCast reports whether casting a string literal to tn leaves its
+// text unchanged: text, or varchar with no length.
+//
+// A constant %s argument is substituted as written and re-analyzed, but
+// PostgreSQL substitutes the cast's output. char(n), varchar(n), name and the
+// like truncate or pad it, so `' AS a --'::char(5)` is analyzed with the comment
+// but runs as `... AS a`, exposing a call the comment hid. Every other cast is
+// refused rather than proven safe.
+//
+// Types are matched by name, so the known limitation on reduceSafeExpr applies.
+func textPreservingCast(tn *ast.TypeName) bool {
+	if tn == nil || tn.Setof || tn.PctType {
+		return false
+	}
+	if tn.Typmods != nil && tn.Typmods.Len() > 0 {
+		return false // varchar(n), char(n), ...
+	}
+	if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+		return false // text[]
+	}
+	if tn.Names == nil {
+		return false
+	}
+	names := make([]string, 0, tn.Names.Len())
+	for _, item := range tn.Names.Items {
+		s, ok := item.(*ast.String)
+		if !ok {
+			return false
+		}
+		names = append(names, s.SVal)
+	}
+	// As written: unquoted names are already lower-cased, so "TEXT" is another type.
+	switch len(names) {
+	case 1:
+		return names[0] == "text" || names[0] == "varchar"
+	case 2:
+		return names[0] == "pg_catalog" && (names[1] == "text" || names[1] == "varchar")
+	}
+	return false
+}
+
 // safeExecuteSkeleton reduces an EXECUTE payload expression built from
 // PostgreSQL's injection-safe primitives to a fixed statement skeleton plus the
 // value expressions it interpolates. The final bool is false if the expression
@@ -1122,7 +1176,7 @@ func enumerateFormatVariants(literalChunks []string, svalSets [][]string) []stri
 // substitute each returned value and re-analyze the result, a hostile constant
 // is still caught; the only requirement here is that the set be complete.
 func constStringValues(node ast.Node, res *varResolver, visited map[string]bool) ([]string, bool) {
-	switch n := unwrapTypeCast(node).(type) {
+	switch n := unwrapTextCasts(node).(type) {
 	case *ast.A_Const:
 		if n.Isnull {
 			return nil, false
