@@ -81,8 +81,12 @@ func newMinigres() *minigres {
 		GrpcServer: m.grpcServer,
 	}
 	// The only pooler of its shard leads it without consensus.
-	m.pooler = multipooler.NewMultipooler(tel, resources, "/"+constants.ServiceMultipooler, true)
-	m.gateway = multigateway.NewMultigateway(resources, "/"+constants.ServiceMultigateway)
+	// Each half configures its settings on its own registry: both define keys
+	// such as pg-port with different meanings, so they cannot share one.
+	// Configuration files are refused until the halves have separate namespaces
+	// (MUL-1663).
+	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
+	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway)
 	return m
 }
 

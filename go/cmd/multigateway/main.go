@@ -57,7 +57,9 @@ func newStandaloneMultigateway() *standaloneMultigateway {
 		ServEnv:    s.senv,
 		GrpcServer: s.grpcServer,
 	}
-	s.mg = multigateway.NewMultigateway(resources, "/")
+	// The multigateway's settings share the process's registry, so a
+	// configuration file loaded by servenv reaches them.
+	s.mg = multigateway.NewMultigateway(reg, resources, "/")
 	return s
 }
 

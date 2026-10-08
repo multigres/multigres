@@ -19,11 +19,10 @@ import (
 )
 
 // ProcessResources holds the resources a process has only one of: its serving
-// environment and its gRPC server. The process's main creates and owns them.
-// Components that run together in one process (single-process mode) are
-// handed these resources instead of creating their own; main builds a single
-// value and hands the same value to every component, so they cannot end up
-// with different servers.
+// environment and its gRPC server. The process's main creates and owns them
+// and hands them to every component it runs; components never create their
+// own. When several components run in one process (as in minigres), main
+// hands the same value to each, so they cannot end up with different servers.
 //
 // The topology store is not here: main only opens it after parsing flags, well
 // after components are constructed, so there is nothing valid to hand out yet

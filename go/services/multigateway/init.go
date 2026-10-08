@@ -167,14 +167,20 @@ type Multigateway struct {
 	statusPath string
 }
 
-// NewMultigateway creates a new Multigateway instance. resources are the
-// process's shared servenv and gRPC server — the caller (cmd/multigateway for
+// NewMultigateway creates a new Multigateway instance. reg is the settings
+// registry the multigateway configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multigateway for
 // a standalone process, cmd/minigres for one shared with a multipooler) owns
 // and constructs them; the multigateway never creates its own. statusPath is
 // where the status page is served ("/" when the multigateway owns the
 // process, under its service name when it shares the HTTP server).
-func NewMultigateway(resources servenv.ProcessResources, statusPath string) *Multigateway {
-	reg := viperutil.NewRegistry()
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+	if reg == nil {
+		panic("multigateway: reg is required")
+	}
 	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",

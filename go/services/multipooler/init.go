@@ -159,16 +159,21 @@ type Multipooler struct {
 	staticLeader bool
 }
 
-// NewMultipooler creates a new Multipooler instance. resources are the
-// process's shared servenv, gRPC server and topology store — the caller
-// (cmd/multipooler for a standalone process, cmd/minigres for one shared with
-// a multigateway) owns and constructs them; the multipooler never creates its
-// own. statusPath is where the status page is served ("/" when the multipooler
+// NewMultipooler creates a new Multipooler instance. reg is the settings
+// registry the multipooler configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multipooler for a standalone process,
+// cmd/minigres for one shared with a multigateway) owns and constructs them;
+// the multipooler never creates its own. statusPath is where the status page is served ("/" when the multipooler
 // owns the process, under its service name when it shares the HTTP server).
 // staticLeader makes the multipooler its shard's leader without consensus
 // (Minigres); independent of whether resources are shared, in principle.
-func NewMultipooler(telemetry *telemetry.Telemetry, resources servenv.ProcessResources, statusPath string, staticLeader bool) *Multipooler {
-	reg := viperutil.NewRegistry()
+func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, staticLeader bool) *Multipooler {
+	if reg == nil {
+		panic("multipooler: reg is required")
+	}
 	mp := &Multipooler{
 		reg: reg,
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
