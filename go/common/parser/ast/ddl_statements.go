@@ -3978,7 +3978,7 @@ func (c *CreateEventTrigStmt) SqlString() string {
 						var values []string
 						for _, val := range valueList.Items {
 							if strVal, ok := val.(*String); ok {
-								values = append(values, "'"+strVal.SVal+"'")
+								values = append(values, QuoteStringLiteral(strVal.SVal))
 							}
 						}
 						whenParts = append(whenParts, defElem.Defname+" IN ("+strings.Join(values, ", ")+")")
