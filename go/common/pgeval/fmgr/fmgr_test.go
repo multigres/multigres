@@ -35,7 +35,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
-	"github.com/multigres/multigres/go/common/pgcatalog"
 	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
@@ -48,8 +47,8 @@ const (
 )
 
 // testAdd is a stand-in strict int4pl: it reads two int32 args and returns
-// their sum. Real bodies arrive in the wave-1 PR; this only exercises the
-// calling machinery.
+// their sum. These tests exercise the calling machinery without importing
+// funcs, so its real builtin registrations do not populate this test registry.
 func testAdd(fcinfo fmgr.FunctionCallInfo) datum.Datum {
 	a := fcinfo.GetArgInt32(0)
 	b := fcinfo.GetArgInt32(1)
@@ -167,7 +166,7 @@ func TestAccessors(t *testing.T) {
 	assert.Equal(t, datum.Datum{}, got)
 }
 
-// TestFmgrInfoForStub resolves a real builtin whose body is not ported: the
+// TestFmgrInfoForStub resolves a real builtin whose body is not registered: the
 // metadata comes from the catalog, and calling the stub raises
 // feature_not_supported naming the function.
 func TestFmgrInfoForStub(t *testing.T) {
@@ -207,56 +206,4 @@ func TestFmgrInfoForUndefined(t *testing.T) {
 	var diag *mterrors.PgDiagnostic
 	require.True(t, errors.As(err, &diag))
 	assert.Equal(t, mterrors.PgSSUndefinedFunction, diag.Code)
-}
-
-type testProcResolver map[fmgr.Oid]*pgcatalog.Proc
-
-func (r testProcResolver) ProcByOid(oid fmgr.Oid) *pgcatalog.Proc { return r[oid] }
-
-// TestRegisterBuiltin exercises the registration path end to end: after
-// binding an implementation to a real prosrc, FmgrInfoFor wires it as FnAddr.
-// Uses a prosrc unique to this test to avoid colliding with future ports.
-func TestRegisterBuiltin(t *testing.T) {
-	require.False(t, fmgr.IsBuiltinRegistered("int4pl"))
-	fmgr.RegisterBuiltin("int4pl", testAdd)
-	assert.True(t, fmgr.IsBuiltinRegistered("int4pl"))
-	assert.Contains(t, fmgr.RegisteredBuiltins(), "int4pl")
-
-	// Duplicate registration is a startup bug and must panic.
-	assert.Panics(t, func() { fmgr.RegisterBuiltin("int4pl", testAdd) })
-	assert.Panics(t, func() { fmgr.RegisterBuiltin("", testAdd) })
-
-	// Now FmgrInfoFor(177) resolves to the registered impl, not a stub.
-	info, err := fmgr.FmgrInfoFor(oidInt4pl)
-	require.NoError(t, err)
-	fcinfo := fmgr.NewFunctionCallInfo(info, 2, pgoid.InvalidOid)
-	fcinfo.Args[0] = datum.NullableDatum{Value: datum.Int32GetDatum(20)}
-	fcinfo.Args[1] = datum.NullableDatum{Value: datum.Int32GetDatum(22)}
-	assert.Equal(t, int32(42), datum.DatumGetInt32(fmgr.CallFunction(fcinfo)))
-
-	t.Run("user-defined function cannot reuse builtin implementation", func(t *testing.T) {
-		const oidUser = 90000
-		require.Nil(t, pgcatalog.ProcByOid(oidUser))
-		proc := *pgcatalog.ProcByOid(oidInt4pl)
-		proc.Oid = oidUser
-		proc.Name = "user_add"
-		proc.Strict = false
-		fmgr.SetProcResolver(testProcResolver{oidUser: &proc})
-		t.Cleanup(func() { fmgr.SetProcResolver(nil) })
-
-		info, err := fmgr.FmgrInfoFor(oidUser)
-		require.NoError(t, err)
-		assert.Equal(t, fmgr.Oid(oidUser), info.FnOid)
-		assert.Equal(t, int16(2), info.FnNargs)
-		assert.False(t, info.FnStrict, "user-defined metadata must still be available")
-
-		callErr := pgerror.Recover(func() {
-			fmgr.FunctionCall2Coll(info, pgoid.InvalidOid,
-				datum.Int32GetDatum(20), datum.Int32GetDatum(22))
-		})
-		var diag *mterrors.PgDiagnostic
-		require.True(t, errors.As(callErr, &diag), "expected a stub error, got %v", callErr)
-		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
-		assert.Contains(t, diag.Message, proc.Name)
-	})
 }
