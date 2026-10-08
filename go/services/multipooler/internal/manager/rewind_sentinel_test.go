@@ -288,6 +288,34 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		assert.False(t, strings.Contains(read(t, autoConf), "restore_command"))
 	})
 
+	t.Run("cleanup failure blocks the next monitor start", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			if _, err := os.Stat(filepath.Join(autoConf, "blocked")); err == nil {
+				return
+			}
+			require.NoError(t, os.Remove(autoConf))
+			require.NoError(t, os.Mkdir(autoConf, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(autoConf, "blocked"), []byte("restore_command remains unsafe"), 0o600))
+		}
+		pm.pgctldClient = client
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "remove temporary restore_command after pg_rewind")
+
+		withLock(t, pm, func(ctx context.Context) {
+			_, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true)
+			require.NoError(t, err)
+
+			state := postgresState{pgctldAvailable: true, dirInitialized: true, rewindSentinelPresent: true}
+			action := pm.determineRemedialAction(ctx, state)
+			require.Equal(t, remedialActionStartPostgres, action)
+			require.ErrorContains(t, pm.takeRemedialAction(ctx, action, state), "failed to clear restore_command before held start")
+		})
+
+		assert.False(t, client.startCalled, "postgres must not start while restore_command cleanup is unverified")
+	})
+
 	t.Run("removes restore_command when dry-run finds no divergence", func(t *testing.T) {
 		pm, client, autoConf := setup(t, true)
 		client.pgRewindResponse = &pgctldpb.PgRewindResponse{Output: "no rewind required"}
