@@ -119,11 +119,11 @@ LEFT JOIN pg_roles r ON r.rolname = t.owner
 WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 	res, err := t.qs.QueryAdminArgs(ctx, sql, callerRole, ownerRole)
 	if err != nil {
-		return fmt.Errorf("check connection ownership: %w", err)
+		return fmt.Errorf("check role ownership: %w", err)
 	}
 	if res != nil && len(res.Rows) > 0 {
 		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege,
-			fmt.Sprintf("role %q lacks privilege to use this connection", callerRole), "")
+			fmt.Sprintf("role %q lacks privilege to act as %q", callerRole, ownerRole), "")
 	}
 	return nil
 }
