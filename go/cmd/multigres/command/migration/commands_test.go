@@ -84,7 +84,7 @@ func TestCommandConstruction(t *testing.T) {
 			name:  "create",
 			cmd:   AddCreateMigrationCommand(),
 			use:   "create-migration",
-			flags: []string{"admin-server", "connection", "target-database", "target-table-group", "target-shard", "name", "tables", "copy-data", "skip-schema-copy"},
+			flags: []string{"admin-server", "connection", "target-database", "target-table-group", "target-shard", "name", "tables", "copy-data", "skip-schema-copy", "quiesce-roles"},
 		},
 		{
 			name:     "set-direction",
@@ -309,13 +309,14 @@ func TestCommandSuccessPaths(t *testing.T) {
 		})
 		out, err := runEOut(AddCreateMigrationCommand(), "--admin-server", addr,
 			"--connection", "src", "--target-database", "db1", "--name", "nightly",
-			"--tables", "public.orders,public.items",
+			"--tables", "public.orders,public.items", "--quiesce-roles", "app,reporting",
 			"--copy-data=false")
 		require.NoError(t, err)
 		assert.Regexp(t, `"id": +"42"`, out)
 		require.NotNil(t, gotReq)
 		assert.Equal(t, "src", gotReq.GetMigration().GetConnectionName())
 		assert.Equal(t, "db1", gotReq.GetMigration().GetTarget().GetDatabase())
+		assert.Equal(t, []string{"app", "reporting"}, gotReq.GetQuiesceRoles())
 		assert.Equal(t, []string{"public.orders", "public.items"}, gotReq.GetMigration().GetObjects().GetTable().GetQualifiedNames())
 		assert.True(t, gotReq.GetOptions().GetSkipCopyData(), "--copy-data=false must set SkipCopyData")
 	})
