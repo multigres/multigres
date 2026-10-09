@@ -22,6 +22,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	migrator "github.com/multigres/multigres/go/pb/migrator"
 	multiadmin "github.com/multigres/multigres/go/pb/multiadmin"
 	http "net/http"
 	strings "strings"
@@ -101,6 +102,33 @@ const (
 	// MultiadminServiceSwitchPrimaryProcedure is the fully-qualified name of the MultiadminService's
 	// SwitchPrimary RPC.
 	MultiadminServiceSwitchPrimaryProcedure = "/multiadmin.MultiadminService/SwitchPrimary"
+	// MultiadminServiceCreateMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// CreateMigration RPC.
+	MultiadminServiceCreateMigrationProcedure = "/multiadmin.MultiadminService/CreateMigration"
+	// MultiadminServiceGetMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// GetMigration RPC.
+	MultiadminServiceGetMigrationProcedure = "/multiadmin.MultiadminService/GetMigration"
+	// MultiadminServiceListMigrationsProcedure is the fully-qualified name of the MultiadminService's
+	// ListMigrations RPC.
+	MultiadminServiceListMigrationsProcedure = "/multiadmin.MultiadminService/ListMigrations"
+	// MultiadminServiceSetMigrationDirectionProcedure is the fully-qualified name of the
+	// MultiadminService's SetMigrationDirection RPC.
+	MultiadminServiceSetMigrationDirectionProcedure = "/multiadmin.MultiadminService/SetMigrationDirection"
+	// MultiadminServiceDropMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// DropMigration RPC.
+	MultiadminServiceDropMigrationProcedure = "/multiadmin.MultiadminService/DropMigration"
+	// MultiadminServiceCreateConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// CreateConnection RPC.
+	MultiadminServiceCreateConnectionProcedure = "/multiadmin.MultiadminService/CreateConnection"
+	// MultiadminServiceGetConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// GetConnection RPC.
+	MultiadminServiceGetConnectionProcedure = "/multiadmin.MultiadminService/GetConnection"
+	// MultiadminServiceListConnectionsProcedure is the fully-qualified name of the MultiadminService's
+	// ListConnections RPC.
+	MultiadminServiceListConnectionsProcedure = "/multiadmin.MultiadminService/ListConnections"
+	// MultiadminServiceDropConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// DropConnection RPC.
+	MultiadminServiceDropConnectionProcedure = "/multiadmin.MultiadminService/DropConnection"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -271,6 +299,26 @@ type MultiadminServiceClient interface {
 	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
 	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error)
+	// GetMigration returns status for one migration, addressed by ref (id or name).
+	GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error)
+	// ListMigrations returns the ids of every migration.
+	ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error)
+	// SetMigrationDirection sets the active direction: on a not-yet-started
+	// migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+	// the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// CreateConnection stores a named source conninfo, shard-scoped.
+	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
+	// GetConnection returns one connection, addressed by ref (id or name).
+	GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error)
+	// ListConnections returns every stored connection in full.
+	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
+	// DropConnection removes a connection.
+	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -392,6 +440,60 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 			connect.WithClientOptions(opts...),
 		),
+		createMigration: connect.NewClient[migrator.CreateMigrationRequest, migrator.CreateMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		getMigration: connect.NewClient[migrator.GetMigrationRequest, migrator.GetMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		listMigrations: connect.NewClient[migrator.ListMigrationsRequest, migrator.ListMigrationsResponse](
+			httpClient,
+			baseURL+MultiadminServiceListMigrationsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ListMigrations")),
+			connect.WithClientOptions(opts...),
+		),
+		setMigrationDirection: connect.NewClient[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceSetMigrationDirectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SetMigrationDirection")),
+			connect.WithClientOptions(opts...),
+		),
+		dropMigration: connect.NewClient[migrator.DropMigrationRequest, migrator.DropMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceDropMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		createConnection: connect.NewClient[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		getConnection: connect.NewClient[migrator.GetConnectionRequest, migrator.GetConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		listConnections: connect.NewClient[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse](
+			httpClient,
+			baseURL+MultiadminServiceListConnectionsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ListConnections")),
+			connect.WithClientOptions(opts...),
+		),
+		dropConnection: connect.NewClient[migrator.DropConnectionRequest, migrator.DropConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceDropConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -415,6 +517,15 @@ type multiadminServiceClient struct {
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
+	createMigration            *connect.Client[migrator.CreateMigrationRequest, migrator.CreateMigrationResponse]
+	getMigration               *connect.Client[migrator.GetMigrationRequest, migrator.GetMigrationResponse]
+	listMigrations             *connect.Client[migrator.ListMigrationsRequest, migrator.ListMigrationsResponse]
+	setMigrationDirection      *connect.Client[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse]
+	dropMigration              *connect.Client[migrator.DropMigrationRequest, migrator.DropMigrationResponse]
+	createConnection           *connect.Client[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse]
+	getConnection              *connect.Client[migrator.GetConnectionRequest, migrator.GetConnectionResponse]
+	listConnections            *connect.Client[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse]
+	dropConnection             *connect.Client[migrator.DropConnectionRequest, migrator.DropConnectionResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -505,6 +616,51 @@ func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, 
 // SwitchPrimary calls multiadmin.MultiadminService.SwitchPrimary.
 func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
 	return c.switchPrimary.CallUnary(ctx, req)
+}
+
+// CreateMigration calls multiadmin.MultiadminService.CreateMigration.
+func (c *multiadminServiceClient) CreateMigration(ctx context.Context, req *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error) {
+	return c.createMigration.CallUnary(ctx, req)
+}
+
+// GetMigration calls multiadmin.MultiadminService.GetMigration.
+func (c *multiadminServiceClient) GetMigration(ctx context.Context, req *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error) {
+	return c.getMigration.CallUnary(ctx, req)
+}
+
+// ListMigrations calls multiadmin.MultiadminService.ListMigrations.
+func (c *multiadminServiceClient) ListMigrations(ctx context.Context, req *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error) {
+	return c.listMigrations.CallUnary(ctx, req)
+}
+
+// SetMigrationDirection calls multiadmin.MultiadminService.SetMigrationDirection.
+func (c *multiadminServiceClient) SetMigrationDirection(ctx context.Context, req *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error) {
+	return c.setMigrationDirection.CallUnary(ctx, req)
+}
+
+// DropMigration calls multiadmin.MultiadminService.DropMigration.
+func (c *multiadminServiceClient) DropMigration(ctx context.Context, req *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
+	return c.dropMigration.CallUnary(ctx, req)
+}
+
+// CreateConnection calls multiadmin.MultiadminService.CreateConnection.
+func (c *multiadminServiceClient) CreateConnection(ctx context.Context, req *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {
+	return c.createConnection.CallUnary(ctx, req)
+}
+
+// GetConnection calls multiadmin.MultiadminService.GetConnection.
+func (c *multiadminServiceClient) GetConnection(ctx context.Context, req *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error) {
+	return c.getConnection.CallUnary(ctx, req)
+}
+
+// ListConnections calls multiadmin.MultiadminService.ListConnections.
+func (c *multiadminServiceClient) ListConnections(ctx context.Context, req *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error) {
+	return c.listConnections.CallUnary(ctx, req)
+}
+
+// DropConnection calls multiadmin.MultiadminService.DropConnection.
+func (c *multiadminServiceClient) DropConnection(ctx context.Context, req *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
+	return c.dropConnection.CallUnary(ctx, req)
 }
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
@@ -675,6 +831,26 @@ type MultiadminServiceHandler interface {
 	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
 	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error)
+	// GetMigration returns status for one migration, addressed by ref (id or name).
+	GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error)
+	// ListMigrations returns the ids of every migration.
+	ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error)
+	// SetMigrationDirection sets the active direction: on a not-yet-started
+	// migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+	// the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// CreateConnection stores a named source conninfo, shard-scoped.
+	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
+	// GetConnection returns one connection, addressed by ref (id or name).
+	GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error)
+	// ListConnections returns every stored connection in full.
+	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
+	// DropConnection removes a connection.
+	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -792,6 +968,60 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceCreateMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateMigrationProcedure,
+		svc.CreateMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetMigrationProcedure,
+		svc.GetMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceListMigrationsHandler := connect.NewUnaryHandler(
+		MultiadminServiceListMigrationsProcedure,
+		svc.ListMigrations,
+		connect.WithSchema(multiadminServiceMethods.ByName("ListMigrations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceSetMigrationDirectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceSetMigrationDirectionProcedure,
+		svc.SetMigrationDirection,
+		connect.WithSchema(multiadminServiceMethods.ByName("SetMigrationDirection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceDropMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceDropMigrationProcedure,
+		svc.DropMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceCreateConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateConnectionProcedure,
+		svc.CreateConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetConnectionProcedure,
+		svc.GetConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceListConnectionsHandler := connect.NewUnaryHandler(
+		MultiadminServiceListConnectionsProcedure,
+		svc.ListConnections,
+		connect.WithSchema(multiadminServiceMethods.ByName("ListConnections")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceDropConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceDropConnectionProcedure,
+		svc.DropConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -830,6 +1060,24 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		case MultiadminServiceSwitchPrimaryProcedure:
 			multiadminServiceSwitchPrimaryHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateMigrationProcedure:
+			multiadminServiceCreateMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetMigrationProcedure:
+			multiadminServiceGetMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceListMigrationsProcedure:
+			multiadminServiceListMigrationsHandler.ServeHTTP(w, r)
+		case MultiadminServiceSetMigrationDirectionProcedure:
+			multiadminServiceSetMigrationDirectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceDropMigrationProcedure:
+			multiadminServiceDropMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateConnectionProcedure:
+			multiadminServiceCreateConnectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetConnectionProcedure:
+			multiadminServiceGetConnectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceListConnectionsProcedure:
+			multiadminServiceListConnectionsHandler.ServeHTTP(w, r)
+		case MultiadminServiceDropConnectionProcedure:
+			multiadminServiceDropConnectionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -909,4 +1157,40 @@ func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Co
 
 func (UnimplementedMultiadminServiceHandler) SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SwitchPrimary is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ListMigrations is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SetMigrationDirection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateConnection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetConnection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ListConnections is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropConnection is not implemented"))
 }

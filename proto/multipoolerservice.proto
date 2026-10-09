@@ -282,6 +282,18 @@ message GetAuthCredentialsResponse {
   // replication=true / replication=database startup parameter. The gateway
   // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
   bool is_replication_role = 2;
+
+  // can_create_migration mirrors whether this role could itself perform the
+  // logical-replication setup a migration drives: rolsuper, or (CREATE
+  // privilege on the connected database AND membership in the
+  // pg_create_subscription predefined role) — the same two checks PostgreSQL
+  // itself enforces for CREATE PUBLICATION (database CREATE + table
+  // ownership, not re-checked here since it's per-table and dynamic) and
+  // CREATE SUBSCRIPTION (superuser, or pg_create_subscription + database
+  // CREATE, PG16+). The gateway gates migration/connection DDL on this so an
+  // authenticated client without this capability can't trigger migration
+  // setup, cutover, or source-credential storage it couldn't do directly.
+  bool can_create_migration = 3;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.

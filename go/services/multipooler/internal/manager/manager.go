@@ -40,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
@@ -241,6 +242,28 @@ type MultipoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// migrationEnabled records whether the service layer opted this manager into
+	// the Multigres Migrator migration coordinator (via StartMigrationCoordinator). When
+	// set, openLocked launches the reconcile poller on the fresh context so it
+	// survives Pause/resume; tests that never opt in leave it false and spin up
+	// no background migration work. Guarded by pm.mu.
+	migrationEnabled bool
+
+	// migrationCoord is the lazily-constructed Multigres Migrator coordinator (built from
+	// the admin query service on first use). It is active only on the primary;
+	// callers gate via MigrationCoordinatorIfPrimary. Both fields guarded by pm.mu.
+	migrationCoord         *migration.Coordinator
+	migrationSchemaEnsured bool
+
+	// migrationImportHold is the migration serving gate: true when an active
+	// migration on this shard is in the IMPORT direction (the target is still the
+	// subscriber being populated), so this pooler must not serve client queries
+	// until it is activated (switched to EXPORT). Refreshed from the replicated
+	// multigres.migration table by the postgres monitor (so it holds on primary
+	// and standbys alike, and survives failover) and read by the serving-state
+	// drift check. Atomic so the monitor reads it without pm.mu.
+	migrationImportHold atomic.Bool
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -583,6 +606,22 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		pm.startBackupHealthPollerLocked()
 	}
 
+	// Relaunch the migration reconcile poller on the fresh context when the
+	// service layer has opted in (see StartMigrationCoordinator). It is a no-op
+	// on standbys and drives in-flight migrations on the primary.
+	if pm.migrationEnabled {
+		pm.startMigrationReconcilePollerLocked()
+	}
+
+	// Seed the migration serving gate from the replicated multigres.migration
+	// table before publishing the target status: without this synchronous read,
+	// a pooler restarting mid-IMPORT would publish targetServingStatus
+	// (typically SERVING) unreconciled, and only self-correct on the next
+	// postgres-monitor tick — briefly serving a partially copied target. Mirrors
+	// the same synchronous-refresh-then-reconcile pattern releaseForMigrationExport
+	// uses; safe to call here since openConnectionsLocked has already run.
+	pm.refreshMigrationHold(ctx)
+
 	// Start health heartbeat goroutine and transition to the target status.
 	// Mutate notifies all components (query service, heartbeat, health streamer)
 	// and Mutates the record. The publisher (if running, started by
@@ -590,7 +629,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = targetServingStatus
+		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}

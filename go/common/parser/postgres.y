@@ -75,6 +75,12 @@ type ImportQual struct {
 }
 
 %union {
+	migrationAction *ast.MigrationActionSpec
+	migrationDropBehavior *ast.MigrationDropBehavior
+	migrationTables *ast.MigrationTables
+	migrationDirection ast.MigrationDirection
+	migrationCond *ast.MigrationCond
+	migrationCondOp ast.MigrationCondOp
 	keyword    string
 	bval       bool
 	byt        byte
@@ -143,6 +149,7 @@ type ImportQual struct {
  */
 %token <keyword> ALL ALTER AS CASCADE CONCURRENTLY CREATE DROP IF_P EXISTS
 %token <keyword> AND NOT NULLS_P OR REPLACE RESTRICT WITH
+%token <keyword> ACTIVATE DEACTIVATE MIGRATION EXPORT PHASE
 /* Expression keywords */
 %token <keyword> BETWEEN CASE COLLATE DEFAULT DISTINCT ESCAPE
 %token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P UNKNOWN WHEN
@@ -493,6 +500,13 @@ type ImportQual struct {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ConstraintsSetStmt PLAssignStmt PLpgSQL_Expr RemoveFuncStmt RemoveAggrStmt RemoveOperStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
+%type <stmt>         CreateMigrationStmt AlterMigrationStmt DropMigrationStmt CreateConnectionStmt DropConnectionStmt ShowConnectionsStmt
+%type <migrationAction> migration_action
+%type <migrationDropBehavior> migration_drop_behavior
+%type <migrationDirection> migration_direction
+%type <migrationCond> opt_when_clause migration_cond
+%type <migrationCondOp> migration_cond_op
+%type <migrationTables> migration_tables
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt CommentStmt SecLabelStmt DoStmt CallStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
@@ -740,6 +754,12 @@ stmt:
 		|	VacuumStmt								{ $$ = $1 }
 		| 	AnalyzeStmt								{ $$ = $1 }
 		|	VariableShowStmt						{ $$ = $1 }
+		|	CreateMigrationStmt						{ $$ = $1 }
+		|	AlterMigrationStmt						{ $$ = $1 }
+		|	DropMigrationStmt						{ $$ = $1 }
+		|	CreateConnectionStmt					{ $$ = $1 }
+		|	DropConnectionStmt						{ $$ = $1 }
+		|	ShowConnectionsStmt						{ $$ = $1 }
 		|	AlterSystemStmt							{ $$ = $1 }
 		|	ClusterStmt								{ $$ = $1 }
 		|	ReindexStmt								{ $$ = $1 }
@@ -1048,6 +1068,7 @@ unreserved_keyword:
 			| ABSOLUTE_P									{ $$ = "absolute" }
 			| ACCESS										{ $$ = "access" }
 			| ACTION										{ $$ = "action" }
+			| ACTIVATE									{ $$ = "activate" }
 			| ADD_P										{ $$ = "add" }
 			| ADMIN										{ $$ = "admin" }
 			| AFTER										{ $$ = "after" }
@@ -1103,6 +1124,7 @@ unreserved_keyword:
 			| DATA_P										{ $$ = "data" }
 			| DATABASE									{ $$ = "database" }
 			| DAY_P										{ $$ = "day" }
+			| DEACTIVATE								{ $$ = "deactivate" }
 			| DEALLOCATE									{ $$ = "deallocate" }
 			| DECLARE										{ $$ = "declare" }
 			| DEFAULTS									{ $$ = "defaults" }
@@ -1135,6 +1157,7 @@ unreserved_keyword:
 			| EXCLUSIVE									{ $$ = "exclusive" }
 			| EXECUTE										{ $$ = "execute" }
 			| EXPLAIN										{ $$ = "explain" }
+			| EXPORT									{ $$ = "export" }
 			| EXPRESSION									{ $$ = "expression" }
 			| EXTENSION									{ $$ = "extension" }
 			| EXTERNAL									{ $$ = "external" }
@@ -1200,6 +1223,7 @@ unreserved_keyword:
 			| MAXVALUE									{ $$ = "maxvalue" }
 			| MERGE										{ $$ = "merge" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINUTE_P									{ $$ = "minute" }
 			| MINVALUE									{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
@@ -1243,6 +1267,7 @@ unreserved_keyword:
 			| PASSING										{ $$ = "passing" }
 			| PASSWORD									{ $$ = "password" }
 			| PATH										{ $$ = "path" }
+			| PHASE										{ $$ = "phase" }
 			| PLAN										{ $$ = "plan" }
 			| PLANS										{ $$ = "plans" }
 			| POLICY										{ $$ = "policy" }
@@ -1586,6 +1611,7 @@ bare_label_keyword:
 			| ABSOLUTE_P									{ $$ = "absolute" }
 			| ACCESS										{ $$ = "access" }
 			| ACTION										{ $$ = "action" }
+			| ACTIVATE									{ $$ = "activate" }
 			| ADD_P										{ $$ = "add" }
 			| ADMIN										{ $$ = "admin" }
 			| AFTER										{ $$ = "after" }
@@ -1671,6 +1697,7 @@ bare_label_keyword:
 			| CYCLE										{ $$ = "cycle" }
 			| DATA_P										{ $$ = "data" }
 			| DATABASE									{ $$ = "database" }
+			| DEACTIVATE								{ $$ = "deactivate" }
 			| DEALLOCATE									{ $$ = "deallocate" }
 			| DEC										{ $$ = "dec" }
 			| DECIMAL_P									{ $$ = "decimal" }
@@ -1713,6 +1740,7 @@ bare_label_keyword:
 			| EXECUTE										{ $$ = "execute" }
 			| EXISTS										{ $$ = "exists" }
 			| EXPLAIN										{ $$ = "explain" }
+			| EXPORT									{ $$ = "export" }
 			| EXPRESSION									{ $$ = "expression" }
 			| EXTENSION									{ $$ = "extension" }
 			| EXTERNAL									{ $$ = "external" }
@@ -1813,6 +1841,7 @@ bare_label_keyword:
 			| MERGE										{ $$ = "merge" }
 			| MERGE_ACTION										{ $$ = "merge_action" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINVALUE										{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
 			| MOVE										{ $$ = "move" }
@@ -1867,6 +1896,7 @@ bare_label_keyword:
 			| PASSING										{ $$ = "passing" }
 			| PASSWORD										{ $$ = "password" }
 			| PATH										{ $$ = "path" }
+			| PHASE										{ $$ = "phase" }
 			| PLACING										{ $$ = "placing" }
 			| PLAN										{ $$ = "plan" }
 			| PLANS										{ $$ = "plans" }
@@ -12562,6 +12592,129 @@ AlterPublicationStmt:
 				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_DropObjects)
 			}
 		;
+
+/*
+ * Multigres migration and connection statements.
+ *
+ * These are NOT part of PostgreSQL. The multigateway parses them and handles
+ * them in-gateway (translating to migrator RPCs) rather than forwarding to
+ * PostgreSQL. See docs/migration/migrator_sql_interface.md. The table-selection
+ * clause reuses pub_obj_list (from CREATE PUBLICATION) and the OPTIONS clauses
+ * reuse create_generic_options/alter_generic_options (from CREATE SERVER).
+ */
+CreateConnectionStmt:
+		CREATE CONNECTION name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($3, $4, false)
+			}
+	|	CREATE CONNECTION IF_P NOT EXISTS name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($6, $7, true)
+			}
+	;
+
+DropConnectionStmt:
+		DROP CONNECTION name_list
+			{
+				$$ = ast.NewDropConnectionStmt($3, false)
+			}
+	|	DROP CONNECTION IF_P EXISTS name_list
+			{
+				$$ = ast.NewDropConnectionStmt($5, true)
+			}
+	;
+
+ShowConnectionsStmt:
+		SHOW CONNECTION name
+			{
+				$$ = ast.NewShowConnectionsStmt($3)
+			}
+	;
+
+CreateMigrationStmt:
+		CREATE MIGRATION name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($3, $5, $7, $8, false)
+			}
+	|	CREATE MIGRATION IF_P NOT EXISTS name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($6, $8, $10, $11, true)
+			}
+	;
+
+migration_tables:
+		ALL TABLES			{ $$ = &ast.MigrationTables{ForAllTables: true} }
+	|	pub_obj_list		{ $$ = &ast.MigrationTables{Objects: $1} }
+	;
+
+AlterMigrationStmt:
+		ALTER MIGRATION name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($3, false, $4)
+			}
+	|	ALTER MIGRATION IF_P EXISTS name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($5, true, $6)
+			}
+	;
+
+// CONNECTION conn / SET (...) subcommands (re-pointing a migration's source
+// connection or changing its sequence_margin/objects in place) are a
+// candidate for future reintroduction (see the migration-foundation RFC) but
+// are not currently implemented — PHASE is the only ALTER MIGRATION action.
+migration_action:
+		PHASE migration_direction opt_when_clause opt_definition
+			{ $$ = &ast.MigrationActionSpec{Direction: $2, When: $3, Options: $4} }
+	;
+
+migration_direction:
+		IMPORT_P			{ $$ = ast.MigrationDirectionImport }
+	|	EXPORT				{ $$ = ast.MigrationDirectionExport }
+	;
+
+// opt_when_clause is the WHEN (cond) readiness-gate clause shared by ALTER
+// MIGRATION's PHASE action and DROP MIGRATION (migration_drop_behavior below).
+opt_when_clause:
+		WHEN '(' migration_cond ')'	{ $$ = $3 }
+	|	/* EMPTY */						{ $$ = nil }
+	;
+
+// migration_cond is "field OP constant" or "constant OP field" — field a
+// multigres.stat_migration column (ColId), constant a def_arg (Integer, Float,
+// or String; see def_arg above). Always normalized to the canonical
+// "field OP constant" form: the constant-first alternative flips the operator
+// so every caller only ever handles one ordering.
+migration_cond:
+		ColId migration_cond_op def_arg
+			{ $$ = &ast.MigrationCond{Field: $1, Op: $2, Value: $3} }
+	;
+
+migration_cond_op:
+		'<'					{ $$ = ast.MigrationCondLT }
+	|	'>'					{ $$ = ast.MigrationCondGT }
+	|	'='					{ $$ = ast.MigrationCondEQ }
+	|	LESS_EQUALS			{ $$ = ast.MigrationCondLE }
+	|	GREATER_EQUALS		{ $$ = ast.MigrationCondGE }
+	|	NOT_EQUALS			{ $$ = ast.MigrationCondNE }
+	;
+
+DropMigrationStmt:
+		DROP MIGRATION name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($3, false, $4)
+			}
+	|	DROP MIGRATION IF_P EXISTS name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($5, true, $6)
+			}
+	;
+
+migration_drop_behavior:
+		FORCE opt_definition
+			{ $$ = &ast.MigrationDropBehavior{Force: true, Options: $2} }
+	|	opt_when_clause opt_definition
+			{ $$ = &ast.MigrationDropBehavior{When: $1, Options: $2} }
+	;
 
 pub_obj_list:
 		PublicationObjSpec						{ $$ = ast.NewNodeList(); $$.Append($1) }

@@ -76,6 +76,13 @@ func WithTestUser(user string) TestConnOption {
 	return func(c *Conn) { c.user = user }
 }
 
+// WithTestCredentials sets the cached post-auth credentials (IsReplicationRole,
+// CanCreateMigration, ...) on a test connection, as SCRAM would after a real
+// lookup.
+func WithTestCredentials(creds *Credentials) TestConnOption {
+	return func(c *Conn) { c.credentials = creds }
+}
+
 // WithTestUnsafeConnection latches unsafe connection on a test connection.
 func WithTestUnsafeConnection() TestConnOption {
 	return func(c *Conn) { c.unsafeConnection = true }

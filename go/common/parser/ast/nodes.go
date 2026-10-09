@@ -347,6 +347,14 @@ const (
 	T_String    // String literal - postgres/src/include/nodes/value.h:63-69
 	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
 	T_Null      // NULL literal
+
+	// Multigres-specific migration/connection statements (not in PostgreSQL).
+	T_CreateConnectionStmt
+	T_DropConnectionStmt
+	T_ShowConnectionsStmt
+	T_CreateMigrationStmt
+	T_AlterMigrationStmt
+	T_DropMigrationStmt
 )
 
 // String returns the string representation of a NodeTag.

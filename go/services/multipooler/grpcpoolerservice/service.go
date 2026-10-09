@@ -358,8 +358,9 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash:         authInfo.ScramHash,
-		IsReplicationRole: authInfo.IsReplicationRole,
+		ScramHash:          authInfo.ScramHash,
+		IsReplicationRole:  authInfo.IsReplicationRole,
+		CanCreateMigration: authInfo.CanCreateMigration,
 	}, nil
 }
 

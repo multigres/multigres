@@ -66,6 +66,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfAlterForeignServerStmt(in)
 	case *AlterFunctionStmt:
 		return CloneRefOfAlterFunctionStmt(in)
+	case *AlterMigrationStmt:
+		return CloneRefOfAlterMigrationStmt(in)
 	case *AlterObjectDependsStmt:
 		return CloneRefOfAlterObjectDependsStmt(in)
 	case *AlterObjectSchemaStmt:
@@ -184,6 +186,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateAssertionStmt(in)
 	case *CreateCastStmt:
 		return CloneRefOfCreateCastStmt(in)
+	case *CreateConnectionStmt:
+		return CloneRefOfCreateConnectionStmt(in)
 	case *CreateConversionStmt:
 		return CloneRefOfCreateConversionStmt(in)
 	case *CreateDomainStmt:
@@ -202,6 +206,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateForeignTableStmt(in)
 	case *CreateFunctionStmt:
 		return CloneRefOfCreateFunctionStmt(in)
+	case *CreateMigrationStmt:
+		return CloneRefOfCreateMigrationStmt(in)
 	case *CreateOpClassItem:
 		return CloneRefOfCreateOpClassItem(in)
 	case *CreateOpClassStmt:
@@ -258,6 +264,10 @@ func CloneNode(in Node) Node {
 		return CloneRefOfDiscardStmt(in)
 	case *DoStmt:
 		return CloneRefOfDoStmt(in)
+	case *DropConnectionStmt:
+		return CloneRefOfDropConnectionStmt(in)
+	case *DropMigrationStmt:
+		return CloneRefOfDropMigrationStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
 	case *DropReplicationSlotCmd:
@@ -510,6 +520,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfSetOperationStmt(in)
 	case *SetToDefault:
 		return CloneRefOfSetToDefault(in)
+	case *ShowConnectionsStmt:
+		return CloneRefOfShowConnectionsStmt(in)
 	case *SinglePartitionSpec:
 		return CloneRefOfSinglePartitionSpec(in)
 	case *SortBy:
@@ -845,6 +857,18 @@ func CloneRefOfAlterFunctionStmt(n *AlterFunctionStmt) *AlterFunctionStmt {
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Func = CloneRefOfObjectWithArgs(n.Func)
 	out.Actions = CloneRefOfNodeList(n.Actions)
+	return &out
+}
+
+// CloneRefOfAlterMigrationStmt creates a deep clone of the input.
+func CloneRefOfAlterMigrationStmt(n *AlterMigrationStmt) *AlterMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.When = CloneRefOfMigrationCond(n.When)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -1549,6 +1573,17 @@ func CloneRefOfCreateCastStmt(n *CreateCastStmt) *CreateCastStmt {
 	return &out
 }
 
+// CloneRefOfCreateConnectionStmt creates a deep clone of the input.
+func CloneRefOfCreateConnectionStmt(n *CreateConnectionStmt) *CreateConnectionStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Options = CloneRefOfNodeList(n.Options)
+	return &out
+}
+
 // CloneRefOfCreateConversionStmt creates a deep clone of the input.
 func CloneRefOfCreateConversionStmt(n *CreateConversionStmt) *CreateConversionStmt {
 	if n == nil {
@@ -1656,6 +1691,18 @@ func CloneRefOfCreateFunctionStmt(n *CreateFunctionStmt) *CreateFunctionStmt {
 	out.ReturnType = CloneRefOfTypeName(n.ReturnType)
 	out.Options = CloneRefOfNodeList(n.Options)
 	out.SQLBody = CloneNode(n.SQLBody)
+	return &out
+}
+
+// CloneRefOfCreateMigrationStmt creates a deep clone of the input.
+func CloneRefOfCreateMigrationStmt(n *CreateMigrationStmt) *CreateMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Objects = CloneRefOfNodeList(n.Objects)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -2003,6 +2050,30 @@ func CloneRefOfDoStmt(n *DoStmt) *DoStmt {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Args = CloneRefOfNodeList(n.Args)
+	return &out
+}
+
+// CloneRefOfDropConnectionStmt creates a deep clone of the input.
+func CloneRefOfDropConnectionStmt(n *DropConnectionStmt) *DropConnectionStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Names = CloneRefOfNodeList(n.Names)
+	return &out
+}
+
+// CloneRefOfDropMigrationStmt creates a deep clone of the input.
+func CloneRefOfDropMigrationStmt(n *DropMigrationStmt) *DropMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Names = CloneRefOfNodeList(n.Names)
+	out.When = CloneRefOfMigrationCond(n.When)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -3891,6 +3962,16 @@ func CloneRefOfSetToDefault(n *SetToDefault) *SetToDefault {
 	return &out
 }
 
+// CloneRefOfShowConnectionsStmt creates a deep clone of the input.
+func CloneRefOfShowConnectionsStmt(n *ShowConnectionsStmt) *ShowConnectionsStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
 // CloneRefOfSinglePartitionSpec creates a deep clone of the input.
 func CloneRefOfSinglePartitionSpec(n *SinglePartitionSpec) *SinglePartitionSpec {
 	if n == nil {
@@ -3979,6 +4060,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfAlterForeignServerStmt(in)
 	case *AlterFunctionStmt:
 		return CloneRefOfAlterFunctionStmt(in)
+	case *AlterMigrationStmt:
+		return CloneRefOfAlterMigrationStmt(in)
 	case *AlterObjectDependsStmt:
 		return CloneRefOfAlterObjectDependsStmt(in)
 	case *AlterObjectSchemaStmt:
@@ -4045,6 +4128,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateAssertionStmt(in)
 	case *CreateCastStmt:
 		return CloneRefOfCreateCastStmt(in)
+	case *CreateConnectionStmt:
+		return CloneRefOfCreateConnectionStmt(in)
 	case *CreateConversionStmt:
 		return CloneRefOfCreateConversionStmt(in)
 	case *CreateDomainStmt:
@@ -4063,6 +4148,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateForeignTableStmt(in)
 	case *CreateFunctionStmt:
 		return CloneRefOfCreateFunctionStmt(in)
+	case *CreateMigrationStmt:
+		return CloneRefOfCreateMigrationStmt(in)
 	case *CreateOpClassItem:
 		return CloneRefOfCreateOpClassItem(in)
 	case *CreateOpClassStmt:
@@ -4115,6 +4202,10 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfDiscardStmt(in)
 	case *DoStmt:
 		return CloneRefOfDoStmt(in)
+	case *DropConnectionStmt:
+		return CloneRefOfDropConnectionStmt(in)
+	case *DropMigrationStmt:
+		return CloneRefOfDropMigrationStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
 	case *DropReplicationSlotCmd:
@@ -4217,6 +4308,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfSecLabelStmt(in)
 	case *SelectStmt:
 		return CloneRefOfSelectStmt(in)
+	case *ShowConnectionsStmt:
+		return CloneRefOfShowConnectionsStmt(in)
 	case *SinglePartitionSpec:
 		return CloneRefOfSinglePartitionSpec(in)
 	case *SortBy:
@@ -4654,6 +4747,16 @@ func CloneSliceOfOid(n []Oid) []Oid {
 	res := make([]Oid, len(n))
 	copy(res, n)
 	return res
+}
+
+// CloneRefOfMigrationCond creates a deep clone of the input.
+func CloneRefOfMigrationCond(n *MigrationCond) *MigrationCond {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.Value = CloneNode(n.Value)
+	return &out
 }
 
 // CloneSliceOfRefOfDefElem creates a deep clone of the input.
