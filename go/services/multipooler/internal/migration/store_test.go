@@ -182,6 +182,10 @@ func selectRow(id int64, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value("true"),                    // copy_data
 		sqltypes.Value("false"),                   // skip_schema_copy
 		sqltypes.Value("IMPORT"),                  // direction
+		sqltypes.Value("[]"),                      // quiesce_roles
+		sqltypes.Value("true"),                    // public_had_connect
+		sqltypes.Value("false"),                   // quiesce_applied
+		sqltypes.Value("{}"),                      // quiesce_role_conn_limits
 		sqltypes.Value(""),                        // last_error
 		sqltypes.Value(""),                        // reverse_link_error
 		sqltypes.Value(createdAt),                 // created_at
@@ -239,6 +243,18 @@ func TestScanMigration(t *testing.T) {
 
 	_, err = scanMigration(&sqltypes.Row{Values: []sqltypes.Value{sqltypes.Value("only-one")}})
 	require.Error(t, err, "too few columns must error")
+}
+
+// TestScanMigration_QuiesceRoleConnLimits covers the round-trip this guards
+// against: a non-empty quiesce_role_conn_limits column (an operator-set custom
+// CONNECTION LIMIT recorded before the ACTIVATE cutover zeroed it) must survive
+// scanning, not just the degenerate "{}" case every other fixture row uses.
+func TestScanMigration_QuiesceRoleConnLimits(t *testing.T) {
+	row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+	row.Values[14] = sqltypes.Value(`{"app":5,"reporting":-1}`) // quiesce_role_conn_limits
+	m, err := scanMigration(row)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"app": 5, "reporting": -1}, m.QuiesceRoleConnLimits)
 }
 
 func TestStorePersistsDirection(t *testing.T) {

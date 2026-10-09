@@ -85,6 +85,11 @@ type migrationSource interface {
 	SetReadOnly(ro bool) error
 	setSessionReadOnly(ro bool) error
 	TerminateClientBackends() error
+	RevokeConnect(roles []string) error
+	GrantConnect(roles []string, restorePublic bool, connLimits map[string]int32) error
+	PublicHasConnect() (bool, error)
+	RoleConnLimits(roles []string) (map[string]int32, error)
+	checkQuiesceRoles(roles []string) error
 	CurrentLSN() (string, error)
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
 	SubscriptionExists(name string) (bool, error)

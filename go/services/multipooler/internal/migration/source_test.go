@@ -24,8 +24,51 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 )
 
+func TestConnectGrantSQL(t *testing.T) {
+	// An empty role list with includePublic false yields no statements — truly
+	// nothing to do.
+	require.Nil(t, connectGrantSQL(false, false, "appdb", nil))
+	require.Nil(t, connectGrantSQL(true, false, "appdb", []string{}))
+
+	// An empty role list with includePublic true still yields the PUBLIC
+	// statement: PUBLIC normally holds CONNECT regardless of whether any named
+	// roles are configured, so it must not be skipped just because the role
+	// list happens to be empty.
+	require.Equal(t, []string{"REVOKE CONNECT ON DATABASE appdb FROM PUBLIC"}, connectGrantSQL(false, true, "appdb", nil))
+
+	// REVOKE fences PUBLIC first (so a role relying only on PUBLIC's grant is still
+	// cut), then each named role; identifiers are quoted per part.
+	revoke := connectGrantSQL(false, true, "appdb", []string{"app", "reporting"})
+	require.Equal(t, []string{
+		"REVOKE CONNECT ON DATABASE appdb FROM PUBLIC",
+		"REVOKE CONNECT ON DATABASE appdb FROM app",
+		"REVOKE CONNECT ON DATABASE appdb FROM reporting",
+	}, revoke)
+
+	// GRANT restores PUBLIC and each named role symmetrically when includePublic.
+	grant := connectGrantSQL(true, true, "appdb", []string{"app"})
+	require.Equal(t, []string{
+		"GRANT CONNECT ON DATABASE appdb TO PUBLIC",
+		"GRANT CONNECT ON DATABASE appdb TO app",
+	}, grant)
+
+	// GRANT omits PUBLIC when it didn't have CONNECT beforehand (includePublic
+	// false) — only the named roles are restored.
+	grantNoPublic := connectGrantSQL(true, false, "appdb", []string{"app"})
+	require.Equal(t, []string{
+		"GRANT CONNECT ON DATABASE appdb TO app",
+	}, grantNoPublic)
+
+	// Mixed-case / reserved database and role names are quoted.
+	q := connectGrantSQL(false, true, "AppDB", []string{"User"})
+	require.Equal(t, []string{
+		`REVOKE CONNECT ON DATABASE "AppDB" FROM PUBLIC`,
+		`REVOKE CONNECT ON DATABASE "AppDB" FROM "User"`,
+	}, q)
+}
+
 func TestTerminateClientBackendsSQL(t *testing.T) {
-	// The write-cut must target only ordinary client backends, spare
+	// The hard-quiesce write-cut must target only ordinary client backends, spare
 	// the caller's own backend, and exclude the migrator's connections (parameter
 	// $1) -- gated on BOTH application_name and usename = current_user, since
 	// application_name alone is client-spoofable (an ordinary application could

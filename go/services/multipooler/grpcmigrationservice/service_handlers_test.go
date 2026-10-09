@@ -79,6 +79,10 @@ func migrationRow(id int64, name string) *sqltypes.Row {
 		sqltypes.Value("true"),                    // copy_data
 		sqltypes.Value("false"),                   // skip_schema_copy
 		sqltypes.Value("IMPORT"),                  // direction
+		sqltypes.Value("[]"),                      // quiesce_roles
+		sqltypes.Value("true"),                    // public_had_connect
+		sqltypes.Value("false"),                   // quiesce_applied
+		sqltypes.Value("{}"),                      // quiesce_role_conn_limits
 		sqltypes.Value(""),                        // last_error
 		sqltypes.Value(""),                        // reverse_link_error
 		sqltypes.Value("2026-01-01T00:00:00Z"),    // created_at

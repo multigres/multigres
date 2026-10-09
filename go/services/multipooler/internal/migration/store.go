@@ -97,12 +97,20 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 // composite's fields not sharing one order.
 const insertMigrationSQL = `INSERT INTO multigres.migration
 	(migration_id, migration_phase, migration_name, connection_id, migration_target,
-	 sequence_margin, copy_data, skip_schema_copy, direction)
-	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_key,$8,$9,$10,$11)`
+	 sequence_margin, copy_data, skip_schema_copy, direction, quiesce_roles, public_had_connect, quiesce_role_conn_limits)
+	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_key,$8,$9,$10,$11,$12,$13,$14)`
 
 // Insert writes a new migration row and its table list atomically. created_at
 // defaults to now(); streaming_since starts NULL.
 func (s *Store) Insert(ctx context.Context, m *Migration) error {
+	quiesceRolesJSON, err := marshalQuiesceRoles(m.QuiesceRoles)
+	if err != nil {
+		return err
+	}
+	connLimitsJSON, err := marshalQuiesceRoleConnLimits(m.QuiesceRoleConnLimits)
+	if err != nil {
+		return err
+	}
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin insert migration: %w", err)
@@ -112,7 +120,7 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 		ctx, insertMigrationSQL,
 		m.ID, string(m.Phase), nullableString(m.Name), m.ConnectionID,
 		m.TargetDatabase, m.TargetShard, m.TargetTableGroup, m.SequenceMargin, m.CopyData, m.SkipSchemaCopy,
-		string(m.effectiveDirection()),
+		string(m.effectiveDirection()), quiesceRolesJSON, m.PublicHadConnect, connLimitsJSON,
 	); err != nil {
 		return fmt.Errorf("insert migration: %w", err)
 	}
@@ -132,7 +140,8 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 const (
 	updateMigrationSQL = `UPDATE multigres.migration SET
 	migration_phase=$2, connection_id=$3,
-	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, reverse_link_error=$8
+	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, public_had_connect=$8,
+	quiesce_role_conn_limits=$9, reverse_link_error=$10, quiesce_applied=$11
 	WHERE migration_id=$1`
 
 	deleteMigrationTablesSQL = `DELETE FROM multigres.migration_tables WHERE migration_id=$1`
@@ -145,6 +154,10 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if m.StreamingSince != nil {
 		streamingSince = *m.StreamingSince
 	}
+	connLimitsJSON, err := marshalQuiesceRoleConnLimits(m.QuiesceRoleConnLimits)
+	if err != nil {
+		return err
+	}
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin update migration: %w", err)
@@ -153,7 +166,8 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if _, err := tx.QueryArgs(
 		ctx, updateMigrationSQL,
 		m.ID, string(m.Phase), m.ConnectionID,
-		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.ReverseLinkError,
+		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.PublicHadConnect,
+		connLimitsJSON, m.ReverseLinkError, m.QuiesceApplied,
 	); err != nil {
 		return fmt.Errorf("update migration: %w", err)
 	}
@@ -264,8 +278,8 @@ func scanJournalEntry(row *sqltypes.Row) (*JournalEntry, error) {
 const selectMigrationSQL = `SELECT m.migration_id, m.migration_phase, COALESCE(m.migration_name, ''),
 	m.connection_id, (m.migration_target).database, (m.migration_target).shard, (m.migration_target).table_group,
 	m.sequence_margin,
-	m.copy_data, m.skip_schema_copy, m.direction,
-	m.last_error, m.reverse_link_error,
+	m.copy_data, m.skip_schema_copy, m.direction, m.quiesce_roles, m.public_had_connect,
+	m.quiesce_applied, m.quiesce_role_conn_limits, m.last_error, m.reverse_link_error,
 	m.created_at, m.streaming_since,
 	CASE WHEN count(t.table_name) = 0 THEN '[]'
 	     ELSE json_agg(t.schema_name || '.' || t.table_name)::text
@@ -316,6 +330,7 @@ func (s *Store) cacheStore(m *Migration) {
 	}
 	cp := *m
 	cp.Tables = append([]string(nil), m.Tables...)
+	cp.QuiesceRoles = append([]string(nil), m.QuiesceRoles...)
 	s.cache[m.ID] = &cp
 }
 
@@ -501,13 +516,15 @@ func scanConnection(row *sqltypes.Row) (*Connection, error) {
 // Migration. The trailing tables column is a JSON array of "schema.table".
 func scanMigration(row *sqltypes.Row) (*Migration, error) {
 	var (
-		m          Migration
-		phase      string
-		direction  string
-		streaming  *time.Time
-		tablesJSON string
+		m                Migration
+		phase            string
+		direction        string
+		quiesceRolesJSON string
+		connLimitsJSON   string
+		streaming        *time.Time
+		tablesJSON       string
 	)
-	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &tablesJSON)
+	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &quiesceRolesJSON, &m.PublicHadConnect, &m.QuiesceApplied, &connLimitsJSON, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &tablesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scan migration: %w", err)
 	}
@@ -519,7 +536,45 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 			return nil, fmt.Errorf("unmarshal tables: %w", err)
 		}
 	}
+	if connLimitsJSON != "" && connLimitsJSON != "{}" {
+		if err := json.Unmarshal([]byte(connLimitsJSON), &m.QuiesceRoleConnLimits); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_role_conn_limits: %w", err)
+		}
+	}
+	if quiesceRolesJSON != "" {
+		if err := json.Unmarshal([]byte(quiesceRolesJSON), &m.QuiesceRoles); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_roles: %w", err)
+		}
+	}
 	return &m, nil
+}
+
+// marshalQuiesceRoles encodes the quiesce-role list as the JSON array text stored
+// in multigres.migration.quiesce_roles. A nil/empty list encodes as "[]" (the
+// column default), so an unset option round-trips cleanly.
+func marshalQuiesceRoles(roles []string) (string, error) {
+	if len(roles) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(roles)
+	if err != nil {
+		return "", fmt.Errorf("marshal quiesce_roles: %w", err)
+	}
+	return string(b), nil
+}
+
+// marshalQuiesceRoleConnLimits encodes the quiesce-role connection-limit map as
+// the JSON object text stored in multigres.migration.quiesce_role_conn_limits.
+// A nil/empty map encodes as "{}" (the column default).
+func marshalQuiesceRoleConnLimits(limits map[string]int32) (string, error) {
+	if len(limits) == 0 {
+		return "{}", nil
+	}
+	b, err := json.Marshal(limits)
+	if err != nil {
+		return "", fmt.Errorf("marshal quiesce_role_conn_limits: %w", err)
+	}
+	return string(b), nil
 }
 
 // nullableString maps an empty string to a SQL NULL — used for migration.name,

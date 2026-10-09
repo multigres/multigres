@@ -186,6 +186,47 @@ type Migration struct {
 	Tables         []string
 	SequenceMargin int64
 
+	// QuiesceRoles is the optional set of application role names whose CONNECT
+	// privilege on the source is revoked at the ACTIVATE cutover (and restored on a
+	// deactivate rollback or teardown), so they cannot reconnect and write once the
+	// source becomes a subscriber. Empty ⇒ the hard quiesce still freezes and
+	// terminates existing client backends, but does not fence reconnects by role.
+	// Immutable after create; validated at create time (each role must exist and
+	// none may be the DSN's own role). Persisted as a JSON array on the row.
+	QuiesceRoles []string
+
+	// PublicHadConnect records whether the PUBLIC pseudo-role held CONNECT on the
+	// source database immediately before the ACTIVATE cutover's hard quiesce
+	// revoked it (queried via source.PublicHasConnect, set the moment
+	// RevokeConnect runs — unconditionally, regardless of QuiesceRoles, since
+	// RevokeConnect always revokes PUBLIC). GrantConnect, at deactivate rollback
+	// or teardown, reads this back so it only restores PUBLIC's CONNECT when
+	// PUBLIC genuinely had it — never when an operator had already locked PUBLIC
+	// out as a hardening measure. Defaults to true (Postgres's own default ACL
+	// state for a fresh database) for a migration that never reaches a hard
+	// quiesce.
+	PublicHadConnect bool
+
+	// QuiesceApplied records whether this migration's ACTIVATE cutover actually
+	// ran a hard quiesce (set the moment drainCurrent captures PublicHadConnect,
+	// before RevokeConnect runs). QuiesceRoleConnLimits alone cannot prove a
+	// revoke happened — it stays empty whenever QuiesceRoles is empty, even
+	// though RevokeConnect still revokes PUBLIC's CONNECT unconditionally — so
+	// teardown and a partially-failed-cutover's forced drop need this separate
+	// flag to know whether GrantConnect must run to restore CONNECT.
+	QuiesceApplied bool
+
+	// QuiesceRoleConnLimits records each quiesce role's pg_roles.rolconnlimit
+	// (-1 means no limit) immediately before the ACTIVATE cutover's hard
+	// quiesce caps it to 0 (source.RevokeConnect), so GrantConnect's later
+	// restore (rollback or teardown) sets each role back to its own original
+	// limit rather than assuming -1 — an operator-set custom limit must not be
+	// silently replaced. Capping CONNECTION LIMIT (not just REVOKE CONNECT) is
+	// what fences a role regardless of whether it derives CONNECT from a
+	// personal grant, PUBLIC, or an inherited ancestor group-role grant: see
+	// source.SetConnLimits. Keyed by role name; empty when QuiesceRoles is.
+	QuiesceRoleConnLimits map[string]int32
+
 	// CopyData is the initial-copy choice recorded at create time: true (the
 	// default) runs the stock tablesync initial COPY at subscription setup; false
 	// subscribes without a copy (target seeded out-of-band).
@@ -251,6 +292,10 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	copy_data BOOLEAN NOT NULL DEFAULT true,
 	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
 	direction TEXT NOT NULL DEFAULT 'IMPORT',
+	quiesce_roles TEXT NOT NULL DEFAULT '[]',
+	public_had_connect BOOLEAN NOT NULL DEFAULT true,
+	quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+	quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
 	last_error TEXT NOT NULL DEFAULT '',
 	reverse_link_error TEXT NOT NULL DEFAULT '',
 	streaming_since TIMESTAMPTZ NULL
