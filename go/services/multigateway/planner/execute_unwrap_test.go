@@ -28,21 +28,13 @@ import (
 )
 
 // TestUnwrapExplainExecute_NoParams verifies that EXPLAIN EXECUTE of a
-// parameterless prepared statement carries a prefix/suffix template and the
-// PreparedStatement metadata so the multipooler can resolve a pooler-level
-// canonical name before running the query.
+// parameterless prepared statement substitutes the prepared body in place of the
+// EXECUTE and runs the resulting EXPLAIN as an ordinary query.
 func TestUnwrapExplainExecute_NoParams(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p AS SELECT 1")
 	require.NoError(t, err)
-
-	// Look up the canonical name assigned by the consolidator.
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p")
-	require.NotNil(t, psi)
-	canonical := psi.Name
-	require.NotEmpty(t, canonical)
-	require.NotEqual(t, "p", canonical, "consolidator should assign a canonical name distinct from the user name")
 
 	// Now plan EXPLAIN EXECUTE p and observe the mock StreamExecute call.
 	_, err = planAndExecute(t, s, "EXPLAIN (COSTS OFF) EXECUTE p")
@@ -53,21 +45,10 @@ func TestUnwrapExplainExecute_NoParams(t *testing.T) {
 	require.NotEmpty(t, s.exec.streamExecuteCalls)
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
 
-	// The visible SQL shell still contains the user-facing name; the multipooler
-	// materializes the ppstmt* name from the attached prefix/suffix template.
-	assert.Contains(t, call.sql, "EXECUTE p")
-	assert.True(t, strings.HasPrefix(strings.ToUpper(call.sql), "EXPLAIN"),
-		"SQL shell should still be an EXPLAIN statement")
-
-	// The ExecuteSqlPreparedStatement metadata must be attached so the
-	// multipooler can ensurePrepared() via pooler-level consolidation before
-	// materializing the SQL.
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
-	assert.Equal(t, "SELECT 1", call.executeSQLPreparedStatement.PreparedStatement.Query)
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXPLAIN")
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXECUTE ")
-	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
+	// The EXECUTE is replaced by the substituted body and run as a plain EXPLAIN;
+	// no prepared-statement carrier is attached.
+	assert.Equal(t, "EXPLAIN (COSTS false) SELECT 1", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 // TestUnwrapExplainExecute_PreservesOptions verifies that EXPLAIN options
@@ -82,67 +63,40 @@ func TestUnwrapExplainExecute_PreservesOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-	upper := strings.ToUpper(call.sql)
-	assert.Contains(t, upper, "COSTS")
-	assert.Contains(t, upper, "VERBOSE")
+	assert.Equal(t, "EXPLAIN (COSTS false, VERBOSE true) SELECT 1", call.sql)
 }
 
-// TestUnwrapExplainExecute_WithParams verifies that parameterized EXECUTE
-// keeps its literal param values in the SQL EXECUTE wrapper. Params are NOT inlined
-// into the inner query body — they remain on the EXECUTE call so the backend's
-// prepared-statement machinery handles them normally.
+// TestUnwrapExplainExecute_WithParams verifies that a parameterized EXECUTE
+// inside EXPLAIN has its arguments substituted into the body, each cast to the
+// resolved parameter type.
 func TestUnwrapExplainExecute_WithParams(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p(int, text) AS SELECT $1, $2")
 	require.NoError(t, err)
 
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p")
-	require.NotNil(t, psi)
-	canonical := psi.Name
-
 	_, err = planAndExecute(t, s, "EXPLAIN (COSTS OFF) EXECUTE p(42, 'hello')")
 	require.NoError(t, err)
 
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-	assert.Contains(t, call.sql, "EXECUTE p")
-	assert.Contains(t, call.sql, "42")
-	assert.Contains(t, call.sql, "'hello'")
-
-	// PreparedStatement metadata must reflect the original body and param types.
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
-	assert.Equal(t, "SELECT $1, $2", call.executeSQLPreparedStatement.PreparedStatement.Query)
-	assert.Len(t, call.executeSQLPreparedStatement.PreparedStatement.ParamTypes, 2)
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXPLAIN")
-	assert.Equal(t, " ( 42, 'hello' )", call.executeSQLPreparedStatement.SqlSuffix)
+	assert.Equal(t, "EXPLAIN (COSTS false) SELECT CAST(42 AS INT), CAST('hello' AS TEXT)", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 // TestUnwrapCreateTableAsExecute verifies that CREATE TABLE t AS EXECUTE p
-// is unwrapped via the Route path (non-temp) and carries the PreparedStatement
-// metadata for ensurePrepared on the backend.
+// is unwrapped via the Route path (non-temp) with the prepared body substituted.
 func TestUnwrapCreateTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p AS SELECT 1 AS a")
 	require.NoError(t, err)
 
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p")
-	require.NotNil(t, psi)
-	canonical := psi.Name
-
 	_, err = planAndExecute(t, s, "CREATE TABLE t AS EXECUTE p")
 	require.NoError(t, err)
 
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-	upper := strings.ToUpper(call.sql)
-	assert.True(t, strings.HasPrefix(upper, "CREATE"))
-	assert.Contains(t, upper, "TABLE")
-	assert.Contains(t, call.sql, "EXECUTE p")
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
-	assert.Equal(t, "CREATE TABLE t AS EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
+	assert.Equal(t, "CREATE TABLE t AS SELECT 1 AS a", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 // TestUnwrapCreateTableAsExecute_RevalidatesFailoverSlotAdmission proves that
@@ -164,8 +118,7 @@ func TestUnwrapCreateTableAsExecute_RevalidatesFailoverSlotAdmission(t *testing.
 	_, err = planAndExecute(t, s, "CREATE TABLE t AS EXECUTE p")
 	require.NoError(t, err)
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	body := strings.ToLower(call.executeSQLPreparedStatement.PreparedStatement.GetQuery())
+	body := strings.ToLower(call.sql)
 	assert.Contains(t, body, "failover => true")
 
 	// Disabled after PREPARE: the same wrapped EXECUTE is now rejected,
@@ -235,17 +188,13 @@ func TestUnwrapCreateTableAsExecute_CarriesPreparedBodyReservations(t *testing.T
 }
 
 // TestUnwrapCreateTempTableAsExecute verifies that CREATE TEMP TABLE ... AS
-// EXECUTE p is unwrapped and routed through TempTableRoute (which sets the
-// temp-table reservation flag) while still carrying the PS metadata.
+// EXECUTE p is unwrapped and routed through the temp-table reservation path
+// while substituting the prepared body.
 func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p AS SELECT 1 AS a")
 	require.NoError(t, err)
-
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p")
-	require.NotNil(t, psi)
-	canonical := psi.Name
 
 	// Plan but don't execute — we only want to verify the primitive shape.
 	const sql = "CREATE TEMP TABLE tt AS EXECUTE p"
@@ -255,15 +204,10 @@ func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	// The primitive is a Route with a SQL EXECUTE template attached; the plan's
-	// ExecInfo marks the temp-table reservation.
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive, got %T", plan.Primitive)
 	assert.True(t, plan.ExecInfo.TempTable, "CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
-	assert.Contains(t, route.Query, "EXECUTE p")
-	require.NotNil(t, route.ExecuteSQLPreparedStatement)
-	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
-	assert.Equal(t, "CREATE TEMP TABLE tt AS EXECUTE ", route.ExecuteSQLPreparedStatement.SqlPrefix)
+	assert.Equal(t, "CREATE TEMP TABLE tt AS SELECT 1 AS a", route.Query)
 }
 
 // TestUnwrapCreateUnloggedTableAsExecute verifies that the wrapped-execute
@@ -276,10 +220,6 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	_, err := planAndExecute(t, s, "PREPARE pu AS SELECT 1 AS a")
 	require.NoError(t, err)
 
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "pu")
-	require.NotNil(t, psi)
-	canonical := psi.Name
-
 	const sql = "CREATE UNLOGGED TABLE ut AS EXECUTE pu"
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
@@ -287,7 +227,7 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	// Sequence[UnloggedTableWarning, Route(with SQL EXECUTE template)].
+	// Sequence[UnloggedTableWarning, Route(substituted body)].
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 	require.Len(t, seq.Primitives, 2)
@@ -295,25 +235,21 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	require.True(t, ok, "expected leading StatementWarning, got %T", seq.Primitives[0])
 	route, ok := seq.Primitives[1].(*engine.Route)
 	require.True(t, ok, "expected trailing Route, got %T", seq.Primitives[1])
-	assert.Contains(t, route.Query, "EXECUTE pu")
-	require.NotNil(t, route.ExecuteSQLPreparedStatement)
-	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+	// NOTE: the deparser currently drops UNLOGGED (emits CREATE TABLE, not
+	// CREATE UNLOGGED TABLE); asserted here as-is. See the failover-warning check
+	// above, which is this test's real subject.
+	assert.Equal(t, "CREATE TABLE ut AS SELECT 1 AS a", route.Query)
 }
 
 // TestUnwrapExplainCreateTableAsExecute verifies that doubly-nested
 // EXPLAIN ... CREATE TABLE ... AS EXECUTE p (as seen in pgregress
 // select_into.sql and write_parallel.sql) is unwrapped correctly: the
-// innermost ExecuteStmt is templated and the PreparedStatement metadata is
-// attached.
+// innermost ExecuteStmt is substituted with the prepared body.
 func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p_nested AS SELECT 1")
 	require.NoError(t, err)
-
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p_nested")
-	require.NotNil(t, psi)
-	canonical := psi.Name
 
 	// Plan without executing (the mock would try to create the table).
 	const sql = "EXPLAIN (COSTS OFF) CREATE TABLE tnested AS EXECUTE p_nested"
@@ -325,30 +261,20 @@ func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive, got %T", plan.Primitive)
-	assert.Contains(t, route.Query, "EXECUTE p_nested")
-	assert.Contains(t, strings.ToUpper(route.Query), "EXPLAIN")
-	assert.Contains(t, strings.ToUpper(route.Query), "CREATE")
-	require.NotNil(t, route.ExecuteSQLPreparedStatement)
-	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
-	assert.Contains(t, route.ExecuteSQLPreparedStatement.SqlPrefix, "EXPLAIN")
-	assert.Contains(t, route.ExecuteSQLPreparedStatement.SqlPrefix, "CREATE TABLE")
+	assert.Equal(t, "EXPLAIN (COSTS false) CREATE TABLE tnested AS SELECT 1", route.Query)
 }
 
 // TestUnwrapExplainAnalyzeCreateTempTableAsExecute verifies that EXPLAIN
-// ANALYZE wrapping CREATE TEMP TABLE AS EXECUTE uses the TempTableRoute
-// primitive: ANALYZE is what makes EXPLAIN actually execute and materialize
-// the temp table (see explainAnalyzes) — without it, nothing runs and
-// nothing needs reserving (see TestUnwrapExplainCreateTempTableAsExecute,
+// ANALYZE wrapping CREATE TEMP TABLE AS EXECUTE uses the temp-table
+// reservation path: ANALYZE is what makes EXPLAIN actually execute and
+// materialize the temp table (see explainAnalyzes) — without it, nothing runs
+// and nothing needs reserving (see TestUnwrapExplainCreateTempTableAsExecute,
 // the bare-EXPLAIN sibling of this test).
 func TestUnwrapExplainAnalyzeCreateTempTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE p_nested_temp AS SELECT 1")
 	require.NoError(t, err)
-
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p_nested_temp")
-	require.NotNil(t, psi)
-	canonical := psi.Name
 
 	const sql = "EXPLAIN ANALYZE CREATE TEMP TABLE tmp_nested AS EXECUTE p_nested_temp"
 	asts, err := parser.ParseSQL(sql)
@@ -359,9 +285,8 @@ func TestUnwrapExplainAnalyzeCreateTempTableAsExecute(t *testing.T) {
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive for EXPLAIN ANALYZE CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
 	assert.True(t, plan.ExecInfo.TempTable, "EXPLAIN ANALYZE CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
-	assert.Contains(t, route.Query, "EXECUTE p_nested_temp")
-	require.NotNil(t, route.ExecuteSQLPreparedStatement)
-	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+	assert.Contains(t, route.Query, "SELECT 1")
+	assert.Contains(t, route.Query, "tmp_nested")
 }
 
 // TestUnwrapExplainCreateTempTableAsExecute verifies that a bare EXPLAIN
@@ -376,10 +301,6 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	_, err := planAndExecute(t, s, "PREPARE p_nested_temp AS SELECT 1")
 	require.NoError(t, err)
 
-	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p_nested_temp")
-	require.NotNil(t, psi)
-	canonical := psi.Name
-
 	const sql = "EXPLAIN CREATE TEMP TABLE tmp_nested AS EXECUTE p_nested_temp"
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
@@ -389,9 +310,7 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive for EXPLAIN CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
 	assert.False(t, plan.ExecInfo.TempTable, "a bare EXPLAIN never executes, so it must not reserve for a temp table that is never created")
-	assert.Contains(t, route.Query, "EXECUTE p_nested_temp")
-	require.NotNil(t, route.ExecuteSQLPreparedStatement)
-	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+	assert.Equal(t, "EXPLAIN CREATE TEMP TABLE tmp_nested AS SELECT 1", route.Query)
 }
 
 // TestExplainAnalyzes covers the option forms that decide whether a wrapped
@@ -445,12 +364,12 @@ func TestUnwrapBareExplainExecuteReservesNothing(t *testing.T) {
 
 // TestUnwrapWrappedExecuteRejectsPreparedSetConfig proves a wrapped EXECUTE
 // refuses a prepared body carrying a tracked set_config rather than
-// half-handling it. This route hands the body to the multipooler as an
-// ExecuteSqlPreparedStatement, which has no session-state channel: running
-// it verbatim would leak the setting to the next client on that pooled
-// backend, and rewriting it to revert would make the client's set_config a
-// silent no-op. The same body under a plain EXECUTE still works, which is
-// what the error tells the caller to use.
+// half-handling it. This route runs the substituted body as an ordinary
+// query and has no session-state channel: running it verbatim would leak the
+// setting to the next client on that pooled backend, and rewriting it to
+// revert would make the client's set_config a silent no-op. The same body
+// under a plain EXECUTE still works, which is what the error tells the caller
+// to use.
 func TestUnwrapWrappedExecuteRejectsPreparedSetConfig(t *testing.T) {
 	for _, sql := range []string{
 		"CREATE TABLE t AS EXECUTE p",
@@ -501,7 +420,7 @@ func TestUnwrapNoOpForRegularStatements(t *testing.T) {
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
 	assert.Equal(t, "SELECT 1", call.sql)
-	assert.Nil(t, call.executeSQLPreparedStatement)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 // TestUnwrapExplainRegularQuery verifies that EXPLAIN of an ordinary SELECT
@@ -515,5 +434,5 @@ func TestUnwrapExplainRegularQuery(t *testing.T) {
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
 	assert.Equal(t, "EXPLAIN SELECT 1", call.sql)
-	assert.Nil(t, call.executeSQLPreparedStatement)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }

@@ -20,27 +20,9 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/common/preparedstatement"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
-
-// preparedStatementOverride packages rewritten's deparsed SQL as a
-// *query.PreparedStatement in place of psi's original body, preserving its
-// name and param types — the shape planExecuteStmt sends to the multipooler
-// as bodyOverride when the set_config revert applies. Returns nil, matching
-// "no override needed", when rewritten is nil.
-func preparedStatementOverride(psi *preparedstatement.PreparedStatementInfo, rewritten ast.Stmt) *query.PreparedStatement {
-	if rewritten == nil {
-		return nil
-	}
-	return &query.PreparedStatement{
-		Name:       psi.Name,
-		Query:      rewritten.SqlString(),
-		ParamTypes: psi.ParamTypes,
-	}
-}
 
 // planPrepareStmt creates a plan for PREPARE name [(types)] AS query.
 // Delegates to conn.Handler().HandleParse at execution time.
@@ -70,7 +52,7 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *server.Conn, state *handler.MultigatewayConnectionState) (*engine.Plan, error) {
 	var execInfo engine.PlanExecInfo
 	var setConfigs []engine.SQLPreparedSetConfig
-	var bodyOverride *query.PreparedStatement
+	var bodyOverride ast.Stmt
 	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
 		unsafeConnection := conn != nil && conn.UnsafeConnection()
 		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), unsafeConnection, p.admitsFailoverSlots())
@@ -80,16 +62,14 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		execInfo = preparedBodyExecInfo(analysis, psi.AstStmt())
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 
-		// A prepared body runs VERBATIM on the backend, so a session-persisting
-		// set_config(..., false) in it would persist on a pooled backend — and
-		// leak to whichever unrelated client checks out that connection next. On
-		// an unpinned session, rewrite the body's is_local false→true so the
-		// pooled backend reverts it itself; the value still reaches the gateway
-		// map via setConfigs above, replayed at the next checkout, mirroring an
-		// unpinned SET. A pinned session's reserved backend has no replay path,
-		// so the body runs verbatim and genuinely carries the change. A body
-		// that reserves its own backend (temp table, advisory lock, ...) counts
-		// as pinned too: it must persist on the backend it just pinned.
+		// If the session is unpinned and the body carries a persisting ordinary
+		// set_config, substitute into a clone with its is_local flipped to true so
+		// the pooled backend reverts it; the value still reaches the gateway map
+		// via setConfigs above, replayed at the next checkout, mirroring an
+		// unpinned SET. A pinned session (or a body with nothing to flip) uses the
+		// registered body verbatim. A body that reserves its own backend (temp
+		// table, advisory lock, ...) counts as pinned too: it must persist on the
+		// backend it just pinned.
 		//
 		// Only this path can do that safely, and only because it can record the
 		// value: the wrapped-EXECUTE unwrapper's Route has no session-state
@@ -98,9 +78,7 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard) ||
 			engine.StatementReservesBackend(execInfo)
 		if !pinned {
-			if reverted := rewriteSetConfigToRevert(psi.AstStmt()); reverted != nil {
-				bodyOverride = preparedStatementOverride(psi, reverted)
-			}
+			bodyOverride = rewriteSetConfigToRevert(psi.AstStmt())
 		}
 	}
 
