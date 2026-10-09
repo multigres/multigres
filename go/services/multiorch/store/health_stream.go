@@ -22,14 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -395,41 +393,22 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerHealth *Pooler) (c
 // This mirrors the field writes performed by the old pollPooler function on success.
 func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler, snapshot *multipoolermanagerdatapb.ManagerHealthSnapshot) {
 	logger := hs.factory.logger
-	if snapshot.Status == nil || snapshot.Status.Status == nil {
+	if snapshot.GetStatus().GetStatus() == nil {
 		logger.WarnContext(ctx, "received snapshot with nil status, skipping",
 			"pooler_id", hs.poolerID)
 		return
 	}
 
-	status := snapshot.Status.Status
 	now := timestamppb.Now()
 
 	poolerIDStr := topoclient.ComponentIDString(poolerHealth.Health().Multipooler.Id)
 	update := func(existing *Pooler) *Pooler {
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.LastCheckSuccessful = now
-			h.LastSeen = now
-			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
-			if snapshot.Status.AvailabilityStatus != nil {
-				h.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
-			} else {
-				h.AvailabilityStatus = nil
-			}
-			if snapshot.Status.ConsensusStatus != nil {
-				h.ConsensusStatus = proto.Clone(snapshot.Status.ConsensusStatus).(*clustermetadatapb.ConsensusStatus)
-			} else {
-				h.ConsensusStatus = nil
-			}
-			if status.PostgresReady {
-				h.LastPostgresReadyTime = now
-			}
-			// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
-			// left at its previous value so callers can reason about "last known good" time.
+			// snapshot.CapturedAt (pooler clock) is passed through as the
+			// capture time so consumers can reason about observation age
+			// without conflating it with LastSeen (orch clock, receipt time).
+			applyStatusFields(h, snapshot.Status, now, snapshot.CapturedAt)
 			h.StreamSnapshotsReceived++
-			// Record the pooler's own capture time (pooler clock) alongside the
-			// orchestrator-stamped LastSeen (orch clock) so consumers can reason about
-			// observation age without conflating the two clocks.
-			h.PoolerCapturedAt = snapshot.CapturedAt
 		})
 		return existing
 	}
@@ -438,9 +417,9 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 
 	logger.DebugContext(ctx, "health snapshot applied",
 		"pooler_id", hs.poolerID,
-		"pooler_type", status.PoolerType,
-		"postgres_ready", status.PostgresReady,
-		"postgres_running", status.PostgresRunning,
+		"pooler_type", snapshot.Status.Status.PoolerType,
+		"postgres_ready", snapshot.Status.Status.PostgresReady,
+		"postgres_running", snapshot.Status.Status.PostgresRunning,
 		"cohort_eligibility", snapshot.Status.GetAvailabilityStatus().GetCohortEligibilityStatus().GetSignal().String(),
 		"leadership_signal", snapshot.Status.GetAvailabilityStatus().GetLeadershipStatus().GetSignal().String(),
 	)

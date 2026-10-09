@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -125,6 +126,50 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 	}
 	fn(next)
 	p.state.Store(next)
+}
+
+// applyStatusResponse updates p's cached health from a fresh StatusResponse, from
+// a live RPC. It returns false, leaving p unmodified, if the response has no Status
+// payload: an empty answer must not clobber good cached data. A StatusResponse has no
+// pooler-stamped capture time, so PoolerCapturedAt (a pooler-clock field) is cleared
+// as unknown, not stamped with the orchestrator's clock.
+//
+// Known limitation: nothing orders this against an older streamed snapshot that was
+// queued before the RPC answered; it can briefly overwrite the fresher state.
+func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp) bool {
+	if status.GetStatus() == nil {
+		return false
+	}
+	p.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		applyStatusFields(h, status, now, nil)
+	})
+	return true
+}
+
+// applyStatusFields writes a StatusResponse's fields into h, including
+// PoolerCapturedAt, so it never describes a staler observation than the rest.
+// status.GetStatus() must be non-nil. capturedAt is the pooler-clock capture time: a
+// streamed snapshot has one, a live RPC passes nil (unknown).
+func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipoolermanagerdatapb.StatusResponse, now, capturedAt *timestamppb.Timestamp) {
+	h.LastCheckSuccessful = now
+	h.LastSeen = now
+	h.Status = proto.Clone(status.GetStatus()).(*multipoolermanagerdatapb.Status)
+	if av := status.GetAvailabilityStatus(); av != nil {
+		h.AvailabilityStatus = proto.Clone(av).(*clustermetadatapb.AvailabilityStatus)
+	} else {
+		h.AvailabilityStatus = nil
+	}
+	if cs := status.GetConsensusStatus(); cs != nil {
+		h.ConsensusStatus = proto.Clone(cs).(*clustermetadatapb.ConsensusStatus)
+	} else {
+		h.ConsensusStatus = nil
+	}
+	if status.GetStatus().GetPostgresReady() {
+		h.LastPostgresReadyTime = now
+	}
+	// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
+	// left at its previous value so callers can reason about "last known good" time.
+	h.PoolerCapturedAt = capturedAt
 }
 
 // ObservationAge reports how long ago — on the orchestrator's clock — this

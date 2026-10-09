@@ -345,6 +345,24 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
+	// Verify a health-based guess against live data before re-running the analyzer:
+	// refresh the shard's reachable poolers via live RPCs, within the time budget
+	// the action chose, unless the analyzer says a refresh cannot change the verdict.
+	// This avoids acting on a wrong health guess. It is not needed to notice another
+	// orchestrator acting: a recruit based on an out-of-date term is rejected by the
+	// pooler's term check.
+	if timeout := problem.RecoveryAction.Metadata().RefreshBeforeRecheckTimeout; timeout > 0 && !problem.SkipPreRecheckRefresh {
+		shard := store.FindShardMembers(re.poolerCache, problem.ShardKey)
+		refreshStart := time.Now()
+		refresh := store.RefreshRecentInParallel(ctx, re.rpcClient, shard.Poolers, timeout, re.logger)
+		span.SetAttributes(
+			attribute.Int64("pre_recheck_refresh.duration_ms", time.Since(refreshStart).Milliseconds()),
+			attribute.Int("pre_recheck_refresh.refreshed", refresh.Refreshed),
+			attribute.Int("pre_recheck_refresh.failed", refresh.Failed),
+			attribute.Int("pre_recheck_refresh.skipped", refresh.Skipped),
+		)
+	}
+
 	// Force re-poll to validate the problem still exists
 	rechecked, err := re.recheckProblem(ctx, problem)
 	if err != nil {

@@ -337,7 +337,18 @@ func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderI
 		return a.blindOrStuck(sa, leaderID, cohort,
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
 	}
-	return a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
+	problems := a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
+	problems[0].SkipPreRecheckRefresh = causeIsConclusive(cause)
+	return problems
+}
+
+// causeIsConclusive reports whether a failover cause cannot be refuted by fresher
+// health. A rule that names no leader is a durable consensus fact, and a
+// resignation is the leader's own stated intent (or a durable shutdown tombstone),
+// so neither depends on a possibly stale view. Every other cause is a guess from
+// observed health, and the default for anything new is to verify it.
+func causeIsConclusive(cause types.ProblemCode) bool {
+	return cause == types.ProblemLeaderUnspecified || cause == types.ProblemLeaderResigned
 }
 
 // emitInconclusive handles a leader we can neither confirm healthy nor convict. It
