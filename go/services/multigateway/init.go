@@ -330,7 +330,7 @@ func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 }
 
 func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
-	fs.Bool("query-stream-reuse", mg.queryStreamReuse.Default(), "Reuse simple-query RPC streams; false restores per-query RPCs (requires restart)")
+	fs.Bool("query-stream-reuse", mg.queryStreamReuse.Default(), "Reuse SQL, portal and query-service unary RPC streams; false restores dedicated RPCs (requires restart)")
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
