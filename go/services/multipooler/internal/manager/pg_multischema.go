@@ -53,14 +53,6 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	createFuncs := []func(context.Context) error{
 		pm.createSchema,
 		pm.createHeartbeatTable,
-		// Position isn't load-bearing: backend_vpid has no FK or privilege
-		// dependency on anything else created here, only on createSchema
-		// having already run. It's kept next to createHeartbeatTable (its
-		// original position before ensureSidecarSchemas existed) so
-		// TestCreateSidecarSchema's failure-injection subtests, which replay
-		// the exact DDL sequence up to the injected failure, don't need to
-		// change.
-		pm.ensureSidecarSchemas,
 		pm.createPgBackRestReposTable,
 		func(ctx context.Context) error {
 			return pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID)
@@ -72,6 +64,15 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		},
 		pm.createTablegroupTable,
 		pm.createShard,
+		// ensureSidecarSchemas goes last, deliberately: it also runs alone
+		// (without the rest of createSidecarSchema) from openLocked's
+		// version-skew catch-up on an already-bootstrapped shard, so nothing
+		// created here may ever depend on a table it creates. Keeping it last
+		// turns a violation of that into an ordering failure here - a step
+		// above it trying to depend on backend_vpid (or a future sidecar
+		// table added here) would fail since ensureSidecarSchemas hasn't run
+		// yet - rather than a convention someone has to remember.
+		pm.ensureSidecarSchemas,
 	}
 
 	for _, createFunc := range createFuncs {
