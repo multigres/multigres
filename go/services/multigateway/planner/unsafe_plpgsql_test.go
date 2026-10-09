@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -505,4 +506,121 @@ func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
 	// A body that is not a valid PL/pgSQL block (missing BEGIN) fails to parse.
 	_, err := analyzeStatement(parseOne(t, "DO $$ this is not plpgsql $$"), false, false)
 	require.ErrorContains(t, err, "could not be parsed for safety analysis")
+}
+
+// TestAnalyzeDynamicExecute_CastedConstantS checks casts on a constant %s
+// argument. PostgreSQL substitutes the cast's output, so char(n), varchar(n),
+// name and the like truncate or pad it: `' AS a --'::char(5)` is analyzed with
+// the comment but runs as `SELECT 1 AS a, set_config(...)`. Only text and an
+// unbounded varchar may be looked through.
+func TestAnalyzeDynamicExecute_CastedConstantS(t *testing.T) {
+	const exploit = `' AS a --'`
+	wrap := func(arg string) string {
+		return `DO $$ BEGIN EXECUTE format('SELECT 1 %s, set_config(''work_mem'',''1GB'',false)', ` + arg + `); END $$`
+	}
+
+	reject := map[string]string{
+		"char(n)":                   wrap(exploit + `::char(5)`),
+		"varchar(n)":                wrap(exploit + `::varchar(5)`),
+		"character varying(n)":      wrap(exploit + `::character varying(5)`),
+		"character(n)":              wrap(exploit + `::character(5)`),
+		"name":                      wrap(exploit + `::name`),
+		"bare char (char(1))":       wrap(exploit + `::char`),
+		"quoted char":               wrap(exploit + `::"char"`),
+		"bpchar":                    wrap(exploit + `::bpchar`),
+		"text array":                wrap(exploit + `::text[]`),
+		"qualified user type":       wrap(exploit + `::myschema.text`),
+		"cast inside CASE branches": wrap(`CASE WHEN true THEN ` + exploit + `::char(5) ELSE ' AS b --'::char(5) END`),
+		"nested casts":              wrap(exploit + `::text::char(5)`),
+		"blocklisted call, char(n)": `DO $$ BEGIN EXECUTE format('SELECT 1 %s, dblink_exec(''x'',''y'')', ' AS a --'::char(5)); END $$`,
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.Error(t, err)
+		})
+	}
+
+	accept := map[string]string{
+		"text":                      `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::text); END $$`,
+		"pg_catalog.text":           `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::pg_catalog.text); END $$`,
+		"varchar without length":    `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::varchar); END $$`,
+		"character varying, no len": `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', 'asc'::character varying); END $$`,
+		"text in CASE branches":     `DO $$ BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', CASE WHEN true THEN 'asc'::text ELSE 'desc'::text END); END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyzeDynamicExecute_TypedVariableS checks that a %s argument fed by a
+// variable respects the variable's declared type. A `name` variable silently
+// truncates what is assigned to it to 63 bytes, so the analyzer can check the full
+// value (and the empty one) while PostgreSQL runs the truncated one: here, the
+// truncated value makes `aaaa$q$` one identifier and the set_config call runs.
+func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
+	hidden := "1 AS " + strings.Repeat("a", 58) + " --"
+	const format = `format('SELECT %s$q$, set_config(''work_mem'',''1GB'',false) AS b, 1 AS c$q$', d)`
+	declared := func(typ string) string {
+		return "DO $$ DECLARE d " + typ + " := '" + hidden + "'; BEGIN EXECUTE " + format + "; END $$"
+	}
+	assigned := func(typ string) string {
+		return "DO $$ DECLARE d " + typ + "; BEGIN d := '" + hidden + "'; EXECUTE " + format + "; END $$"
+	}
+
+	reject := map[string]string{
+		"name, declared":       declared("name"),
+		"name, assigned":       assigned("name"),
+		"char(n)":              assigned("char(3)"),
+		"bare char":            assigned("char"),
+		"varchar(n)":           declared("varchar(80)"),
+		"character varying(n)": assigned("character varying(80)"),
+		"quoted char":          assigned(`"char"`),
+		"bpchar":               assigned("bpchar"),
+		"text array":           assigned("text[]"),
+		"domain":               assigned("public.mydomain"),
+		"%TYPE":                assigned("tab.col%TYPE"),
+		"quoted text":          assigned(`"text"`),
+		"transitive from name": "DO $$ DECLARE d name; w text; BEGIN d := '" + hidden + "'; w := d; EXECUTE " + strings.Replace(format, ", d)", ", w)", 1) + "; END $$",
+		"shadowed by a name":   "DO $$ DECLARE d text; BEGIN DECLARE d name; BEGIN d := '" + hidden + "'; END; EXECUTE " + format + "; END $$",
+		// A record variable is never a text constant: PostgreSQL prints a composite
+		// value in its own format, so it is refused whatever it was set to.
+		"record, declared":         "DO $$ DECLARE d record := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"record, assigned":         "DO $$ DECLARE d record; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"%ROWTYPE, declared":       "DO $$ DECLARE d pg_namespace%ROWTYPE := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"%ROWTYPE, assigned":       "DO $$ DECLARE d pg_namespace%ROWTYPE; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+		"composite type, assigned": "DO $$ DECLARE d mycomposite; BEGIN d := '( x , \"a b\" )'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
+	}
+	for name, sql := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.Error(t, err)
+		})
+	}
+
+	// The same payloads with a type that keeps the text are only caught by the
+	// content of the statement, not by the type; the safe variants below must stay
+	// accepted.
+	accept := map[string]string{
+		"text":                    `DO $$ DECLARE d text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"TEXT":                    `DO $$ DECLARE d TEXT := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"varchar":                 `DO $$ DECLARE d varchar := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"character varying":       `DO $$ DECLARE d character varying := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"pg_catalog.text":         `DO $$ DECLARE d pg_catalog.text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text COLLATE":            `DO $$ DECLARE d text COLLATE "C" := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"CONSTANT text":           `DO $$ DECLARE d CONSTANT text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text NOT NULL":           `DO $$ DECLARE d text NOT NULL := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text, assigned":          `DO $$ DECLARE d text; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"name holding the stmt":   `DO $$ DECLARE v name := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
+		"varchar(n) holding stmt": `DO $$ DECLARE v varchar(100); BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
+	}
+	for name, sql := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
+			require.NoError(t, err)
+		})
+	}
 }
