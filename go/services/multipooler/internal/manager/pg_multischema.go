@@ -48,46 +48,71 @@ import (
 func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "creating multigres sidecar schema")
 
-	if err := pm.createSchema(ctx); err != nil {
-		return err
+	// Functions to create the schema and its tables. Each function is
+	// responsible for creating a specific part of the schema.
+	createFuncs := []func(context.Context) error{
+		pm.createSchema,
+		pm.createHeartbeatTable,
+		pm.createPgBackRestReposTable,
+		func(ctx context.Context) error {
+			return pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID)
+		},
+		func(ctx context.Context) error {
+			// Create multischema global tables for the default tablegroup
+			pm.logger.InfoContext(ctx, "creating multischema global tables for default tablegroup")
+			return pm.createTablegroup(ctx)
+		},
+		pm.createTablegroupTable,
+		pm.createShard,
+		// ensureSidecarSchemas goes last, deliberately: it also runs alone
+		// (without the rest of createSidecarSchema) from openLocked's
+		// version-skew catch-up on an already-bootstrapped shard, so nothing
+		// created here may ever depend on a table it creates. Keeping it last
+		// turns a violation of that into an ordering failure here - a step
+		// above it trying to depend on backend_vpid (or a future sidecar
+		// table added here) would fail since ensureSidecarSchemas hasn't run
+		// yet - rather than a convention someone has to remember.
+		pm.ensureSidecarSchemas,
 	}
 
-	if err := pm.createHeartbeatTable(ctx); err != nil {
-		return err
+	for _, createFunc := range createFuncs {
+		if err := createFunc(ctx); err != nil {
+			return err
+		}
 	}
 
-	// backend_vpid maps live backend pids to gateway virtual pids. Like the
-	// other sidecar tables it is created here, once, on the bootstrapping
-	// primary and before the first backup, so standbys inherit it via restore
-	// and post-failover primaries already have it.
+	pm.logger.InfoContext(ctx, "successfully created multigres sidecar schema")
+	return nil
+}
+
+// ensureSidecarSchemas idempotently (re-)creates the sidecar tables that a
+// shard bootstrapped by an older pooler version may be missing, because
+// createSidecarSchema only ever runs once, at genuine shard bootstrap. A shard
+// bootstrapped before a given table existed in the code never goes through that
+// path again, so it is never created — even after the pooler binary is upgraded
+// — unless something re-ensures it afterward.
+//
+// Called from two locations:
+//
+//   - createSidecarSchema, so a freshly bootstrapping primary already has every
+//     such table before the first backup.
+//
+//   - openLocked, so every process start and pause-resume cycle re-ensures these
+//     tables on an already-bootstrapped shard too, not just genuine bootstrap or
+//     promotion).
+//
+// Every table created here must use CREATE TABLE IF NOT EXISTS (or equivalent):
+// unlike createSidecarSchema's other steps, this one is expected to run
+// repeatedly against an already-initialized schema.
+//
+// Currently this is just backend_vpid; add future late-added sidecar tables
+// here as they arise.
+func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
+	// backend_vpid maps live backend pids to gateway virtual pids.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
 	}
 
-	if err := pm.createPgBackRestReposTable(ctx); err != nil {
-		return err
-	}
-
-	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
-		return err
-	}
-
-	// Create multischema global tables for the default tablegroup
-	pm.logger.InfoContext(ctx, "creating multischema global tables for default tablegroup")
-
-	if err := pm.createTablegroup(ctx); err != nil {
-		return err
-	}
-
-	if err := pm.createTablegroupTable(ctx); err != nil {
-		return err
-	}
-
-	if err := pm.createShard(ctx); err != nil {
-		return err
-	}
-
-	pm.logger.InfoContext(ctx, "successfully created multigres sidecar schema")
 	return nil
 }
 

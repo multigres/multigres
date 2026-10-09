@@ -106,6 +106,15 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
+	// Start -> Open probes postgresMode to decide whether to ensure
+	// backend_vpid exists (see MultipoolerManager.openLocked). Absorb that
+	// probe here, ahead of whatever pg_is_in_recovery patterns the caller
+	// already queued for its own test logic, so it doesn't eat into them.
+	// Reporting "in recovery" also means the probe never attempts the
+	// backend_vpid DDL, which callers don't expect to see either.
+	mockQueryService.PrependQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
 
