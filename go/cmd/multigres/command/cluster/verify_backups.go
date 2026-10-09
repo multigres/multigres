@@ -54,7 +54,7 @@ func AddVerifyBackupsCommand(clusterCmd *cobra.Command) {
 	}
 
 	cmd.Flags().Duration("timeout", vcmd.timeout.Default(), "Timeout for the verify operation")
-	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 
 	viperutil.BindFlags(cmd.Flags(), vcmd.timeout)
 
