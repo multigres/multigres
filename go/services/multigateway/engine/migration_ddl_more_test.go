@@ -406,11 +406,13 @@ func TestMigrationDDLHelpers_applyMigrationOptions(t *testing.T) {
 		ast.NewString("skip"), // non-DefElem skipped
 		defElem("skip_schema_copy", "true"),
 		defElem("sequence_margin", "9"),
+		defElem("quiesce_roles", "app, reporting"),
 	)
 	require.NoError(t, applyMigrationOptions(req, list))
 	assert.True(t, req.GetOptions().GetSkipCopyData(), "copy_data=false inverts to skip_copy_data=true")
 	assert.True(t, req.GetOptions().GetSkipSchemaCopy())
 	assert.Equal(t, int64(9), req.GetMigration().GetSequenceMargin())
+	assert.Equal(t, []string{"app", "reporting"}, req.GetQuiesceRoles())
 
 	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
 		ast.NewNodeList(defElem("sequence_margin", "x"))), "integer")
@@ -428,11 +430,13 @@ func TestMigrationDDLHelpers_applyMigrationOptions(t *testing.T) {
 		ast.NewNodeList(defElem("source_publication", "pub1"))), "unknown migration option")
 	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
 		ast.NewNodeList(defElem("publish_via_partition_root", "yes"))), "unknown migration option")
-	// quiesce_roles isn't recognized yet (the coordinator doesn't read it, and
-	// the exact shape this takes isn't settled); it's just another unknown
-	// option until the commit that wires it up gives it a case of its own.
-	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
-		ast.NewNodeList(defElem("quiesce_roles", "app, reporting"))), "unknown migration option")
+}
+
+func TestParseRoleList(t *testing.T) {
+	assert.Equal(t, []string{"app", "reporting"}, parseRoleList("app, reporting"))
+	assert.Equal(t, []string{"app"}, parseRoleList("app"))
+	assert.Nil(t, parseRoleList(""))
+	assert.Nil(t, parseRoleList("  ,  ,"), "blank entries between separators are dropped")
 }
 
 func TestMigrationDDLHelpers_applyDropWithOptions(t *testing.T) {
