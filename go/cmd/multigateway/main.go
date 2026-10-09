@@ -18,18 +18,96 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
-	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/services/multigateway"
-
 	"github.com/spf13/cobra"
+
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/services/multigateway"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
+
+// standaloneMultigateway owns the process-level resources (servenv, gRPC
+// server, topology store) for a multigateway running alone, as its own
+// process — the same shape cmd/minigres builds, just for one component
+// instead of two. The multigateway itself never constructs these; see
+// multigateway.NewMultigateway.
+type standaloneMultigateway struct {
+	reg        *viperutil.Registry
+	senv       *servenv.ServEnv
+	grpcServer *servenv.GrpcServer
+	topoConfig *topoclient.TopoConfig
+
+	mg *multigateway.Multigateway
+}
+
+func newStandaloneMultigateway() *standaloneMultigateway {
+	reg := viperutil.NewRegistry()
+	s := &standaloneMultigateway{
+		reg:        reg,
+		senv:       servenv.NewServEnv(reg),
+		grpcServer: servenv.NewGrpcServer(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
+	}
+	resources := servenv.ProcessResources{
+		ServEnv:    s.senv,
+		GrpcServer: s.grpcServer,
+	}
+	// The multigateway's settings share the process's registry, so a
+	// configuration file loaded by servenv reaches them.
+	s.mg = multigateway.NewMultigateway(reg, resources, "/")
+	return s
+}
+
+func (s *standaloneMultigateway) registerFlags(cmd *cobra.Command) {
+	fs := cmd.Flags()
+	s.senv.RegisterFlags(fs)
+	s.grpcServer.RegisterFlags(fs)
+	s.topoConfig.RegisterFlags(fs)
+	s.mg.RegisterFlags(fs)
+}
+
+// preRun runs the multigateway's own PreRun side effect (its config-reload
+// channel) before the shared servenv parses configuration.
+func (s *standaloneMultigateway) preRun(cmd *cobra.Command) error {
+	if err := s.mg.CobraPreRunE(cmd); err != nil {
+		return err
+	}
+	return s.senv.CobraPreRunE(cmd)
+}
+
+func (s *standaloneMultigateway) run(cmd *cobra.Command, ctx context.Context) error {
+	ts, err := s.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
+	defer ts.Close()
+
+	// service-id defaults to a random value when unset, same as cmd/minigres:
+	// generate one and write it back into the flag so ServiceIdentity (and
+	// everything downstream that reads mg.serviceID) sees the resolved value.
+	if s.mg.ServiceIdentity().ServiceInstanceID == "" {
+		if err := cmd.Flags().Set("service-id", servenv.GenerateRandomServiceID()); err != nil {
+			return fmt.Errorf("set service-id: %w", err)
+		}
+	}
+	if err := s.senv.Init(s.mg.ServiceIdentity()); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
+
+	if err := s.mg.Init(ctx, ts); err != nil {
+		return err
+	}
+	return s.mg.RunDefault()
+}
 
 // CreateMultigatewayCommand creates a cobra command with a Multigateway instance and registers its flags
 func CreateMultigatewayCommand() (*cobra.Command, *multigateway.Multigateway) {
-	mg := multigateway.NewMultigateway()
+	s := newStandaloneMultigateway()
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultigateway,
@@ -37,16 +115,15 @@ func CreateMultigatewayCommand() (*cobra.Command, *multigateway.Multigateway) {
 		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return mg.CobraPreRunE(cmd)
+			return s.preRun(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd.Context(), mg)
+			return s.run(cmd, cmd.Context())
 		},
 	}
+	s.registerFlags(cmd)
 
-	mg.RegisterFlags(cmd.Flags())
-
-	return cmd, mg
+	return cmd, s.mg
 }
 
 func main() {
@@ -56,11 +133,4 @@ func main() {
 		slog.Error(err.Error())
 		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
-}
-
-func run(ctx context.Context, mg *multigateway.Multigateway) error {
-	if err := mg.Init(ctx); err != nil {
-		return err
-	}
-	return mg.RunDefault()
 }

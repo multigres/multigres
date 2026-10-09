@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/tools/telemetry"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // TestPostgresUnrecoverableDefaults pins the shipped defaults for the
@@ -30,7 +32,11 @@ import (
 // out with --postgres-unrecoverable-timeout=0 (see the disabled-path coverage in
 // the manager package's TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled).
 func TestPostgresUnrecoverableDefaults(t *testing.T) {
-	mp := NewMultipooler(telemetry.NewTelemetry())
+	reg := viperutil.NewRegistry()
+	mp := NewMultipooler(telemetry.NewTelemetry(), reg, servenv.ProcessResources{
+		ServEnv:    servenv.NewServEnv(reg),
+		GrpcServer: servenv.NewGrpcServer(reg),
+	}, "/", false)
 
 	// A positive default timeout is what turns the classifier on.
 	assert.Equal(t, 5*time.Minute, mp.postgresUnrecoverableTimeout.Default(),

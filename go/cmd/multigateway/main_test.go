@@ -15,6 +15,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,3 +59,20 @@ func TestInit_TopoMissingRoot(t *testing.T) {
 // The multigateway/init.go creates the PostgreSQL listener after topo.Open() succeeds,
 // so we can't test "failed to create PostgreSQL listener" error without a running topo server.
 // That validation is tested indirectly through integration tests.
+
+// TestConfigFileReachesMultigatewaySettings verifies that a configuration file
+// sets the multigateway's own settings, not only the process ones: main loads
+// the file into the registry its servenv uses, so the multigateway must
+// configure its settings on that same registry.
+func TestConfigFileReachesMultigatewaySettings(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "multigateway.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("cell: cell-from-file\nservice-id: id-from-file\n"), 0o600))
+
+	cmd, mg := CreateMultigatewayCommand()
+	require.NoError(t, cmd.ParseFlags([]string{"--config-file", configFile}))
+	require.NoError(t, cmd.PreRunE(cmd, nil))
+
+	id := mg.ServiceIdentity()
+	assert.Equal(t, "cell-from-file", id.Cell)
+	assert.Equal(t, "id-from-file", id.ServiceInstanceID)
+}

@@ -23,7 +23,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -131,13 +130,14 @@ type Multipooler struct {
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
-	senv *servenv.ServEnv
-	// TopoConfig holds topology configuration
-	topoConfig *topoclient.TopoConfig
-	telemetry  *telemetry.Telemetry
+	senv      *servenv.ServEnv
+	telemetry *telemetry.Telemetry
 	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
+	// ts is set from Init's ts argument. Owned by whoever constructed this
+	// Multipooler (cmd/multipooler standalone, or cmd/minigres sharing it with
+	// a multigateway): they open it and close it, never Shutdown.
 	ts            topoclient.Store
 	poolerManager *manager.MultipoolerManager
 	serverStatus  Status
@@ -148,35 +148,32 @@ type Multipooler struct {
 	// value rather than the raw flag. Set once during Init.
 	resolvedSocketFilePath string
 
-	// singleProcessMode is set by WithSingleProcessMode: the multipooler runs
-	// in one process with the multigateway, and main performs the process-owner
-	// steps (servenv flags, config and Init, opening and closing the topology
-	// store) instead of the multipooler.
-	singleProcessMode bool
-	// topoStore returns main's topology store in single-process mode.
-	topoStore func() topoclient.Store
-	// statusPath is where the status page is served: "/" when the multipooler
-	// owns the process, under its service name when it shares the HTTP server.
+	// statusPath is where the status page is served, given by main: "/" when
+	// the multipooler owns the process, under its service name when it shares
+	// the HTTP server with other components.
 	statusPath string
-	// staticLeader makes the multipooler its shard's leader without consensus.
+	// staticLeader makes the multipooler its shard's leader without consensus,
+	// given by main — independent of whether the process is shared (Minigres
+	// always sets it; a standalone multipooler never does, but process sharing
+	// and static leadership are different axes in principle).
 	staticLeader bool
 }
 
-func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
-	if mp.singleProcessMode {
-		// main loads the shared servenv's configuration.
-		return nil
+// NewMultipooler creates a new Multipooler instance. reg is the settings
+// registry the multipooler configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multipooler for a standalone process,
+// cmd/minigres for one shared with a multigateway) owns and constructs them;
+// the multipooler never creates its own. statusPath is where the status page is served ("/" when the multipooler
+// owns the process, under its service name when it shares the HTTP server).
+// staticLeader makes the multipooler its shard's leader without consensus
+// (Minigres); independent of whether resources are shared, in principle.
+func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, staticLeader bool) *Multipooler {
+	if reg == nil {
+		panic("multipooler: reg is required")
 	}
-	return mp.senv.CobraPreRunE(cmd)
-}
-
-// NewMultipooler creates a new Multipooler instance with default configuration
-func NewMultipooler(telemetry *telemetry.Telemetry, opts ...Option) *Multipooler {
-	var applied options
-	for _, opt := range opts {
-		opt(&applied)
-	}
-	reg := viperutil.NewRegistry()
 	mp := &Multipooler{
 		reg: reg,
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
@@ -300,20 +297,13 @@ func NewMultipooler(telemetry *telemetry.Telemetry, opts ...Option) *Multipooler
 			},
 		},
 	}
-	mp.singleProcessMode = applied.single != nil
-	if mp.singleProcessMode {
-		mp.senv = applied.single.ServEnv
-		mp.grpcServer = applied.single.GrpcServer
-		mp.topoStore = applied.single.TopoStore
-		mp.statusPath = "/" + constants.ServiceMultipooler
-	} else {
-		mp.senv = servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry)
-		mp.grpcServer = servenv.NewGrpcServer(reg)
-		mp.topoConfig = topoclient.NewTopoConfig(reg)
-		mp.statusPath = "/"
+	if err := resources.Validate(); err != nil {
+		panic(fmt.Sprintf("multipooler: invalid ProcessResources: %v", err))
 	}
-	// The only pooler of its shard leads it without consensus.
-	mp.staticLeader = mp.singleProcessMode
+	mp.senv = resources.ServEnv
+	mp.grpcServer = resources.GrpcServer
+	mp.statusPath = statusPath
+	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
@@ -379,46 +369,6 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.flagSet = flags
 
 	mp.connPoolConfig.RegisterFlags(flags)
-	if !mp.singleProcessMode {
-		mp.registerProcessFlags(flags)
-	}
-}
-
-// registerProcessFlags registers the flags of the process-level pieces the
-// multipooler owns when it runs as its own process.
-func (mp *Multipooler) registerProcessFlags(flags *pflag.FlagSet) {
-	mp.grpcServer.RegisterFlags(flags)
-	mp.senv.RegisterFlags(flags)
-	mp.topoConfig.RegisterFlags(flags)
-}
-
-// initProcess performs the process-owner steps of Init: servenv.Init and
-// opening the topology store. In single-process mode main has done both, and
-// the store comes from main.
-func (mp *Multipooler) initProcess(serviceID, cell string) error {
-	if mp.singleProcessMode {
-		mp.ts = mp.topoStore()
-		if mp.ts == nil {
-			return errors.New("topology store is not open: main must open it before Init")
-		}
-		return nil
-	}
-	if err := mp.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultipooler,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-		Shard:             mp.shard.Get(),
-		Database:          mp.database.Get(),
-		TableGroup:        mp.tableGroup.Get(),
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
-	var err error
-	mp.ts, err = mp.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
-	return nil
 }
 
 // resolvePgBackRestCipherKeys loads the backup cipher key file if one is
@@ -458,25 +408,22 @@ func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
 
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
-// until successful.
-func (mp *Multipooler) Init(startCtx context.Context) error {
+// until successful. ts is the process's already-open topology store (main
+// opens it, after parsing flags, before calling Init).
+func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
-	// Resolve service ID early for telemetry resource attributes
-	serviceID := mp.serviceID.Get()
-	if serviceID == "" {
-		serviceID = servenv.GenerateRandomServiceID()
+	if ts == nil {
+		return errors.New("topology store is not open: main must open it before Init")
 	}
+	mp.ts = ts
+
+	// main has already resolved and applied the service ID (see
+	// ServiceIdentity/servenv.Init), so this is never empty here.
+	serviceID := mp.serviceID.Get()
 	cell := mp.cell.Get()
 
-	// Ensure we open the topo before we start the context, so that the
-	// defer that closes the topo runs after cancelling the context.
-	// This ensures that we've properly closed things like the watchers
-	// at that point.
-	if err := mp.initProcess(serviceID, cell); err != nil {
-		return err
-	}
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
 
@@ -676,10 +623,6 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	mp.senv.GetLogger().InfoContext(ctx, "multipooler shutting down")
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)
-	}
-	if !mp.singleProcessMode {
-		// In single-process mode main closes the store it opened.
-		mp.ts.Close()
 	}
 }
 
