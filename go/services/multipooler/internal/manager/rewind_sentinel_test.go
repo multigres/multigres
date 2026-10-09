@@ -16,17 +16,21 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
 // newSentinelTestManager builds a manager whose pooler directory is a writable
@@ -192,14 +196,20 @@ func TestRewindDetachOutlivesCallerCancellation(t *testing.T) {
 }
 
 // TestRunPgRewind_SentinelBracket verifies runPgRewind writes the rewind sentinel
-// before the mutating pg_rewind on the divergence path, and writes nothing when
-// there is no divergence (so a no-op dry-run leaves no stale sentinel).
+// before any pg_rewind call and leaves it for restartAsStandbyLocked to clear only
+// after the complete standby recovery succeeds.
 func TestRunPgRewind_SentinelBracket(t *testing.T) {
 	t.Run("writes sentinel when servers diverged", func(t *testing.T) {
 		pm := newSentinelTestManager(t)
-		pm.pgctldClient = &mockPgctldClient{
+		client := &mockPgctldClient{
 			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
 		}
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			present, err := pm.hasRewindSentinel()
+			require.NoError(t, err)
+			assert.True(t, present, "sentinel must precede every pg_rewind call")
+		}
+		pm.pgctldClient = client
 		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.NoError(t, err)
 		assert.True(t, performed, "a diverged rewind is performed")
@@ -208,17 +218,186 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 		assert.True(t, present, "sentinel must be written before the mutating pg_rewind")
 	})
 
-	t.Run("no sentinel when not diverged", func(t *testing.T) {
+	t.Run("keeps sentinel when dry-run finds no divergence", func(t *testing.T) {
 		pm := newSentinelTestManager(t)
-		pm.pgctldClient = &mockPgctldClient{
+		client := &mockPgctldClient{
 			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "no rewind required"},
 		}
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			present, err := pm.hasRewindSentinel()
+			require.NoError(t, err)
+			assert.True(t, present, "sentinel must precede the dry-run")
+		}
+		pm.pgctldClient = client
 		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.NoError(t, err)
 		assert.False(t, performed, "no divergence means no rewind")
 		present, err := pm.hasRewindSentinel()
 		require.NoError(t, err)
-		assert.False(t, present, "no sentinel written when there is no divergence")
+		assert.True(t, present, "caller must clear sentinel only after standby recovery succeeds")
+	})
+}
+
+// TestRunPgRewind_RestoreTargetWAL checks that both pg_rewind runs get
+// --restore-target-wal and a temporary restore_command that is always removed,
+// and that without a pgbackrest config no -c is passed.
+func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
+	const diverged = "servers diverged at 0/5000000 on timeline 2"
+
+	setup := func(t *testing.T, withBackupConfig bool) (*MultipoolerManager, *mockPgctldClient, string) {
+		t.Helper()
+		pgdata := t.TempDir()
+		t.Setenv(constants.PgDataDirEnvVar, pgdata)
+		autoConf := filepath.Join(pgdata, "postgresql.auto.conf")
+		require.NoError(t, os.WriteFile(autoConf, []byte("primary_conninfo = 'host=x'\n"), 0o600))
+
+		pm := newSentinelTestManager(t)
+		pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+		if withBackupConfig {
+			pm.backup.SetConfigPath("/etc/pgbackrest.conf")
+		}
+		return pm, &mockPgctldClient{pgRewindResponse: &pgctldpb.PgRewindResponse{Output: diverged}}, autoConf
+	}
+	read := func(t *testing.T, path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return string(b)
+	}
+
+	t.Run("passes -c and sets restore_command for dry-run and real run", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		var confAtCall []string
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) { confAtCall = append(confAtCall, read(t, autoConf)) }
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.True(t, performed)
+
+		require.Len(t, client.pgRewindReqs, 2)
+		assert.True(t, client.pgRewindReqs[0].DryRun)
+		assert.Equal(t, []string{"--restore-target-wal"}, client.pgRewindReqs[0].ExtraArgs)
+		assert.False(t, client.pgRewindReqs[1].DryRun)
+		assert.Equal(t, []string{"-R", "--restore-target-wal"}, client.pgRewindReqs[1].ExtraArgs)
+
+		for _, conf := range confAtCall {
+			assert.Contains(t, conf, "restore_command = ")
+			assert.Contains(t, conf, "pgctld restore-wrapper")
+			assert.Contains(t, conf, "archive-get")
+			assert.Contains(t, conf, constants.RestoreCommandPIDFile)
+		}
+		assert.Equal(t, "primary_conninfo = 'host=x'\n", read(t, autoConf), "restore_command must be removed after the rewind")
+	})
+
+	t.Run("failed mutating rewind keeps the on-disk sentinel", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			if client.pgRewindCalls == 2 {
+				client.pgRewindError = errors.New("pg_rewind boom")
+			}
+		}
+		pm.pgctldClient = client
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "pg_rewind boom")
+		require.Len(t, client.pgRewindReqs, 2, "the mutating rewind must be the failing call")
+		assert.False(t, strings.Contains(read(t, autoConf), "restore_command"))
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.True(t, present, "failed mutating rewind must remain guarded across restart")
+	})
+
+	t.Run("failed dry-run keeps the on-disk sentinel", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindError = errors.New("dry-run boom")
+		pm.pgctldClient = client
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "dry-run boom")
+		require.Len(t, client.pgRewindReqs, 1)
+		assert.NotContains(t, read(t, autoConf), "restore_command")
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.True(t, present, "early failure must remain guarded until a complete recovery")
+	})
+
+	t.Run("cleanup failure is rediscovered and blocks a fresh monitor start", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			if client.pgRewindCalls != 2 {
+				return
+			}
+			require.NoError(t, os.Remove(autoConf))
+			require.NoError(t, os.Mkdir(autoConf, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(autoConf, "blocked"), []byte("restore_command remains unsafe"), 0o600))
+		}
+		pm.pgctldClient = client
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "remove temporary restore_command after pg_rewind")
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.True(t, present, "cleanup failure must leave the durable restart guard")
+
+		fresh := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
+			Type:          clustermetadatapb.PoolerType_REPLICA,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+			PoolerDir:     pm.record.PoolerDir(),
+		})))
+		client.statusResponse = &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED}
+		fresh.pgctldClient = client
+
+		state, err := fresh.discoverPostgresState(t.Context())
+		require.NoError(t, err)
+		assert.True(t, state.rewindSentinelPresent, "fresh manager must rediscover the real sentinel from disk")
+		require.Equal(t, remedialActionMarkRewindInterrupted, fresh.determineRemedialAction(t.Context(), state))
+
+		withLock(t, fresh, func(ctx context.Context) {
+			require.NoError(t, fresh.takeRemedialAction(ctx, remedialActionMarkRewindInterrupted, state))
+
+			state, err = fresh.discoverPostgresState(ctx)
+			require.NoError(t, err)
+			action := fresh.determineRemedialAction(ctx, state)
+			require.Equal(t, remedialActionStartPostgres, action)
+			require.ErrorContains(t, fresh.takeRemedialAction(ctx, action, state), "failed to clear restore_command before held start")
+		})
+
+		assert.False(t, client.startCalled, "postgres must not start while restore_command cleanup is unverified")
+	})
+
+	t.Run("removes restore_command when dry-run finds no divergence", func(t *testing.T) {
+		pm, client, autoConf := setup(t, true)
+		client.pgRewindResponse = &pgctldpb.PgRewindResponse{Output: "no rewind required"}
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.False(t, performed)
+		require.Len(t, client.pgRewindReqs, 1)
+		assert.Equal(t, []string{"--restore-target-wal"}, client.pgRewindReqs[0].ExtraArgs)
+		assert.NotContains(t, read(t, autoConf), "restore_command")
+		present, err := pm.hasRewindSentinel()
+		require.NoError(t, err)
+		assert.True(t, present, "no-divergence recovery remains guarded until standby verification")
+	})
+
+	t.Run("falls back to no -c without a pgbackrest config", func(t *testing.T) {
+		pm, client, autoConf := setup(t, false)
+		var confAtCall []string
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) { confAtCall = append(confAtCall, read(t, autoConf)) }
+		pm.pgctldClient = client
+
+		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.NoError(t, err)
+		assert.True(t, performed)
+
+		require.Len(t, client.pgRewindReqs, 2)
+		assert.Empty(t, client.pgRewindReqs[0].ExtraArgs)
+		assert.Equal(t, []string{"-R"}, client.pgRewindReqs[1].ExtraArgs)
+		for _, conf := range confAtCall {
+			assert.NotContains(t, conf, "restore_command")
+		}
 	})
 }
 

@@ -36,6 +36,26 @@ func shellQuoteSingle(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// wrappedRestoreCommand builds the archive-get restore_command run through `pgctld restore-wrapper`.
+func wrappedRestoreCommand(configPath, poolerDir string) string {
+	rawRestoreCommand := fmt.Sprintf(`pgbackrest --stanza=%s --config=%s archive-get %%f "%%p"`, shellQuoteSingle(stanzaName), shellQuoteSingle(configPath))
+	pidFile := filepath.Join(poolerDir, constants.RestoreCommandPIDFile)
+	// The wrapper stores the PID to a file on disk so later on consensus operations
+	// for any cohort member or recruited cohort candidate can be sure that they're never
+	// pulling WAL from the archive, only the consensus leader.
+	return fmt.Sprintf("pgctld restore-wrapper %s -- %s", shellQuoteSingle(pidFile), rawRestoreCommand)
+}
+
+// RestoreCommand returns the archive restore_command, or an error if the
+// pgbackrest config has not been generated.
+func (e *Engine) RestoreCommand(poolerDir string) (string, error) {
+	configPath, err := e.requireConfigPath()
+	if err != nil {
+		return "", err
+	}
+	return wrappedRestoreCommand(configPath, poolerDir), nil
+}
+
 // Restore runs pgbackrest restore to recreate PGDATA from the given backup.
 // The manager orchestrates the surrounding PG lifecycle (archive config,
 // starting postgres, reopening the pooler).
@@ -49,12 +69,7 @@ func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error 
 	restoreCtx, cancel := context.WithTimeout(ctx, commonbackup.RestoreTimeout)
 	defer cancel()
 
-	rawRestoreCommand := fmt.Sprintf(`pgbackrest --stanza=%s --config=%s archive-get %%f "%%p"`, shellQuoteSingle(stanzaName), shellQuoteSingle(configPath))
-	pidFile := filepath.Join(poolerDir, constants.RestoreCommandPIDFile)
-	// The wrapper stores the PID to a file on disk so later on consensus operations
-	// for any cohort member or recruited cohort candidate can be sure that they're never
-	// pulling WAL from the archive, only the consensus leader.
-	wrappedRestoreCommand := fmt.Sprintf("pgctld restore-wrapper %s -- %s", shellQuoteSingle(pidFile), rawRestoreCommand)
+	wrappedRestoreCommand := wrappedRestoreCommand(configPath, poolerDir)
 
 	// pgbackrest writes --recovery-option values verbatim between single quotes
 	// in postgresql.auto.conf, without escaping the embedded single quotes
