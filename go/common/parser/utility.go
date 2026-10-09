@@ -28,6 +28,7 @@ package parser
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
@@ -163,10 +164,12 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 //   - indirection: NodeList containing the indirection elements (can be nil)
 //   - position: Source location for error reporting
 //
-// Returns the constructed RangeVar.
+// Returns the constructed RangeVar, and an error for an indirection element that
+// is not a name or for more than three names. The RangeVar is returned even then
+// so the grammar action can report the error and keep going.
 //
 // Ported from PostgreSQL's makeRangeVarFromQualifiedName function.
-func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, position int) *ast.RangeVar {
+func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, position int) (*ast.RangeVar, error) {
 	r := &ast.RangeVar{
 		BaseNode: ast.BaseNode{Tag: ast.T_RangeVar, Loc: position},
 		Inh:      true, // Default to inheritance enabled (no ONLY)
@@ -178,10 +181,12 @@ func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, posit
 	// Add indirection elements
 	if indirection != nil {
 		for _, item := range indirection.Items {
-			if str, ok := item.(*ast.String); ok {
-				names = append(names, str.SVal)
+			str, ok := item.(*ast.String)
+			if !ok {
+				r.RelName = name
+				return r, errors.New("syntax error")
 			}
-			// Note: PostgreSQL also handles A_Star nodes for ".*" but we'll focus on String nodes for now
+			names = append(names, str.SVal)
 		}
 	}
 
@@ -203,19 +208,12 @@ func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, posit
 		r.SchemaName = names[1]
 		r.RelName = names[2]
 	default:
-		// For more than 3 names, use the last as relation, second-to-last as schema, third-to-last as catalog
-		// This is a fallback - PostgreSQL would likely error on too many names
-		if len(names) >= 3 {
-			r.CatalogName = names[len(names)-3]
-			r.SchemaName = names[len(names)-2]
-			r.RelName = names[len(names)-1]
-		} else {
-			r.RelName = names[len(names)-1]
-		}
+		r.RelName = names[len(names)-1]
+		return r, fmt.Errorf("improper qualified name (too many dotted names): %s", strings.Join(names, "."))
 	}
 
 	r.RelPersistence = ast.RELPERSISTENCE_PERMANENT
-	return r
+	return r, nil
 }
 
 // SplitColQualList separates a ColQualList (column qualifier list) into constraints and collate clauses.
