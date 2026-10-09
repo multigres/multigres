@@ -415,37 +415,38 @@ func TestCheckDropPrivilege(t *testing.T) {
 	})
 }
 
-// TestCheckConnectionOwnership is the regression test for the HIGH finding
-// this check guards against: a named connection carries no ACL of its own,
-// so without it any role that passes the gateway's CanCreateMigration gate
-// could name any connection on the shard and use its stored credentials to
-// pull another operator's source data into a target table the caller does
-// own, without ever holding that source's own credentials.
-func TestCheckConnectionOwnership(t *testing.T) {
+// TestCheckRoleOwnership is the regression test for the HIGH finding this
+// check guards against: a named Connection or Migration carries no ACL of its
+// own, so without it any role that passes the gateway's CanCreateMigration
+// gate could name a resource it did not create and act on it with that
+// resource's privileges or data. Callers never surface this function's own
+// error message directly — each wraps a non-nil result in its own
+// resource-appropriate message (e.g. CreateMigration's "connection %q does
+// not exist") — so this function's message is free to name both roles.
+func TestCheckRoleOwnership(t *testing.T) {
 	const checkSQL = "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
 
 	t.Run("caller has usage on the owner role: allowed", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{checkSQL: emptyResult()}}
 		tg := newTarget(qs)
 
-		require.NoError(t, tg.CheckConnectionOwnership(context.Background(), "alice", "alice"))
+		require.NoError(t, tg.CheckRoleOwnership(context.Background(), "alice", "alice"))
 
 		require.Len(t, qs.adminArgs, 1)
 		require.Equal(t, []any{"alice", "alice"}, qs.adminArgs[0].args)
 	})
 
-	t.Run("caller lacks usage on the owner role: rejected, without naming the connection", func(t *testing.T) {
+	t.Run("caller lacks usage on the owner role: rejected", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
 			checkSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("1")}}}},
 		}}
 		tg := newTarget(qs)
 
-		err := tg.CheckConnectionOwnership(context.Background(), "mallory", "alice")
+		err := tg.CheckRoleOwnership(context.Background(), "mallory", "alice")
 
 		require.Error(t, err)
 		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
 		require.ErrorContains(t, err, `"mallory"`)
-		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
 	})
 }
 
