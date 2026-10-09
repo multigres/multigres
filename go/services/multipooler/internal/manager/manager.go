@@ -555,6 +555,21 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
+	// Ensure sidecar tables that a shard bootstrapped by an older pooler
+	// version may be missing (see ensureSidecarSchemas) exist on every
+	// open/resume, not just on promotion.
+	//
+	// The function createSidecarSchema only ever runs once, at genuine shard
+	// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
+	// actual pg_promote() transition. Without this, a plain process restart of
+	// an already-primary pooler would never re-ensure them, even after
+	// upgrading to a pooler version that knows about them.
+	if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
+		if err := pm.ensureSidecarSchemas(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+		}
+	}
+
 	pm.startPostgresMonitorPollerLocked()
 
 	pm.isOpen = true

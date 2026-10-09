@@ -927,6 +927,113 @@ func TestPause_RestartsBackupHealthPoller(t *testing.T) {
 	}, 2*time.Second, 25*time.Millisecond, "poller should refresh again after resume")
 }
 
+// TestOpen_EnsuresBackendVpidTableWhenAlreadyPrimary is the regression test for
+// the gap described in issue-backend-vpid-missing-on-pooler-upgrade: a shard
+// bootstrapped by a pooler version that predates backend_vpid's existence
+// never gets the table created by createSidecarSchema (which only ever runs
+// once, at genuine shard bootstrap). promoteStandbyToPrimary's call to
+// createBackendVpidTable only fires on an actual pg_promote() transition, so a
+// plain process restart of an already-primary pooler (container restart, OOM
+// kill, redeploy) would otherwise never re-ensure the table exists even after
+// upgrading to a pooler version that knows about it. openLocked must ensure
+// the table on every Open, not just on promotion.
+func TestOpen_EnsuresBackendVpidTableWhenAlreadyPrimary(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-open-backend-vpid-primary",
+	}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:        serviceID,
+		Hostname:  "localhost",
+		PortMap:   map[string]int32{"grpc": 8080},
+		Type:      clustermetadatapb.PoolerType_PRIMARY,
+		PoolerDir: t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	mockQS := mock.NewQueryService()
+	// Postgres is already out of recovery (a primary that was simply restarted,
+	// not promoted).
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	var ensured bool
+	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
+		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })
+	pm.qsc = &mockPoolerController{queryService: mockQS}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-open-backend-vpid-primary")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.Open(lockCtx)
+
+	assert.True(t, ensured, "Open must ensure backend_vpid exists when postgres is already primary, not only on promotion")
+}
+
+// TestOpen_SkipsBackendVpidTableWhenStandby verifies the openLocked
+// backend_vpid check is gated on a live primary-mode probe: a standby must
+// never attempt the DDL (it would fail against a read-only replica anyway).
+func TestOpen_SkipsBackendVpidTableWhenStandby(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-open-backend-vpid-standby",
+	}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:        serviceID,
+		Hostname:  "localhost",
+		PortMap:   map[string]int32{"grpc": 8080},
+		Type:      clustermetadatapb.PoolerType_REPLICA,
+		PoolerDir: t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	var ensured bool
+	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
+		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })
+	pm.qsc = &mockPoolerController{queryService: mockQS}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-open-backend-vpid-standby")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.Open(lockCtx)
+
+	assert.False(t, ensured, "Open must not attempt backend_vpid DDL on a standby")
+}
+
 // TestReopenConnections_DoesNotLeakHeartbeatWriters is a regression test for
 // a leak where closeConnectionsLocked closed the ReplTracker but left it
 // registered with the StateManager. Each reopen registered a fresh tracker

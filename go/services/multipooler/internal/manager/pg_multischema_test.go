@@ -264,6 +264,25 @@ func TestCreateBackendVpidTableDDL(t *testing.T) {
 	assert.True(t, seen, "backend_vpid DDL should run")
 }
 
+// TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls guards the
+// assumption openLocked's "ensure backend_vpid exists on every open/resume"
+// check relies on: createBackendVpidTable uses CREATE TABLE IF NOT EXISTS, so
+// calling it repeatedly (once per Pause/resume cycle: pg_rewind,
+// restart-as-standby, stale-primary demote, in addition to process restart)
+// is harmless and never errors just because the table is already there.
+func TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+
+	calls := 0
+	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
+		mock.MakeQueryResult(nil, nil), func(string) { calls++ })
+
+	for range 3 {
+		assert.NoError(t, pm.createBackendVpidTable(context.Background()))
+	}
+	assert.Equal(t, 3, calls, "repeated calls across Open/resume cycles must all succeed, not just the first")
+}
+
 func TestInitializeMultischemaData(t *testing.T) {
 	tests := []struct {
 		name          string
