@@ -139,6 +139,22 @@ func (e *Executor) buildReservedStateFromAPI(rc reservedConnAPI) *query.Reserved
 	}
 }
 
+// withStatementTimeout applies the statement_timeout budget the multigateway
+// granted in options (see ExecuteOptions.statement_timeout). The gateway no
+// longer expresses that timeout as the RPC deadline, because gRPC would tear
+// the stream down the moment it fired, before the backend had actually stopped.
+// Enforcing it here instead means the cancel-and-drain in
+// execWithContextCancel runs to completion and the resulting
+// DeadlineExceeded (statement timeout on the gateway side) is only reported
+// once the backend is idle again. A zero or unset value applies no timeout.
+func withStatementTimeout(ctx context.Context, options *query.ExecuteOptions) (context.Context, context.CancelFunc) {
+	d := options.GetStatementTimeout().AsDuration()
+	if d <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
+
 // ExecuteQuery implements queryservice.QueryService.
 // It executes a query using a pooled connection for the specified user.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
@@ -147,6 +163,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if target == nil {
 		target = &query.Target{}
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	// poolType is updated to "reserved" once we know the query runs on a
 	// reserved connection; the deferred record reads its final value.
@@ -258,6 +276,8 @@ func (e *Executor) StreamExecute(
 	if target == nil {
 		target = &query.Target{}
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	// Wrap the caller's callback to count rows streamed for mg.pooler.query.rows.
 	// Reassigning the param routes every downstream path through the counter.
@@ -980,6 +1000,8 @@ func (e *Executor) PortalStreamExecute(
 	if portal == nil {
 		return nil, errors.New("portal is required")
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	// Record the portal execution in mg.pooler.query.* like the simple-query
 	// paths do. The extended protocol is what drivers use, so without this the
@@ -2259,6 +2281,8 @@ func (e *Executor) ConcludeTransaction(
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	user := e.getUserFromOptions(options)
 
@@ -2384,6 +2408,8 @@ func (e *Executor) DiscardTempTables(
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
 	}
+	ctx, cancel := withStatementTimeout(ctx, options)
+	defer cancel()
 
 	user := e.getUserFromOptions(options)
 

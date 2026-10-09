@@ -153,6 +153,8 @@ type mockMultipoolerServiceClient struct {
 	// ConcludeTransaction behavior
 	concludeResponse *multipoolerservice.ConcludeTransactionResponse
 	concludeErr      error
+	concludeCtx      context.Context
+	concludeReq      *multipoolerservice.ConcludeTransactionRequest
 
 	// Describe behavior
 	describeResponse *multipoolerservice.DescribeResponse
@@ -161,6 +163,9 @@ type mockMultipoolerServiceClient struct {
 	// GetAuthCredentials behavior
 	authResponse *multipoolerservice.GetAuthCredentialsResponse
 	authErr      error
+
+	// StreamExecute behavior (nil returns a nil stream, as before).
+	streamExecuteFn func(ctx context.Context, in *multipoolerservice.StreamExecuteRequest) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error)
 }
 
 func (m *mockMultipoolerServiceClient) ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse], error) {
@@ -187,6 +192,9 @@ func (m *mockMultipoolerServiceClient) ExecuteQuery(ctx context.Context, in *mul
 }
 
 func (m *mockMultipoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
+	if m.streamExecuteFn != nil {
+		return m.streamExecuteFn(ctx, in)
+	}
 	return nil, nil
 }
 
@@ -206,6 +214,8 @@ func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, i
 }
 
 func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
+	m.concludeCtx = ctx
+	m.concludeReq = in
 	if m.concludeErr != nil {
 		return nil, m.concludeErr
 	}

@@ -21,6 +21,7 @@ syntax = "proto3";
 package query;
 
 import "clustermetadata.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/query";
 
@@ -439,6 +440,16 @@ message ExecuteOptions {
   // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
   // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
   bool passthrough_row = 8;
+
+  // statement_timeout is the remaining statement_timeout budget the
+  // multigateway grants this statement. The multipooler enforces it next to
+  // the backend: when it elapses it cancels the backend and reports
+  // query_canceled only once the backend has actually stopped, so the
+  // session's next statement never queues behind a still-running one. The
+  // multigateway keeps its own RPC deadline past this value so it receives that
+  // report instead of tearing the stream down. Unset or zero means no
+  // pooler-side timeout.
+  google.protobuf.Duration statement_timeout = 9;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

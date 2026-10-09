@@ -818,7 +818,10 @@ func (c *Conn) handleContextCancellation() {
 // CHECK_FOR_INTERRUPTS points, and cancel requests can be lost or race). Without
 // an upper bound, a hung statement that never honors the cancel would block the
 // caller forever, ignoring the already-expired context deadline.
-const postCancelDrainGrace = 2 * time.Second
+//
+// Shared with the multigateway, which keeps its RPC open this long past the
+// statement deadline to learn that the backend has actually stopped.
+const postCancelDrainGrace = constants.StatementCancelDrainGrace
 
 // drainOpAfterCancel waits for the op goroutine (publishing on ch) to return
 // after a backend cancel has been requested. Because pg_cancel_backend is
