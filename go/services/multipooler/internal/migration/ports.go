@@ -52,7 +52,7 @@ type migrationTarget interface {
 	DropUserExpressionIndexes(ctx context.Context, tables []string) error
 	DropUserGeneratedColumns(ctx context.Context, tables []string) error
 	CheckDropPrivilege(ctx context.Context, tables []string, callerRole string) error
-	CheckConnectionOwnership(ctx context.Context, callerRole, ownerRole string) error
+	CheckRoleOwnership(ctx context.Context, callerRole, ownerRole string) error
 	DropTables(ctx context.Context, tables []string) error
 	CreatePublication(ctx context.Context, name string, tables []string) error
 	DropPublication(ctx context.Context, name string) error
@@ -87,6 +87,12 @@ type migrationSource interface {
 	SetReadOnly(ro bool) error
 	setSessionReadOnly(ro bool) error
 	TerminateClientBackends() error
+	RevokeConnect(roles []string) error
+	GrantConnect(roles []string, restorePublic bool, connLimits map[string]int32) error
+	PublicHasConnect() (bool, error)
+	RolesHadConnect(roles []string) (map[string]bool, error)
+	RoleConnLimits(roles []string) (map[string]int32, error)
+	checkQuiesceRoles(roles []string) error
 	CurrentLSN() (string, error)
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
 	SubscriptionExists(name string) (bool, error)

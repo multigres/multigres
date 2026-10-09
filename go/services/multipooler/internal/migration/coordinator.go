@@ -183,6 +183,10 @@ type CreateParams struct {
 	// SkipSchemaCopy skips the pg_dump --schema-only step.
 	SkipSchemaCopy bool
 	SequenceMargin int64
+	// QuiesceRoles are the optional application role names whose CONNECT on the
+	// source is revoked during the ACTIVATE cutover, so they cannot write once
+	// the source becomes a subscriber. Validated at create time.
+	QuiesceRoles []string
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (CREATE
 	// MIGRATION): it gates the connection-ownership check below, so a caller
@@ -230,7 +234,7 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	// The error does not distinguish "does not exist" from "not owned" so a
 	// probing caller cannot learn whether a given connection name exists.
 	if p.CallerRole != "" && conn.OwnerRole != "" {
-		if err := c.target.CheckConnectionOwnership(ctx, p.CallerRole, conn.OwnerRole); err != nil {
+		if err := c.target.CheckRoleOwnership(ctx, p.CallerRole, conn.OwnerRole); err != nil {
 			return nil, fmt.Errorf("connection %q does not exist", p.ConnectionName)
 		}
 	}
@@ -248,6 +252,11 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	}
 	for _, w := range warnings {
 		c.logger.WarnContext(ctx, "migration source validation warning", "warning", w)
+	}
+	// Validate quiesce roles up front so a bad role fails at create time
+	// rather than mid-cutover.
+	if err := src.checkQuiesceRoles(p.QuiesceRoles); err != nil {
+		return nil, err
 	}
 	// EXPORT makes the source a subscriber; if it cannot create subscriptions
 	// (PG<16 without superuser), warn now so the operator knows fail-back is
@@ -284,6 +293,12 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 		CopyData:         p.CopyData,
 		SkipSchemaCopy:   p.SkipSchemaCopy,
 		SequenceMargin:   p.SequenceMargin,
+		QuiesceRoles:     p.QuiesceRoles,
+		OwnerRole:        p.CallerRole,
+		// Default state for a migration that never reaches a hard quiesce; the
+		// hard quiesce overwrites this with the source's actual PUBLIC CONNECT
+		// state before revoking it.
+		PublicHadConnect: true,
 	}
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
@@ -498,6 +513,12 @@ type DropOptions struct {
 	Wait        bool
 	WaitTimeout time.Duration
 	Force       bool
+	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as, set only on the gateway SQL path. It is checked
+	// against the migration's stored Migration.OwnerRole before dropping, so a
+	// caller cannot name and abort another operator's migration, even with
+	// Force. Left empty on the CLI/multiadmin path, where the check is skipped.
+	CallerRole string
 }
 
 // DropMigration tears down a migration's replication link and removes the row.
@@ -513,10 +534,18 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 		return nil, err
 	}
 
+	// A named migration carries no ACL of its own, so verify ownership before
+	// dropping it. The error does not distinguish "does not exist" from
+	// "not owned" so it cannot be used to probe for migration names.
+	if opts.CallerRole != "" && m.OwnerRole != "" {
+		if err := c.target.CheckRoleOwnership(ctx, opts.CallerRole, m.OwnerRole); err != nil {
+			return nil, ErrNotFound
+		}
+	}
+
 	// A row already in COMPLETING is a drop that committed the phase but did not
-	// finish (a crash/restart, or a drain that failed after the phase was
-	// persisted). Finish it idempotently from the persisted direction — regardless
-	// of force/wait — rather than re-running the drain from a non-streaming phase.
+	// finish. Finish it idempotently from the persisted direction, regardless
+	// of force/wait, rather than re-running the drain from a non-streaming phase.
 	if m.Phase == PhaseCompleting {
 		c.teardown(ctx, m, m.effectiveDirection())
 		c.journal(ctx, m, JournalEventDrop, "")
@@ -636,11 +665,12 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // the active direction, passed in because a drop may have already moved the phase
 // to PhaseCompleting (which carries no direction).
 //
-// For the IMPORT publisher (the external source), quiescing is read-only-only: it
-// flips default_transaction_read_only, blocking new transactions, and relies on
-// that plus the later un-quiesce at teardown/rollback. It does not terminate
-// existing client backends or fence any role's CONNECT — a client already
-// mid-transaction when the barrier flips could still commit that one transaction.
+// hard selects a HARD quiesce of the IMPORT publisher: it fences the opt-in
+// quiesce roles, terminates every remaining client backend, then captures the
+// LSN, so nothing can commit past the barrier. It is set only for the ACTIVATE
+// cutover, since the source is about to become a subscriber. A graceful drop
+// passes hard=false and only sets read-only, since the source stays the
+// application's primary. hard has no effect in the EXPORT branch.
 //
 // DefaultDrainWaitTimeout bounds the drain regardless of the caller's own
 // deadline (context.WithTimeout only ever shortens one): a drain that never
@@ -651,7 +681,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // waiting out the default.
 var DefaultDrainWaitTimeout = 30 * time.Second
 
-func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction) (string, error) {
+func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction, hard bool) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultDrainWaitTimeout)
 	defer cancel()
 	if dir == DirectionImport {
@@ -660,8 +690,67 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 			return "", err
 		}
 		defer src.close()
+		if hard {
+			// Record whether PUBLIC currently has CONNECT, before revoking it below, so
+			// the later restore does not re-grant it to an operator who had already
+			// locked PUBLIC out. RevokeConnect always revokes PUBLIC's CONNECT, since
+			// read-only alone cannot stop a reconnecting client from issuing BEGIN READ
+			// WRITE, so this must always be captured, regardless of QuiesceRoles.
+			hasPublic, err := src.PublicHasConnect()
+			if err != nil {
+				return "", err
+			}
+			m.PublicHadConnect = hasPublic
+			if len(m.QuiesceRoles) > 0 {
+				// Same idea, per role: RevokeConnect also caps each quiesce role's
+				// CONNECTION LIMIT to 0, closing the inheritance gap plain REVOKE CONNECT
+				// cannot. Record each role's current limit first so the restore sets it
+				// back to that value instead of discarding an operator-set custom limit.
+				limits, err := src.RoleConnLimits(m.QuiesceRoles)
+				if err != nil {
+					return "", err
+				}
+				m.QuiesceRoleConnLimits = limits
+				// Record whether each quiesce role held its own direct CONNECT grant
+				// before the revoke below, since a role may only have been reachable via
+				// PUBLIC's grant. The restore only re-grants roles this map marks true,
+				// so a role never given its own grant does not get a new permanent one.
+				hadConnect, err := src.RolesHadConnect(m.QuiesceRoles)
+				if err != nil {
+					return "", err
+				}
+				m.QuiesceRolesHadConnect = hadConnect
+			}
+			// QuiesceApplied marks that this migration's hard quiesce actually ran, so
+			// teardown/rollback must attempt a GrantConnect restore. QuiesceRoleConnLimits
+			// alone cannot prove this, since it stays empty when QuiesceRoles is empty
+			// even though PUBLIC was still revoked.
+			m.QuiesceApplied = true
+			// Persist PublicHadConnect, QuiesceRoleConnLimits, and QuiesceApplied before
+			// the revoke below changes anything live on the source. Otherwise a crash
+			// between the revoke and this update would lose the record of what to
+			// restore, and the later GrantConnect would restore the wrong defaults.
+			if err := c.store.Update(ctx, m); err != nil {
+				return "", err
+			}
+			// Fence PUBLIC and the named app roles first, while this session is still
+			// writable: REVOKE is a catalog write and would be rejected once
+			// SetReadOnly flips the session read-only. Revoking before read-only also
+			// means a client the next step terminates cannot reconnect and slip a
+			// write in.
+			if err := src.RevokeConnect(m.QuiesceRoles); err != nil {
+				return "", err
+			}
+		}
 		if err := src.SetReadOnly(true); err != nil {
 			return "", err
+		}
+		if hard {
+			// Cut every remaining live client backend before capturing the LSN, so the
+			// barrier point is airtight and nothing in flight can still commit.
+			if err := src.TerminateClientBackends(); err != nil {
+				return "", err
+			}
 		}
 		lsn, err := src.CurrentLSN()
 		if err != nil {
@@ -700,7 +789,10 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 // direction (see drainCurrent). It returns the drained-to (quiesce) LSN captured
 // by the barrier, for the drop's journal entry.
 func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) (string, error) {
-	drainedLSN, err := c.drainCurrent(ctx, m, dir)
+	// A graceful drop leaves the current publisher in place as a standalone
+	// database, so a soft, read-only quiesce is enough; no need to terminate or
+	// fence its client backends.
+	drainedLSN, err := c.drainCurrent(ctx, m, dir, false)
 	if err != nil {
 		return "", err
 	}
@@ -761,16 +853,12 @@ type ActivateOptions struct {
 	WaitTimeout time.Duration
 
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated
-	// client is connected as, set only on the gateway SQL path (ALTER
-	// MIGRATION ... PHASE). It gates the destructive DropTables step a
-	// not-yet-started IMPORT runs: the gateway's CanCreateMigration check only
-	// confirms the caller could perform logical-replication setup in
-	// principle, not that it owns the specific target tables this migration
-	// names — without this, that role could name an arbitrary existing table
-	// and have it dropped via the admin pool regardless of ownership. Empty on
-	// the CLI/multiadmin path, which never touches the gateway and has no
-	// SQL-authenticated identity to check; the check is skipped in that case,
-	// unchanged from today's behavior.
+	// client is connected as, set only on the gateway SQL path. Checked against
+	// the migration's stored OwnerRole before any state change, so a caller
+	// cannot start or switch another operator's migration. It also gates the
+	// destructive DropTables step a not-yet-started IMPORT runs, against the
+	// named target tables, so a caller cannot drop a table it does not own.
+	// Left empty on the CLI/multiadmin path, where both checks are skipped.
 	CallerRole string
 }
 
@@ -890,6 +978,19 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	if err != nil {
 		c.mu.Unlock()
 		return nil, err
+	}
+
+	// A named migration carries no ACL of its own, so verify ownership before
+	// any quiesce, direction flip, or other state change below; otherwise any
+	// caller that passes the gateway's CanCreateMigration gate could start or
+	// switch another operator's migration. The error does not distinguish
+	// "does not exist" from "not owned" so a probing caller cannot learn
+	// whether a given migration name exists.
+	if opts.CallerRole != "" && m.OwnerRole != "" {
+		if err := c.target.CheckRoleOwnership(ctx, opts.CallerRole, m.OwnerRole); err != nil {
+			c.mu.Unlock()
+			return nil, ErrNotFound
+		}
 	}
 
 	// Not-yet-started IMPORT: subsumes the old StartMigration. A CREATED (or
@@ -1031,8 +1132,10 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	if live {
 		// A switching phase still carries the current (pre-switch) direction, so
 		// derive it from the phase: SWITCHING_TO_EXPORT drains the import publisher,
-		// SWITCHING_TO_IMPORT drains the export publisher.
-		drainedLSN, err = c.drainCurrent(ctx, m, directionOf(m.Phase))
+		// SWITCHING_TO_IMPORT drains the export publisher. Switching to export makes
+		// the source a subscriber, so it is drained hard; switching back to import
+		// drains the target and does not touch the source.
+		drainedLSN, err = c.drainCurrent(ctx, m, directionOf(m.Phase), target == DirectionExport)
 		if err != nil {
 			c.fail(ctx, m, err)
 			return nil, err
@@ -1325,10 +1428,12 @@ func (c *Coordinator) clearReverseLinkDegraded(ctx context.Context, m *Migration
 // before CreateSubscription attaches the reverse subscription, the first
 // point the source's own writes become safe (the target-side slot this
 // attaches to already exists and is anchored at the correct LSN, so nothing
-// written from here on is lost). Terminating here, unconditionally, is what
-// closes the residual race: a stale client is free to reconnect the instant
-// the barrier lifts and must be cut again before it can commit anything the
-// reverse stream would never capture.
+// written from here on is lost). PUBLIC's CONNECT stays revoked throughout,
+// so a role holding only PUBLIC's grant cannot reconnect here. Terminating
+// unconditionally instead closes the narrower case of a role with its own
+// direct CONNECT grant that the operator did not list in QuiesceRoles: it
+// could still reconnect the instant the barrier lifts and must be cut again
+// before it can commit a write the reverse stream would never capture.
 func unquiesceForReverseSubscription(src migrationSource) error {
 	if err := src.SetReadOnly(false); err != nil {
 		return err
@@ -1384,7 +1489,7 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if target == DirectionExport {
 		// IMPORT -> EXPORT: the target (Multigres) becomes publisher/writer, and
 		// the old source becomes a subscriber. The source must stay cluster-wide
-		// read-only (set by drainCurrent) until the reverse subscription
+		// read-only, set by the hard quiesce, until the reverse subscription
 		// actually attaches — ensureReverseExportLink, called once EXPORTING
 		// commits and the gateway serves, is what un-quiesces it. Lifting the
 		// barrier here, before that link exists, would let a stale client
@@ -1486,6 +1591,16 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 			return "", err
 		}
 	}
+	// Only now restore the CONNECT privilege the ACTIVATE cutover revoked: the
+	// forward subscription and its slot already exist, so a reconnecting
+	// client's write is captured by replication. Granting it earlier, before the
+	// slot exists, could lose a write made before replication could capture it.
+	// The source is already writable from the earlier reverse-subscription
+	// un-quiesce, so no read-only flip is needed here. A no-op when no roles
+	// were fenced.
+	if err := src.GrantConnect(m.quiesceRolesToRestoreConnect(), m.PublicHadConnect, m.QuiesceRoleConnLimits); err != nil {
+		return "", err
+	}
 	return newWriterLSN, nil
 }
 
@@ -1524,6 +1639,16 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 			// source writable again (the migration is being torn down). No-op on a
 			// force drop that never quiesced.
 			logErr("un-quiesce source", src.SetReadOnly(false))
+			// A hard quiesce can fail partway through, after REVOKE CONNECT already
+			// succeeded but before a later step such as SetReadOnly fails and marks the
+			// migration FAILED. Without this, the app roles and PUBLIC would stay
+			// locked out, since the EXPORT-direction restore below only runs once
+			// ACTIVATE fully succeeds. QuiesceApplied is the only reliable proof a
+			// revoke was attempted, since QuiesceRoleConnLimits stays empty whenever
+			// QuiesceRoles is empty even though PUBLIC was still revoked.
+			if m.QuiesceApplied {
+				logErr("restore source connect", src.GrantConnect(m.quiesceRolesToRestoreConnect(), m.PublicHadConnect, m.QuiesceRoleConnLimits))
+			}
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
 		}
 		return
@@ -1531,6 +1656,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	// EXPORT: subscription (apply) on the source, publication (capture) on the target.
 	if src != nil {
 		logErr("drop source subscription", src.DropSubscription(m.SubscriptionName()))
+		// The ACTIVATE cutover revoked CONNECT from the app roles; the migration is
+		// being torn down, so restore their access to the now-standalone source.
+		logErr("restore source connect", src.GrantConnect(m.quiesceRolesToRestoreConnect(), m.PublicHadConnect, m.QuiesceRoleConnLimits))
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
 	// The reverse slot was pre-created on the target (create_slot=false), so the

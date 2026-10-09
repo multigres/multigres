@@ -42,9 +42,9 @@ type source struct {
 }
 
 // migratorAppName is the application_name stamped on every migrator source
-// connection. TerminateClientBackends excludes it so the write-cut never kills
-// the migrator's own (or a concurrent migrator) connection, and it makes
-// migrator sessions identifiable in pg_stat_activity.
+// connection. TerminateClientBackends excludes it so the hard-quiesce write-cut
+// never kills the migrator's own (or a concurrent migrator) connection, and it
+// makes migrator sessions identifiable in pg_stat_activity.
 const migratorAppName = "multigres_migrator"
 
 // newSource opens the source connection and caches it on the returned source;
@@ -75,10 +75,10 @@ func newSource(ctx context.Context, dsn string) (*source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to source: %w", err)
 	}
-	// Stamp a distinctive application_name so the write-cut can exclude migrator
-	// connections, overriding any application_name the operator set in the DSN.
-	// migratorAppName is a compile-time constant, so the inlined literal carries
-	// no injection risk.
+	// Stamp a distinctive application_name so the hard-quiesce write-cut can
+	// exclude migrator connections, overriding any application_name the
+	// operator set in the DSN. migratorAppName is a compile-time constant, so
+	// the inlined literal carries no injection risk.
 	if _, err := conn.Exec(ctx, "SET application_name = '"+migratorAppName+"'"); err != nil {
 		_ = conn.Close(ctx)
 		return nil, fmt.Errorf("set migrator application_name on source: %w", err)
@@ -671,19 +671,19 @@ func (s *source) setSessionReadOnly(ro bool) error {
 }
 
 // TerminateClientBackends disconnects every ordinary client backend on the
-// source database except the migrator's own connections. It targets only
-// backend_type = 'client backend' — never walsenders, background workers, or
-// the logical-replication apply/tablesync workers — so replication is
-// untouched, and excludes rows matching both application_name =
-// migratorAppName and usename = current_user, so it never kills the migrator
-// (this or a concurrent one). application_name is a freely client-settable
-// session GUC — gating the exemption on it alone would let any ordinary
-// application spoof it and dodge termination — so it must also match
-// current_user, which an unprivileged application role cannot assume.
-// pg_terminate_backend requires no more than the pg_signal_backend role for
-// same-database peers; the migrator's admin/superuser DSN has it. Call under
-// default_transaction_read_only=on so terminated clients cannot reconnect and
-// write before the LSN is captured. Idempotent.
+// source database except the migrator's own connections, so a hard quiesce
+// leaves no in-flight writer able to commit after the drain barrier. It
+// targets only backend_type = 'client backend', never walsenders, background
+// workers, or the logical-replication apply/tablesync workers, so replication
+// is untouched. It excludes rows matching both application_name =
+// migratorAppName and usename = current_user, so it never kills the migrator,
+// this or a concurrent one; application_name alone is a freely client-settable
+// GUC an ordinary application could spoof to dodge termination, so it must
+// also match current_user, which an unprivileged application role cannot
+// assume. pg_terminate_backend requires no more than the pg_signal_backend
+// role for same-database peers; the migrator's admin/superuser DSN has it.
+// Call under default_transaction_read_only=on so terminated clients cannot
+// reconnect and write before the LSN is captured. Idempotent.
 func (s *source) TerminateClientBackends() error {
 	if _, err := s.conn.Exec(s.ctx, terminateClientBackendsSQL, migratorAppName); err != nil {
 		return fmt.Errorf("terminate source client backends: %w", err)
@@ -700,6 +700,238 @@ const terminateClientBackendsSQL = `SELECT pg_terminate_backend(pid)
 	  AND pid <> pg_backend_pid()
 	  AND backend_type = 'client backend'
 	  AND NOT (application_name = $1 AND usename = current_user)`
+
+// RevokeConnect revokes CONNECT on the source database from PUBLIC and the
+// given roles, so neither can reconnect and write once the source becomes a
+// subscriber. It complements TerminateClientBackends and the read-only
+// default: those can be bypassed with BEGIN READ WRITE, losing CONNECT
+// cannot. PUBLIC is always revoked, even with an empty role list, since it
+// normally holds CONNECT regardless of QuiesceRoles. Superusers bypass the
+// CONNECT check. GrantConnect reverses this on rollback or teardown.
+// Idempotent.
+func (s *source) RevokeConnect(roles []string) error {
+	db, err := s.currentDatabase()
+	if err != nil {
+		return err
+	}
+	for _, stmt := range connectGrantSQL(false, true, db, roles) {
+		if _, err := s.conn.Exec(s.ctx, stmt); err != nil {
+			return fmt.Errorf("revoke connect on source: %w", err)
+		}
+	}
+	// Also cap CONNECTION LIMIT to 0: REVOKE above only removes each role's own
+	// direct grant, not one inherited from a group role, and CONNECTION LIMIT
+	// is enforced regardless of how CONNECT is derived.
+	zero := make(map[string]int32, len(roles))
+	for _, r := range roles {
+		zero[r] = 0
+	}
+	return s.SetConnLimits(zero)
+}
+
+// GrantConnect restores the CONNECT privilege revoked by RevokeConnect,
+// granting it back to each named role so applications can reach the source
+// again once it is a publisher or primary. restorePublic additionally
+// restores PUBLIC; pass Migration.PublicHadConnect so PUBLIC is only
+// restored when it genuinely had CONNECT before. Idempotent; a no-op when
+// there is nothing to restore. Best-effort at teardown: a failure is
+// logged, not returned, so it never blocks a drop.
+func (s *source) GrantConnect(roles []string, restorePublic bool, connLimits map[string]int32) error {
+	if len(roles) == 0 && !restorePublic {
+		return nil
+	}
+	db, err := s.currentDatabase()
+	if err != nil {
+		return err
+	}
+	for _, stmt := range connectGrantSQL(true, restorePublic, db, roles) {
+		if _, err := s.conn.Exec(s.ctx, stmt); err != nil {
+			return fmt.Errorf("grant connect on source: %w", err)
+		}
+	}
+	return s.SetConnLimits(connLimits)
+}
+
+// PublicHasConnect reports whether the PUBLIC pseudo-role currently holds
+// CONNECT on the source database. Call before RevokeConnect so the result
+// can be persisted for GrantConnect's later restore.
+func (s *source) PublicHasConnect() (bool, error) {
+	var has bool
+	if err := s.conn.QueryRow(s.ctx, "SELECT has_database_privilege('public', current_database(), 'CONNECT')").Scan(&has); err != nil {
+		return false, fmt.Errorf("read source PUBLIC CONNECT privilege: %w", err)
+	}
+	return has, nil
+}
+
+// RolesHadConnect reports, per named role, whether it holds its own direct
+// CONNECT grant on the source database, as opposed to access inherited
+// through PUBLIC or a group role, which has_database_privilege alone cannot
+// distinguish. Call before RevokeConnect so the result can be persisted for
+// GrantConnect's later restore, which must only re-grant roles that held a
+// personal grant. A role missing from the returned map was not found on the
+// source.
+func (s *source) RolesHadConnect(roles []string) (map[string]bool, error) {
+	rows, err := s.conn.Query(s.ctx, `SELECT r.rolname, EXISTS (
+		SELECT 1 FROM aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a
+		WHERE a.grantee = r.oid AND a.privilege_type = 'CONNECT'
+	) FROM pg_roles r, pg_database d
+	WHERE d.datname = current_database() AND r.rolname = ANY($1::text[])`, roles)
+	if err != nil {
+		return nil, fmt.Errorf("read source role CONNECT grants: %w", err)
+	}
+	defer rows.Close()
+	hadConnect := make(map[string]bool, len(roles))
+	for rows.Next() {
+		var name string
+		var had bool
+		if err := rows.Scan(&name, &had); err != nil {
+			return nil, fmt.Errorf("scan role CONNECT grant: %w", err)
+		}
+		hadConnect[name] = had
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read source role CONNECT grants: %w", err)
+	}
+	return hadConnect, nil
+}
+
+// RoleConnLimits reads each named role's current pg_roles.rolconnlimit,
+// where -1 means no limit. Call before RevokeConnect zeroes them, so
+// GrantConnect's later restore can set each role back to its original limit
+// instead of assuming unlimited. A role missing from the returned map was
+// not found on the source.
+func (s *source) RoleConnLimits(roles []string) (map[string]int32, error) {
+	rows, err := s.conn.Query(s.ctx, "SELECT rolname, rolconnlimit FROM pg_roles WHERE rolname = ANY($1::text[])", roles)
+	if err != nil {
+		return nil, fmt.Errorf("read source role connection limits: %w", err)
+	}
+	defer rows.Close()
+	limits := make(map[string]int32, len(roles))
+	for rows.Next() {
+		var name string
+		var limit int32
+		if err := rows.Scan(&name, &limit); err != nil {
+			return nil, fmt.Errorf("scan role connection limit: %w", err)
+		}
+		limits[name] = limit
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read source role connection limits: %w", err)
+	}
+	return limits, nil
+}
+
+// SetConnLimits sets each named role's CONNECTION LIMIT to the given value.
+// Postgres enforces this at authentication time regardless of how a role
+// derives its CONNECT privilege. A no-op for an empty map.
+func (s *source) SetConnLimits(limits map[string]int32) error {
+	for role, limit := range limits {
+		stmt := fmt.Sprintf("ALTER ROLE %s CONNECTION LIMIT %d", ast.QuoteIdentifier(role), limit)
+		if _, err := s.conn.Exec(s.ctx, stmt); err != nil {
+			return fmt.Errorf("set connection limit for role %q: %w", role, err)
+		}
+	}
+	return nil
+}
+
+// connectGrantSQL builds the GRANT or REVOKE CONNECT statements for the
+// database and roles, plus PUBLIC when includePublic is set. Every
+// identifier is quoted. includePublic still produces the PUBLIC statement
+// with an empty role list, since PUBLIC's CONNECT is the real barrier
+// against a fresh connection writing after the quiesce. Returns nil when
+// there is nothing to do.
+func connectGrantSQL(grant, includePublic bool, db string, roles []string) []string {
+	if len(roles) == 0 && !includePublic {
+		return nil
+	}
+	verb, dir := "REVOKE", "FROM"
+	if grant {
+		verb, dir = "GRANT", "TO"
+	}
+	prefix := verb + " CONNECT ON DATABASE " + ast.QuoteIdentifier(db) + " " + dir + " "
+	var stmts []string
+	if includePublic {
+		stmts = append(stmts, prefix+"PUBLIC")
+	}
+	for _, r := range roles {
+		stmts = append(stmts, prefix+ast.QuoteIdentifier(r))
+	}
+	return stmts
+}
+
+// checkQuiesceRoles validates operator-supplied quiesce roles at create
+// time: each must exist on the source, none may be the DSN's own role,
+// since revoking its CONNECT could lock out the migrator, and none may be
+// a superuser, since superusers can't be fenced by REVOKE CONNECT or
+// CONNECTION LIMIT. Returns a clear create-time error rather than failing
+// mid-cutover. A no-op when roles is empty.
+func (s *source) checkQuiesceRoles(roles []string) error {
+	if len(roles) == 0 {
+		return nil
+	}
+	var currentUser string
+	if err := s.conn.QueryRow(s.ctx, "SELECT current_user").Scan(&currentUser); err != nil {
+		return fmt.Errorf("read source current_user: %w", err)
+	}
+	for _, r := range roles {
+		if r == currentUser {
+			return fmt.Errorf("quiesce role %q is the source connection's own role; revoking its CONNECT would lock out the migrator", r)
+		}
+	}
+	rows, err := s.conn.Query(s.ctx,
+		`SELECT r FROM unnest($1::text[]) AS r WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) ORDER BY r`, roles)
+	if err != nil {
+		return fmt.Errorf("check quiesce roles exist: %w", err)
+	}
+	defer rows.Close()
+	var missing []string
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			return fmt.Errorf("scan quiesce role: %w", err)
+		}
+		missing = append(missing, r)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("check quiesce roles exist: %w", err)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("source quiesce role(s) do not exist: %s", strings.Join(missing, ", "))
+	}
+	// Superusers bypass REVOKE CONNECT and CONNECTION LIMIT entirely, so reject
+	// them here rather than fail to fence them mid-cutover.
+	superRows, err := s.conn.Query(s.ctx,
+		`SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[]) AND rolsuper ORDER BY rolname`, roles)
+	if err != nil {
+		return fmt.Errorf("check quiesce roles for superuser: %w", err)
+	}
+	defer superRows.Close()
+	var supers []string
+	for superRows.Next() {
+		var r string
+		if err := superRows.Scan(&r); err != nil {
+			return fmt.Errorf("scan quiesce role: %w", err)
+		}
+		supers = append(supers, r)
+	}
+	if err := superRows.Err(); err != nil {
+		return fmt.Errorf("check quiesce roles for superuser: %w", err)
+	}
+	if len(supers) > 0 {
+		return fmt.Errorf("source quiesce role(s) are superusers and cannot be fenced by REVOKE CONNECT/CONNECTION LIMIT: %s", strings.Join(supers, ", "))
+	}
+	return nil
+}
+
+// currentDatabase reads the source connection's database name, needed
+// because GRANT/REVOKE ... ON DATABASE requires the literal name.
+func (s *source) currentDatabase() (string, error) {
+	var db string
+	if err := s.conn.QueryRow(s.ctx, "SELECT current_database()").Scan(&db); err != nil {
+		return "", fmt.Errorf("read source current_database: %w", err)
+	}
+	return db, nil
+}
 
 // CurrentLSN returns the source's current WAL LSN (call on a publisher/primary).
 func (s *source) CurrentLSN() (string, error) {
