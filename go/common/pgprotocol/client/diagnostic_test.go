@@ -91,9 +91,9 @@ func TestParseDiagnosticFieldsMissingRequiredFields(t *testing.T) {
 	}
 }
 
-// TestParseDiagnosticFieldsAllFieldsPopulated tests parsing diagnostics with all 14 fields.
+// TestParseDiagnosticFieldsAllFieldsPopulated tests parsing diagnostics with all fields.
 func TestParseDiagnosticFieldsAllFieldsPopulated(t *testing.T) {
-	// Build wire format message with all 14 fields
+	// Build wire format message with all diagnostic fields, including F/L/R.
 	w := NewMessageWriter()
 	w.AppendByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
@@ -123,12 +123,18 @@ func TestParseDiagnosticFieldsAllFieldsPopulated(t *testing.T) {
 	w.WriteString("text")
 	w.AppendByte(protocol.FieldConstraint)
 	w.WriteString("users_email_key")
+	w.AppendByte(protocol.FieldFile)
+	w.WriteString("nbtinsert.c")
+	w.AppendByte(protocol.FieldLine)
+	w.WriteString("670")
+	w.AppendByte(protocol.FieldRoutine)
+	w.WriteString("_bt_check_unique")
 	w.AppendByte(0) // Terminator
 
 	diag := parseDiagnosticFields(protocol.MsgErrorResponse, w.Bytes())
 	require.NotNil(t, diag)
 
-	// Verify all 14 fields
+	// Verify all fields, including source location (F/L/R).
 	assert.Equal(t, byte(protocol.MsgErrorResponse), diag.MessageType)
 	assert.Equal(t, "ERROR", diag.Severity)
 	assert.Equal(t, "23505", diag.Code)
@@ -144,6 +150,9 @@ func TestParseDiagnosticFieldsAllFieldsPopulated(t *testing.T) {
 	assert.Equal(t, "email", diag.Column)
 	assert.Equal(t, "text", diag.DataType)
 	assert.Equal(t, "users_email_key", diag.Constraint)
+	assert.Equal(t, "nbtinsert.c", diag.File)
+	assert.Equal(t, int32(670), diag.Line)
+	assert.Equal(t, "_bt_check_unique", diag.Routine)
 
 	// Validate should pass
 	err := diag.Validate()
@@ -181,6 +190,9 @@ func TestParseDiagnosticFieldsOnlyRequiredFields(t *testing.T) {
 	assert.Empty(t, diag.Column)
 	assert.Empty(t, diag.DataType)
 	assert.Empty(t, diag.Constraint)
+	assert.Empty(t, diag.File)
+	assert.Equal(t, int32(0), diag.Line)
+	assert.Empty(t, diag.Routine)
 
 	// Validate should pass
 	err := diag.Validate()
@@ -274,6 +286,21 @@ func TestDiagnosticRoundTripParseProtoWriteParse(t *testing.T) {
 				Column:           "email",
 				DataType:         "text",
 				Constraint:       "users_email_key",
+				File:             "nbtinsert.c",
+				Line:             670,
+				Routine:          "_bt_check_unique",
+			},
+		},
+		{
+			name: "error with source location only",
+			diag: &mterrors.PgDiagnostic{
+				MessageType: protocol.MsgErrorResponse,
+				Severity:    "ERROR",
+				Code:        "22012",
+				Message:     "division by zero",
+				File:        "int.c",
+				Line:        870,
+				Routine:     "int4div",
 			},
 		},
 		{
@@ -643,6 +670,9 @@ func assertDiagnosticsEqual(t *testing.T, expected, actual *mterrors.PgDiagnosti
 	assert.Equal(t, expected.Column, actual.Column, "Column mismatch")
 	assert.Equal(t, expected.DataType, actual.DataType, "DataType mismatch")
 	assert.Equal(t, expected.Constraint, actual.Constraint, "Constraint mismatch")
+	assert.Equal(t, expected.File, actual.File, "File mismatch")
+	assert.Equal(t, expected.Line, actual.Line, "Line mismatch")
+	assert.Equal(t, expected.Routine, actual.Routine, "Routine mismatch")
 }
 
 // Helper function to build wire format from PgDiagnostic
@@ -704,6 +734,18 @@ func buildDiagnosticWireFormat(diag *mterrors.PgDiagnostic) []byte {
 	if diag.Constraint != "" {
 		w.AppendByte(protocol.FieldConstraint)
 		w.WriteString(diag.Constraint)
+	}
+	if diag.File != "" {
+		w.AppendByte(protocol.FieldFile)
+		w.WriteString(diag.File)
+	}
+	if diag.Line != 0 {
+		w.AppendByte(protocol.FieldLine)
+		w.WriteString(positionToString(diag.Line))
+	}
+	if diag.Routine != "" {
+		w.AppendByte(protocol.FieldRoutine)
+		w.WriteString(diag.Routine)
 	}
 
 	w.AppendByte(0) // Terminator
