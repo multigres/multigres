@@ -23,16 +23,15 @@ import (
 
 // PoolerSpanAttributes returns OpenTelemetry span attributes for gRPC clients
 // connecting to multipooler instances. It sets:
+// - peer.service: the remote service name ("multipooler")
 // - multigres.pooler.id: the global pooler identifier (e.g., "multipooler-zone1-0")
 //
 // Use with grpccommon.WithAttributes() when creating gRPC clients:
 //
 //	grpccommon.NewClient(addr, grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(poolerID)...))
-//
-// TODO: Add peer.service="multipooler" to match OTel semantic conventions where
-// peer.service should match the remote service's service.name resource attribute.
 func PoolerSpanAttributes(poolerID *clustermetadatapb.ID) []attribute.KeyValue {
 	return []attribute.KeyValue{
+		attribute.String("peer.service", "multipooler"),
 		attribute.String("multigres.pooler.id", string(topoclient.ComponentIDString(poolerID))),
 	}
 }
