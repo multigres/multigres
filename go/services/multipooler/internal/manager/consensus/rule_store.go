@@ -549,11 +549,11 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 //
 // Uses BeginAdmin, not Begin: this touches the locked-down multigres schema.
 //
-// Untested: the synchronous_commit stall this avoids only reproduces against
-// real postgres with synchronous_standby_names set to an unreachable
-// standby, which the existing rule_store_pg_test.go harness doesn't yet set
-// up. The NOWAIT-fails-fast behavior is covered by
-// TestRuleStorePG_*_FailsWhenRuleIsLocked; the stall-avoidance itself isn't.
+// The NOWAIT-fails-fast behavior is covered by
+// TestRuleStorePG_*_FailsWhenRuleIsLocked; the synchronous_commit
+// stall-avoidance itself is covered end to end by
+// TestGracefulShutdownPreemptsStuckRuleWrite (go/test/endtoend/multiorch),
+// which kills both standbys so a real write can never get its ack.
 func (rs *ruleStore) wrapInRollback(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	tx, err := rs.queryService.BeginAdmin(ctx)
 	if err != nil {
