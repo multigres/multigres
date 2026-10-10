@@ -135,6 +135,12 @@ type postgresState struct {
 	// starting postgres on it, and to keep the unrecoverable classifier counting
 	// even when postgres appears "running" (the false-healthy waiting-for-WAL state).
 	rewindSentinelPresent bool
+	// restoreSentinelPresent is true when a restore sentinel is on disk, meaning a
+	// prior pgBackRest restore did not complete (see restore_sentinel.go). The
+	// data directory may be a partial restore that already contains PG_VERSION;
+	// the monitor uses the sentinel to force the restore path rather than starting
+	// postgres on it.
+	restoreSentinelPresent bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
 	// from. False on standbys and on a freshly promoted primary that has not yet
@@ -152,6 +158,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSentinelPresent == b.rewindSentinelPresent &&
+		a.restoreSentinelPresent == b.restoreSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
 
@@ -570,6 +577,15 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
+
+	restoreSentinelPresent, err := pm.hasRestoreSentinel()
+	if err != nil {
+		// Same reasoning again: an unreadable sentinel leaves the "was a restore
+		// interrupted?" question ambiguous, so skip the tick rather than risk
+		// starting postgres on a possibly partial restore.
+		return state, fmt.Errorf("check restore sentinel: %w", err)
+	}
+	state.restoreSentinelPresent = restoreSentinelPresent
 
 	return state, nil
 }
@@ -1252,6 +1268,13 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 	if state.bootstrapSentinelPresent {
 		return remedialActionCreateFirstBackup
 	}
+	// A sentinel from a prior restore attempt means the restore was interrupted
+	// and any on-disk pg_data is a partial restore that may already contain
+	// PG_VERSION, so it would look initialized. Force the restore path so
+	// restoreAndStartPostgres can remove it and restore again.
+	if state.restoreSentinelPresent {
+		return remedialActionRestoreFromBackup
+	}
 	// Postgres not running: start it (or restore/bootstrap below).
 	if state.dirInitialized {
 		return remedialActionStartPostgres
@@ -1684,6 +1707,22 @@ func latestCompleteBackup(backups []*multipoolermanagerdatapb.BackupMetadata) *m
 // This is used by MonitorPostgres for auto-restore functionality.
 // Caller must hold the action lock.
 func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error {
+	// A restore sentinel means a prior restore was interrupted (e.g. the process
+	// was killed mid-restore), so any PGDATA is a partial restore. Remove it
+	// before the status re-check below: like hasDataDirectory(), that check
+	// treats PG_VERSION as "initialized" and would skip the restore. The sentinel
+	// itself stays until restoreFromBackupLocked completes a restore.
+	sentinelPresent, err := pm.hasRestoreSentinel()
+	if err != nil {
+		return fmt.Errorf("failed to check restore sentinel: %w", err)
+	}
+	if sentinelPresent {
+		pm.logger.WarnContext(ctx, "MonitorPostgres: restore sentinel from an interrupted restore detected; removing partial data directory before retry") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		if err := pm.removeDataDirectory(); err != nil {
+			return fmt.Errorf("failed to remove partial data directory from interrupted restore: %w", err)
+		}
+	}
+
 	// Re-check status to ensure conditions haven't changed
 	// (e.g., another process may have initialized or started postgres while we waited for lock)
 	if pm.pgctldClient != nil {

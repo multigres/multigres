@@ -1265,4 +1265,6 @@ func TestRestoreFromBackupLocked_FailedRestoreRemovesPartialDataDir(t *testing.T
 	require.Error(t, err)
 
 	assert.NoDirExists(t, dataDir, "a failed restore must remove whatever partial data it left behind")
+	assert.NoFileExists(t, filepath.Join(poolerDir, constants.RestoreSentinelFile),
+		"once the partial data is gone, the restore sentinel must be cleared too")
 }
