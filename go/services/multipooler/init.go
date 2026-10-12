@@ -129,6 +129,9 @@ type Multipooler struct {
 	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+	// queryGrpcServer is the gRPC server the query service is served on: the
+	// same as grpcServer, except in minigres (ProcessResources.QueryGrpcServer).
+	queryGrpcServer *servenv.GrpcServer
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
@@ -302,6 +305,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	}
 	mp.senv = resources.ServEnv
 	mp.grpcServer = resources.GrpcServer
+	mp.queryGrpcServer = resources.QueryGrpcServer
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -550,7 +554,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if consensusEnabled {
 		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	}
-	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
+	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
 

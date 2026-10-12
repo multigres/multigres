@@ -77,7 +77,7 @@ func newTestGateway(t *testing.T, cells ...string) (*Multigateway, topoclient.St
 		Source:    ts,
 		LocalCell: "zone1",
 		Logger:    slog.New(slog.DiscardHandler),
-		DialOpt:   grpc.WithTransportCredentials(insecure.NewCredentials()),
+		Dialer:    poolergateway.NewRemoteDialer(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	})
 	t.Cleanup(func() { _ = pg.Close() })
 

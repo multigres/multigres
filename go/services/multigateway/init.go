@@ -165,6 +165,10 @@ type Multigateway struct {
 	// the multigateway owns the process, under its service name when it
 	// shares the HTTP server with other components.
 	statusPath string
+
+	// poolerDialer connects to poolers. nil means NewRemoteDialer with the
+	// --multipooler-grpc-* credentials, built in Init once flags are parsed.
+	poolerDialer poolergateway.PoolerDialer
 }
 
 // NewMultigateway creates a new Multigateway instance. reg is the settings
@@ -177,7 +181,10 @@ type Multigateway struct {
 // and constructs them; the multigateway never creates its own. statusPath is
 // where the status page is served ("/" when the multigateway owns the
 // process, under its service name when it shares the HTTP server).
-func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+// poolerDialer decides how the multigateway connects to poolers: nil connects
+// over the network to the addresses in the topology, as Multigres does;
+// minigres passes a dialer for the multipooler in the same process.
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, poolerDialer poolergateway.PoolerDialer) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
 	}
@@ -311,6 +318,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	mg.senv = resources.ServEnv
 	mg.grpcServer = resources.GrpcServer
 	mg.statusPath = statusPath
+	mg.poolerDialer = poolerDialer
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -420,13 +428,18 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
+	poolerDialer := mg.poolerDialer
+	if poolerDialer == nil {
+		poolerDialer = poolergateway.NewRemoteDialer(poolerTransportCreds)
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
 		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
 		Ctx:                     mg.shutdownCtx,
 		Source:                  mg.ts,
 		LocalCell:               mg.cell.Get(),
 		Logger:                  logger,
-		DialOpt:                 poolerTransportCreds,
+		Dialer:                  poolerDialer,
 		Buffer:                  mg.buffer,
 		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
 		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,

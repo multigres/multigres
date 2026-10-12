@@ -22,8 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -224,9 +222,6 @@ type loadBalancer struct {
 	// the shard. May be nil.
 	onLeaderServing func(*clustermetadatapb.ShardKey)
 
-	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
-	grpcDialOpt grpc.DialOption
-
 	// lowReplicationLagNs is the preferred replication lag threshold in nanoseconds.
 	// Replicas at or below this lag are considered "healthy" and preferred.
 	// If all replicas exceed this but are under highReplicationLagToleranceNs,
@@ -248,9 +243,6 @@ type loadBalancerOpts struct {
 	LocalCell string
 	// Logger is used for all diagnostic logging. Required.
 	Logger *slog.Logger
-	// DialOpt configures transport credentials for pooler gRPC connections.
-	// Required.
-	DialOpt grpc.DialOption
 
 	// LowLag is the preferred replication-lag threshold. Replicas at or below
 	// this lag are preferred. Zero disables the preferred tier.
@@ -280,7 +272,6 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 		logger:                        opts.Logger,
 		ctx:                           opts.Ctx,
 		shards:                        make(map[shardKey]*shardSummary),
-		grpcDialOpt:                   opts.DialOpt,
 		onLeaderServing:               opts.OnLeaderServing,
 		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
 		highReplicationLagToleranceNs: opts.HighTolerance.Nanoseconds(),

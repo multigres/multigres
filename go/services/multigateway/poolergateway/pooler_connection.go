@@ -164,13 +164,16 @@ func newPoolerConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.Multipooler,
 	logger *slog.Logger,
-	grpcDialOpt grpc.DialOption,
+	dialer PoolerDialer,
 	reuseQueryStreams bool,
 	onHealthUpdate func(*poolerConnection),
 ) (*poolerConnection, error) {
 	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
-	addr := poolerInfo.Addr()
+	addr, dialOpts, err := dialer.Target(pooler)
+	if err != nil {
+		return nil, err
+	}
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
@@ -180,7 +183,7 @@ func newPoolerConnection(
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpcDialOpt),
+		grpccommon.WithDialOptions(dialOpts...),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)

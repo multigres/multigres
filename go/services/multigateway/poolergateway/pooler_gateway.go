@@ -26,10 +26,10 @@ package poolergateway
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
-	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -135,9 +135,9 @@ type PoolerGatewayOpts struct {
 	LocalCell string
 	// Logger is used for all diagnostic logging. Required.
 	Logger *slog.Logger
-	// DialOpt configures transport credentials for pooler gRPC connections.
-	// Required.
-	DialOpt grpc.DialOption
+	// Dialer decides where and how to connect to each pooler: NewRemoteDialer
+	// in Multigres, NewLocalDialer in minigres. Required.
+	Dialer PoolerDialer
 	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
 	// it when a new consensus leader reports SERVING. Optional.
 	Buffer *buffer.Buffer
@@ -181,7 +181,6 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Ctx:             opts.Ctx,
 		LocalCell:       opts.LocalCell,
 		Logger:          opts.Logger,
-		DialOpt:         opts.DialOpt,
 		LowLag:          opts.LowLag,
 		HighTolerance:   opts.HighTolerance,
 		OnLeaderServing: onLeaderServing,
@@ -196,7 +195,14 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.Dialer, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
+			if errors.Is(err, ErrNotLocalPooler) {
+				// Another process's pooler in a shared topology: expected, and
+				// never routed to.
+				opts.Logger.DebugContext(opts.Ctx, "ignoring pooler of another process",
+					"pooler_id", topoclient.ComponentIDString(p.Id))
+				return nil
+			}
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
