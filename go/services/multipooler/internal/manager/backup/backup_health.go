@@ -70,11 +70,15 @@ type HealthTracker struct {
 	ready  bool
 	reason string // one of the ReadyReason* constants
 
-	// WAL archive lag (primary only; set from pg_stat_archiver + archive_status).
-	archiverOnPrimary bool      // true once the archiver was read on a primary
-	lastArchived      time.Time // zero if unknown / not primary
-	oldestPending     time.Time // ready-time of oldest unarchived segment; zero if caught up
-	pendingCount      int64     // completed segments awaiting archive; 0 if caught up
+	// WAL archive backlog (primary only), measured by the archiver poller on its
+	// own faster ticker — see constants.ArchiverPollInterval.
+	archiverOnPrimary   bool      // true once the archiver was read on a primary
+	lastArchived        time.Time // zero if unknown / not primary
+	oldestPending       time.Time // ready-time of oldest unarchived segment; zero if caught up
+	pendingCount        int64     // completed segments awaiting archive; 0 if caught up
+	archiveLagSeconds   float64   // backlog as measured at archiverRefreshedAt, not derived later
+	archivingFailing    bool      // the most recent archive attempt failed
+	archiverRefreshedAt time.Time // last successful archiver read; zero before the first one
 
 	// Updated inline by the Backup() RPC.
 	failuresSinceSuccess int64
@@ -107,6 +111,9 @@ type Snapshot struct {
 	LastArchived         time.Time // zero if unknown / not primary
 	OldestPending        time.Time // ready-time of oldest unarchived segment; zero if caught up
 	PendingCount         int64     // completed segments awaiting archive; 0 if caught up
+	ArchiveLagSeconds    float64   // backlog as measured at ArchiverRefreshedAt
+	ArchivingFailing     bool      // the most recent archive attempt failed
+	ArchiverRefreshedAt  time.Time // last successful archiver read; zero before the first one
 	FailuresSinceSuccess int64
 	InProgressStart      time.Time // zero when no backup running
 	LeaseHeld            bool
@@ -133,6 +140,9 @@ func (t *HealthTracker) Snapshot() Snapshot {
 		LastArchived:         t.lastArchived,
 		OldestPending:        t.oldestPending,
 		PendingCount:         t.pendingCount,
+		ArchiveLagSeconds:    t.archiveLagSeconds,
+		ArchivingFailing:     t.archivingFailing,
+		ArchiverRefreshedAt:  t.archiverRefreshedAt,
 		FailuresSinceSuccess: t.failuresSinceSuccess,
 		InProgressStart:      t.inProgressStart,
 		LeaseHeld:            t.leaseHeld,
@@ -158,16 +168,34 @@ func (t *HealthTracker) applyReadiness(ready bool, reason string) {
 	t.reason = reason
 }
 
-// applyArchiver stores the WAL archive state computed by the poller. onPrimary
-// is false on a standby (which does not archive), in which case the caller
-// passes zero values and the gauges stop emitting.
-func (t *HealthTracker) applyArchiver(onPrimary bool, lastArchived, oldestPending time.Time, pendingCount int64) {
+// archiverState is one reading of the WAL archive backlog. lagSeconds is
+// computed when the reading is taken rather than derived from oldestPending
+// later: the backlog drops to zero as soon as its oldest segment is archived,
+// so subtracting oldestPending from a live clock would report a queue that has
+// already drained, and keep growing while it does so.
+type archiverState struct {
+	onPrimary     bool
+	lastArchived  time.Time
+	oldestPending time.Time
+	pendingCount  int64
+	lagSeconds    float64
+	failing       bool
+	measuredAt    time.Time
+}
+
+// applyArchiver stores one archiver reading. On a standby (which does not
+// archive) the caller passes a state with onPrimary false, and the backlog
+// gauges stop being emitted.
+func (t *HealthTracker) applyArchiver(st archiverState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.archiverOnPrimary = onPrimary
-	t.lastArchived = lastArchived
-	t.oldestPending = oldestPending
-	t.pendingCount = pendingCount
+	t.archiverOnPrimary = st.onPrimary
+	t.lastArchived = st.lastArchived
+	t.oldestPending = st.oldestPending
+	t.pendingCount = st.pendingCount
+	t.archiveLagSeconds = st.lagSeconds
+	t.archivingFailing = st.failing
+	t.archiverRefreshedAt = st.measuredAt
 }
 
 // SetLeaseHeld records whether this pooler currently holds the backup lease.
@@ -223,16 +251,26 @@ func (e *Engine) RunHealthPoller(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = constants.BackupHealthPollInterval
 	}
+	// The archive backlog cannot be extrapolated between polls, so it gets its own
+	// faster ticker instead of inheriting the repo-paced interval. Clamped so an
+	// explicitly shortened interval (tests) still drives both.
+	archiverInterval := min(constants.ArchiverPollInterval, interval)
+
+	e.refreshArchiverNow(ctx)
 	e.refreshHealth(ctx)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	archiverTicker := time.NewTicker(archiverInterval)
+	defer archiverTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			e.refreshHealth(ctx)
+		case <-archiverTicker.C:
+			e.refreshArchiverNow(ctx)
 		}
 	}
 }
@@ -244,6 +282,7 @@ func (e *Engine) RunHealthPoller(ctx context.Context, interval time.Duration) {
 //
 // It is deliberately NOT used in the backup path — see RefreshRepoNow.
 func (e *Engine) RefreshHealthNow(ctx context.Context) {
+	e.refreshArchiverNow(ctx)
 	e.refreshHealth(ctx)
 }
 
@@ -298,9 +337,10 @@ func (e *Engine) refreshHealth(ctx context.Context) {
 	pgMode := e.resolveRole(ctx)
 	reachable, repoReason := e.refreshFromRepo(ctx)
 	configReason := e.checkBackupSettings(ctx, pgMode)
-	archivingFailing := e.refreshArchiver(ctx, pgMode)
 
-	reason := resolveReadiness(reachable, repoReason, configReason, archivingFailing)
+	// Archiving health comes from the archiver poller's most recent reading, which
+	// runs on its own ticker, rather than from a query issued here.
+	reason := resolveReadiness(reachable, repoReason, configReason, e.health.Snapshot().ArchivingFailing)
 	e.health.applyReadiness(reason == ReadyReasonOK, reason)
 }
 
@@ -438,27 +478,49 @@ func resolveReadiness(reachable bool, repoReason, configReason string, archiving
 	return ReadyReasonOK
 }
 
-// refreshArchiver refreshes the WAL archive lag gauge from pg_stat_archiver and
-// reports whether archiving is currently failing (the most recent archive
-// attempt failed). Only a primary archives WAL, so on a standby it clears the
-// cached value (the gauge stops emitting) and reports not-failing. This is a
-// passive, continuous signal — a cheap system-view read, no forced I/O.
-func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) (archivingFailing bool) {
+// refreshArchiver measures the WAL archive backlog from pg_stat_archiver and
+// the archive_status directory. Only a primary archives WAL, so on a standby it
+// clears the reading and the backlog gauges stop being emitted.
+//
+// The backlog is measured here rather than derived at scrape time because it is
+// a queue depth, not an age: it collapses to zero when the oldest pending
+// segment is archived. On a query failure the previous reading is left in place
+// but not refreshed, so constants.ArchiverStaleAfter retires it and alerting
+// sees a gap instead of a value climbing on its own.
+func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) {
 	if !pgMode.OutOfRecovery() {
-		e.health.applyArchiver(false, time.Time{}, time.Time{}, 0)
-		return false
+		e.health.applyArchiver(archiverState{measuredAt: time.Now()})
+		return
 	}
 
 	fn := e.archiverStatsProvider()
 	if fn == nil {
-		return false
+		return
 	}
 	stats, err := fn(ctx)
 	if err != nil {
-		e.logger.DebugContext(ctx, "backup health: pg_stat_archiver query failed; keeping cached lag", "error", err)
-		return false
+		e.logger.WarnContext(ctx, "backup health: pg_stat_archiver query failed; archive backlog gauges will go stale", "error", err)
+		return
 	}
 
-	e.health.applyArchiver(true, stats.LastArchived, stats.OldestPending, stats.PendingCount)
-	return stats.FailedCount > 0 && stats.LastFailed.After(stats.LastArchived)
+	now := time.Now()
+	var lag float64
+	if !stats.OldestPending.IsZero() {
+		lag = now.Sub(stats.OldestPending).Seconds()
+	}
+	e.health.applyArchiver(archiverState{
+		onPrimary:     true,
+		lastArchived:  stats.LastArchived,
+		oldestPending: stats.OldestPending,
+		pendingCount:  stats.PendingCount,
+		lagSeconds:    lag,
+		failing:       stats.FailedCount > 0 && stats.LastFailed.After(stats.LastArchived),
+		measuredAt:    now,
+	})
+}
+
+// refreshArchiverNow takes a single archiver reading, resolving the local role
+// first since only a primary archives WAL.
+func (e *Engine) refreshArchiverNow(ctx context.Context) {
+	e.refreshArchiver(ctx, e.resolveRole(ctx))
 }

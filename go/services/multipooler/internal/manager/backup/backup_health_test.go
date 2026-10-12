@@ -246,6 +246,9 @@ func TestRefreshHealth_ArchivingFailing(t *testing.T) {
 		}, nil
 	})
 
+	// Readiness consumes the archiver poller's most recent reading rather than
+	// querying for one, so take a reading first — RunHealthPoller does the same.
+	e.refreshArchiverNow(t.Context())
 	e.refreshHealth(t.Context())
 	snap := e.Health().Snapshot()
 	assert.False(t, snap.Ready)
@@ -344,9 +347,11 @@ func TestRefreshArchiver_ComputesLagOnPrimary(t *testing.T) {
 		return ArchiverStats{LastArchived: archived, OldestPending: oldestPending, PendingCount: 2}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
-	assert.False(t, failing)
+	e.refreshArchiver(t.Context(), pgmode.Primary)
 	snap := e.Health().Snapshot()
+	assert.False(t, snap.ArchivingFailing)
+	assert.False(t, snap.ArchiverRefreshedAt.IsZero(), "a successful read marks the reading fresh")
+	assert.Positive(t, snap.ArchiveLagSeconds, "backlog measured at read time, not derived later")
 	assert.True(t, snap.ArchiverOnPrimary, "primary should be marked so the backlog gauge emits")
 	assert.Equal(t, archived, snap.LastArchived)
 	assert.Equal(t, oldestPending, snap.OldestPending, "primary should propagate the pending-backlog timestamp")
@@ -363,9 +368,10 @@ func TestRefreshArchiver_CaughtUpPrimaryClearsPending(t *testing.T) {
 		return ArchiverStats{LastArchived: archived}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
-	assert.False(t, failing)
+	e.refreshArchiver(t.Context(), pgmode.Primary)
 	snap := e.Health().Snapshot()
+	assert.False(t, snap.ArchivingFailing)
+	assert.Zero(t, snap.ArchiveLagSeconds, "caught up ⇒ a measured zero, not a derived age")
 	assert.True(t, snap.ArchiverOnPrimary)
 	assert.Equal(t, archived, snap.LastArchived, "wall-clock recency still tracked")
 	assert.True(t, snap.OldestPending.IsZero(), "caught up ⇒ no pending backlog")
@@ -376,16 +382,22 @@ func TestRefreshArchiver_SkipsOnStandby(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	// Prime stale values to ensure standby clears them.
-	e.Health().applyArchiver(true, time.Unix(1735984900, 0), time.Unix(1735984900, 0), 3)
+	e.Health().applyArchiver(archiverState{
+		onPrimary:     true,
+		lastArchived:  time.Unix(1735984900, 0),
+		oldestPending: time.Unix(1735984900, 0),
+		pendingCount:  3,
+		measuredAt:    time.Now(),
+	})
 	called := false
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		called = true
 		return ArchiverStats{}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), pgmode.InRecovery)
-	assert.False(t, failing)
+	e.refreshArchiver(t.Context(), pgmode.InRecovery)
 	snap := e.Health().Snapshot()
+	assert.False(t, snap.ArchivingFailing)
 	assert.True(t, snap.LastArchived.IsZero(), "standby should report no archive lag")
 	assert.False(t, snap.ArchiverOnPrimary, "standby should not be marked as primary")
 	assert.True(t, snap.OldestPending.IsZero(), "standby should report no pending backlog")
@@ -402,9 +414,9 @@ func TestRefreshArchiver_ReportsFailingWhenLastFailedNewer(t *testing.T) {
 		return ArchiverStats{LastArchived: archived, LastFailed: failed, FailedCount: 3}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
-	assert.True(t, failing, "a failure newer than the last success means archiving is failing")
+	e.refreshArchiver(t.Context(), pgmode.Primary)
 	snap := e.Health().Snapshot()
+	assert.True(t, snap.ArchivingFailing, "a failure newer than the last success means archiving is failing")
 	assert.Equal(t, archived, snap.LastArchived)
 }
 
@@ -521,20 +533,34 @@ func TestCheckBackupSettings_DoesNotBlockOnNilOrError(t *testing.T) {
 	assert.Equal(t, "", e.checkBackupSettings(t.Context(), pgmode.Primary))
 }
 
-func TestRefreshArchiver_QueryErrorKeepsCache(t *testing.T) {
+// TestRefreshArchiver_QueryErrorLeavesReadingUnrefreshed pins the behaviour the
+// staleness window depends on: a failed query must not advance the reading's
+// timestamp, so the reading ages out instead of being re-derived against a live
+// clock and climbing on its own.
+func TestRefreshArchiver_QueryErrorLeavesReadingUnrefreshed(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 	primed := time.Unix(1735984900, 0)
-	e.Health().applyArchiver(true, primed, time.Time{}, 0)
+	measured := time.Now().Add(-time.Minute)
+	e.Health().applyArchiver(archiverState{
+		onPrimary:    true,
+		lastArchived: primed,
+		lagSeconds:   12,
+		measuredAt:   measured,
+	})
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		return ArchiverStats{}, errors.New("query failed")
 	})
 
-	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
-	assert.False(t, failing, "a query error is not an archiving failure")
-	assert.Equal(t, primed.Unix(), e.Health().Snapshot().LastArchived.Unix(), "cached lag retained on query error")
+	e.refreshArchiver(t.Context(), pgmode.Primary)
+	snap := e.Health().Snapshot()
+	assert.False(t, snap.ArchivingFailing, "a query error is not an archiving failure")
+	assert.Equal(t, primed.Unix(), snap.LastArchived.Unix(), "previous reading retained")
+	assert.Equal(t, 12.0, snap.ArchiveLagSeconds, "lag is not recomputed on a failed read")
+	assert.Equal(t, measured.UnixNano(), snap.ArchiverRefreshedAt.UnixNano(), "timestamp not advanced, so the reading ages out")
 }
 
 func TestRefreshArchiver_NilProvider(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
-	assert.False(t, e.refreshArchiver(t.Context(), pgmode.Primary), "no provider → cannot be failing")
+	e.refreshArchiver(t.Context(), pgmode.Primary)
+	assert.False(t, e.Health().Snapshot().ArchivingFailing, "no provider → cannot be failing")
 }
