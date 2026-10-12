@@ -15,6 +15,7 @@
 package multiorch
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -132,9 +133,21 @@ func TestRewindDivergedReplica(t *testing.T) {
 		return execErr == nil
 	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "R1 should be writable after promotion")
 
-	// Write a diverging row to R1 — this row must not exist on P
-	_, err = r1DB.Exec("INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
+	// R1 has no followers: this deliberately divergent write must flush locally
+	// without waiting for any synchronous standbys inherited during promotion.
+	// Keep the override transaction-local and bound the write so a regression
+	// fails here instead of consuming the entire integration suite's timeout.
+	writeCtx, cancelWrite := context.WithTimeout(t.Context(), utils.ScaleTimeout(10*time.Second))
+	defer cancelWrite()
+	divergentTx, err := r1DB.BeginTx(writeCtx, nil)
+	require.NoError(t, err, "should begin divergent write on R1")
+	defer func() { _ = divergentTx.Rollback() }()
+	_, err = divergentTx.ExecContext(writeCtx, "SET LOCAL synchronous_commit = 'local'")
+	require.NoError(t, err, "should require only local WAL flush for divergent write")
+	_, err = divergentTx.ExecContext(writeCtx, "INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
 	require.NoError(t, err, "should write diverging data to R1")
+	require.NoError(t, divergentTx.Commit(), "should commit divergent write on R1")
+	cancelWrite()
 	t.Log("Wrote diverging data to R1 on new timeline")
 
 	// Close and archive the WAL segment containing the divergent checkpoint. The
