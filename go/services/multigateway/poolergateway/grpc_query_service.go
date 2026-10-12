@@ -416,22 +416,6 @@ func (g *grpcQueryService) CopyReady(
 		"query", copyQuery)
 
 	// Start the bidirectional stream
-	stream, err := g.client.CopyBidiExecute(ctx)
-	if err != nil {
-		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start bidirectional execute stream")
-	}
-
-	// Ensure stream is closed if we fail before adding it to copyStreams
-	success := false
-	defer func() {
-		if !success {
-			_ = stream.CloseSend()
-			// Drain any pending response to allow server-side cleanup
-			_, _ = stream.Recv()
-		}
-	}()
-
-	// Send INITIATE message
 	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
 		Phase:              multipoolerservice.CopyBidiExecuteRequest_INITIATE,
 		Query:              copyQuery,
@@ -441,9 +425,18 @@ func (g *grpcQueryService) CopyReady(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
-	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
+	stream, err := g.openCopy(ctx, initiateReq)
+	if err != nil {
+		return 0, nil, nil, err
 	}
+	success := false
+	defer func() {
+		if !success {
+			defer releaseCopyStream(stream)
+			_ = stream.CloseSend()
+			_, _ = stream.Recv()
+		}
+	}()
 
 	g.logger.DebugContext(ctx, "sent INITIATE message", "pooler_id", g.poolerID)
 
@@ -519,6 +512,8 @@ func (g *grpcQueryService) CopySendData(
 	}
 
 	if err := stream.Send(dataReq); err != nil {
+		// Keep the stream for CopyAbort to receive any terminal diagnostic
+		// and surviving reservation state after a server-side COPY failure.
 		return mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DATA")
 	}
 
@@ -553,6 +548,7 @@ func (g *grpcQueryService) CopyFinalize(
 	if !ok {
 		return nil, nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
 	}
+	defer releaseCopyStream(stream)
 
 	// Send DONE message with final data
 	doneReq := &multipoolerservice.CopyBidiExecuteRequest{
@@ -655,6 +651,7 @@ func (g *grpcQueryService) CopyAbort(
 			"reserved_conn_id", options.ReservedConnectionId)
 		return nil, nil
 	}
+	defer releaseCopyStream(stream)
 
 	// Send FAIL message
 	failReq := &multipoolerservice.CopyBidiExecuteRequest{
@@ -970,19 +967,6 @@ func (g *grpcQueryService) CopyOutReady(
 		"shard", target.GetShardKey().GetShard(),
 		"query", copyQuery)
 
-	stream, err := g.client.CopyBidiExecute(ctx)
-	if err != nil {
-		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start bidirectional execute stream")
-	}
-
-	success := false
-	defer func() {
-		if !success {
-			_ = stream.CloseSend()
-			_, _ = stream.Recv()
-		}
-	}()
-
 	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
 		Phase:              multipoolerservice.CopyBidiExecuteRequest_INITIATE,
 		Direction:          multipoolerservice.CopyBidiExecuteRequest_TO_STDOUT,
@@ -992,9 +976,18 @@ func (g *grpcQueryService) CopyOutReady(
 		ReservationOptions: reservationOptions,
 		CallerId:           callerid.FromContext(ctx),
 	}
-	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
+	stream, err := g.openCopy(ctx, initiateReq)
+	if err != nil {
+		return 0, nil, nil, nil, err
 	}
+	success := false
+	defer func() {
+		if !success {
+			defer releaseCopyStream(stream)
+			_ = stream.CloseSend()
+			_, _ = stream.Recv()
+		}
+	}()
 
 	resp, err := stream.Recv()
 	if err != nil {
@@ -1055,6 +1048,7 @@ func (g *grpcQueryService) CopyOutStream(
 	if !ok {
 		return nil, nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
 	}
+	defer releaseCopyStream(stream)
 
 	for {
 		resp, err := stream.Recv()

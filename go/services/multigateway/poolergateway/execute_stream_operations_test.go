@@ -39,6 +39,7 @@ import (
 type operationTestServer struct {
 	pb.UnimplementedMultipoolerServiceServer
 	call    func(context.Context, proto.Message) (proto.Message, error)
+	copy    func(pb.MultipoolerService_CopyBidiExecuteServer) error
 	streams atomic.Int32
 	custom  func(pb.MultipoolerService_ExecuteStreamServer) error
 }
@@ -49,6 +50,13 @@ func (s *operationTestServer) ExecuteStream(stream pb.MultipoolerService_Execute
 		return s.custom(stream)
 	}
 	return queryrpc.Serve(stream, s)
+}
+
+func (s *operationTestServer) CopyBidiExecute(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+	if s.copy == nil {
+		return status.Error(codes.Unimplemented, "COPY not configured")
+	}
+	return s.copy(stream)
 }
 
 func (s *operationTestServer) StreamExecute(req *pb.StreamExecuteRequest, out pb.MultipoolerService_StreamExecuteServer) error {
@@ -114,7 +122,7 @@ func (s *operationTestServer) ReleaseReservedConnection(ctx context.Context, req
 func queryServiceForOperations(t *testing.T, s *operationTestServer) *grpcQueryService {
 	t.Helper()
 	client, pool := connectStreamPool(t, s)
-	return &grpcQueryService{client: client, executeStreams: pool, logger: slog.Default()}
+	return &grpcQueryService{client: client, executeStreams: pool, logger: slog.Default(), copyStreams: make(map[uint64]pb.MultipoolerService_CopyBidiExecuteClient)}
 }
 
 // Exercise the public query-service methods, not just the envelope helpers.

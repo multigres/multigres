@@ -177,10 +177,12 @@ enum ExecuteStreamOperation {
   CONCLUDE_TRANSACTION = 5;
   DISCARD_TEMP_TABLES = 6;
   RELEASE_RESERVED_CONNECTION = 7;
+  COPY_BIDI_EXECUTE = 8;
 }
 
 message ExecuteStreamRequest {
-  // One complete typed request per operation; field 1 retains wire compatibility.
+  // One typed request starts each operation; field 1 retains wire compatibility.
+  // COPY continues with copy_input frames until end=true.
   oneof operation {
     StreamExecuteRequest request = 1;
     PortalStreamExecuteRequest portal_stream_execute = 4;
@@ -189,6 +191,8 @@ message ExecuteStreamRequest {
     ConcludeTransactionRequest conclude_transaction = 7;
     DiscardTempTablesRequest discard_temp_tables = 8;
     ReleaseReservedConnectionRequest release_reserved_connection = 9;
+    CopyBidiExecuteRequest copy_bidi_execute = 10;
+    CopyStreamInput copy_input = 11;
   }
   // Only telemetry propagation fields, never authentication metadata.
   map<string, string> propagation = 2;
@@ -209,11 +213,15 @@ message ExecuteStreamResponse {
     ConcludeTransactionResponse conclude_transaction = 8;
     DiscardTempTablesResponse discard_temp_tables = 9;
     ReleaseReservedConnectionResponse release_reserved_connection = 10;
+    CopyBidiExecuteResponse copy_bidi_execute = 11;
   }
   // Original gRPC status and details. Transport EOF is never completion.
   google.rpc.Status completion = 3;
   // Only present in the initial ready frame; negotiate before submitting work.
   repeated ExecuteStreamOperation supported_operations = 4;
+  // Only valid with completion. The operation finished, but the transport must
+  // be discarded (e.g. to interrupt an upload after an early COPY FROM error).
+  bool retire = 12;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results
@@ -703,4 +711,15 @@ message NotificationStreamRequest {
 message NotificationStreamResponse {
   query.PgNotification notification = 1;
   bool ready = 2;
+}
+
+// Operation-local equivalent of half-closing a dedicated COPY RPC. Even if
+// COPY fails early, clients send end before returning the lease; servers discard
+// remaining input through end before reading the next operation. Completion
+// acknowledges handler return and may precede end to avoid a duplex deadlock.
+message CopyStreamInput {
+  oneof input {
+    CopyBidiExecuteRequest request = 1;
+    bool end = 2;
+  }
 }

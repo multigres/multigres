@@ -329,6 +329,22 @@ func TestMalformedFrames(t *testing.T) {
 	}
 }
 
+func TestHandshakeRejectsRetirement(t *testing.T) {
+	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, Retire: true}); err != nil {
+			return err
+		}
+		<-stream.Context().Done()
+		return stream.Context().Err()
+	}}
+	_, p := connectStreamPool(t, s)
+	r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{Query: "must not execute"})
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.False(t, used)
+	require.Nil(t, r)
+	require.Empty(t, p.idle)
+}
+
 func TestOperationDeadline(t *testing.T) {
 	seen := make(chan bool, 1)
 	s := &streamTestServer{execute: func(_ *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {

@@ -210,6 +210,7 @@ type streamResponses struct {
 	released  bool
 	operation pb.ExecuteStreamOperation
 	invalid   bool
+	retire    bool
 }
 
 func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
@@ -231,7 +232,7 @@ func (r *streamResponses) recv() (proto.Message, error) {
 	if err != nil {
 		return nil, incompleteOperation(r.ctx, err)
 	}
-	if f.Ready || len(f.SupportedOperations) != 0 || (f.Result == nil) == (f.Completion == nil) {
+	if f.Ready || len(f.SupportedOperations) != 0 || (f.Retire && f.Completion == nil) || (f.Result == nil) == (f.Completion == nil) {
 		return nil, r.protocolError("invalid execute stream response")
 	}
 	if f.Result != nil {
@@ -242,6 +243,7 @@ func (r *streamResponses) recv() (proto.Message, error) {
 		return response, nil
 	}
 	r.done = true
+	r.retire = f.Retire
 	if c := f.Completion; c.GetCode() != int32(codes.OK) {
 		return nil, status.FromProto(c).Err()
 	}
@@ -266,6 +268,9 @@ func (r *streamResponses) Release() {
 	case !r.done || r.invalid:
 		r.lease.cancel()
 		p.m.discards.Add(p.ctx, 1, discardAttr[discardIncomplete])
+	case r.retire:
+		r.lease.cancel()
+		p.m.discards.Add(p.ctx, 1, discardAttr[discardRetired])
 	default:
 		p.put(r.lease)
 	}
@@ -316,7 +321,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 		stream, err := p.client.ExecuteStream(streamCtx)
 		if err == nil {
 			ready, err = stream.Recv()
-			if err == nil && (!ready.Ready || ready.Result != nil || ready.Completion != nil) {
+			if err == nil && (!ready.Ready || ready.Result != nil || ready.Completion != nil || ready.Retire) {
 				err = status.Error(codes.Internal, "missing execute stream handshake")
 			}
 		}

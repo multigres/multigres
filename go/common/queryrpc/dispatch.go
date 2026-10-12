@@ -25,8 +25,9 @@ import (
 // Service is the query-service subset eligible for sequential stream reuse.
 // Reuse invokes these existing handlers, including their per-operation admission,
 // caller annotation, reservation validation and error/status-detail handling.
-// COPY, authentication, subscriptions, health and replication remain separate.
+// Authentication, subscriptions, health and replication remain separate.
 type Service interface {
+	CopyBidiExecute(pb.MultipoolerService_CopyBidiExecuteServer) error
 	StreamExecute(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error
 	PortalStreamExecute(*pb.PortalStreamExecuteRequest, pb.MultipoolerService_PortalStreamExecuteServer) error
 	ExecuteQuery(context.Context, *pb.ExecuteQueryRequest) (*pb.ExecuteQueryResponse, error)
@@ -37,6 +38,7 @@ type Service interface {
 }
 
 var supportedOperations = []pb.ExecuteStreamOperation{
+	pb.ExecuteStreamOperation_COPY_BIDI_EXECUTE,
 	pb.ExecuteStreamOperation_STREAM_EXECUTE,
 	pb.ExecuteStreamOperation_PORTAL_STREAM_EXECUTE,
 	pb.ExecuteStreamOperation_EXECUTE_QUERY,

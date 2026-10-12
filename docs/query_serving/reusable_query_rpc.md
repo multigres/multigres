@@ -4,7 +4,7 @@ Rollback: `--query-stream-reuse=false` on multigateway restores per-call
 query-service RPCs; `--grpc-stream-workers=0` on any server restores gRPC's
 goroutine-per-stream default. Both are independent.
 
-The gateway sends sequential SQL, portal and unary query-service operations
+The gateway sends sequential SQL, portal, COPY and unary query-service operations
 over one bidirectional `ExecuteStream` RPC. This reuses HTTP/2 stream state and a
 grown server-handler stack; it does **not** merge SQL operations, pipeline
 transactions, change durability, or pool PostgreSQL sessions differently.
@@ -36,7 +36,7 @@ would otherwise fail its next `Send`, which is a post-submission error and is
 never retried, whereas opening a fresh stream fails before SQL is sent and
 takes the ordinary retryable pre-execution path. A stream is not tied to a
 reservation; reservation IDs and lifecycle remain explicit.
-COPY, notifications, replication, authentication and health RPCs retain their
+Notifications, replication, authentication and health RPCs retain their
 existing protocols.
 
 ## Operation envelopes
@@ -54,8 +54,22 @@ The shared server loop owns framing, telemetry propagation and operation
 contexts; adapters dispatch to the existing handlers. The gateway's stream pool
 owns capability negotiation, exclusive leasing, cancellation and retirement.
 Typed receivers adapt the transport to the existing QueryService interface.
-COPY is intentionally excluded because it needs an interactive operation
-lifecycle rather than a request followed by results.
+COPY FROM STDIN and COPY TO STDOUT use the existing COPY request/response
+messages inside the shared envelope. INITIATE starts the operation; subsequent
+DATA, DONE and FAIL requests use `copy_input`. The lease remains exclusive
+through READY, data transfer, and the terminal RESULT/ERROR plus completion.
+`CloseSend` sends an explicit `copy_input.end` instead of closing the transport.
+The server discards any unread COPY input through this boundary before reading
+the next operation. This includes data queued before an early backend error.
+Completion may precede the input boundary so an admission failure cannot deadlock
+against a client waiting for READY. The client must send the boundary and receive
+completion before returning the lease. ERROR payloads retain their diagnostics,
+notices and surviving reservation state, even when completion also reports an error.
+If COPY FROM fails after READY but before DONE/FAIL, the server marks completion with `retire`
+and closes the transport to interrupt a client still uploading. That transport
+is discarded; terminal diagnostics and reservation state can still be read.
+Abandoned output callbacks and incomplete/malformed conversations also discard the lease.
+Peers that do not advertise COPY support use the dedicated CopyBidiExecute RPC.
 
 This is a transport-only refactor. Deadline expiration and explicit cancellation
 still cancel the active transport immediately; the gateway does not yet wait

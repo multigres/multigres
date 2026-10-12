@@ -24,6 +24,8 @@ import (
 // Unsupported types return nil and must never be submitted.
 func Request(message proto.Message) *pb.ExecuteStreamRequest {
 	switch req := message.(type) {
+	case *pb.CopyBidiExecuteRequest:
+		return &pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_CopyBidiExecute{CopyBidiExecute: req}}
 	case *pb.StreamExecuteRequest:
 		return &pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_Request{Request: req}}
 	case *pb.PortalStreamExecuteRequest:
@@ -46,6 +48,9 @@ func Request(message proto.Message) *pb.ExecuteStreamRequest {
 // Operation identifies a nonempty typed request. Unknown operation fields from
 // newer peers decode as an empty oneof and are rejected before dispatch.
 func Operation(req *pb.ExecuteStreamRequest) pb.ExecuteStreamOperation {
+	if req.GetCopyBidiExecute() != nil && req.GetCopyBidiExecute().Phase == pb.CopyBidiExecuteRequest_INITIATE {
+		return pb.ExecuteStreamOperation_COPY_BIDI_EXECUTE
+	}
 	if req.GetRequest() != nil {
 		return pb.ExecuteStreamOperation_STREAM_EXECUTE
 	}
@@ -73,6 +78,9 @@ func Operation(req *pb.ExecuteStreamRequest) pb.ExecuteStreamOperation {
 // Response unwraps the typed result and identifies which operation owns it.
 // Clients reject a result belonging to another operation before exposing it.
 func Response(frame *pb.ExecuteStreamResponse) (pb.ExecuteStreamOperation, proto.Message) {
+	if value := frame.GetCopyBidiExecute(); value != nil {
+		return pb.ExecuteStreamOperation_COPY_BIDI_EXECUTE, value
+	}
 	if value := frame.GetResponse(); value != nil {
 		return pb.ExecuteStreamOperation_STREAM_EXECUTE, value
 	}
@@ -99,6 +107,8 @@ func Response(frame *pb.ExecuteStreamResponse) (pb.ExecuteStreamOperation, proto
 
 func operationName(op pb.ExecuteStreamOperation) string {
 	switch op {
+	case pb.ExecuteStreamOperation_COPY_BIDI_EXECUTE:
+		return "CopyBidiExecute"
 	case pb.ExecuteStreamOperation_STREAM_EXECUTE:
 		return "StreamExecute"
 	case pb.ExecuteStreamOperation_PORTAL_STREAM_EXECUTE:
