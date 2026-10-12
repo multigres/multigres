@@ -26,7 +26,7 @@
 
 package fmgr
 
-import "github.com/multigres/multigres/go/common/pgeval/datum"
+import "github.com/multigres/multigres/go/common/parser/datum"
 
 // The methods below are the Go form of PostgreSQL's PG_GETARG_* / PG_ARGISNULL
 // / PG_GET_COLLATION / PG_RETURN_NULL macro families (fmgr.h:198-369). Go has

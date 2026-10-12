@@ -57,6 +57,18 @@ const (
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
 )
 
+// SQLSTATEs raised by expression analysis (postgres src/backend/parser).
+const (
+	PgSSIndeterminateDatatype = "42P18" // indeterminate_datatype
+	PgSSUndefinedParameter    = "42P02" // undefined_parameter
+	PgSSAmbiguousParameter    = "42P08" // ambiguous_parameter
+	PgSSAmbiguousFunction     = "42725" // ambiguous_function
+	PgSSDatatypeMismatch      = "42804" // datatype_mismatch
+	PgSSWrongObjectType       = "42809" // wrong_object_type
+	PgSSCannotCoerce          = "42846" // cannot_coerce
+	PgSSTooManyArguments      = "54023" // too_many_arguments
+)
+
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
 // (e.g. CancelRequest). SQLSTATE 57014 (query_canceled).
 func NewQueryCanceled() *PgDiagnostic {

@@ -34,8 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
-	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
 )

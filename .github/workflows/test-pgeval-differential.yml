@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Compares the gateway evaluation engine's ported builtins (go/common/pgeval)
-# against a PostgreSQL 17.6 server built from the pinned source. The test is
+# Compares the gateway evaluation engine (go/common/pgeval): its ported
+# builtins and its expression analysis (types, operator and function
+# resolution, parameter deduction, errors) against a PostgreSQL 17.6 server
+# built from the pinned source. The test is
 # opt-in because every invocation compiles PostgreSQL; the ordinary PR
 # integration job skips it. This workflow runs it on the same labels as the
 # other PostgreSQL compatibility suites so it reports as its own check.

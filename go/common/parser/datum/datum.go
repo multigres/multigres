@@ -28,6 +28,12 @@
 // REL_17_6) to Go: the tagless value that every fmgr-callable function consumes
 // and produces. It is the foundation of the gateway's evaluation engine.
 //
+// Like pgoid, it is a leaf package under the parser tree: the analyzed
+// expression tree's Const node (parser/ast) carries its value as a Datum, and
+// the parser may depend only on itself within go/common, so the one Datum
+// type the parser, catalog and engine share has to live here rather than
+// beside fmgr. Its only dependency is pgoid.
+//
 // # Representation
 //
 // PostgreSQL's Datum is a uintptr_t that is *either* an inline scalar or a hidden

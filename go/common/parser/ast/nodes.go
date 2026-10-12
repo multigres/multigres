@@ -169,6 +169,8 @@ const (
 	T_WindowFunc
 	T_FuncExpr
 	T_OpExpr
+	T_DistinctExpr
+	T_NullIfExpr
 	T_BoolExpr
 	T_CaseExpr
 	T_ArrayExpr
@@ -589,6 +591,10 @@ func (nt NodeTag) String() string {
 		return "T_WindowFunc"
 	case T_FuncExpr:
 		return "T_FuncExpr"
+	case T_DistinctExpr:
+		return "T_DistinctExpr"
+	case T_NullIfExpr:
+		return "T_NullIfExpr"
 	case T_OpExpr:
 		return "T_OpExpr"
 	case T_BoolExpr:

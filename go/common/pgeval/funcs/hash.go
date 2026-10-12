@@ -30,7 +30,7 @@ import (
 	"math/bits"
 	"runtime"
 
-	"github.com/multigres/multigres/go/common/pgeval/datum"
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 )
 

@@ -38,8 +38,8 @@
 package fmgr
 
 import (
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
-	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
 )
 

@@ -283,15 +283,17 @@ type TypeRow struct {
 
 // ProcRow is the resolved pg_proc subset (see pgcatalog.Proc).
 type ProcRow struct {
-	Oid      uint32
-	Name     string
-	ArgTypes []uint32
-	RetType  uint32
-	Strict   bool
-	Volatile byte
-	RetSet   bool
-	Kind     byte
-	Src      string
+	Oid          uint32
+	Name         string
+	ArgTypes     []uint32
+	Variadic     uint32
+	NArgDefaults int16
+	RetType      uint32
+	Strict       bool
+	Volatile     byte
+	RetSet       bool
+	Kind         byte
+	Src          string
 }
 
 // OperatorRow is the resolved pg_operator subset (see pgcatalog.Operator).
@@ -685,6 +687,14 @@ func (r *resolver) resolveProcs(entries []Entry) ([]ProcRow, error) {
 			}
 			row.ArgTypes = append(row.ArgTypes, argOid)
 		}
+		if row.Variadic, err = lookup(r.typeOids, e.Get("provariadic", "0"), "pg_type", true); err != nil {
+			return nil, fail("provariadic", err)
+		}
+		nDefaults, err := strconv.ParseInt(e.Get("pronargdefaults", "0"), 10, 16)
+		if err != nil {
+			return nil, fail("pronargdefaults", err)
+		}
+		row.NArgDefaults = int16(nDefaults)
 		row.Strict = e.Get("proisstrict", "t") == "t" // pg_proc.h:68
 		row.Volatile = e.Get("provolatile", "i")[0]   // pg_proc.h:74
 		row.RetSet = e.Get("proretset", "f") == "t"   // pg_proc.h:71
