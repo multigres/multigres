@@ -435,6 +435,60 @@ func TestPoolMetrics(t *testing.T) {
 	}, sums)
 }
 
+// Both a newly detected unsupported RPC and its cached fallback must remain
+// distinguishable from a missing operation on an otherwise reusable stream.
+func TestPoolFallbackMetrics(t *testing.T) {
+	for _, rpcUnsupported := range []bool{true, false} {
+		reason := "legacy_operation_unsupported"
+		if rpcUnsupported {
+			reason = "legacy_rpc_unsupported"
+		}
+		t.Run(reason, func(t *testing.T) {
+			s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+				if rpcUnsupported {
+					return status.Error(codes.Unimplemented, "old server")
+				}
+				// The original handshake only supports StreamExecute.
+				if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+					return err
+				}
+				_, err := stream.Recv()
+				return err
+			}}
+			_, p := connectStreamPool(t, s)
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+			p.m = newStreamPoolMetrics(provider.Meter("test"))
+			for range 2 {
+				r, used, err := p.open(t.Context(), queryrpc.Request(&pb.ExecuteQueryRequest{}))
+				require.NoError(t, err)
+				require.False(t, used)
+				require.Nil(t, r)
+			}
+			require.EqualValues(t, 1, s.streams.Load())
+			require.Equal(t, rpcUnsupported, p.unsupported.Load())
+
+			var rm metricdata.ResourceMetrics
+			require.NoError(t, reader.Collect(t.Context(), &rm))
+			counts := map[string]int64{}
+			for _, sm := range rm.ScopeMetrics {
+				for _, m := range sm.Metrics {
+					if m.Name != "mg.gateway.query_stream.operations" {
+						continue
+					}
+					for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+						transport, ok := dp.Attributes.Value("transport")
+						require.True(t, ok)
+						counts[transport.AsString()] += dp.Value
+					}
+				}
+			}
+			require.Equal(t, map[string]int64{reason: 2}, counts)
+		})
+	}
+}
+
 func TestHandshakeHonoursCallerDeadline(t *testing.T) {
 	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
 		<-stream.Context().Done()

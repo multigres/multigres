@@ -51,12 +51,13 @@ func transportAttr(v string) metric.MeasurementOption {
 }
 
 var (
-	attrNew               = transportAttr("new")
-	attrReused            = transportAttr("reused")
-	attrLegacyUnsupported = transportAttr("legacy_unsupported") // peer lacks the transport or requested operation
-	attrLegacyMetadata    = transportAttr("legacy_metadata")    // call carries custom RPC metadata
-	attrLegacyPropagation = transportAttr("legacy_propagation") // nonstandard propagation fields
-	discardAttr           = map[string]metric.MeasurementOption{}
+	attrNew                        = transportAttr("new")
+	attrReused                     = transportAttr("reused")
+	attrLegacyRPCUnsupported       = transportAttr("legacy_rpc_unsupported")       // peer lacks ExecuteStream
+	attrLegacyOperationUnsupported = transportAttr("legacy_operation_unsupported") // peer lacks the requested operation
+	attrLegacyMetadata             = transportAttr("legacy_metadata")              // call carries custom RPC metadata
+	attrLegacyPropagation          = transportAttr("legacy_propagation")           // nonstandard propagation fields
+	discardAttr                    = map[string]metric.MeasurementOption{}
 )
 
 func init() {

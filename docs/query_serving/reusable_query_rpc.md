@@ -116,9 +116,13 @@ The gateway pool exports its own low-cardinality instruments. Attribute values
 come from fixed vocabularies; SQL text, reservation, caller and stream
 identifiers are never labels.
 
-| Instrument                           | Attributes                                                                          | Meaning                                                                                                                       |
-| ------------------------------------ | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `mg.gateway.query_stream.operations` | `transport=new\|reused\|legacy_unsupported\|legacy_metadata\|legacy_propagation`    | Operations by transport; `new` counts submitted operations on new streams, `legacy_*` counts dedicated-RPC fallbacks and why. |
-| `mg.gateway.query_stream.discards`   | `reason=cancelled\|incomplete\|transport\|retired\|idle_full\|idle_expired\|closed` | Streams closed, by cause. Normal retirement appears here, not as a failure.                                                   |
-| `mg.gateway.query_stream.active`     | none                                                                                | Streams currently leased to an operation.                                                                                     |
-| `mg.gateway.query_stream.idle`       | none                                                                                | Streams retained idle for reuse.                                                                                              |
+`legacy_rpc_unsupported` means the peer does not implement `ExecuteStream`.
+`legacy_operation_unsupported` means the peer supports `ExecuteStream` but does
+not advertise support for the requested operation.
+
+| Instrument                           | Attributes                                                                                                         | Meaning                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `mg.gateway.query_stream.operations` | `transport=new\|reused\|legacy_rpc_unsupported\|legacy_operation_unsupported\|legacy_metadata\|legacy_propagation` | Operations by transport; `new` counts submitted operations on new streams, `legacy_*` counts dedicated-RPC fallbacks and why. |
+| `mg.gateway.query_stream.discards`   | `reason=cancelled\|incomplete\|transport\|retired\|idle_full\|idle_expired\|closed`                                | Streams closed, by cause. Normal retirement appears here, not as a failure.                                                   |
+| `mg.gateway.query_stream.active`     | none                                                                                                               | Streams currently leased to an operation.                                                                                     |
+| `mg.gateway.query_stream.idle`       | none                                                                                                               | Streams retained idle for reuse.                                                                                              |

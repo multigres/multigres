@@ -286,7 +286,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 		return nil, false, status.Error(codes.InvalidArgument, "missing execute stream operation")
 	}
 	if p.unsupported.Load() {
-		p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
+		p.m.operations.Add(p.ctx, 1, attrLegacyRPCUnsupported)
 		return nil, false, nil
 	}
 	// Credentials/custom RPC metadata belong to individual calls. Preserve
@@ -330,7 +330,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 			}
 			if status.Code(err) == codes.Unimplemented {
 				p.unsupported.Store(true)
-				p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
+				p.m.operations.Add(p.ctx, 1, attrLegacyRPCUnsupported)
 				return nil, false, nil
 			}
 			// No SQL has been sent, but leave classification to the caller.
@@ -356,7 +356,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 		} else {
 			p.put(l)
 		}
-		p.m.operations.Add(p.ctx, 1, attrLegacyUnsupported)
+		p.m.operations.Add(p.ctx, 1, attrLegacyOperationUnsupported)
 		return nil, false, nil
 	}
 	l.requests++
