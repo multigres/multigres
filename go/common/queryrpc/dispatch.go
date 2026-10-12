@@ -48,13 +48,20 @@ var supportedOperations = []pb.ExecuteStreamOperation{
 	pb.ExecuteStreamOperation_RELEASE_RESERVED_CONNECTION,
 }
 
-// operationStream retains transport send failures independently of handler
+// operationStream retains transport failures independently of handler
 // errors: an incomplete response must never be followed by a completion frame.
 type operationStream struct {
 	grpc.ServerStream
 	ctx     context.Context
 	stream  pb.MultipoolerService_ExecuteStreamServer
 	sendErr error
+	recvErr error
+
+	// Bidirectional operations may retire the transport or finish consuming
+	// their input boundary after completion has been sent. Retirement skips
+	// afterCompletion so a blocked sender is interrupted by transport closure.
+	retire          bool
+	afterCompletion func() error
 }
 
 func (s *operationStream) Context() context.Context { return s.ctx }
@@ -79,6 +86,8 @@ func (s portalStream) Send(response *pb.PortalStreamExecuteResponse) error {
 
 func dispatch(req *pb.ExecuteStreamRequest, service Service, stream *operationStream) error {
 	switch Operation(req) {
+	case pb.ExecuteStreamOperation_COPY_BIDI_EXECUTE:
+		return dispatchCopy(req.GetCopyBidiExecute(), service, stream)
 	case pb.ExecuteStreamOperation_STREAM_EXECUTE:
 		return service.StreamExecute(req.GetRequest(), sqlStream{stream})
 	case pb.ExecuteStreamOperation_PORTAL_STREAM_EXECUTE:

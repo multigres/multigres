@@ -24,6 +24,17 @@ import (
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
+// dispatchCopy owns the COPY lifecycle around the existing bidi handler.
+// Serve owns completion framing: unread input is drained only after that frame
+// is sent, unless early upload failure requires retiring the transport instead.
+func dispatchCopy(req *pb.CopyBidiExecuteRequest, service Service, stream *operationStream) error {
+	copyOperation := &copyStream{operationStream: stream, initial: req, direction: req.Direction}
+	err := service.CopyBidiExecute(copyOperation)
+	stream.retire = !copyOperation.reusable()
+	stream.afterCompletion = copyOperation.drain
+	return err
+}
+
 // copyStream presents a single COPY conversation to the existing bidi handler.
 // Only this adapter reads continuation frames; Serve resumes reading operations
 // after drain has consumed the explicit input boundary.
@@ -31,7 +42,6 @@ type copyStream struct {
 	*operationStream
 	initial       *pb.CopyBidiExecuteRequest
 	ended         bool
-	recvErr       error
 	direction     pb.CopyBidiExecuteRequest_Direction
 	ready         bool
 	inputFinished bool

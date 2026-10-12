@@ -94,19 +94,13 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) er
 			ctx, cancel = context.WithTimeout(ctx, time.Duration(req.TimeoutNanos))
 		}
 		adapter := &operationStream{ServerStream: stream, ctx: ctx, stream: stream}
-		var copyOperation *copyStream
-		if req.GetCopyBidiExecute() != nil {
-			copyOperation = &copyStream{operationStream: adapter, initial: req.GetCopyBidiExecute(), direction: req.GetCopyBidiExecute().Direction}
-			err = service.CopyBidiExecute(copyOperation)
-		} else {
-			err = dispatch(req, service, adapter)
-		}
+		err = dispatch(req, service, adapter)
 		if cancel != nil {
 			cancel()
 		}
 		span.End()
-		if copyOperation != nil && copyOperation.recvErr != nil {
-			return copyOperation.recvErr
+		if adapter.recvErr != nil {
+			return adapter.recvErr
 		}
 		if adapter.sendErr != nil {
 			return adapter.sendErr
@@ -117,17 +111,14 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) er
 		if completion == nil {
 			completion = &statuspb.Status{Code: int32(codes.OK)}
 		}
-		retire := copyOperation != nil && !copyOperation.reusable()
-		if err := stream.Send(&pb.ExecuteStreamResponse{Completion: completion, Retire: retire}); err != nil {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Completion: completion, Retire: adapter.retire}); err != nil {
 			return err
 		}
-		if copyOperation != nil {
-			if retire {
-				return nil
-			}
-			// An early COPY failure may leave DATA/DONE/FAIL queued. Consume
-			// the operation-local half-close before accepting any new work.
-			if err := copyOperation.drain(); err != nil {
+		if adapter.retire {
+			return nil
+		}
+		if adapter.afterCompletion != nil {
+			if err := adapter.afterCompletion(); err != nil {
 				return err
 			}
 		}
