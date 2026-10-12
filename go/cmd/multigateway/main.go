@@ -37,7 +37,6 @@ import (
 // instead of two. The multigateway itself never constructs these; see
 // multigateway.NewMultigateway.
 type standaloneMultigateway struct {
-	reg        *viperutil.Registry
 	senv       *servenv.ServEnv
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
@@ -48,7 +47,6 @@ type standaloneMultigateway struct {
 func newStandaloneMultigateway() *standaloneMultigateway {
 	reg := viperutil.NewRegistry()
 	s := &standaloneMultigateway{
-		reg:        reg,
 		senv:       servenv.NewServEnv(reg),
 		grpcServer: servenv.NewGrpcServer(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),

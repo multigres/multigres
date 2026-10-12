@@ -38,7 +38,6 @@ import (
 // instead of two. The multipooler itself never constructs these; see
 // multipooler.NewMultipooler.
 type standaloneMultipooler struct {
-	reg        *viperutil.Registry
 	senv       *servenv.ServEnv
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
@@ -49,7 +48,6 @@ type standaloneMultipooler struct {
 func newStandaloneMultipooler(tel *telemetry.Telemetry) *standaloneMultipooler {
 	reg := viperutil.NewRegistry()
 	s := &standaloneMultipooler{
-		reg:        reg,
 		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, tel), viperutil.NewViperConfig(reg), tel),
 		grpcServer: servenv.NewGrpcServer(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
