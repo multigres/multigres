@@ -11,14 +11,15 @@ Minigres evolves.
 
 ## What runs
 
-- **One process** with one servenv, one gRPC server, one HTTP server and one
-  etcd connection, shared by both halves.
+- **One process** with one servenv, one HTTP server and one etcd connection,
+  shared by both halves, and two gRPC servers: an in-memory one for the
+  queries between the halves, and a TCP one for the admin services.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler the Multigres way:** it discovers the
-  pooler through etcd, follows its gRPC health stream, and dials it over TCP,
-  even though the pooler is in the same process. Making these in-process is
-  planned work.
+- **The multigateway reaches the pooler in memory.** Queries, authentication,
+  LISTEN/NOTIFY and the health stream go over the in-memory gRPC server and
+  never leave the process. The gateway still discovers the pooler through etcd
+  and follows its gRPC health stream; making those in-process is planned work.
 - **pgctld runs as its own process**, as in Multigres.
 
 Many Minigres processes can share one etcd and one Multiadmin.
@@ -109,11 +110,22 @@ with different meanings; that is why it refuses configuration files for now.
 `servenv.Init` once with the service name `minigres` and the pooler's identity,
 then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
+`ProcessResources` also names the server the pooler serves its query service
+(`MultipoolerService`) on, `QueryGrpcServer`. The Multigres binaries set it to
+their one gRPC server. `cmd/minigres` sets it to an in-memory server
+(`servenv.NewInMemoryGrpcServer`): no port, no TLS, no auth, and the external
+server's limits. The serving loop starts both servers
+(`RunDefault(grpcServer, queryGrpcServer)`). The gateway connects to poolers
+through a dialer (`poolergateway.PoolerDialer`): the Multigres binaries use the
+remote dialer, which dials the address in the topology with the
+`--multipooler-grpc-*` credentials, and `cmd/minigres` passes a local dialer that
+connects through the in-memory server and only to its own pooler.
+
 ## Where Minigres diverges from Multigres, and why
 
 Everything not listed here runs the Multigres code path unchanged, including
-the query path, the gateway's discovery, health stream and readiness, the
-pooler's bootstrap, and shutdown.
+the gateway's discovery, health stream and readiness, the pooler's bootstrap,
+and shutdown.
 
 ### Process ownership
 
@@ -123,6 +135,18 @@ pooler's bootstrap, and shutdown.
 | Service identity `multigateway` or `multipooler`                                               | One identity, service name `minigres`, with the pooler's cell, service ID, database and shard | One process should appear once in logs, metrics and traces                                                                                                             |
 | Status page at `/`                                                                             | Index at `/`, with the halves' pages at `/multigateway` and `/multipooler`                    | The shared HTTP mux panics if `/` is registered twice                                                                                                                  |
 | Each binary registers all its flags                                                            | Process flags defined once; shared flags given once; the pooler keeps its own flag set        | A flag set rejects duplicate names, both halves must agree on cell and service ID, and the pooler decides whether to adopt `pg-port` from pgctld by whether it was set |
+
+### Gateway to pooler
+
+| Multigres                                                                                                                  | Minigres                                                                                                                                    | Why                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| The gateway dials each pooler at the address in its topology record, over TCP, with the `--multipooler-grpc-*` credentials | The gateway connects to its own pooler through the in-memory server, without TLS                                                            | The pooler is in the same process; the connection never leaves it                        |
+| One gRPC server per process carries every service                                                                          | `MultipoolerService` is served only on the in-memory server; the TCP server carries the pooler and gateway manager services, for Multiadmin | Nothing outside the process needs the query service, so it is not reachable from outside |
+| The gateway connects to every pooler it discovers                                                                          | It connects only to its own pooler; other poolers in a shared etcd are ignored (`ErrNotLocalPooler`)                                        | Instances sharing one etcd must never send queries to each other                         |
+
+In Minigres the gateway's `--multipooler-grpc-*` flags are not used for queries.
+They still configure cancel-request forwarding between gateways, which does not
+apply to Minigres and is planned to be turned off.
 
 ### The static leader
 
