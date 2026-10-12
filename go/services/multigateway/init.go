@@ -139,8 +139,9 @@ type Multigateway struct {
 	configReloaded chan struct{}
 	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
 	connConfig *rpcclient.ConnConfig
-	// topoConfig holds topology configuration
-	topoConfig   *topoclient.TopoConfig
+	// ts is set from Init's ts argument. Owned by whoever constructed this
+	// Multigateway (cmd/multigateway standalone, or cmd/minigres sharing it
+	// with a multipooler): they open it and close it, never Shutdown.
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
@@ -160,24 +161,26 @@ type Multigateway struct {
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
 
-	// singleProcessMode is set by WithSingleProcessMode: the multigateway runs
-	// in one process with the multipooler, and main performs the process-owner
-	// steps (servenv flags, config and Init, opening and closing the topology
-	// store) instead of the multigateway.
-	singleProcessMode bool
-	// topoStore returns main's topology store in single-process mode.
-	topoStore func() topoclient.Store
-	// statusPath is where the status page is served: "/" when the multigateway
-	// owns the process, under its service name when it shares the HTTP server.
+	// statusPath is where the status page is served, given by main: "/" when
+	// the multigateway owns the process, under its service name when it
+	// shares the HTTP server with other components.
 	statusPath string
 }
 
-func NewMultigateway(opts ...Option) *Multigateway {
-	var applied options
-	for _, opt := range opts {
-		opt(&applied)
+// NewMultigateway creates a new Multigateway instance. reg is the settings
+// registry the multigateway configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multigateway for
+// a standalone process, cmd/minigres for one shared with a multipooler) owns
+// and constructs them; the multigateway never creates its own. statusPath is
+// where the status page is served ("/" when the multigateway owns the
+// process, under its service name when it shares the HTTP server).
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+	if reg == nil {
+		panic("multigateway: reg is required")
 	}
-	reg := viperutil.NewRegistry()
 	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
@@ -302,18 +305,12 @@ func NewMultigateway(opts ...Option) *Multigateway {
 			},
 		},
 	}
-	mg.singleProcessMode = applied.single != nil
-	if mg.singleProcessMode {
-		mg.senv = applied.single.ServEnv
-		mg.grpcServer = applied.single.GrpcServer
-		mg.topoStore = applied.single.TopoStore
-		mg.statusPath = "/" + constants.ServiceMultigateway
-	} else {
-		mg.senv = servenv.NewServEnv(reg)
-		mg.grpcServer = servenv.NewGrpcServer(reg)
-		mg.topoConfig = topoclient.NewTopoConfig(reg)
-		mg.statusPath = "/"
+	if err := resources.Validate(); err != nil {
+		panic(fmt.Sprintf("multigateway: invalid ProcessResources: %v", err))
 	}
+	mg.senv = resources.ServEnv
+	mg.grpcServer = resources.GrpcServer
+	mg.statusPath = statusPath
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -322,6 +319,16 @@ func NewMultigateway(opts ...Option) *Multigateway {
 // Executor returns the query executor for this multigateway.
 func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
+}
+
+// ServiceIdentity returns the identity the multigateway reports when main
+// initializes the process's servenv.
+func (mg *Multigateway) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: mg.serviceID.Get(),
+		Cell:              mg.cell.Get(),
+	}
 }
 
 // ServEnv returns the serving environment for this multigateway.
@@ -373,59 +380,23 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	)
 	mg.bufferConfig.RegisterFlags(fs)
 	mg.connConfig.RegisterFlags(fs)
-	if !mg.singleProcessMode {
-		mg.registerProcessFlags(fs)
-	}
-}
-
-// registerProcessFlags registers the flags of the process-level pieces the
-// multigateway owns when it runs as its own process.
-func (mg *Multigateway) registerProcessFlags(fs *pflag.FlagSet) {
-	mg.senv.RegisterFlags(fs)
-	mg.grpcServer.RegisterFlags(fs)
-	mg.topoConfig.RegisterFlags(fs)
-}
-
-// initProcess performs the process-owner steps of Init: servenv.Init and
-// opening the topology store. In single-process mode main has done both, and
-// the store comes from main.
-func (mg *Multigateway) initProcess(serviceID, cell string) error {
-	if mg.singleProcessMode {
-		mg.ts = mg.topoStore()
-		if mg.ts == nil {
-			return errors.New("topology store is not open: main must open it before Init")
-		}
-		return nil
-	}
-	if err := mg.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultigateway,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
-	var err error
-	mg.ts, err = mg.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
-	return nil
 }
 
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
-// until successful.
-func (mg *Multigateway) Init(ctx context.Context) error {
-	// Resolve service ID early for telemetry resource attributes
-	serviceID := mg.serviceID.Get()
-	if serviceID == "" {
-		serviceID = servenv.GenerateRandomServiceID()
+// until successful. ts is the process's already-open topology store (main
+// opens it, after parsing flags, before calling Init).
+func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
+	if ts == nil {
+		return errors.New("topology store is not open: main must open it before Init")
 	}
+	mg.ts = ts
+
+	// main has already resolved and applied the service ID (see
+	// ServiceIdentity/servenv.Init), so this is never empty here.
+	serviceID := mg.serviceID.Get()
 	cell := mg.cell.Get()
 
-	if err := mg.initProcess(serviceID, cell); err != nil {
-		return err
-	}
 	logger := mg.senv.GetLogger()
 
 	// This doesn't change
@@ -789,11 +760,7 @@ func (mg *Multigateway) RunDefault() error {
 func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	mg.configReloaded = make(chan struct{}, 1)
 	viperutil.NotifyConfigReload(mg.reg, mg.configReloaded)
-	if mg.singleProcessMode {
-		// main loads the shared servenv's configuration.
-		return nil
-	}
-	return mg.senv.CobraPreRunE(cmd)
+	return nil
 }
 
 func (mg *Multigateway) Shutdown() {
@@ -854,10 +821,6 @@ func (mg *Multigateway) Shutdown() {
 	}
 
 	mg.tr.Unregister()
-	if !mg.singleProcessMode {
-		// In single-process mode main closes the store it opened.
-		mg.ts.Close()
-	}
 }
 
 // claimUnusedPrefix atomically claims a PID prefix for this gateway and
