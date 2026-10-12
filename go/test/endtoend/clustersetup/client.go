@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/testpoll"
@@ -126,7 +127,15 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 // QueryStringValue executes a query and extracts the first column of the first row as a string.
 // Returns empty string and error if query fails or returns no rows.
 // Follows the pattern from multipooler/setup_test.go:queryStringValue.
-func QueryStringValue(ctx context.Context, client *MultipoolerTestClient, query string) (string, error) {
+// QueryExecutor runs one SQL statement against PostgreSQL. The multipooler's
+// query service (MultipoolerTestClient) implements it, and so does a direct
+// PostgreSQL connection (PostgresClient), for a topology whose query service
+// is not reachable from outside the process.
+type QueryExecutor interface {
+	ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*sqltypes.Result, error)
+}
+
+func QueryStringValue(ctx context.Context, client QueryExecutor, query string) (string, error) {
 	resp, err := client.ExecuteQuery(ctx, query, 1)
 	if err != nil {
 		return "", err
