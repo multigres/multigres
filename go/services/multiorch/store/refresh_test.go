@@ -175,3 +175,30 @@ func TestRefreshRecentInParallel(t *testing.T) {
 		assert.Nil(t, slow.Health().GetStatus(), "the pooler that did not answer in time keeps its cached state")
 	})
 }
+
+func TestPooler_applyStatusResponseSkipsWhenAStreamedSnapshotIsNewer(t *testing.T) {
+	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
+	requestedAt := time.Now().Add(-time.Second)
+	response := &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{PostgresReady: true},
+	}
+	newPooler := func(lastSeen time.Time) *Pooler {
+		return NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{Id: leaderID},
+			LastSeen:    timestamppb.New(lastSeen),
+			Status:      &multipoolermanagerdatapb.Status{PostgresReady: false},
+		}, nil)
+	}
+
+	t.Run("a snapshot that landed after the request is kept", func(t *testing.T) {
+		pooler := newPooler(time.Now()) // streamed snapshot arrived while the RPC was in flight
+		require.True(t, pooler.applyStatusResponse(response, timestamppb.Now(), requestedAt))
+		assert.False(t, pooler.Health().GetStatus().GetPostgresReady(), "a slow reply must not overwrite the newer snapshot")
+	})
+
+	t.Run("an older cached snapshot is replaced", func(t *testing.T) {
+		pooler := newPooler(requestedAt.Add(-time.Minute))
+		require.True(t, pooler.applyStatusResponse(response, timestamppb.Now(), requestedAt))
+		assert.True(t, pooler.Health().GetStatus().GetPostgresReady())
+	})
+}

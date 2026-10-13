@@ -143,6 +143,38 @@ func TestAttemptRecovery_RefreshesToVerifyAHealthGuess(t *testing.T) {
 	})
 }
 
+// TestAttemptRecovery_RegatesAFailoverAfterTheRecheck: another orchestrator's
+// revocation can arrive after the engine's gate let the failover through, while
+// the refresh and recheck are still running. The gate must be applied again to
+// what the recheck re-detected, so we don't recruit on top of its attempt.
+func TestAttemptRecovery_RegatesAFailoverAfterTheRecheck(t *testing.T) {
+	action := appointAction(0)
+	engine, _, problem := newRefreshEngine(t, action, false)
+
+	shard := store.FindShardMembers(engine.poolerCache, problem.ShardKey)
+	require.Len(t, shard.Poolers, 1)
+	shard.Poolers[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+			}},
+			// A recruit another orchestrator just started against the current decision.
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       5,
+				CoordinatorInitiatedAt: timestamppb.Now(),
+				RecruitIntent: &clustermetadatapb.RecruitIntent{
+					ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+					Attempt:         1,
+				},
+			},
+		}
+	})
+
+	engine.attemptRecovery(t.Context(), problem)
+
+	assert.False(t, action.executed.Load(), "the gate closed after the recheck, so the action must not run")
+}
+
 // TestAttemptRecovery_RefreshRefutesAStaleLeaderGuessWithTheRealAnalyzer runs the
 // real LeaderNeedsReplacementAnalyzer and the real AppointLeaderAction: the cache
 // says the leader's postgres is not ready, so the analyzer reports it unhealthy, but

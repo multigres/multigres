@@ -363,6 +363,11 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		)
 	}
 
+	// TODO: skip the recheck itself, not just the refresh above, when the cause is
+	// conclusive (a durable fact such as a revoked or resigned leader). The recheck also
+	// notices that the rule moved on, for example another orchestrator already replaced
+	// the leader, so that needs the problem to carry the rule it is about first.
+	//
 	// Force re-poll to validate the problem still exists
 	rechecked, err := re.recheckProblem(ctx, problem)
 	if err != nil {
@@ -381,6 +386,18 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"entity_id", entityID,
 		)
 		return
+	}
+
+	// The refresh and recheck above can take seconds, during which another
+	// orchestrator may have acted; re-apply the failover gate to what was just
+	// re-detected. (Other actions' gate tracks first-seen state, so it isn't re-run.)
+	if rechecked.Code.IsFailoverProblem() {
+		if readyAt, ready := re.readyToExecute(rechecked.Problem); !ready {
+			span.SetAttributes(attribute.String("result", "gated_after_recheck"), attribute.String("ready_at", readyAt.Format(time.RFC3339)))
+			re.logger.DebugContext(ctx, "deferring recovery: gate closed during refresh and recheck",
+				"problem_code", problem.Code, "entity_id", entityID, "ready_at", readyAt)
+			return
+		}
 	}
 
 	// Execute recovery action

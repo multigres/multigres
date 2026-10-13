@@ -39,11 +39,12 @@ import (
 // Returns an error, leaving the cache untouched, if the pooler is unreachable
 // or the RPC came back with no Status payload.
 func (p *Pooler) refreshNow(ctx context.Context, rpcClient rpcclient.MultipoolerClient) error {
+	requestedAt := time.Now()
 	statusResp, err := rpcClient.Status(ctx, p.Health().GetMultipooler(), &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return mterrors.Wrap(err, "pooler unreachable during health refresh")
 	}
-	if !p.applyStatusResponse(statusResp, timestamppb.Now()) {
+	if !p.applyStatusResponse(statusResp, timestamppb.Now(), requestedAt) {
 		return mterrors.Errorf(mtrpcpb.Code_INTERNAL, "pooler %s returned an empty status response",
 			topoclient.ComponentIDString(p.Health().GetMultipooler().GetId()))
 	}

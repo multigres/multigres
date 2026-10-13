@@ -129,18 +129,25 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 }
 
 // applyStatusResponse updates p's cached health from a fresh StatusResponse, from
-// a live RPC. It returns false, leaving p unmodified, if the response has no Status
-// payload: an empty answer must not clobber good cached data. A StatusResponse has no
-// pooler-stamped capture time, so PoolerCapturedAt (a pooler-clock field) is cleared
-// as unknown, not stamped with the orchestrator's clock.
+// a live RPC that was issued at requestedAt. It returns false, leaving p unmodified,
+// if the response has no Status payload: an empty answer must not clobber good cached
+// data. A StatusResponse has no pooler-stamped capture time, so PoolerCapturedAt (a
+// pooler-clock field) is cleared as unknown, not stamped with the orchestrator's clock.
+//
+// If a streamed snapshot landed after requestedAt, it is at least as fresh as this
+// response, so the write is skipped (and true is returned) rather than moving the
+// cache backwards with a slow reply.
 //
 // Known limitation: nothing orders this against an older streamed snapshot that was
 // queued before the RPC answered; it can briefly overwrite the fresher state.
-func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp) bool {
+func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp, requestedAt time.Time) bool {
 	if status.GetStatus() == nil {
 		return false
 	}
 	p.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		if seen := h.GetLastSeen(); seen != nil && seen.AsTime().After(requestedAt) {
+			return
+		}
 		applyStatusFields(h, status, now, nil)
 	})
 	return true
