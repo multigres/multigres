@@ -428,10 +428,12 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 		// A replica that will not stream is healed by the pooler's own
-		// rate-limited pg_rewind once SetPrimary has delivered the leader. Back
-		// off so re-running the action does not collide with that self-heal.
+		// rate-limited pg_rewind once SetPrimary has delivered the leader. Ramp up
+		// from a short base so a transient failure (e.g. Postgres restarting)
+		// retries quickly, while a persistent one stops re-driving SetPrimary,
+		// which can itself restart Postgres and rewind outside that backoff.
 		RetryBackoff: &types.RetryBackoffConfig{
-			BaseDelay:      10 * time.Second,
+			BaseDelay:      time.Second,
 			MaxDelay:       5 * time.Minute,
 			JitterFraction: 0.25,
 		},
