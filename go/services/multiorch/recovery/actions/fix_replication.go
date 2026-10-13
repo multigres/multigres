@@ -427,6 +427,14 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		Timeout:     45 * time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
+		// A replica that will not stream is healed by the pooler's own
+		// rate-limited pg_rewind once SetPrimary has delivered the leader. Back
+		// off so re-running the action does not collide with that self-heal.
+		RetryBackoff: &types.RetryBackoffConfig{
+			BaseDelay:      10 * time.Second,
+			MaxDelay:       5 * time.Minute,
+			JitterFraction: 0.25,
+		},
 	}
 }
 
