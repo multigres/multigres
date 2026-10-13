@@ -38,6 +38,12 @@ func restrictedGUCError(name string) error {
 // blocked wholesale as a Tier 2 statement; set_config(...) is handled in the
 // expression walker.)
 //
+// UPDATE pg_settings is rejected for every GUC, wherever it appears in the
+// statement (EXPLAIN ANALYZE, a CTE, a rule action, a BEGIN ATOMIC body):
+// PostgreSQL's pg_settings_u rule turns it into set_config(name, setting,
+// false), a session-level change that would stay on the pooled backend
+// without the gateway tracking it.
+//
 // Reverts are allowed because they can only restore the cluster-managed value:
 // RESET, RESET ALL, and SET ... TO DEFAULT. SET ... FROM CURRENT is refused
 // for every GUC on every surface: its value lives on the backend rather than
@@ -46,6 +52,11 @@ func restrictedGUCError(name string) error {
 // Runs pre-dispatch via analyzeStatement, so it covers both the simple
 // and extended query protocols and is short-circuited by the plan cache.
 func checkRestrictedGUCChange(stmt ast.Stmt) error {
+	if updatesPgSettings(stmt) {
+		return mterrors.NewFeatureNotSupported(
+			"UPDATE pg_settings is not supported under connection pooling: the change would apply to a pooled backend, not to the client session; use SET or set_config() instead")
+	}
+
 	switch s := stmt.(type) {
 	case *ast.VariableSetStmt:
 		return checkRestrictedSetStmt(s)
@@ -63,6 +74,19 @@ func checkRestrictedGUCChange(stmt ast.Stmt) error {
 	default:
 		return nil
 	}
+}
+
+// updatesPgSettings reports whether stmt contains an UPDATE of pg_settings
+// anywhere in its tree.
+func updatesPgSettings(stmt ast.Stmt) bool {
+	found := false
+	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		if us, ok := cursor.Node().(*ast.UpdateStmt); ok && isPgSettingsRelation(us.Relation) {
+			found = true
+		}
+		return !found
+	}, nil)
+	return found
 }
 
 // checkRestrictedFunctionOptions vets the SET clauses among a CREATE/ALTER

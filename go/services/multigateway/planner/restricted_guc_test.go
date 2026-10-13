@@ -164,6 +164,46 @@ func TestSetFromCurrentRejected(t *testing.T) {
 	}
 }
 
+// TestUpdatePgSettingsRejected verifies that UPDATE pg_settings, which
+// PostgreSQL applies as a session-level set_config, is refused on every
+// surface that reaches the backend, not only for restricted GUCs.
+func TestUpdatePgSettingsRejected(t *testing.T) {
+	tests := []struct {
+		sql     string
+		wantErr bool
+	}{
+		{"UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"UPDATE pg_catalog.pg_settings SET setting = '64MB' WHERE name = 'work_mem'", true},
+		{"UPDATE mydb.pg_catalog.pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"UPDATE pg_settings AS s SET setting = 'pg_temp, public' WHERE s.name = 'search_path'", true},
+		{"EXPLAIN ANALYZE UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"PREPARE p AS UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"DO $$ BEGIN UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'; END $$", true},
+		{"CREATE RULE r AS ON INSERT TO t DO ALSO UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", true},
+		{"CREATE FUNCTION f() RETURNS void LANGUAGE sql BEGIN ATOMIC UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'; END", true},
+		{"WITH s AS (UPDATE pg_settings SET setting = 'off' WHERE name = 'synchronous_commit' RETURNING name) SELECT * FROM s", true},
+
+		{"UPDATE app.pg_settings SET setting = 'off' WHERE name = 'synchronous_commit'", false},
+		{"UPDATE settings SET setting = 'off' WHERE name = 'synchronous_commit'", false},
+		{"SELECT setting FROM pg_settings WHERE name = 'work_mem'", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, tt.sql), false, false)
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, "UPDATE pg_settings is not supported")
+		})
+	}
+}
+
 // TestCheckRestrictedGUCChange verifies the value-level guard that blocks users
 // from overriding a cluster-managed GUC (synchronous_commit, the sole current
 // entry in restrictedGUCs) across every gateway-reachable statement path, while

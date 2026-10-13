@@ -890,30 +890,11 @@ qualified_name:
 			}
 		|	ColId indirection
 			{
-				// Handle complex qualified names like "schema.table.field" or "catalog.schema.table"
-				// This creates a RangeVar from indirection - for now we'll handle 2-part names only
-				// Full indirection support would require more complex parsing
-				if len($2.Items) == 1 {
-					if str, ok := $2.Items[0].(*ast.String); ok {
-						$$ = &ast.RangeVar{
-							SchemaName: $1,
-							RelName:    str.SVal,
-							Inh:        true, // inheritance enabled by default
-						}
-					} else {
-						// Complex indirection - return a simpler form for now
-						$$ = &ast.RangeVar{
-							RelName: $1,
-							Inh:     true, // inheritance enabled by default
-						}
-					}
-				} else {
-					// Multiple indirection elements - return simple form
-					$$ = &ast.RangeVar{
-						RelName: $1,
-						Inh:     true, // inheritance enabled by default
-					}
+				rangeVar, err := makeRangeVarFromQualifiedName($1, $2, -1)
+				if err != nil {
+					yylex.Error(err.Error())
 				}
+				$$ = rangeVar
 			}
 		;
 
@@ -12596,7 +12577,10 @@ PublicationObjSpec:
 			}
 		| ColId indirection opt_column_list OptWhereClause
 			{
-				rangeVar := makeRangeVarFromQualifiedName($1, $2, -1)
+				rangeVar, err := makeRangeVarFromQualifiedName($1, $2, -1)
+				if err != nil {
+					yylex.Error(err.Error())
+				}
 				pubTable := ast.NewPublicationTable(rangeVar, $4, $3)
 				$$ = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
 			}
