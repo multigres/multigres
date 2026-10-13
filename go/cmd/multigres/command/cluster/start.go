@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,13 +202,14 @@ func (s *ServiceSummary) PrintSummary() {
 			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
 		}
 	}
-	// Find the first multigateway service and show connection command
+	// Find the first pg-serving service (multigateway, or minigres for the
+	// single-process topology) and show the connection command.
 	for _, service := range s.Services {
-		if strings.HasPrefix(service.Name, "multigateway") {
+		if slices.ContainsFunc(constants.PgServingServices, func(name string) bool { return strings.HasPrefix(service.Name, name) }) {
 			if pgPort, exists := service.Ports["pg_port"]; exists {
 				fmt.Printf("- 🐘 Connect to PostgreSQL: PGPASSWORD=postgres psql -h %s -p %d -U postgres\n",
 					service.FQDN, pgPort)
-				break // Show only the first gateway
+				break // Show only the first pg-serving service
 			}
 		}
 	}
@@ -223,12 +225,13 @@ type gatewayEndpoint struct {
 	port int
 }
 
-// collectGateways returns the PostgreSQL endpoint for every multigateway in
-// results. Results without a pg_port are skipped.
+// collectGateways returns the PostgreSQL endpoint for every pg-serving
+// service in results (multigateway, or minigres for the single-process
+// topology). Results without a pg_port are skipped.
 func collectGateways(results []*provisioner.ProvisionResult) []gatewayEndpoint {
 	var gws []gatewayEndpoint
 	for _, r := range results {
-		if r.ServiceName != "multigateway" {
+		if !slices.Contains(constants.PgServingServices, r.ServiceName) {
 			continue
 		}
 		port, ok := r.Ports["pg_port"]

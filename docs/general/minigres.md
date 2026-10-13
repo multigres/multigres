@@ -25,33 +25,31 @@ Many Minigres processes can share one etcd and one Multiadmin.
 
 ## Running it
 
-There is no provisioner support yet, so Minigres is started by hand:
+`multigres cluster init --topology minigres` generates a single-cell local
+cluster config with one `minigres` service (paired with its own `pgctld`)
+instead of the usual multigateway/multipooler/multiorch triad. From there,
+the normal `multigres cluster start` / `stop` / `restart` commands work
+unchanged — see the "Minigres topology" section of the `mt-local-cluster`
+skill for the day-to-day commands.
 
 ```bash
 make build
-export PATH=$PWD/bin:$PATH # restore_command calls pgctld
+export PATH=$PWD/bin:$PATH
 
-# 1. etcd, which may be shared
-etcd --listen-client-urls http://localhost:35379 \
-  --advertise-client-urls http://localhost:35379 ...
+multigres cluster init --config-path ./minigres_local --topology minigres
+multigres cluster start --config-path ./minigres_local --wait-for-bootstrap
 
-# 2. Cluster metadata, once per database
-multigres createclustermetadata --global-topo-address localhost:35379 \
-  --global-topo-root /minigres/global --cells zone1 \
-  --durability-policy AT_LEAST_2 --backup-location /path/backups
+psql "host=localhost port=15532 user=postgres dbname=postgres"
 
-# 3. pgctld. Do not run `pgctld init`: the pooler initializes the data directory
-export PGDATA=/path/pooler/pg_data POSTGRES_PASSWORD_FILE=/path/pooler/postgres-password
-pgctld server --pooler-dir /path/pooler --pg-port 45432 --grpc-port 35470 \
-  --http-port 35400 --pg-user postgres --pg-database postgres
-
-# 4. Minigres
-minigres --pg-port 35432 --grpc-port 35170 --http-port 35100 \
-  --topo-global-server-addresses localhost:35379 --topo-global-root /minigres/global \
-  --cell zone1 --service-id db1 --pgctld-addr localhost:35470 --hostname localhost
-
-psql "host=localhost port=35432 user=postgres dbname=postgres"
+multigres cluster stop --config-path ./minigres_local
 ```
+
+Under the hood this runs the same sequence that used to be manual — etcd,
+`multigres createclustermetadata`, `pgctld server`, then `minigres` — through
+the local provisioner (`go/provisioner/local`), so there's no separate
+"minigres mode" anywhere in that code: a cell simply has a `minigres` service
+configured instead of the usual three, and the generic provisioning/start/
+stop logic doesn't need to know the difference.
 
 Things to know:
 
@@ -194,7 +192,9 @@ run daily.
 
 ## Known limitations
 
-- Minigres is started by hand; there is no CLI or provisioner support.
+- `multigres cluster init --topology minigres` only generates a single
+  all-minigres cell; mixing a minigres cell with full-Multigres cells in one
+  cluster config is not supported yet.
 - Backups need `ForcePrimary` on a primary, and the standby backup path relies on
   a consensus-recorded primary that a static leader does not have.
 - Several Minigres instances serving the same database name in one etcd look

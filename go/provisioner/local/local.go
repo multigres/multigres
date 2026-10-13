@@ -1112,6 +1112,184 @@ func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisio
 	}, nil
 }
 
+// provisionMinigres provisions minigres — a single process running both a
+// multigateway and a multipooler half — using the local binary. It pairs
+// with its own pgctld exactly like provisionMultipooler does, since a
+// minigres instance owns one Postgres the same way a multipooler does.
+func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+	// Sanity check: ensure this method is called for the minigres service
+	if req.Service != constants.ServiceMinigres {
+		return nil, fmt.Errorf("provisionMinigres called for wrong service type: %s", req.Service)
+	}
+
+	// Get cell parameter
+	cell := req.Params["cell"].(string)
+
+	// Check if minigres is already running
+	existingService, err := p.findRunningDbService(constants.ServiceMinigres, req.DatabaseName, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for existing minigres service: %w", err)
+	}
+	if existingService != nil {
+		fmt.Printf("minigres is already running (PID %d) ✓\n", existingService.PID)
+		return &provisioner.ProvisionResult{
+			ServiceName: constants.ServiceMinigres,
+			FQDN:        existingService.FQDN,
+			Ports:       existingService.Ports,
+			Metadata: map[string]any{
+				"service_id": existingService.ID,
+				"log_file":   existingService.LogFile,
+			},
+		}, nil
+	}
+
+	// Get parameters from request
+	etcdAddress := req.Params["etcd_address"].(string)
+	topoGlobalRoot := req.Params["topo_global_root"].(string)
+
+	// Get cell-specific minigres config
+	minigresConfig, err := p.getCellServiceConfig(cell, constants.ServiceMinigres)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get minigres config for cell %s: %w", cell, err)
+	}
+
+	httpPort := ports.DefaultMinigresHTTP
+	if v, ok := minigresConfig["http_port"].(int); ok && v > 0 {
+		httpPort = v
+	}
+	grpcPort := ports.DefaultMinigresGRPC
+	if v, ok := minigresConfig["grpc_port"].(int); ok && v > 0 {
+		grpcPort = v
+	}
+	pgPort := ports.DefaultMinigresPG
+	if v, ok := minigresConfig["pg_port"].(int); ok && v > 0 {
+		pgPort = v
+	}
+
+	database := req.DatabaseName
+	if v, ok := minigresConfig["database"].(string); ok && v != "" {
+		database = v
+	}
+
+	tableGroup := "default"
+	if v, ok := minigresConfig["table_group"].(string); ok && v != "" {
+		tableGroup = v
+	}
+
+	shard := "0-inf"
+	if v, ok := minigresConfig["shard"].(string); ok && v != "" {
+		shard = v
+	}
+
+	logLevel := "info"
+	if v, ok := minigresConfig["log_level"].(string); ok {
+		logLevel = v
+	}
+
+	// Find minigres binary
+	minigresBinary, err := p.findBinary(constants.ServiceMinigres, minigresConfig)
+	if err != nil {
+		return nil, fmt.Errorf("minigres binary not found: %w", err)
+	}
+
+	// Get service ID from minigres config - this should always be set
+	serviceID := ""
+	if id, ok := minigresConfig["service-id"].(string); ok && id != "" {
+		serviceID = id
+	} else {
+		return nil, fmt.Errorf("service-id not found in minigres config for cell %s", cell)
+	}
+
+	// Create log file path
+	logFile, err := p.createLogFile(constants.ServiceMinigres, serviceID, req.DatabaseName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	// Provision pgctld for this minigres instance, same as a multipooler does
+	pgctldResult, err := p.provisionPgctld(ctx, database, tableGroup, serviceID, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision pgctld for minigres: %w", err)
+	}
+
+	// Build command arguments. No --pooler-dir: minigres's pooler half adopts
+	// it from pgctld's Status RPC, same as a standalone multipooler does.
+	args := []string{
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--pg-port", strconv.Itoa(pgPort),
+		"--pg-bind-address", "127.0.0.1",
+		"--topo-global-server-addresses", etcdAddress,
+		"--topo-global-root", topoGlobalRoot,
+		"--cell", cell,
+		"--database", database,
+		"--table-group", tableGroup,
+		"--shard", shard,
+		"--service-id", serviceID,
+		"--pgctld-addr", pgctldResult.Address,
+		"--log-level", logLevel,
+		"--log-output", logFile,
+		"--hostname", "localhost",
+	}
+
+	// Start minigres process
+	minigresCmd := executil.Command(ctx, minigresBinary, args...)
+
+	// Point minigres at the password file pgctld already wrote, same as
+	// multipooler: both services resolve the credential from the same file.
+	minigresCmd.Env = append(os.Environ(),
+		constants.PgPasswordFileEnvVar+"="+pgctldResult.PasswordFile,
+		constants.PgDataDirEnvVar+"="+filepath.Join(pgctldResult.PoolerDir, "pg_data"),
+	)
+
+	fmt.Printf("▶️  - Launching minigres (HTTP:%d, gRPC:%d, PG:%d)...", httpPort, grpcPort, pgPort)
+
+	if err := minigresCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start minigres: %w", err)
+	}
+
+	// Validate process is running
+	if err := p.validateProcessRunning(minigresCmd.Process.Pid); err != nil {
+		return nil, fmt.Errorf("minigres process validation failed: %w", err)
+	}
+
+	// Wait for minigres to be ready
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort, "pg_port": pgPort}
+	if err := p.waitForServiceReady(ctx, constants.ServiceMinigres, "localhost", servicePorts, 10*time.Second); err != nil {
+		logs := p.readServiceLogs(logFile, 20)
+		return nil, fmt.Errorf("minigres readiness check failed: %w\n\nLast 20 lines from minigres logs:\n%s", err, logs)
+	}
+	fmt.Printf(" ready ✓\n")
+
+	// Create provision state
+	service := &LocalProvisionedService{
+		ID:         serviceID,
+		Service:    constants.ServiceMinigres,
+		PID:        minigresCmd.Process.Pid,
+		BinaryPath: minigresBinary,
+		Ports:      servicePorts,
+		FQDN:       "localhost",
+		LogFile:    logFile,
+		StartedAt:  time.Now(),
+		Metadata:   map[string]any{"cell": cell},
+	}
+
+	// Save service state to disk
+	if err := p.saveServiceState(service, req.DatabaseName); err != nil {
+		fmt.Printf("Warning: failed to save service state: %v\n", err)
+	}
+
+	return &provisioner.ProvisionResult{
+		ServiceName: constants.ServiceMinigres,
+		FQDN:        "localhost",
+		Ports:       servicePorts,
+		Metadata: map[string]any{
+			"service_id": serviceID,
+			"log_file":   logFile,
+		},
+	}, nil
+}
+
 // Deprovision removes/stops a specific service
 func (p *localProvisioner) Deprovision(ctx context.Context, req *provisioner.DeprovisionRequest) error {
 	fmt.Printf("Deprovisioning %s service (ID: %s)...\n", req.Service, req.ServiceID)
@@ -1179,6 +1357,8 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 	case constants.ServiceMultiorch:
 		fallthrough
 	case constants.ServiceMultipooler:
+		fallthrough
+	case constants.ServiceMinigres:
 		fallthrough
 	case constants.ServiceMultiadmin:
 		return p.deprovisionService(ctx, req)
@@ -1567,6 +1747,39 @@ func (p *localProvisioner) getDefaultDatabaseName() (string, error) {
 	return p.config.DefaultDbName, nil
 }
 
+// cellServiceSpecs declares every service that can run in a cell: its
+// service name, a predicate telling whether a given cell's config requests
+// it, and how to provision it. Which services actually run in a given cell
+// is decided entirely by which of these predicates match — adding a new
+// per-cell service (as minigres was) means adding one row here, not changing
+// ProvisionDatabase's fan-out loop or branching on a topology concept.
+var cellServiceSpecs = []struct {
+	name       string
+	configured func(CellServicesConfig) bool
+	provision  func(*localProvisioner, context.Context, *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error)
+}{
+	{
+		name:       constants.ServiceMultigateway,
+		configured: func(c CellServicesConfig) bool { return c.Multigateway.Path != "" },
+		provision:  (*localProvisioner).provisionMultigateway,
+	},
+	{
+		name:       constants.ServiceMultipooler,
+		configured: func(c CellServicesConfig) bool { return c.Multipooler.Path != "" },
+		provision:  (*localProvisioner).provisionMultipooler,
+	},
+	{
+		name:       constants.ServiceMultiorch,
+		configured: func(c CellServicesConfig) bool { return c.Multiorch.Path != "" },
+		provision:  (*localProvisioner).provisionMultiorch,
+	},
+	{
+		name:       constants.ServiceMinigres,
+		configured: func(c CellServicesConfig) bool { return c.Minigres.Path != "" },
+		provision:  (*localProvisioner).provisionMinigres,
+	},
+}
+
 // ProvisionDatabase provisions a complete database stack in all cells (assumes etcd is already running and cells are configured)
 func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName string, etcdAddress string) ([]*provisioner.ProvisionResult, error) {
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
@@ -1654,18 +1867,36 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		err    error
 	}
 
-	// Calculate total number of services to provision
-	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell (pgbackrest now managed by pgctld)
+	// Build the list of (cell, service) jobs purely from what each cell's
+	// config actually contains — a classic cell matches the multigateway/
+	// multipooler/multiorch specs and queues 3 jobs; a minigres cell matches
+	// only the minigres spec and queues 1. Nothing here branches on topology;
+	// it only ever asks "is this spec's service configured for this cell".
+	type provisionJob struct {
+		cell string
+		spec int
+	}
+	var jobs []provisionJob
+	for _, cellName := range cellNames {
+		cellCfg := p.config.Cells[cellName]
+		for i, spec := range cellServiceSpecs {
+			if spec.configured(cellCfg) {
+				jobs = append(jobs, provisionJob{cell: cellName, spec: i})
+			}
+		}
+	}
+
+	numServices := len(jobs)
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
-	for _, cellName := range cellNames {
-		cell := cellName // capture for goroutine
+	for _, job := range jobs {
+		cell := job.cell // capture for goroutine
+		spec := cellServiceSpecs[job.spec]
 
-		// Start multigateway
 		go func() {
 			req := &provisioner.ProvisionRequest{
-				Service:      constants.ServiceMultigateway,
+				Service:      spec.name,
 				DatabaseName: databaseName,
 				Params: map[string]any{
 					"etcd_address":     etcdAddress,
@@ -1673,47 +1904,9 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 					"cell":             cell,
 				},
 			}
-			result, err := p.provisionMultigateway(ctx, req)
+			result, err := spec.provision(p, ctx, req)
 			if err != nil {
-				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multigateway in cell %s: %w", cell, err)}
-				return
-			}
-			resultsChan <- provisionResult{result: result}
-		}()
-
-		// Start multipooler
-		go func() {
-			req := &provisioner.ProvisionRequest{
-				Service:      constants.ServiceMultipooler,
-				DatabaseName: databaseName,
-				Params: map[string]any{
-					"etcd_address":     etcdAddress,
-					"topo_global_root": topoConfig.GlobalRootPath,
-					"cell":             cell,
-				},
-			}
-			result, err := p.provisionMultipooler(ctx, req)
-			if err != nil {
-				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multipooler in cell %s: %w", cell, err)}
-				return
-			}
-			resultsChan <- provisionResult{result: result}
-		}()
-
-		// Start multiorch
-		go func() {
-			req := &provisioner.ProvisionRequest{
-				Service:      constants.ServiceMultiorch,
-				DatabaseName: databaseName,
-				Params: map[string]any{
-					"etcd_address":     etcdAddress,
-					"topo_global_root": topoConfig.GlobalRootPath,
-					"cell":             cell,
-				},
-			}
-			result, err := p.provisionMultiorch(ctx, req)
-			if err != nil {
-				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision %s in cell %s: %w", spec.name, cell, err)}
 				return
 			}
 			resultsChan <- provisionResult{result: result}
@@ -2118,6 +2311,13 @@ func (p *localProvisioner) validateBinaryPaths(config *LocalProvisionerConfig) e
 		// Validate multiorch
 		if cellConfig.Multiorch.Path != "" {
 			if err := p.validateBinaryExists(cellConfig.Multiorch.Path, fmt.Sprintf("multiorch (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate minigres
+		if cellConfig.Minigres.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Minigres.Path, fmt.Sprintf("minigres (cell %s)", cellName)); err != nil {
 				errors = append(errors, err.Error())
 			}
 		}

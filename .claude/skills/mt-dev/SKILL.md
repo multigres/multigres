@@ -133,6 +133,15 @@ Integration tests are end-to-end tests that start real components (Multigateway,
 - `localprovisioner` - Local cluster provisioning and setup
 - `shardsetup` - Shard configuration and management
 - `pgregresstest` - PostgreSQL regression tests (opt-in, comprehensive)
+- `minigres` - Runs the `queryserving` suite against the single-process
+  Minigres topology instead of full Multigres (sets
+  `MULTIGRES_E2E_TOPOLOGY=minigres`). Only `queryserving` and its
+  `sqllogictest`/`pgparity`/`pgproto`/`postgresttests` sub-packages have any
+  Minigres awareness today — `pgregresstest`, `multipooler`, `multiorch`,
+  `shardsetup`, etc. always run against full Multigres regardless of this
+  alias. Tests that inherently need a second pooler or Multiorch (failover
+  buffering, replica reads, cross-gateway cancel) skip themselves under this
+  topology; see the table in `docs/general/minigres.md`.
 
 ### Integration Test Command Syntax
 
@@ -155,6 +164,7 @@ Examples:
 - `/mt-dev integration multipooler` → `make build && go test ./go/test/endtoend/multipooler/...`
 - `/mt-dev integration multiorch` → `make build && go test ./go/test/endtoend/multiorch/...`
 - `/mt-dev integration queryserving` → `make build && go test ./go/test/endtoend/queryserving/...`
+- `/mt-dev integration minigres` → `make build && MULTIGRES_E2E_TOPOLOGY=minigres go test ./go/test/endtoend/queryserving/...` (the `minigres` package name is a topology alias for `queryserving`, not a separate test directory — there is no `go/test/endtoend/minigres/`)
 
 **Run specific test:**
 
@@ -228,6 +238,7 @@ Same flags as unit tests, plus:
 - "test multiorch TestFixReplication" → `/mt-dev integration multiorch TestFixReplication`
 - "run all integration tests with race detector" → `/mt-dev integration all -race`
 - "test query serving" → `/mt-dev integration queryserving`
+- "run queryserving tests against minigres" → `/mt-dev integration minigres`
 
 ---
 
