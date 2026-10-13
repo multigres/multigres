@@ -32,7 +32,7 @@ import (
 
 func TestIsFailoverProblem(t *testing.T) {
 	assert.True(t, types.ProblemLeaderUnspecified.IsFailoverProblem())
-	assert.True(t, types.ProblemLeaderUnreachableByCohort.IsFailoverProblem())
+	assert.True(t, types.ProblemLeaderUnsupported.IsFailoverProblem())
 	assert.True(t, types.ProblemLeaderUnhealthy.IsFailoverProblem())
 	assert.True(t, types.ProblemLeaderResigned.IsFailoverProblem())
 	assert.False(t, types.ProblemReplicaNotReplicating.IsFailoverProblem())
