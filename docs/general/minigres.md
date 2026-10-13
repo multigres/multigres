@@ -112,14 +112,17 @@ then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
 `ProcessResources` also names the server the pooler serves its query service
 (`MultipoolerService`) on, `QueryGrpcServer`. The Multigres binaries set it to
-their one gRPC server. `cmd/minigres` sets it to an in-memory server
-(`servenv.NewInMemoryGrpcServer`): no port, no TLS, no auth, and the external
-server's limits. The serving loop starts both servers
+their one gRPC server. `cmd/minigres` sets it to a server on a local endpoint
+(`servenv.NewLocalGrpcServer`). A server listens wherever its endpoint
+(`servenv.Endpoint`) does: the TCP port from the flags, or memory
+(`servenv.NewInMemoryEndpoint`), which nothing outside the process can reach. A
+server on a local endpoint has no port, no TLS and no auth, and uses the
+external server's limits. The serving loop starts both servers
 (`RunDefault(grpcServer, queryGrpcServer)`). The gateway connects to poolers
 through a dialer (`poolergateway.PoolerDialer`): the Multigres binaries use the
 remote dialer, which dials the address in the topology with the
 `--multipooler-grpc-*` credentials, and `cmd/minigres` passes a local dialer that
-connects through the in-memory server and only to its own pooler.
+connects the way the endpoint says, and only to its own pooler.
 
 ## Where Minigres diverges from Multigres, and why
 

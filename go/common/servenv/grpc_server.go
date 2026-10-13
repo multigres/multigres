@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -44,7 +42,6 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 // This file handles gRPC server, on its own port.
@@ -144,10 +141,9 @@ type GrpcServer struct {
 	// now live, shared with the HTTP listener - see the field doc there.
 	sv *ServEnv
 
-	// memListener is set for a server built by NewInMemoryGrpcServer: the
-	// server listens on it instead of a port or socket file, and serves
-	// without TLS or authentication.
-	memListener *bufconn.Listener
+	// endpoint is where the server listens: the TCP port from the flags,
+	// unless the server was built by NewLocalGrpcServer.
+	endpoint Endpoint
 
 	// otelInstrumentation controls whether the OpenTelemetry gRPC stats
 	// handler is attached to this process's gRPC server and clients. The
@@ -262,26 +258,25 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 	// server's flags. Hand it the decision as a function so it reads the
 	// parsed value at dial time, whichever happens first.
 	grpccommon.SetOTelInstrumentationEnabled(g.OTelInstrumentationEnabled)
+	g.endpoint = tcpEndpoint{bindAddress: g.bindAddress, port: g.port}
 	return g
 }
 
-// OTelInstrumentationEnabled reports whether OpenTelemetry gRPC
-// instrumentation is attached to this process's gRPC server and clients
-// (--grpc-otel-instrumentation, default true).
-// inMemoryBufferSize is the size of each in-memory connection's buffer.
-const inMemoryBufferSize = 1 << 20
-
-// NewInMemoryGrpcServer returns a gRPC server that listens only on an
-// in-memory listener, for components that run in the same process (in
-// minigres, the multigateway calling the multipooler). Nothing outside the
-// process can reach it, so it registers no flags, has no port, and serves
-// without TLS or authentication. It shares the external server's settings
-// for connection age, window sizes, keepalive, stream workers and
-// OpenTelemetry instrumentation, so calls see the same limits on either
-// server; the maximum message size is process-wide already.
+// NewLocalGrpcServer returns a gRPC server that listens on a local endpoint,
+// one that cannot be reached from the network, for components that run in the
+// same process (in minigres, the multigateway calling the multipooler). It
+// registers no flags, has no port, and serves without TLS or authentication.
+// It shares the external server's settings for connection age, window sizes,
+// keepalive, stream workers and OpenTelemetry instrumentation, so calls see
+// the same limits on either server; the maximum message size is process-wide
+// already. Clients connect through endpoint.Target.
 //
-// Clients connect through Dial.
-func NewInMemoryGrpcServer(external *GrpcServer) *GrpcServer {
+// It panics if endpoint is not local, which is a programming error in the
+// caller.
+func NewLocalGrpcServer(external *GrpcServer, endpoint Endpoint) *GrpcServer {
+	if !endpoint.Local() {
+		panic("servenv: NewLocalGrpcServer requires a local endpoint")
+	}
 	// A private registry: every setting not copied below keeps its default
 	// (no port, no socket file, no auth mode, no TLS files) and has no flag.
 	g := NewGrpcServer(viperutil.NewRegistry())
@@ -295,19 +290,21 @@ func NewInMemoryGrpcServer(external *GrpcServer) *GrpcServer {
 	g.keepaliveTime = external.keepaliveTime
 	g.keepaliveTimeout = external.keepaliveTimeout
 	g.otelInstrumentation = external.otelInstrumentation
-	g.memListener = bufconn.Listen(inMemoryBufferSize)
+	g.endpoint = endpoint
+	// NewGrpcServer pointed the process-wide client instrumentation switch at
+	// this server; the external server owns the flag.
+	grpccommon.SetOTelInstrumentationEnabled(external.OTelInstrumentationEnabled)
 	return g
 }
 
-// Dial connects to a server built by NewInMemoryGrpcServer. It waits until the
-// server accepts the connection or ctx ends.
-func (g *GrpcServer) Dial(ctx context.Context) (net.Conn, error) {
-	if g.memListener == nil {
-		return nil, errors.New("Dial is only supported on an in-memory gRPC server")
-	}
-	return g.memListener.DialContext(ctx)
+// Endpoint returns where the server listens.
+func (g *GrpcServer) Endpoint() Endpoint {
+	return g.endpoint
 }
 
+// OTelInstrumentationEnabled reports whether OpenTelemetry gRPC
+// instrumentation is attached to this process's gRPC server and clients
+// (--grpc-otel-instrumentation, default true).
 func (g *GrpcServer) OTelInstrumentationEnabled() bool {
 	return g.otelInstrumentation.Get()
 }
@@ -430,7 +427,7 @@ func (g *GrpcServer) SocketFile() string {
 
 // IsEnabled returns true if gRPC server is enabled
 func (g *GrpcServer) IsEnabled() bool {
-	if g.memListener != nil {
+	if g.endpoint.Local() {
 		return true
 	}
 
@@ -491,10 +488,10 @@ func (g *GrpcServer) Create(sv *ServEnv) error {
 	// is plain Go, not an artifact of load order.
 	// When --tls-ca is also set, mutual TLS is enabled (client certs required).
 	// BuildServerTLSConfig validates the cert/key/ca combinations.
-	// An in-memory server never uses TLS: the --tls-* files are the
-	// process's, meant for its external listeners.
+	// A server on a local endpoint never uses TLS: the --tls-* files are the
+	// process's, meant for its network listeners.
 	var tlsConfig *tls.Config
-	if g.memListener == nil {
+	if !g.endpoint.Local() {
 		cert := resolveTLSPath(sv.tlsCert.Get(), g.cert.Get())
 		key := resolveTLSPath(sv.tlsKey.Get(), g.key.Get())
 		ca := resolveTLSPath(sv.tlsCA.Get(), g.ca.Get())
@@ -657,7 +654,7 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 // Serve starts the gRPC server and begins listening for requests
 func (g *GrpcServer) Serve(sv *ServEnv) error {
 	// skip if not enabled
-	if g.memListener == nil && g.port.Get() == 0 {
+	if !g.endpoint.Local() && g.port.Get() == 0 {
 		return nil
 	}
 
@@ -676,7 +673,8 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 		healthServer.SetServingStatus(service, healthpb.HealthCheckResponse_SERVING)
 	}
 
-	listener, err := g.listen()
+	slog.Info("listening for gRPC calls", "target", endpointTarget(g.endpoint))
+	listener, err := g.endpoint.Listen()
 	if err != nil {
 		return err
 	}
@@ -701,19 +699,10 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 	return nil
 }
 
-// listen returns the listener Serve serves on: the in-memory listener for a
-// server built by NewInMemoryGrpcServer, otherwise the gRPC port.
-func (g *GrpcServer) listen() (net.Listener, error) {
-	if g.memListener != nil {
-		slog.Info("listening for gRPC calls in memory")
-		return g.memListener, nil
-	}
-	slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
-	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
-	if err != nil {
-		return nil, fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
-	}
-	return listener, nil
+// endpointTarget returns an endpoint's gRPC target, for logging.
+func endpointTarget(e Endpoint) string {
+	t, _ := e.Target()
+	return t
 }
 
 // CheckServiceMap returns if we should register a gRPC service

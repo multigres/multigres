@@ -57,8 +57,8 @@ type minigres struct {
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
 
-	// queryGrpcServer is the in-memory gRPC server the multipooler serves its
-	// query service on. The multigateway reaches it without leaving the
+	// queryGrpcServer is the gRPC server, on an in-memory endpoint, the
+	// multipooler serves its query service on. The multigateway reaches it without leaving the
 	// process; grpcServer, on the TCP port, carries only the admin services.
 	queryGrpcServer *servenv.GrpcServer
 
@@ -82,7 +82,8 @@ func newMinigres() *minigres {
 		topoConfig:  topoclient.NewTopoConfig(reg),
 		poolerFlags: pflag.NewFlagSet(constants.ServiceMultipooler, pflag.ContinueOnError),
 	}
-	m.queryGrpcServer = servenv.NewInMemoryGrpcServer(m.grpcServer)
+	queryEndpoint := servenv.NewInMemoryEndpoint()
+	m.queryGrpcServer = servenv.NewLocalGrpcServer(m.grpcServer, queryEndpoint)
 	// One value for both halves, so they cannot be given different servers.
 	resources := servenv.ProcessResources{
 		ServEnv:         m.senv,
@@ -98,7 +99,7 @@ func newMinigres() *minigres {
 	// The multigateway connects only to the multipooler in this process, over
 	// the in-memory server. The multipooler's ID is read when the multigateway
 	// first connects, after flags are parsed.
-	localDialer := poolergateway.NewLocalDialer(m.poolerID, m.queryGrpcServer.Dial)
+	localDialer := poolergateway.NewLocalDialer(m.poolerID, queryEndpoint)
 	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localDialer)
 	return m
 }

@@ -15,14 +15,12 @@
 package poolergateway
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -59,39 +57,31 @@ func (d remoteDialer) Target(pooler *clustermetadatapb.Multipooler) (string, []g
 // the one running in the same process.
 var ErrNotLocalPooler = errors.New("not the pooler of this process")
 
-// localTarget is the gRPC target of the local dialer. The passthrough scheme
-// hands it unresolved to the context dialer, which ignores it.
-const localTarget = "passthrough:///local-multipooler"
-
-// localDialer connects to the pooler running in the same process, through a
-// connect function such as an in-memory gRPC server's Dial.
+// localDialer connects to the pooler running in the same process, at the
+// local endpoint its query service is served on.
 type localDialer struct {
-	self func() *clustermetadatapb.ID
-	dial func(context.Context) (net.Conn, error)
+	self     func() *clustermetadatapb.ID
+	endpoint servenv.Endpoint
 }
 
 // NewLocalDialer returns a dialer for the pooler in the same process
 // (minigres). self returns that pooler's ID; it is called on every Target, so
-// it may depend on flags parsed after the dialer is built. dial opens a
-// connection to the server the pooler's query service is on. Every other
+// it may depend on flags parsed after the dialer is built. endpoint is where
+// the pooler's query service is served; the dialer connects the way the
+// endpoint says, whether it is in memory or, later, a Unix socket. Every other
 // pooler gets ErrNotLocalPooler: with a shared topology the gateway also sees
 // other processes' poolers, and must never route to them, nor treat them as
 // its own.
-func NewLocalDialer(self func() *clustermetadatapb.ID, dial func(context.Context) (net.Conn, error)) PoolerDialer {
-	return localDialer{self: self, dial: dial}
+func NewLocalDialer(self func() *clustermetadatapb.ID, endpoint servenv.Endpoint) PoolerDialer {
+	return localDialer{self: self, endpoint: endpoint}
 }
 
 func (d localDialer) Target(pooler *clustermetadatapb.Multipooler) (string, []grpc.DialOption, error) {
 	if !sameComponent(pooler.GetId(), d.self()) {
 		return "", nil, fmt.Errorf("pooler %s: %w", topoclient.ComponentIDString(pooler.GetId()), ErrNotLocalPooler)
 	}
-	return localTarget, []grpc.DialOption{
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return d.dial(ctx)
-		}),
-		// The connection never leaves the process.
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}, nil
+	target, opts := d.endpoint.Target()
+	return target, opts, nil
 }
 
 // sameComponent reports whether a and b identify the same component.

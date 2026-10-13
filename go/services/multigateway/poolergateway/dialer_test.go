@@ -16,7 +16,6 @@ package poolergateway
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
@@ -49,10 +48,7 @@ func TestRemoteDialer_UsesTopologyAddress(t *testing.T) {
 
 func TestLocalDialer_RejectsOtherPoolers(t *testing.T) {
 	self := func() *clustermetadatapb.ID { return testPooler("zone1", "pooler-1").Id }
-	dialer := NewLocalDialer(self, func(context.Context) (net.Conn, error) {
-		t.Fatal("must not dial another process's pooler")
-		return nil, nil
-	})
+	dialer := NewLocalDialer(self, servenv.NewInMemoryEndpoint())
 
 	for _, other := range []*clustermetadatapb.Multipooler{
 		testPooler("zone1", "pooler-2"), // another name
@@ -66,7 +62,8 @@ func TestLocalDialer_RejectsOtherPoolers(t *testing.T) {
 func TestLocalDialer_ReadsOwnIDOnEveryTarget(t *testing.T) {
 	ownName := ""
 	self := func() *clustermetadatapb.ID { return testPooler("zone1", ownName).Id }
-	dialer := NewLocalDialer(self, nil)
+	endpoint := servenv.NewInMemoryEndpoint()
+	dialer := NewLocalDialer(self, endpoint)
 
 	// Before flags are parsed the ID is not known yet.
 	_, _, err := dialer.Target(testPooler("zone1", "pooler-1"))
@@ -75,21 +72,23 @@ func TestLocalDialer_ReadsOwnIDOnEveryTarget(t *testing.T) {
 	ownName = "pooler-1"
 	target, _, err := dialer.Target(testPooler("zone1", "pooler-1"))
 	require.NoError(t, err)
-	assert.Equal(t, localTarget, target)
+	wantTarget, _ := endpoint.Target()
+	assert.Equal(t, wantTarget, target, "the dialer connects where the endpoint says")
 }
 
 // TestLocalDialer_ConnectsInMemory connects to the own pooler's record, whose
-// address cannot be reached, and gets an answer from an in-memory server: the
-// topology address is never used.
+// address cannot be reached, and gets an answer from a server on an in-memory
+// endpoint: the topology address is never used.
 func TestLocalDialer_ConnectsInMemory(t *testing.T) {
 	sv := servenv.NewServEnv(viperutil.NewRegistry())
-	server := servenv.NewInMemoryGrpcServer(servenv.NewGrpcServer(viperutil.NewRegistry()))
+	endpoint := servenv.NewInMemoryEndpoint()
+	server := servenv.NewLocalGrpcServer(servenv.NewGrpcServer(viperutil.NewRegistry()), endpoint)
 	require.NoError(t, server.Create(sv))
 	require.NoError(t, server.Serve(sv))
 	t.Cleanup(server.Server.Stop)
 
 	own := testPooler("zone1", "pooler-1")
-	dialer := NewLocalDialer(func() *clustermetadatapb.ID { return own.Id }, server.Dial)
+	dialer := NewLocalDialer(func() *clustermetadatapb.ID { return own.Id }, endpoint)
 	target, opts, err := dialer.Target(own)
 	require.NoError(t, err)
 
