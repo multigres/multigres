@@ -77,6 +77,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	// never consulted — attemptRecovery gates failover on recruitment backoff, not
 	// the grace tracker. Reconciling them keeps eviction bookkeeping uniform.
 	re.recoveryGracePeriodTracker.Reconcile(problems)
+	re.recoveryRetryBackoffTracker.Reconcile(problems)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)
@@ -383,8 +384,10 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"error", err,
 		)
 		re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure, problem.ShardKey.Database, problem.ShardKey.Shard)
+		re.recoveryRetryBackoffTracker.RecordFailure(ctx, problem)
 		return
 	}
+	re.recoveryRetryBackoffTracker.RecordSuccess(problem)
 
 	span.SetAttributes(attribute.String("result", "success"))
 	re.logger.InfoContext(ctx, "recovery action successful",
@@ -494,7 +497,9 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 // collective recruitment backoff (independent orchs defer to a deterministic
 // slot derived from the shard's observed TermRevocation, escalating while
 // recruits churn against the same baseline; no observed revocation means act
-// immediately). Every other action uses the local grace period.
+// immediately). Every other action uses the local grace period, then, for
+// actions that opt in via RecoveryMetadata.RetryBackoff, the per-problem
+// failure backoff.
 //
 // TODO: this failover-vs-everything-else split is a stopgap; each recovery
 // action should own its "may I act now?" gate so this selection dissolves.
@@ -513,7 +518,10 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardKey)
 	}
-	return re.recoveryGracePeriodTracker.ShouldExecute(problem)
+	if readyAt, ready = re.recoveryGracePeriodTracker.ShouldExecute(problem); !ready {
+		return readyAt, false
+	}
+	return re.recoveryRetryBackoffTracker.ShouldExecute(problem)
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover

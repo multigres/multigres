@@ -225,6 +225,10 @@ type Engine struct {
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
 	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
 
+	// recoveryRetryBackoffTracker throttles re-execution of non-failover actions
+	// that keep failing against the same problem and entity.
+	recoveryRetryBackoffTracker *RecoveryRetryBackoffTracker
+
 	// Context for shutting down loops
 	shutdownCtx context.Context
 	cancel      context.CancelFunc
@@ -301,6 +305,7 @@ func NewEngine(
 
 	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
 		WithLogger(logger))
+	engine.recoveryRetryBackoffTracker = NewRecoveryRetryBackoffTracker(logger)
 
 	return engine
 }
@@ -565,6 +570,7 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	// retry loop below still resolves them within the RPC's own timeout, just
 	// via a few extra cycles rather than instantly.
 	re.recoveryGracePeriodTracker.ForceExpireAll()
+	re.recoveryRetryBackoffTracker.Reset()
 
 	// Create channel to wait for first cycle completion
 	cycleDone := make(chan error, 1)

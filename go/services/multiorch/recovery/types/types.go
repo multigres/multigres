@@ -223,6 +223,16 @@ type GracePeriodConfig struct {
 	MaxJitter time.Duration
 }
 
+// RetryBackoffConfig holds the failure backoff settings for recovery actions.
+// After each consecutive failed attempt against the same problem and entity,
+// the engine waits BaseDelay * 2^(failures-1), capped at MaxDelay, plus up to
+// JitterFraction of that delay, before executing the action again.
+type RetryBackoffConfig struct {
+	BaseDelay      time.Duration
+	MaxDelay       time.Duration
+	JitterFraction float64
+}
+
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
 // pre-execution recheck just re-verified it against (the same ShardAnalysis
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
@@ -268,6 +278,11 @@ type RecoveryMetadata struct {
 	// Defaults to 15 seconds if zero.
 	LockTimeout time.Duration
 	Retryable   bool
+	// RetryBackoff, if set, makes the engine back off exponentially after
+	// consecutive failures of this action for the same problem and entity.
+	// Ignored for failover problems, which are gated on collective recruitment
+	// backoff instead.
+	RetryBackoff *RetryBackoffConfig
 }
 
 // GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.
