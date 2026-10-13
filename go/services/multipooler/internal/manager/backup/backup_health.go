@@ -122,6 +122,13 @@ type Snapshot struct {
 	LastRefresh          time.Time // when the poller last refreshed; zero before first poll
 }
 
+// ArchiverFresh reports whether the archiver reading is recent enough to act on.
+// Past constants.ArchiverStaleAfter the reading describes a state that may no
+// longer hold, so consumers must treat it as unknown rather than as fact.
+func (s Snapshot) ArchiverFresh(now time.Time) bool {
+	return !s.ArchiverRefreshedAt.IsZero() && now.Sub(s.ArchiverRefreshedAt) <= constants.ArchiverStaleAfter
+}
+
 // Snapshot reads all tracker state into a plain value under a single lock — one
 // consistent read for both the gauge callback and the status page.
 func (t *HealthTracker) Snapshot() Snapshot {
@@ -339,8 +346,12 @@ func (e *Engine) refreshHealth(ctx context.Context) {
 	configReason := e.checkBackupSettings(ctx, pgMode)
 
 	// Archiving health comes from the archiver poller's most recent reading, which
-	// runs on its own ticker, rather than from a query issued here.
-	reason := resolveReadiness(reachable, repoReason, configReason, e.health.Snapshot().ArchivingFailing)
+	// runs on its own ticker, rather than from a query issued here. A reading that
+	// has aged out is unknown, not a verdict: acting on it would pin readiness to
+	// whatever archiving looked like when the archiver query last succeeded.
+	snap := e.health.Snapshot()
+	archivingFailing := snap.ArchivingFailing && snap.ArchiverFresh(time.Now())
+	reason := resolveReadiness(reachable, repoReason, configReason, archivingFailing)
 	e.health.applyReadiness(reason == ReadyReasonOK, reason)
 }
 
@@ -499,9 +510,16 @@ func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) {
 	}
 	stats, err := fn(ctx)
 	if err != nil {
-		e.logger.WarnContext(ctx, "backup health: pg_stat_archiver query failed; archive backlog gauges will go stale", "error", err)
+		// The role check assumes primary when it cannot tell, so a node whose
+		// postgres is down fails this read on every tick. Warn once per streak.
+		if e.archiverQueryFailing.CompareAndSwap(false, true) {
+			e.logger.WarnContext(ctx, "backup health: pg_stat_archiver query failed; archive backlog gauges will go stale", "error", err)
+		} else {
+			e.logger.DebugContext(ctx, "backup health: pg_stat_archiver query still failing", "error", err)
+		}
 		return
 	}
+	e.archiverQueryFailing.Store(false)
 
 	now := time.Now()
 	var lag float64

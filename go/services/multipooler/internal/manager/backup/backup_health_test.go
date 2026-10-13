@@ -15,14 +15,19 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
@@ -253,6 +258,115 @@ func TestRefreshHealth_ArchivingFailing(t *testing.T) {
 	snap := e.Health().Snapshot()
 	assert.False(t, snap.Ready)
 	assert.Equal(t, ReadyReasonArchivingFailing, snap.Reason)
+}
+
+// TestRefreshHealth_StaleArchiverReadingDoesNotDriveReadiness pins that an aged
+// reading is unknown rather than a verdict. Without the freshness check,
+// readiness stays pinned to whatever archiving looked like when the archiver
+// query last succeeded, for as long as it keeps failing.
+func TestRefreshHealth_StaleArchiverReadingDoesNotDriveReadiness(t *testing.T) {
+	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
+	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
+		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: "x"}, nil
+	})
+	e.Health().applyArchiver(archiverState{
+		onPrimary:    true,
+		lastArchived: time.Unix(1735984000, 0),
+		failing:      true,
+		measuredAt:   time.Now().Add(-10 * constants.ArchiverStaleAfter),
+	})
+
+	e.refreshHealth(t.Context())
+	snap := e.Health().Snapshot()
+	assert.True(t, snap.Ready)
+	assert.Equal(t, ReadyReasonOK, snap.Reason, "a reading that aged out must not pin readiness to archiving_failing")
+}
+
+func TestSnapshot_ArchiverFresh(t *testing.T) {
+	now := time.Now()
+	assert.False(t, Snapshot{}.ArchiverFresh(now), "no reading yet is not fresh")
+	assert.True(t, Snapshot{ArchiverRefreshedAt: now}.ArchiverFresh(now))
+	assert.True(t, Snapshot{ArchiverRefreshedAt: now.Add(-constants.ArchiverStaleAfter)}.ArchiverFresh(now), "exactly at the limit is still fresh")
+	assert.False(t, Snapshot{ArchiverRefreshedAt: now.Add(-constants.ArchiverStaleAfter - time.Second)}.ArchiverFresh(now))
+}
+
+// TestRunHealthPoller_RefreshesArchiverOnItsOwnTicker covers the point of the
+// split: refreshHealth no longer reads the archiver, so repeated provider calls
+// can only come from the archiver's own ticker.
+func TestRunHealthPoller_RefreshesArchiverOnItsOwnTicker(t *testing.T) {
+	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
+	var reads atomic.Int32
+	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
+		reads.Add(1)
+		return ArchiverStats{}, nil
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		e.RunHealthPoller(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+	require.Eventually(t, func() bool { return reads.Load() >= 3 }, 5*time.Second, 5*time.Millisecond,
+		"the archiver must be read repeatedly, not once per health refresh")
+	cancel()
+	<-done
+
+	snap := e.Health().Snapshot()
+	assert.True(t, snap.ArchiverOnPrimary)
+	assert.True(t, snap.ArchiverFresh(time.Now()))
+}
+
+func TestRefreshHealthNow_TakesArchiverReading(t *testing.T) {
+	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
+	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
+		return ArchiverStats{LastArchived: time.Unix(1735984900, 0), PendingCount: 1, OldestPending: time.Now().Add(-8 * time.Second)}, nil
+	})
+
+	e.RefreshHealthNow(t.Context())
+	snap := e.Health().Snapshot()
+	assert.True(t, snap.ArchiverFresh(time.Now()), "a one-off refresh must take an archiver reading too")
+	assert.InDelta(t, 8.0, snap.ArchiveLagSeconds, 3.0)
+}
+
+// TestRefreshArchiver_WarnsOncePerFailureStreak keeps a node whose postgres is
+// down from logging at Warn on every tick: the role check assumes primary when
+// it cannot tell, so the archiver read fails continuously during an outage.
+func TestRefreshArchiver_WarnsOncePerFailureStreak(t *testing.T) {
+	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
+	var buf bytes.Buffer
+	e.logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	fail := true
+	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
+		if fail {
+			return ArchiverStats{}, errors.New("query failed")
+		}
+		return ArchiverStats{}, nil
+	})
+	warns := func() int { return strings.Count(buf.String(), "level=WARN") }
+
+	for range 3 {
+		e.refreshArchiver(t.Context(), pgmode.Primary)
+	}
+	assert.Equal(t, 1, warns(), "only the first failure of a streak warns")
+
+	fail = false
+	e.refreshArchiver(t.Context(), pgmode.Primary)
+	fail = true
+	e.refreshArchiver(t.Context(), pgmode.Primary)
+	assert.Equal(t, 2, warns(), "a new streak after a success warns again")
 }
 
 func TestRefreshHealth_RepoUnreachable(t *testing.T) {

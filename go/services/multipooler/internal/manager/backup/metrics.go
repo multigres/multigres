@@ -22,8 +22,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-
-	"github.com/multigres/multigres/go/common/constants"
 )
 
 const meterName = "github.com/multigres/multigres/go/services/multipooler/internal/manager"
@@ -248,8 +246,7 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			// archiver poller refreshes. Once that reading ages out, neither is
 			// emitted: a gap is a signal alerting can act on, whereas a stale
 			// value is indistinguishable from a live one.
-			archiverFresh := !snap.ArchiverRefreshedAt.IsZero() &&
-				now.Sub(snap.ArchiverRefreshedAt) <= constants.ArchiverStaleAfter
+			archiverFresh := snap.ArchiverFresh(now)
 
 			// Wall-clock recency (observability): seconds since the last
 			// archive. Grows while idle; emitted only once something has been
