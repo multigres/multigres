@@ -79,6 +79,9 @@ func newMinigres() *minigres {
 	resources := servenv.ProcessResources{
 		ServEnv:    m.senv,
 		GrpcServer: m.grpcServer,
+		// The query service stays on the TCP server until the multigateway
+		// can reach the multipooler in memory.
+		QueryGrpcServer: m.grpcServer,
 	}
 	// The only pooler of its shard leads it without consensus.
 	// Each half configures its settings on its own registry: both define keys
