@@ -42,14 +42,15 @@ const (
 // streamPool retains only idle transport streams, never PostgreSQL connections.
 // Each lease is exclusive; reservations and callers remain request fields.
 type streamPool struct {
-	client      pb.MultipoolerServiceClient
-	ctx         context.Context
-	cancel      context.CancelFunc
-	m           *streamPoolMetrics
-	mu          sync.Mutex
-	idle        []*streamLease
-	closed      bool
-	unsupported atomic.Bool
+	client       pb.MultipoolerServiceClient
+	ctx          context.Context
+	cancel       context.CancelFunc
+	m            *streamPoolMetrics
+	mu           sync.Mutex
+	idle         []*streamLease
+	closed       bool
+	cleanupGrace time.Duration
+	unsupported  atomic.Bool
 }
 
 type streamLease struct {
@@ -76,7 +77,7 @@ func newStreamPool(client pb.MultipoolerServiceClient, conn streamStateConn) *st
 	// The transport has an explicit Close lifecycle and must not inherit any
 	// caller's values, credentials, deadline or cancellation after lease return.
 	ctx, cancel := context.WithCancel(context.Background()) //nolint:gocritic // pool-owned lifecycle, not a detached request
-	p := &streamPool{client: client, ctx: ctx, cancel: cancel, m: streamMetrics()}
+	p := &streamPool{client: client, ctx: ctx, cancel: cancel, m: streamMetrics(), cleanupGrace: operationCleanupGrace}
 	if conn != nil {
 		go p.watch(conn)
 	}
@@ -219,7 +220,7 @@ func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
 
 func (r *streamResponses) protocolError(message string) error {
 	r.invalid = true
-	return status.Error(codes.Internal, message)
+	return r.incomplete(status.Error(codes.Internal, message))
 }
 
 // recv validates framing and operation identity before exposing a response.
@@ -230,7 +231,7 @@ func (r *streamResponses) recv() (proto.Message, error) {
 	}
 	f, err := r.lease.stream.Recv()
 	if err != nil {
-		return nil, incompleteOperation(r.ctx, err)
+		return nil, r.incomplete(err)
 	}
 	if f.Ready || len(f.SupportedOperations) != 0 || (f.Retire && f.Completion == nil) || (f.Result == nil) == (f.Completion == nil) {
 		return nil, r.protocolError("invalid execute stream response")
@@ -245,7 +246,10 @@ func (r *streamResponses) recv() (proto.Message, error) {
 	r.done = true
 	r.retire = f.Retire
 	if c := f.Completion; c.GetCode() != int32(codes.OK) {
-		return nil, status.FromProto(c).Err()
+		return nil, completedTimeout(r.ctx, status.FromProto(c).Err())
+	}
+	if err := completedTimeout(r.ctx, nil); err != nil {
+		return nil, err
 	}
 	return nil, io.EOF
 }
@@ -364,6 +368,13 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 		p.m.operations.Add(p.ctx, 1, attrLegacyOperationUnsupported)
 		return nil, false, nil
 	}
+	// The handshake uses immediate cancellation. Switch only before submission,
+	// while it is still safe to stop without needing a completion acknowledgement.
+	if !stop() || ctx.Err() != nil {
+		l.cancel()
+		return nil, true, status.FromContextError(ctx.Err()).Err()
+	}
+	stop = watchOperation(ctx, l.cancel, p.cleanupGrace)
 	l.requests++
 	p.m.operations.Add(p.ctx, 1, transport)
 	p.m.active.Add(p.ctx, 1)
@@ -374,7 +385,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 	}
 	if err := l.stream.Send(frame); err != nil {
 		r.Release()
-		return nil, true, incompleteOperation(ctx, err)
+		return nil, true, r.incomplete(err)
 	}
 	return r, true, nil
 }
@@ -396,4 +407,11 @@ func incompleteOperation(ctx context.Context, err error) error {
 		return status.FromContextError(ctxErr).Err()
 	}
 	return err
+}
+
+func (r *streamResponses) incomplete(err error) error {
+	if errors.Is(r.ctx.Err(), context.DeadlineExceeded) {
+		return completionUnconfirmed()
+	}
+	return incompleteOperation(r.ctx, err)
 }

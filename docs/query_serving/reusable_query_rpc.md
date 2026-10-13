@@ -71,10 +71,35 @@ is discarded; terminal diagnostics and reservation state can still be read.
 Abandoned output callbacks and incomplete/malformed conversations also discard the lease.
 Peers that do not advertise COPY support use the dedicated CopyBidiExecute RPC.
 
-This is a transport-only refactor. Deadline expiration and explicit cancellation
-still cancel the active transport immediately; the gateway does not yet wait
-for backend cancellation/cleanup. A later wait-for-cancel change can build on the
-existing timeout and completion fields without coupling it to this migration.
+Statement deadlines use the existing per-operation timeout and completion fields.
+The gateway owns the timeout policy; the pooler's operation context expires and
+its existing handler cancels/drains the backend operation. The gateway keeps the
+transport open until completion acknowledges that the handler has returned,
+including its cleanup. It then returns the statement timeout. Late result rows
+are discarded while reservation updates are retained. Callback failures at the
+deadline also wait for completion before allowing `ReadyForQuery`.
+
+The cleanup wait is bounded to 10 seconds after the gateway deadline, allowing
+for the pooler's existing 5-second backend cancellation and 2-second drain bounds.
+Missing completion, a broken transport during timeout recovery, or expiry of that
+bound produces FATAL SQLSTATE 08006 and closes the client session without
+`ReadyForQuery`. Dedicated RPC fallbacks cannot acknowledge timeout cleanup and
+also fail the session on timeout. A transport handshake that times out before
+submission still returns an ordinary statement timeout.
+
+COPY input reads observe the operation context independently of the transport,
+so an idle upload can enter the existing abort/drain path without destroying the
+completion channel. One input reader per COPY stops at the explicit input
+boundary; timed-out COPY transports retire after completion. COPY handlers or
+backend I/O that cannot finish within the cleanup bound follow the same fatal
+failure path. Finalization and output callbacks preserve terminal reservation
+state while waiting. This does not change how the frontend reads COPY input.
+
+Explicit cancellation (including CancelRequest and client disconnect) still
+cancels the transport immediately. The current protocol has no independent
+operation-cancel message, so acknowledgement for explicit cancellation remains
+a separate change. A fatal cleanup failure always takes precedence over a
+concurrent CancelRequest when reporting the result to the client.
 Unary operations retain their conservative retry classification; no operation
 is replayed after submission, even when its completion status is UNAVAILABLE.
 

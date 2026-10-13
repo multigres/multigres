@@ -53,19 +53,21 @@ func callUnary[Request, Response proto.Message](
 	g *grpcQueryService,
 	request Request,
 	legacy func(context.Context, Request, ...grpc.CallOption) (Response, error),
-) (Response, error) {
+) (result Response, resultErr error) {
 	var zero Response
 	if g.executeStreams == nil {
-		return legacy(ctx, request)
+		response, err := legacy(ctx, request)
+		return response, legacyTimeoutError(ctx, err)
 	}
 	stream, used, err := g.executeStreams.open(ctx, queryrpc.Request(request))
 	if err != nil {
 		return zero, err
 	}
 	if !used {
-		return legacy(ctx, request)
+		response, err := legacy(ctx, request)
+		return response, legacyTimeoutError(ctx, err)
 	}
-	defer stream.Release()
+	defer func() { resultErr = stream.finish(resultErr) }()
 
 	response, err := receiveTyped[Response](stream)
 	if errors.Is(err, io.EOF) {

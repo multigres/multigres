@@ -15,6 +15,7 @@
 package queryrpc
 
 import (
+	"context"
 	"errors"
 	"io"
 
@@ -30,7 +31,7 @@ import (
 func dispatchCopy(req *pb.CopyBidiExecuteRequest, service Service, stream *operationStream) error {
 	copyOperation := &copyStream{operationStream: stream, initial: req, direction: req.Direction}
 	err := service.CopyBidiExecute(copyOperation)
-	stream.retire = !copyOperation.reusable()
+	stream.retire = stream.ctx.Err() != nil || !copyOperation.reusable()
 	stream.afterCompletion = copyOperation.drain
 	return err
 }
@@ -42,6 +43,8 @@ type copyStream struct {
 	*operationStream
 	initial       *pb.CopyBidiExecuteRequest
 	ended         bool
+	draining      bool
+	input         chan copyInputResult
 	direction     pb.CopyBidiExecuteRequest_Direction
 	ready         bool
 	inputFinished bool
@@ -66,7 +69,12 @@ func (s *copyStream) Recv() (*pb.CopyBidiExecuteRequest, error) {
 	if s.recvErr != nil {
 		return nil, s.recvErr
 	}
-	frame, err := s.stream.Recv()
+	frame, err := s.receiveInput()
+	if errors.Is(err, context.DeadlineExceeded) && s.ctx.Err() != nil {
+		// This is an operation timeout, not a broken transport. Let the handler
+		// abort/drain COPY and send completion before retiring the transport.
+		return nil, err
+	}
 	if err != nil {
 		s.recvErr = err
 		return nil, err
@@ -101,6 +109,7 @@ func (s *copyStream) reusable() bool {
 }
 
 func (s *copyStream) drain() error {
+	s.draining = true
 	for !s.ended {
 		if _, err := s.Recv(); err != nil {
 			if s.ended && errors.Is(err, io.EOF) {
@@ -110,4 +119,48 @@ func (s *copyStream) drain() error {
 		}
 	}
 	return nil
+}
+
+type copyInputResult struct {
+	frame *pb.ExecuteStreamRequest
+	err   error
+}
+
+// Read with one pump per COPY operation, stopping exactly at its input boundary.
+// The operation deadline interrupts the handler's wait without killing the
+// transport needed for completion. Retirement closes any outstanding gRPC read.
+func (s *copyStream) receiveInput() (*pb.ExecuteStreamRequest, error) {
+	ctx := s.ctx
+	if s.draining {
+		ctx = s.stream.Context()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.input == nil {
+		s.input = make(chan copyInputResult)
+		go func() {
+			defer close(s.input)
+			for {
+				frame, err := s.stream.Recv()
+				select {
+				case s.input <- copyInputResult{frame, err}:
+				case <-s.stream.Context().Done():
+					return
+				}
+				if err != nil || frame.GetCopyInput() == nil || frame.GetCopyInput().GetEnd() {
+					return
+				}
+			}
+		}()
+	}
+	select {
+	case result, ok := <-s.input:
+		if !ok {
+			return nil, io.EOF
+		}
+		return result.frame, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
