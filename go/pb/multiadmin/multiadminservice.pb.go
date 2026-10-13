@@ -21,6 +21,7 @@
 package multiadmin
 
 import (
+	_ "github.com/google/gnostic/openapiv3"
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	multigatewaymanagerdata "github.com/multigres/multigres/go/pb/multigatewaymanagerdata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -249,7 +250,7 @@ func (x *GetCellRequest) GetName() string {
 // GetCellResponse contains the cell information
 type GetCellResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// cell contains the Cell protobuf object
+	// Cell metadata.
 	Cell          *clustermetadata.Cell `protobuf:"bytes,1,opt,name=cell,proto3" json:"cell,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -341,7 +342,7 @@ func (x *GetDatabaseRequest) GetName() string {
 // GetDatabaseResponse contains the database information
 type GetDatabaseResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// database contains the Database protobuf object
+	// Database metadata.
 	Database      *clustermetadata.Database `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -551,7 +552,7 @@ func (x *GetDatabaseNamesResponse) GetNames() []string {
 // GetGatewaysRequest requests gateways with optional filtering
 type GetGatewaysRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// cells is a comma-separated list of cell names to filter by (optional)
+	// Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
 	Cells []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
 	// only_reachable drops gateways whose grpc address does not accept a TCP
 	// connection, filtering out stale registrations left by dead pods.
@@ -606,7 +607,8 @@ func (x *GetGatewaysRequest) GetOnlyReachable() bool {
 
 // GetGatewaysResponse contains the filtered gateways
 type GetGatewaysResponse struct {
-	state         protoimpl.MessageState          `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Gateways matching the requested cells.
 	Gateways      []*clustermetadata.Multigateway `protobuf:"bytes,1,rep,name=gateways,proto3" json:"gateways,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -652,7 +654,7 @@ func (x *GetGatewaysResponse) GetGateways() []*clustermetadata.Multigateway {
 // GetPoolersRequest requests poolers with optional filtering
 type GetPoolersRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// cells is a comma-separated list of cell names to filter by (optional)
+	// Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
 	Cells []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
 	// database name to filter by (optional)
 	Database string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
@@ -715,7 +717,8 @@ func (x *GetPoolersRequest) GetShard() string {
 
 // GetPoolersResponse contains the filtered poolers
 type GetPoolersResponse struct {
-	state         protoimpl.MessageState         `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Poolers matching the requested cells, database, and shard.
 	Poolers       []*clustermetadata.Multipooler `protobuf:"bytes,1,rep,name=poolers,proto3" json:"poolers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -761,7 +764,7 @@ func (x *GetPoolersResponse) GetPoolers() []*clustermetadata.Multipooler {
 // GetOrchsRequest requests orchestrators with optional filtering
 type GetOrchsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// cells is a comma-separated list of cell names to filter by (optional)
+	// Optional cell names to filter by. Repeat the REST query parameter: ?cells=a&cells=b.
 	Cells         []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -807,6 +810,7 @@ func (x *GetOrchsRequest) GetCells() []string {
 // GetOrchsResponse contains the filtered orchestrators
 type GetOrchsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Orchestrators matching the requested cells.
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Orchs         []*clustermetadata.Multiorch `protobuf:"bytes,1,rep,name=orchs,proto3" json:"orchs,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1178,14 +1182,14 @@ func (x *GetBackupJobStatusResponse) GetBackupId() string {
 	return ""
 }
 
-// GetBackupsRequest requests a list of backup artifacts with optional filtering
+// GetBackupsRequest selects a backup repository and limits the returned inventory.
 type GetBackupsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// database name to filter by (optional, empty means all databases)
+	// Database whose backup inventory to query (required).
 	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
-	// table_group name to filter by (optional, empty means all table groups)
+	// Table group whose backup inventory to query (required).
 	TableGroup string `protobuf:"bytes,2,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
-	// shard name to filter by (optional, empty means all shards)
+	// Shard context. Pooler selection currently uses database and table_group.
 	Shard string `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
 	// limit on number of results (optional, 0 means no limit)
 	Limit         uint32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
@@ -1482,9 +1486,11 @@ func (x *VerifyBackupsRequest) GetShard() string {
 
 // VerifyBackupsResponse contains the result of a verify run.
 type VerifyBackupsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Duration      *durationpb.Duration   `protobuf:"bytes,1,opt,name=duration,proto3" json:"duration,omitempty"`
-	RawOutput     string                 `protobuf:"bytes,2,opt,name=raw_output,json=rawOutput,proto3" json:"raw_output,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Elapsed verification time, encoded as protobuf seconds (for example, "1.500s").
+	Duration *durationpb.Duration `protobuf:"bytes,1,opt,name=duration,proto3" json:"duration,omitempty"`
+	// Diagnostic output from pgbackrest verify.
+	RawOutput     string `protobuf:"bytes,2,opt,name=raw_output,json=rawOutput,proto3" json:"raw_output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2298,6 +2304,7 @@ func (*UnsafeDeriveCertOptions) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{34}
 }
 
+// ApplyCertifiedRuleChangeResponse contains the installed rule and the certificate used.
 type ApplyCertifiedRuleChangeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The fully-populated rule that was installed, after multiadmin filled in
@@ -2355,6 +2362,7 @@ func (x *ApplyCertifiedRuleChangeResponse) GetCertUsed() *clustermetadata.Extern
 	return nil
 }
 
+// SwitchPrimaryRequest identifies the shard and the audit reason for a graceful switchover.
 type SwitchPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to perform the switchover on (required).
@@ -2409,6 +2417,7 @@ func (x *SwitchPrimaryRequest) GetReason() string {
 	return ""
 }
 
+// SwitchPrimaryResponse identifies the demoted pooler; election of its replacement is asynchronous.
 type SwitchPrimaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The pooler that was demoted.
@@ -2459,7 +2468,7 @@ var File_multiadminservice_proto protoreflect.FileDescriptor
 const file_multiadminservice_proto_rawDesc = "" +
 	"\n" +
 	"\x17multiadminservice.proto\x12\n" +
-	"multiadmin\x1a\x15clustermetadata.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dmultigatewaymanagerdata.proto\x1a\x1cmultipoolermanagerdata.proto\"$\n" +
+	"multiadmin\x1a\x15clustermetadata.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1dmultigatewaymanagerdata.proto\x1a\x1cmultipoolermanagerdata.proto\x1a\x1bopenapiv3/annotations.proto\"$\n" +
 	"\x0eGetCellRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"<\n" +
 	"\x0fGetCellResponse\x12)\n" +
@@ -2525,23 +2534,25 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\rR\x05limit\"F\n" +
 	"\x12GetBackupsResponse\x120\n" +
-	"\abackups\x18\x01 \x03(\v2\x16.multiadmin.BackupInfoR\abackups\"\xf6\x01\n" +
-	"\x14ExpireBackupsRequest\x12\x1a\n" +
-	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
-	"\vtable_group\x18\x02 \x01(\tR\n" +
+	"\abackups\x18\x01 \x03(\v2\x16.multiadmin.BackupInfoR\abackups\"\xa3\x02\n" +
+	"\x14ExpireBackupsRequest\x12\"\n" +
+	"\bdatabase\x18\x01 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\bdatabase\x12'\n" +
+	"\vtable_group\x18\x02 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\x12M\n" +
 	"\toverrides\x18\x04 \x03(\v2/.multiadmin.ExpireBackupsRequest.OverridesEntryR\toverrides\x1a<\n" +
 	"\x0eOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"E\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01:\x1b\xbaG\x18\xba\x01\bdatabase\xba\x01\n" +
+	"tableGroup\"E\n" +
 	"\x15ExpireBackupsResponse\x12,\n" +
-	"\x12expired_backup_ids\x18\x01 \x03(\tR\x10expiredBackupIds\"i\n" +
-	"\x14VerifyBackupsRequest\x12\x1a\n" +
-	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
-	"\vtable_group\x18\x02 \x01(\tR\n" +
-	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x03 \x01(\tR\x05shard\"m\n" +
+	"\x12expired_backup_ids\x18\x01 \x03(\tR\x10expiredBackupIds\"\xa6\x01\n" +
+	"\x14VerifyBackupsRequest\x12\"\n" +
+	"\bdatabase\x18\x01 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\bdatabase\x12'\n" +
+	"\vtable_group\x18\x02 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\n" +
+	"tableGroup\x12\x1c\n" +
+	"\x05shard\x18\x03 \x01(\tB\x06\xbaG\x03\x80\x01\x01R\x05shard:#\xbaG \xba\x01\bdatabase\xba\x01\n" +
+	"tableGroup\xba\x01\x05shard\"m\n" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
@@ -2586,13 +2597,22 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\n" +
 	"gateway_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tgatewayId\"b\n" +
 	"\x1eGetGatewayConsolidatorResponse\x12@\n" +
-	"\x05stats\x18\x01 \x01(\v2*.multigatewaymanagerdata.ConsolidatorStatsR\x05stats\"\xeb\x02\n" +
+	"\x05stats\x18\x01 \x01(\v2*.multigatewaymanagerdata.ConsolidatorStatsR\x05stats\"\xbe\x03\n" +
 	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
 	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12N\n" +
 	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12D\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationH\x00R\x04cert\x12S\n" +
 	"\x12unsafe_derive_cert\x18\x04 \x01(\v2#.multiadmin.UnsafeDeriveCertOptionsH\x00R\x10unsafeDeriveCert\x12\x16\n" +
-	"\x06reason\x18\x05 \x01(\tR\x06reasonB\r\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason:Q\xbaGN\xe2\x01\x18\n" +
+	"\x16\xba\x01\x04cert\xfa\x01\f\n" +
+	"\n" +
+	"\n" +
+	"\x04cert\x12\x02\n" +
+	"\x00\xe2\x010\n" +
+	".\xba\x01\x10unsafeDeriveCert\xfa\x01\x18\n" +
+	"\x16\n" +
+	"\x10unsafeDeriveCert\x12\x02\n" +
+	"\x00B\r\n" +
 	"\vcert_source\"\x19\n" +
 	"\x17UnsafeDeriveCertOptions\"\xb2\x01\n" +
 	" ApplyCertifiedRuleChangeResponse\x12A\n" +
@@ -2617,28 +2637,272 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15BACKUP_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18BACKUP_STATUS_INCOMPLETE\x10\x01\x12\x1a\n" +
 	"\x16BACKUP_STATUS_COMPLETE\x10\x02\x12\x18\n" +
-	"\x14BACKUP_STATUS_FAILED\x10\x032\xa4\x13\n" +
-	"\x11MultiadminService\x12`\n" +
-	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/cells/{name}\x12p\n" +
-	"\vGetDatabase\x12\x1e.multiadmin.GetDatabaseRequest\x1a\x1f.multiadmin.GetDatabaseResponse\" \x82\xd3\xe4\x93\x02\x1a\x12\x18/api/v1/databases/{name}\x12h\n" +
-	"\fGetCellNames\x12\x1f.multiadmin.GetCellNamesRequest\x1a .multiadmin.GetCellNamesResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/cells\x12x\n" +
-	"\x10GetDatabaseNames\x12#.multiadmin.GetDatabaseNamesRequest\x1a$.multiadmin.GetDatabaseNamesResponse\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/api/v1/databases\x12h\n" +
-	"\vGetGateways\x12\x1e.multiadmin.GetGatewaysRequest\x1a\x1f.multiadmin.GetGatewaysResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/gateways\x12d\n" +
+	"\x14BACKUP_STATUS_FAILED\x10\x032\xdd;\n" +
+	"\x11MultiadminService\x12\xaf\x02\n" +
+	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\"\xea\x01\xbaG\xca\x01\n" +
+	"\x05cells\x12\n" +
+	"Get a cellB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/cells/{name}\x12\xc7\x02\n" +
+	"\vGetDatabase\x12\x1e.multiadmin.GetDatabaseRequest\x1a\x1f.multiadmin.GetDatabaseResponse\"\xf6\x01\xbaG\xd2\x01\n" +
+	"\tdatabases\x12\x0eGet a databaseB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1a\x12\x18/api/v1/databases/{name}\x12\xc4\x03\n" +
+	"\fGetCellNames\x12\x1f.multiadmin.GetCellNamesRequest\x1a .multiadmin.GetCellNamesResponse\"\xf0\x02\xbaG\xd7\x02\n" +
+	"\x05cells\x12\x0fList cell namesB\xbc\x02\x12\x85\x01\n" +
+	"\x03200\x12~\n" +
+	"|\n" +
+	"\aSuccess\x1aq\n" +
+	"o\n" +
+	"\x10application/json\x12[\n" +
+	"8\x126\n" +
+	"4#/components/schemas/multiadmin.GetCellNamesResponse\x12\x1f\x12\x1d{\"names\":[\"zone-a\",\"zone-b\"]}\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/cells\x12\xd4\x02\n" +
+	"\x10GetDatabaseNames\x12#.multiadmin.GetDatabaseNamesRequest\x1a$.multiadmin.GetDatabaseNamesResponse\"\xf4\x01\xbaG\xd7\x01\n" +
+	"\tdatabases\x12\x13List database namesB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x13\x12\x11/api/v1/databases\x12\xbd\x02\n" +
+	"\vGetGateways\x12\x1e.multiadmin.GetGatewaysRequest\x1a\x1f.multiadmin.GetGatewaysResponse\"\xec\x01\xbaG\xd0\x01\n" +
+	"\bgateways\x12\rList gatewaysB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/gateways\x12\xb7\x02\n" +
 	"\n" +
-	"GetPoolers\x12\x1d.multiadmin.GetPoolersRequest\x1a\x1e.multiadmin.GetPoolersResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/poolers\x12\\\n" +
-	"\bGetOrchs\x12\x1b.multiadmin.GetOrchsRequest\x1a\x1c.multiadmin.GetOrchsResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/orchs\x12[\n" +
-	"\x06Backup\x12\x19.multiadmin.BackupRequest\x1a\x1a.multiadmin.BackupResponse\"\x1a\x82\xd3\xe4\x93\x02\x14:\x01*\"\x0f/api/v1/backups\x12\x82\x01\n" +
-	"\x12GetBackupJobStatus\x12%.multiadmin.GetBackupJobStatusRequest\x1a&.multiadmin.GetBackupJobStatusResponse\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/jobs/{job_id}\x12d\n" +
+	"GetPoolers\x12\x1d.multiadmin.GetPoolersRequest\x1a\x1e.multiadmin.GetPoolersResponse\"\xe9\x01\xbaG\xce\x01\n" +
+	"\apoolers\x12\fList poolersB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/poolers\x12\xb3\x02\n" +
+	"\bGetOrchs\x12\x1b.multiadmin.GetOrchsRequest\x1a\x1c.multiadmin.GetOrchsResponse\"\xeb\x01\xbaG\xd2\x01\n" +
+	"\x05cells\x12\x12List orchestratorsB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/orchs\x12\xcf\x04\n" +
+	"\x06Backup\x12\x19.multiadmin.BackupRequest\x1a\x1a.multiadmin.BackupResponse\"\x8d\x04\xbaG\xef\x03\n" +
+	"\abackups\x12\x0eStart a backup:\x9e\x01\n" +
+	"\x9b\x01\x12\x96\x01\n" +
+	"\x93\x01\n" +
+	"\x10application/json\x12\x7f\n" +
+	"1\x12/\n" +
+	"-#/components/schemas/multiadmin.BackupRequest\x12J\x12H{\"database\":\"postgres\",\"tableGroup\":\"default\",\"shard\":\"0\",\"type\":\"full\"}\x18\x01B\xb2\x02\x12|\n" +
+	"\x03200\x12u\n" +
+	"s\n" +
+	"\aSuccess\x1ah\n" +
+	"f\n" +
+	"\x10application/json\x12R\n" +
+	"2\x120\n" +
+	".#/components/schemas/multiadmin.BackupResponse\x12\x1c\x12\x1a{\"jobId\":\"backup-example\"}\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x14:\x01*\"\x0f/api/v1/backups\x12\xe6\x02\n" +
+	"\x12GetBackupJobStatus\x12%.multiadmin.GetBackupJobStatusRequest\x1a&.multiadmin.GetBackupJobStatusResponse\"\x80\x02\xbaG\xdf\x01\n" +
+	"\x04jobs\x12 Get backup or restore job statusB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/jobs/{job_id}\x12\xb1\x05\n" +
 	"\n" +
-	"GetBackups\x12\x1d.multiadmin.GetBackupsRequest\x1a\x1e.multiadmin.GetBackupsResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/backups\x12w\n" +
-	"\rExpireBackups\x12 .multiadmin.ExpireBackupsRequest\x1a!.multiadmin.ExpireBackupsResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/v1/backups/expire\x12w\n" +
-	"\rVerifyBackups\x12 .multiadmin.VerifyBackupsRequest\x1a!.multiadmin.VerifyBackupsResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/v1/backups/verify\x12\x9c\x01\n" +
-	"\x0fGetPoolerStatus\x12\".multiadmin.GetPoolerStatusRequest\x1a#.multiadmin.GetPoolerStatusResponse\"@\x82\xd3\xe4\x93\x02:\x128/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status\x12\xcb\x01\n" +
-	"\x1aSetPostgresRestartsEnabled\x12-.multiadmin.SetPostgresRestartsEnabledRequest\x1a..multiadmin.SetPostgresRestartsEnabledResponse\"N\x82\xd3\xe4\x93\x02H:\x01*\"C/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts\x12\xa6\x01\n" +
-	"\x11GetGatewayQueries\x12$.multiadmin.GetGatewayQueriesRequest\x1a%.multiadmin.GetGatewayQueriesResponse\"D\x82\xd3\xe4\x93\x02>\x12</api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries\x12\xba\x01\n" +
-	"\x16GetGatewayConsolidator\x12).multiadmin.GetGatewayConsolidatorRequest\x1a*.multiadmin.GetGatewayConsolidatorResponse\"I\x82\xd3\xe4\x93\x02C\x12A/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator\x12\xdb\x01\n" +
-	"\x18ApplyCertifiedRuleChange\x12+.multiadmin.ApplyCertifiedRuleChangeRequest\x1a,.multiadmin.ApplyCertifiedRuleChangeResponse\"d\x82\xd3\xe4\x93\x02^:\x01*\"Y/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change\x12\xbd\x01\n" +
-	"\rSwitchPrimary\x12 .multiadmin.SwitchPrimaryRequest\x1a!.multiadmin.SwitchPrimaryResponse\"g\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primaryB1Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
+	"GetBackups\x12\x1d.multiadmin.GetBackupsRequest\x1a\x1e.multiadmin.GetBackupsResponse\"\xe3\x04\xbaG\xc8\x04\n" +
+	"\abackups\x12\fList backups2\x15\n" +
+	"\x13\n" +
+	"\bdatabase\x12\x05query \x012\x17\n" +
+	"\x15\n" +
+	"\n" +
+	"tableGroup\x12\x05query \x01B\xfe\x03\x12\xc7\x02\n" +
+	"\x03200\x12\xbf\x02\n" +
+	"\xbc\x02\n" +
+	"\aSuccess\x1a\xb0\x02\n" +
+	"\xad\x02\n" +
+	"\x10application/json\x12\x98\x02\n" +
+	"6\x124\n" +
+	"2#/components/schemas/multiadmin.GetBackupsResponse\x12\xdd\x01\x12\xda\x01{\"backups\":[{\"backupId\":\"20000101-000000F\",\"database\":\"postgres\",\"tableGroup\":\"default\",\"shard\":\"0\",\"type\":\"full\",\"status\":\"BACKUP_STATUS_COMPLETE\",\"backupSizeBytes\":\"1048576\",\"startTimestamp\":\"2000-01-01T00:00:00Z\"}]}\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/backups\x12\xe6\x03\n" +
+	"\rExpireBackups\x12 .multiadmin.ExpireBackupsRequest\x1a!.multiadmin.ExpireBackupsResponse\"\x8f\x03\xbaG\xea\x02\n" +
+	"\abackups\x12\x0eExpire backups:\x97\x01\n" +
+	"\x94\x01\x12\x8f\x01\n" +
+	"\x8c\x01\n" +
+	"\x10application/json\x12x\n" +
+	"8\x126\n" +
+	"4#/components/schemas/multiadmin.ExpireBackupsRequest\x12<\x12:{\"database\":\"postgres\",\"tableGroup\":\"default\",\"shard\":\"0\"}\x18\x01B\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/v1/backups/expire\x12\xe6\x04\n" +
+	"\rVerifyBackups\x12 .multiadmin.VerifyBackupsRequest\x1a!.multiadmin.VerifyBackupsResponse\"\x8f\x04\xbaG\xea\x03\n" +
+	"\abackups\x12\x0eVerify backups:\x97\x01\n" +
+	"\x94\x01\x12\x8f\x01\n" +
+	"\x8c\x01\n" +
+	"\x10application/json\x12x\n" +
+	"8\x126\n" +
+	"4#/components/schemas/multiadmin.VerifyBackupsRequest\x12<\x12:{\"database\":\"postgres\",\"tableGroup\":\"default\",\"shard\":\"0\"}\x18\x01B\xb4\x02\x12~\n" +
+	"\x03200\x12w\n" +
+	"u\n" +
+	"\aSuccess\x1aj\n" +
+	"h\n" +
+	"\x10application/json\x12T\n" +
+	"9\x127\n" +
+	"5#/components/schemas/multiadmin.VerifyBackupsResponse\x12\x17\x12\x15{\"duration\":\"1.500s\"}\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/v1/backups/verify\x12\xf4\x02\n" +
+	"\x0fGetPoolerStatus\x12\".multiadmin.GetPoolerStatusRequest\x1a#.multiadmin.GetPoolerStatusResponse\"\x97\x02\xbaG\xd3\x01\n" +
+	"\apoolers\x12\x11Get pooler statusB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02:\x128/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status\x12\xb3\x03\n" +
+	"\x1aSetPostgresRestartsEnabled\x12-.multiadmin.SetPostgresRestartsEnabledRequest\x1a..multiadmin.SetPostgresRestartsEnabledResponse\"\xb5\x02\xbaG\xe3\x01\n" +
+	"\apoolers\x12!Set automatic PostgreSQL restartsB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02H:\x01*\"C/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts\x12\x82\x03\n" +
+	"\x11GetGatewayQueries\x12$.multiadmin.GetGatewayQueriesRequest\x1a%.multiadmin.GetGatewayQueriesResponse\"\x9f\x02\xbaG\xd7\x01\n" +
+	"\bgateways\x12\x14List gateway queriesB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02>\x12</api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries\x12\xa5\x03\n" +
+	"\x16GetGatewayConsolidator\x12).multiadmin.GetGatewayConsolidatorRequest\x1a*.multiadmin.GetGatewayConsolidatorResponse\"\xb3\x02\xbaG\xe6\x01\n" +
+	"\bgateways\x12#Get gateway consolidator statisticsB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02C\x12A/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator\x12\xc4\x03\n" +
+	"\x18ApplyCertifiedRuleChange\x12+.multiadmin.ApplyCertifiedRuleChangeRequest\x1a,.multiadmin.ApplyCertifiedRuleChangeResponse\"\xcc\x02\xbaG\xe4\x01\n" +
+	"\x06shards\x12#Apply a certified shard rule changeB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02^:\x01*\"Y/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change\x12\x9b\x03\n" +
+	"\rSwitchPrimary\x12 .multiadmin.SwitchPrimaryRequest\x1a!.multiadmin.SwitchPrimaryResponse\"\xc4\x02\xbaG\xd9\x01\n" +
+	"\x06shards\x12\x18Switch the shard primaryB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primaryB\xcc\x17\xbaG\x97\x17\x12\xbb\x10\n" +
+	"\x1dMultigres Multiadmin REST API\x12\xd5\x0fAdministrative REST API for open-source Multigres clusters, served by the Vanguard transcoder. Use the HTTP address of your multiadmin instance as the base URL. Bearer JWT authentication is enforced when multiadmin runs with --enable-auth. JSON uses camelCase field names, string enum names, decimal strings for 64-bit integers, RFC 3339 timestamps, and protobuf durations such as 1.500s. Default-valued fields may be omitted.\n" +
+	"\n" +
+	"Errors use google.rpc.Status JSON: code is a numeric gRPC code (not the HTTP status), message is diagnostic text, and details contains typed objects with an @type field. Use the numeric code together with the operation's error and recovery guidance; current handlers do not consistently preserve dependency failures. The Connect adapter currently discards gRPC status details, including mtrpc.RPCError application codes. Clients must tolerate missing details and must not parse diagnostic messages as stable error identifiers. HTTP mappings: 400 InvalidArgument/FailedPrecondition/OutOfRange; 401 Unauthenticated; 403 PermissionDenied; 404 NotFound; 409 AlreadyExists/Aborted; 429 ResourceExhausted; 499 Canceled; 500 Unknown/Internal/DataLoss; 501 Unimplemented; 503 Unavailable; 504 DeadlineExceeded. Proxy or routing errors can have non-JSON bodies; inspect Content-Type.\n" +
+	"\n" +
+	"Error handling: InvalidArgument (3) requires a corrected request; FailedPrecondition (9) requires a change in cluster state. Both use HTTP 400. NotFound (5) normally indicates absence, but backup lookups can also return it when a pooler could not be queried. Unavailable (14) and DeadlineExceeded (4) can reflect dependency failures; reads can retry with bounded backoff. Internal (13) and Unknown (2) can mask downstream failures. See each operation for exceptions.\n" +
+	"\n" +
+	"Mutation errors, timeouts, and lost responses do not guarantee rollback. Reconcile cluster state before retrying rule changes or switchovers. Backup creation success means a job was accepted; poll job status for its eventual outcome.*>\n" +
+	"\n" +
+	"Apache-2.0\x120https://www.apache.org/licenses/LICENSE-2.0.html2\x02v1\x1aU\n" +
+	"\x01/\x12PMultiadmin HTTP server. Set the base URL to your deployment when using a client.*\xfe\x02\x12\x93\x02\n" +
+	"\x90\x02\n" +
+	"\bRPCError\x12\x83\x02\n" +
+	"\x80\x02\n" +
+	"\xb9\x01Vanguard REST error. The numeric code uses gRPC values. See the operation description for current classification exceptions and recovery guidance; mutation errors do not imply rollback.\x1aB\n" +
+	"@\n" +
+	"\x10application/json\x12,\n" +
+	"*\x12(\n" +
+	"&#/components/schemas/google.rpc.Status:f\n" +
+	"d\n" +
+	"\n" +
+	"BearerAuth\x12V\n" +
+	"T\n" +
+	"\x04http\x12?Send Authorization: Bearer <JWT> when --enable-auth is enabled.*\x06bearer2\x03JWT2\x10\n" +
+	"\x0e\n" +
+	"\n" +
+	"BearerAuth\x12\x00:)\n" +
+	"\x05cells\x12 Cluster cells and orchestrators.:\x1f\n" +
+	"\tdatabases\x12\x12Database metadata.:D\n" +
+	"\abackups\x129Backup creation, inventory, expiration, and verification.:?\n" +
+	"\apoolers\x124Pooler discovery, status, and PostgreSQL monitoring.:4\n" +
+	"\bgateways\x12(Gateway discovery and query diagnostics.:5\n" +
+	"\x06shards\x12+Shard rule changes and primary switchovers.:-\n" +
+	"\x04jobs\x12%Asynchronous backup and restore jobs.Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
 
 var (
 	file_multiadminservice_proto_rawDescOnce sync.Once

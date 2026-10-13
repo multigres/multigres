@@ -11,6 +11,7 @@ to use Multigres for your applications, please refer to the
 - **[Working with us](./teamwork.md)**
 - **[Github workflow](./workflow.md)**
 - **[Contributing](./contributing.md)**
+- **[Multiadmin REST API and OpenAPI specification](./api/)**
 
 ## Design Documents
 
@@ -19,10 +20,17 @@ Browse the design and reference docs by area:
 - **[Query serving](./query_serving/)** — connection pooling, prepared
   statements, transactions, session settings, plan caching, query
   cancellation, failover buffering, replica reads, listen/notify, etc.
+- **[Prepared-statement design](./query_serving/prepared_statements_design.md)**
+  — backend preparation, query identity, and DDL recovery. See
+  [prepared-statement testing](./query_serving/testing_strategy.md#prepared-statement-preparation-and-ddl)
+  for regression coverage and validation commands.
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management, [logging conventions](./general/logging.md)).
+- **[Minigres](./general/minigres.md)** — the multigateway and multipooler in
+  one process for a single-pooler database: how to run it, and where it
+  diverges from Multigres and why.
 - **[pgctld init](./pgctld-init.md)** — data directory initialization: the init
   flags, execution order, superuser password resolution, init SQL, and init
   secrets (role passwords and database settings).
@@ -42,7 +50,10 @@ Browse the design and reference docs by area:
 
 multigres runs the official PostgreSQL regression test suite to track compatibility.
 
-- **Results:** See the [latest workflow run](https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml) for the detailed compatibility report in the Job Summary.
+- **Results:** See the [latest workflow run][pgregress-ci] for the detailed
+  compatibility report in the Job Summary.
 - **PostgreSQL compatibility artifacts:** Each run uploads
   `postgres-compatibility-results`, which includes the compatibility report and
   PostgreSQL regression diffs when results are produced.
+
+[pgregress-ci]: https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml

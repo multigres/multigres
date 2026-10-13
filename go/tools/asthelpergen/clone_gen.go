@@ -274,6 +274,13 @@ func typePackagePath(t types.Type) string {
 		if pkg := u.Obj().Pkg(); pkg != nil {
 			return pkg.Path()
 		}
+	case *types.Alias:
+		// An alias belongs to the package that declares it, not the package
+		// of its target: "type Oid = pgoid.Oid" in the AST package is a local
+		// type, so fields using it keep being deep-cloned.
+		if pkg := u.Obj().Pkg(); pkg != nil {
+			return pkg.Path()
+		}
 	}
 	return ""
 }

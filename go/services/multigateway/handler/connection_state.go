@@ -68,6 +68,12 @@ type MultigatewayConnectionState struct {
 	// Map is keyed by the name of the portal.
 	Portals map[string]*preparedstatement.PortalInfo
 
+	// reparsePending holds canonical gateway statement names freshly Parsed
+	// inside a transaction. The original SQL is prepared immediately; this flag
+	// refreshes an execution-time semantic rewrite on its first materialization.
+	// Describe of the original SQL must not consume it. Guarded by mu.
+	reparsePending map[string]struct{}
+
 	// ShardStates is the information per shard that needs to be maintained.
 	// It keeps track of any reserved connections on each Shard currently open.
 	ShardStates []*ShardState
@@ -211,7 +217,29 @@ func NewMultigatewayConnectionState() *MultigatewayConnectionState {
 		mu:              sync.Mutex{},
 		Portals:         make(map[string]*preparedstatement.PortalInfo),
 		OpenHoldCursors: make(map[string]bool),
+		reparsePending:  make(map[string]struct{}),
 	}
+}
+
+// MarkReparsePending records a fresh Parse for a possible execution-time rewrite.
+func (m *MultigatewayConnectionState) MarkReparsePending(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.reparsePending == nil {
+		m.reparsePending = make(map[string]struct{})
+	}
+	m.reparsePending[name] = struct{}{}
+}
+
+// ConsumeReparsePending consumes the fresh-Parse signal for a rewritten statement.
+func (m *MultigatewayConnectionState) ConsumeReparsePending(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.reparsePending[name]; !ok {
+		return false
+	}
+	delete(m.reparsePending, name)
+	return true
 }
 
 // AddOpenHoldCursor records a `DECLARE ... WITH HOLD` cursor as currently open
@@ -747,6 +775,7 @@ func (m *MultigatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.markNotificationTransactionEndedLocked()
+	clear(m.reparsePending)
 	m.savepoints = nil
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
 		gmv.ClearSnapshots()
@@ -762,6 +791,7 @@ func (m *MultigatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.markNotificationTransactionEndedLocked()
+	clear(m.reparsePending)
 	if len(m.savepoints) == 0 {
 		for _, gmv := range m.gatewayManagedVariablesLocked() {
 			gmv.ResetLocal()

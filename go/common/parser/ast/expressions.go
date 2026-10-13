@@ -31,6 +31,8 @@ package ast
 import (
 	"fmt"
 	"strings"
+
+	"github.com/multigres/multigres/go/common/parser/pgoid"
 )
 
 // ==============================================================================
@@ -40,8 +42,10 @@ import (
 
 // Supporting types for expressions
 
-// Oid represents an object identifier - ported from postgres/src/include/postgres_ext.h
-type Oid uint32
+// Oid is an alias for the object identifier type defined in pgoid (the
+// analogue of postgres/src/include/postgres_ext.h); the builtin type OID
+// constants are re-exported in oids_generated.go.
+type Oid = pgoid.Oid
 
 // AttrNumber represents an attribute number - ported from postgres/src/include/access/attnum.h:21
 type AttrNumber int16

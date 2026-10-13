@@ -31,11 +31,11 @@ import (
 )
 
 // connectToMultigateway creates a client connection to the multigateway.
-func connectToMultigateway(ctx context.Context, t *testing.T, setup *shardsetup.ShardSetup) *client.Conn {
+func connectToMultigateway(ctx context.Context, t *testing.T, setup shardsetup.Cluster) *client.Conn {
 	t.Helper()
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
-		Port:        setup.MultigatewayPgPort,
+		Port:        setup.ClientPort(),
 		User:        shardsetup.DefaultTestUser,
 		Password:    shardsetup.TestPostgresPassword,
 		Database:    "postgres",
@@ -306,7 +306,7 @@ func TestGatewayQueryLogFields(t *testing.T) {
 
 	// Poll the multigateway log file until we see enough "query completed" entries.
 	// We expect at least 5: CREATE TABLE, SELECT, SET, BEGIN, COMMIT (plus extended).
-	logFile := setup.Multigateway.LogFile
+	logFile := setup.GatewayLogFile()
 	require.NotEmpty(t, logFile, "multigateway log file path should be set")
 	var entries []queryLogEntry
 	deadline := time.Now().Add(15 * time.Second)

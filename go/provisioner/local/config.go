@@ -119,8 +119,6 @@ type MultipoolerConfig struct {
 	TableGroup     string `yaml:"table-group"`
 	Shard          string `yaml:"shard"`
 	ServiceID      string `yaml:"service-id"`
-	PoolerDir      string `yaml:"pooler-dir"` // Directory path for PostgreSQL socket files
-	PgPort         int    `yaml:"pg-port"`    // PostgreSQL port number (same as pgctld)
 	HttpPort       int    `yaml:"http-port"`
 	GrpcPort       int    `yaml:"grpc-port"`
 	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
@@ -321,8 +319,6 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					TableGroup:     tableGroup,
 					Shard:          shard,
 					ServiceID:      serviceIDZone1,
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
-					PgPort:         ports.DefaultLocalPostgresPort, // Same as pgctld for this zone
 					HttpPort:       ports.DefaultMultipoolerHTTP,
 					GrpcPort:       ports.DefaultMultipoolerGRPC,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone1.sock"),
@@ -366,8 +362,6 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					TableGroup:     tableGroup,
 					Shard:          shard,
 					ServiceID:      serviceIDZone2,
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
-					PgPort:         ports.DefaultLocalPostgresPort + 1,
 					HttpPort:       ports.DefaultMultipoolerHTTP + 1,
 					GrpcPort:       ports.DefaultMultipoolerGRPC + 1,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone2.sock"),
@@ -411,8 +405,6 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					TableGroup:     tableGroup,
 					Shard:          shard,
 					ServiceID:      serviceIDZone3,
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
-					PgPort:         ports.DefaultLocalPostgresPort + 2,
 					HttpPort:       ports.DefaultMultipoolerHTTP + 2,
 					GrpcPort:       ports.DefaultMultipoolerGRPC + 2,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone3.sock"),
@@ -514,8 +506,6 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"grpc_port":        cellServices.Multipooler.GrpcPort,
 			"grpc_socket_file": cellServices.Multipooler.GRPCSocketFile,
 			"log_level":        cellServices.Multipooler.LogLevel,
-			"pooler_dir":       cellServices.Multipooler.PoolerDir,
-			"pg_port":          cellServices.Multipooler.PgPort,
 		}, nil
 	case constants.ServiceMultiorch:
 		return map[string]any{

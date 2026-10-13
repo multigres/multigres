@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -30,6 +31,7 @@ import (
 // Skips the test in short mode since integration tests require PostgreSQL.
 func getReplicaSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
+	clustersetup.RequireMultigresTopology(t, "the replica-reads port needs replicas")
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -62,7 +64,7 @@ func TestReplicaReads_WritesRejectedByPostgres(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 15*time.Second)
 
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	replicaDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayReplicaPgPort, "sslmode=disable")
 
 	// Create a table on the primary so it replicates to the standby.
@@ -171,7 +173,7 @@ func TestReplicaReads_PrimaryPortUnaffected(t *testing.T) {
 	ctx := utils.WithTimeout(t, 15*time.Second)
 
 	// Connect to the primary port
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)

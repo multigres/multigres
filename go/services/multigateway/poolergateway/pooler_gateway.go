@@ -125,6 +125,8 @@ type PoolerGateway struct {
 
 // PoolerGatewayOpts groups the construction parameters for a PoolerGateway.
 type PoolerGatewayOpts struct {
+	// DisableQueryStreamReuse restores per-operation StreamExecute RPCs.
+	DisableQueryStreamReuse bool
 	// Ctx is the service-lifetime context; cancelled on shutdown. Required.
 	Ctx context.Context
 	// Source is the topology source for the pooler cache. Required.
@@ -194,7 +196,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)

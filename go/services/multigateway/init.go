@@ -68,6 +68,7 @@ type Multigateway struct {
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
 	// slots in the replication preamble (default off, dynamic/reloadable).
 	slotBasedReplicationEnabled viperutil.Value[bool]
+	queryStreamReuse            viperutil.Value[bool]
 	// keepTransactionOnGatewayRejection, when enabled, leaves an open explicit
 	// transaction in-block after a gateway policy rejection (feature_not_supported)
 	// instead of aborting it. Off by default so clients see PostgreSQL's contract
@@ -126,10 +127,21 @@ type Multigateway struct {
 	queryRegistry *queryregistry.Registry
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// reg is the viper registry backing senv's config, kept directly so
+	// CobraPreRunE can subscribe its own reload notification (see
+	// viperutil.NotifyConfigReload) before senv's LoadConfig starts
+	// watching it — NotifyConfigReload panics if called any later.
+	reg *viperutil.Registry
+	// configReloaded is subscribed to config-reload notifications in
+	// CobraPreRunE (before mg.executor exists) but only consumed starting in
+	// Init, once mg.executor is safely assigned — see CobraPreRunE's doc
+	// comment for why the consumer can't start any earlier.
+	configReloaded chan struct{}
 	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
 	connConfig *rpcclient.ConnConfig
-	// topoConfig holds topology configuration
-	topoConfig   *topoclient.TopoConfig
+	// ts is set from Init's ts argument. Owned by whoever constructed this
+	// Multigateway (cmd/multigateway standalone, or cmd/minigres sharing it
+	// with a multipooler): they open it and close it, never Shutdown.
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
@@ -148,10 +160,27 @@ type Multigateway struct {
 	// to all long-running goroutines (health streams, discovery, etc.)
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+
+	// statusPath is where the status page is served, given by main: "/" when
+	// the multigateway owns the process, under its service name when it
+	// shares the HTTP server with other components.
+	statusPath string
 }
 
-func NewMultigateway() *Multigateway {
-	reg := viperutil.NewRegistry()
+// NewMultigateway creates a new Multigateway instance. reg is the settings
+// registry the multigateway configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multigateway for
+// a standalone process, cmd/minigres for one shared with a multipooler) owns
+// and constructs them; the multigateway never creates its own. statusPath is
+// where the status page is served ("/" when the multigateway owns the
+// process, under its service name when it shares the HTTP server).
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+	if reg == nil {
+		panic("multigateway: reg is required")
+	}
 	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
@@ -237,6 +266,9 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
+		queryStreamReuse: viperutil.Configure(reg, "query-stream-reuse", viperutil.Options[bool]{
+			Default: true, FlagName: "query-stream-reuse", EnvVars: []string{"MT_QUERY_STREAM_REUSE"},
+		}),
 		keepTransactionOnGatewayRejection: viperutil.Configure(reg, "keep-transaction-on-gateway-rejection", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "keep-transaction-on-gateway-rejection",
@@ -262,10 +294,8 @@ func NewMultigateway() *Multigateway {
 			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_MS"},
 		}),
 		bufferConfig: buffer.NewConfig(reg),
-		grpcServer:   servenv.NewGrpcServer(reg),
-		senv:         servenv.NewServEnv(reg),
+		reg:          reg,
 		connConfig:   rpcclient.NewConnConfig(reg),
-		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -275,6 +305,12 @@ func NewMultigateway() *Multigateway {
 			},
 		},
 	}
+	if err := resources.Validate(); err != nil {
+		panic(fmt.Sprintf("multigateway: invalid ProcessResources: %v", err))
+	}
+	mg.senv = resources.ServEnv
+	mg.grpcServer = resources.GrpcServer
+	mg.statusPath = statusPath
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -285,12 +321,23 @@ func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
 }
 
+// ServiceIdentity returns the identity the multigateway reports when main
+// initializes the process's servenv.
+func (mg *Multigateway) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: mg.serviceID.Get(),
+		Cell:              mg.cell.Get(),
+	}
+}
+
 // ServEnv returns the serving environment for this multigateway.
 func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 	return mg.senv
 }
 
 func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Bool("query-stream-reuse", mg.queryStreamReuse.Default(), "Reuse SQL, portal and query-service unary RPC streams; false restores dedicated RPCs (requires restart)")
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
@@ -311,6 +358,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
 	viperutil.BindFlags(
 		fs,
+		mg.queryStreamReuse,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
@@ -331,37 +379,25 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.bufferConfig.RegisterFlags(fs)
-	mg.senv.RegisterFlags(fs)
-	mg.grpcServer.RegisterFlags(fs)
 	mg.connConfig.RegisterFlags(fs)
-	mg.topoConfig.RegisterFlags(fs)
 }
 
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
-// until successful.
-func (mg *Multigateway) Init(ctx context.Context) error {
-	// Resolve service ID early for telemetry resource attributes
-	serviceID := mg.serviceID.Get()
-	if serviceID == "" {
-		serviceID = servenv.GenerateRandomServiceID()
+// until successful. ts is the process's already-open topology store (main
+// opens it, after parsing flags, before calling Init).
+func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
+	if ts == nil {
+		return errors.New("topology store is not open: main must open it before Init")
 	}
+	mg.ts = ts
+
+	// main has already resolved and applied the service ID (see
+	// ServiceIdentity/servenv.Init), so this is never empty here.
+	serviceID := mg.serviceID.Get()
 	cell := mg.cell.Get()
 
-	if err := mg.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultigateway,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
 	logger := mg.senv.GetLogger()
-
-	var err error
-	mg.ts, err = mg.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
 
 	// This doesn't change
 	mg.serverStatus.LocalCell = mg.cell.Get()
@@ -385,14 +421,15 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	}
 
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		Ctx:           mg.shutdownCtx,
-		Source:        mg.ts,
-		LocalCell:     mg.cell.Get(),
-		Logger:        logger,
-		DialOpt:       poolerTransportCreds,
-		Buffer:        mg.buffer,
-		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
-		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
+		Ctx:                     mg.shutdownCtx,
+		Source:                  mg.ts,
+		LocalCell:               mg.cell.Get(),
+		Logger:                  logger,
+		DialOpt:                 poolerTransportCreds,
+		Buffer:                  mg.buffer,
+		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
@@ -402,6 +439,15 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
+	// comment, which subscribes mg.configReloaded, for why the consumer
+	// can't start any earlier.
+	go func() {
+		for range mg.configReloaded {
+			mg.executor.InvalidatePlanCache()
+		}
+	}()
 
 	// Initialize gateway-wide OTel metrics up front so the credential
 	// provider and listener can share the same sink. Failures here are
@@ -631,8 +677,6 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	logger.InfoContext(
 		ctx, "multigateway starting up",
-		"cell", mg.cell.Get(),
-		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),
@@ -640,7 +684,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		"pid_prefix", pidPrefix,
 	)
 
-	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
+	mg.senv.HTTPHandleFunc(mg.statusPath, mg.handleIndex)
 
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -673,8 +717,50 @@ func (mg *Multigateway) RunDefault() error {
 	return mg.senv.RunDefault(mg.grpcServer)
 }
 
+// CobraPreRunE loads config (via senv) and, before doing so, subscribes to
+// config-reload notifications on mg.configReloaded so a dynamic flag change
+// can invalidate the plan cache. This is required, not just convenient: a
+// plan accepted while a dynamic flag (e.g. enable-slot-based-replication)
+// allowed it stays valid in the cache — served on later cache hits without
+// re-running analysis — until something invalidates it, so a reload that
+// changes such a flag must invalidate the cache or a stale accept/reject
+// decision keeps being served. This subscription is the whole mechanism, so
+// it depends on the notification covering every way a dynamic value changes,
+// which NotifyConfigReload's contract guarantees.
+//
+// The subscription is registered here because NotifyConfigReload must run
+// before senv's LoadConfig starts watching (it panics otherwise), but
+// mg.executor doesn't exist yet at this point — it's created in Init, which
+// runs after CobraPreRunE returns. The consumer goroutine is therefore
+// started in Init, right after mg.executor is assigned, not here: reading
+// mg.executor from a goroutine started before that assignment would race
+// Init's write to it, and a reload landing in that window would be read off
+// the channel and dropped (no executor to invalidate yet) rather than ever
+// being retried. Starting the goroutine after the assignment, on the same
+// goroutine that performed it, makes both problems structurally impossible
+// instead of guarding against them.
+//
+// mg.configReloaded is buffered by 1: NotifyConfigReload's send is
+// non-blocking (its own doc comment says as much), so an unbuffered channel
+// would silently drop a reload that lands while the consumer is already
+// mid-invalidation — a real scenario, since a single config-file save often
+// fires more than one fsnotify event. Invalidation is unconditional and
+// idempotent, so nothing is lost by coalescing a burst into fewer
+// invalidations; the buffer only needs to survive the vanishingly short
+// window between one dequeue and the next, not an unbounded backlog.
+//
+// The channel is deliberately never closed. NotifyConfigReload's underlying
+// watcher goroutine lives for the process's lifetime with no way to
+// unregister a subscriber, so closing mg.configReloaded during shutdown
+// could race a send from that goroutine — sending on a closed channel
+// panics, unlike sending on one nobody is listening to anymore, which the
+// non-blocking send already handles cleanly. Leaving the consumer goroutine
+// blocked on an open, unclosed channel at process exit is harmless: nothing
+// waits on it, and the OS reclaims it with the rest of the process.
 func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
-	return mg.senv.CobraPreRunE(cmd)
+	mg.configReloaded = make(chan struct{}, 1)
+	viperutil.NotifyConfigReload(mg.reg, mg.configReloaded)
+	return nil
 }
 
 func (mg *Multigateway) Shutdown() {
@@ -735,7 +821,6 @@ func (mg *Multigateway) Shutdown() {
 	}
 
 	mg.tr.Unregister()
-	mg.ts.Close()
 }
 
 // claimUnusedPrefix atomically claims a PID prefix for this gateway and

@@ -62,7 +62,7 @@ func queryServiceAt(t *testing.T, addr string) queryservice.QueryService {
 	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cc.Close() })
-	return newGRPCQueryService(cc, "test-pooler", slog.New(slog.DiscardHandler))
+	return newGRPCQueryService(cc, "test-pooler", slog.New(slog.DiscardHandler), true)
 }
 
 func noopStreamCallback(context.Context, *sqltypes.Result) error { return nil }
@@ -227,7 +227,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 			if p.GetId().GetName() == frozenPooler {
 				cb = nil
 			}
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, cb)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, true, cb)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -65,7 +66,9 @@ type QueryPoolerServer struct {
 	healthProvider HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultipoolerManager.
-	pubsubListener *pubsub.Listener
+	// Atomic because the manager swaps it on every connection reopen while gRPC
+	// handlers read it.
+	pubsubListener atomic.Pointer[pubsub.Listener]
 
 	// drainPhase tracks the graceful-drain stage during a not-serving transition.
 	// See drainPhase constants and StartRequest for the admission rules per stage.
@@ -475,12 +478,12 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 // SetPubSubListener sets the PubSub listener on the pooler server.
 // The listener is created and managed by the MultipoolerManager.
 func (s *QueryPoolerServer) SetPubSubListener(l *pubsub.Listener) {
-	s.pubsubListener = l
+	s.pubsubListener.Store(l)
 }
 
 // PubSubListener returns the shared PubSub listener (may be nil).
 func (s *QueryPoolerServer) PubSubListener() *pubsub.Listener {
-	return s.pubsubListener
+	return s.pubsubListener.Load()
 }
 
 // PoolManager returns the pool manager instance.

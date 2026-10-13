@@ -51,7 +51,7 @@ func TestMultigateway_SessionSettings(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to multigateway
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -300,7 +300,7 @@ func TestMultigateway_SessionSettings(t *testing.T) {
 	// Test 8: Extended query protocol with pgx
 	t.Run("extended query protocol", func(t *testing.T) {
 		// Create pgx connection
-		pgxConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+		pgxConnStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 		conn, err := pgx.Connect(ctx, pgxConnStr)
 		require.NoError(t, err, "failed to create pgx connection")
 		defer conn.Close(ctx)
@@ -572,7 +572,7 @@ func TestMultigateway_SetResetGUCRestoration(t *testing.T) {
 	setup.SetupTest(t)
 
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		setup.ClientPort(), shardsetup.TestPostgresPassword)
 
 	ctx := utils.WithTimeout(t, 120*time.Second)
 
@@ -698,7 +698,7 @@ func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -855,7 +855,7 @@ func TestMultigateway_StringLiteralReconstruction(t *testing.T) {
 				errMsg string
 			}
 			out := map[string]outcome{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 				conn, err := pgconn.Connect(ctx, connStr)
 				require.NoError(t, err)
@@ -917,7 +917,7 @@ func TestMultigateway_ParameterStatusSync(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.param, func(t *testing.T) {
 			statuses := map[string]string{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 				conn, err := pgx.Connect(ctx, connStr)
 				require.NoError(t, err)
@@ -1000,7 +1000,7 @@ func TestParameterStatusReporting(t *testing.T) {
 	for _, proto := range protocols {
 		t.Run(proto.name, func(t *testing.T) {
 			counts := map[string]reports{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				t.Run(target.Name, func(t *testing.T) {
 					connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 					cfg, err := pgconn.ParseConfig(connStr)
@@ -1082,7 +1082,7 @@ func TestParameterStatusReporting_Reset(t *testing.T) {
 	// step, or "" if nothing was reported.
 	reported := map[string]map[string]string{}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 			cfg, err := pgconn.ParseConfig(connStr)
@@ -1164,7 +1164,7 @@ func TestParameterStatusReporting_InTransaction(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			reported := map[string]string{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 				cfg, err := pgconn.ParseConfig(connStr)
 				require.NoError(t, err)
@@ -1254,7 +1254,7 @@ func TestParameterStatusReporting_Rollback(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			reported := map[string]string{}
-			for _, target := range setup.GetComparisonTargets(t) {
+			for _, target := range setup.ComparisonTargets(t) {
 				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
 				cfg, err := pgconn.ParseConfig(connStr)
 				require.NoError(t, err)

@@ -34,4 +34,8 @@ const (
 
 	// ServicePgbackrest is the name of the pgbackrest service.
 	ServicePgbackrest = "pgbackrest"
+
+	// ServiceMinigres is the name of the minigres service, which runs a
+	// multigateway and a multipooler in one process.
+	ServiceMinigres = "minigres"
 )

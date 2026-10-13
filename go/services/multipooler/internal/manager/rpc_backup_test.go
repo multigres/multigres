@@ -1226,3 +1226,43 @@ func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
 	assert.True(t, errors.Is(err, context.DeadlineExceeded),
 		"expected the lease-acquisition timeout to surface as context.DeadlineExceeded, got: %v", err)
 }
+
+// TestRestoreFromBackupLocked_FailedRestoreRemovesPartialDataDir is a
+// regression test: a restore that fails partway can still have written
+// PG_VERSION - hasDataDirectory() only checks for that file's presence, so a
+// partial restore would otherwise be misread by the next monitor tick as
+// "already initialized" and try to start postgres on unverified data instead
+// of retrying. restoreFromBackupLocked must remove whatever Restore() left
+// behind when it fails.
+func TestRestoreFromBackupLocked_FailedRestoreRemovesPartialDataDir(t *testing.T) {
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	// Simulate a partial restore: some file made it to disk, but not
+	// PG_VERSION specifically (so the "PGDATA doesn't exist" guard still
+	// passes) - proving cleanup removes whatever's there, not just PG_VERSION.
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "partial_marker"), []byte("x"), 0o644))
+
+	pm := &MultipoolerManager{
+		logger:     slog.Default(),
+		actionLock: actionlock.NewActionLock(),
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+		}),
+	}
+	// No config path set on the backup engine, so Restore() fails immediately
+	// ("pgbackrest config not found") without needing a real pgbackrest binary.
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.stateManager = NewStateManager(pm.logger, pm.record, func() *clustermetadatapb.ConsensusStatus { return nil })
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	err = pm.restoreFromBackupLocked(lockCtx, "some-backup-id")
+	require.Error(t, err)
+
+	assert.NoDirExists(t, dataDir, "a failed restore must remove whatever partial data it left behind")
+}

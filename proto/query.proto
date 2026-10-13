@@ -283,6 +283,17 @@ message PreparedStatement {
   // param_types contains the OIDs of the parameter types.
   // This is sent by the client in the Parse message.
   repeated uint32 param_types = 3;
+
+  // force_reparse asks the multipooler to Close and re-Parse the consolidated
+  // backend statement (ppstmt*) instead of reusing the cached one, even when a
+  // statement with the same (query, param_types) is already prepared on the
+  // chosen connection. The gateway sets this for the first backend
+  // materialization after a client Parse, so a freshly-parsed statement always
+  // reflects the current catalog — matching PostgreSQL, where a Parse always
+  // re-plans. This is how a client recovers from a schema change (including DDL
+  // run inside a function) that would otherwise leave the shared backend
+  // statement stale (0A000 / 22P02 / 42883 on first use).
+  bool force_reparse = 4;
 }
 
 // ExecuteSqlPreparedStatement carries a SQL-level EXECUTE wrapper whose
@@ -309,10 +320,12 @@ message ExecuteSqlPreparedStatement {
   // EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
   string sql_suffix = 3;
 
-  // force_unnamed_parse asks the multipooler to Parse the prepared statement as
-  // the unnamed statement without executing SQL. This preserves PostgreSQL's
-  // transaction-time validation and lock acquisition semantics.
-  bool force_unnamed_parse = 4;
+  // prepare_only prepares the named, consolidated backend statement without
+  // executing SQL. Inside a transaction this runs after any deferred BEGIN,
+  // preserving prepare-time validation and locks. Later Describe/Execute can
+  // reuse the same statement. prepared_statement.force_reparse requests a fresh
+  // preparation even if this connection already has a cached statement.
+  bool prepare_only = 4;
 }
 
 // Portal represents a bound prepared statement with parameters.

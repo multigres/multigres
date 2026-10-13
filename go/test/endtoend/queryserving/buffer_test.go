@@ -33,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -337,6 +338,7 @@ func newBufferTestCluster(t *testing.T) (*shardsetup.ShardSetup, func()) {
 // newBufferTestClusterWithConfig creates a 3-node cluster with custom buffer flags.
 func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shardsetup.ShardSetup, func()) {
 	t.Helper()
+	clustersetup.RequireMultigresTopology(t, "Multiorch failover with buffering")
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiorchCount(3),
@@ -349,7 +351,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 		shardsetup.WithCellName("test-cell"),
 	)
 	setup.StartMultiorchs(t.Context(), t)
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary should exist after bootstrap")
@@ -359,11 +361,11 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 }
 
 // openGatewayDB opens a database/sql connection to the multigateway.
-func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
+func openGatewayDB(t *testing.T, setup shardsetup.Cluster) *sql.DB {
 	t.Helper()
 	connStr := fmt.Sprintf(
 		"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=30",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		setup.ClientPort(), shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	require.NoError(t, db.Ping(), "failed to ping multigateway")

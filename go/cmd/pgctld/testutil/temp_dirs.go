@@ -25,9 +25,14 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
-	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
+
+// DeadPID is above the Linux pid_max ceiling (and the macOS PID range).
+const DeadPID = 1<<22 + 1
+
+// mockPIDFile records only processes started by the test helpers and mock scripts.
+const mockPIDFile = "mock-postgres.pids"
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
 func TempDir(t *testing.T, prefix string) (string, func()) {
@@ -100,12 +105,29 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
 	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := executil.Command(utils.WithShortDeadline(t), "sleep", "3600")
+	cmd := executil.Command(t.Context(), "sleep", "3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}
 
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = cmd.Stop(ctx)
+	})
+	// Reap the child even when the mock pg_ctl or TempDir cleanup stops it.
+	go func() { _ = cmd.Wait() }()
+
 	realPID := cmd.Process.Pid
+	file, err := os.OpenFile(filepath.Join(dataDir, mockPIDFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("Failed to open mock PID file: %v", err)
+	}
+	_, writeErr := file.WriteString(strconv.Itoa(realPID) + "\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("Failed to record mock PID: write=%v, close=%v", writeErr, closeErr)
+	}
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
@@ -163,24 +185,23 @@ func CreateDeadPIDFile(t *testing.T, dataDir string, deadPID int) {
 func cleanupMockProcesses(t *testing.T, tempDir string) {
 	t.Helper()
 
-	// Look for any postmaster.pid files in the temp directory and kill associated processes
+	// Never use postmaster.pid as proof of ownership: tests can put arbitrary PIDs in it.
 	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil //nolint:nilerr // Continue walking even if there's an error with one file
 		}
 
-		if info.Name() == "postmaster.pid" {
-			// Read the PID from the file and kill the process
+		if info.Name() == mockPIDFile && info.Mode().IsRegular() {
+			// Read only the PIDs recorded when the mocks spawned their children.
 			// #nosec G122 -- walking the test's own temp dir during cleanup; no untrusted symlink TOCTOU.
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return nil //nolint:nilerr // Continue if we can't read the file
 			}
 
-			lines := strings.Split(string(content), "\n")
-			if len(lines) > 0 {
-				pidStr := strings.TrimSpace(lines[0])
-				if pid, parseErr := strconv.Atoi(pidStr); parseErr == nil {
+			for line := range strings.SplitSeq(string(content), "\n") {
+				pid, parseErr := strconv.Atoi(strings.TrimSpace(line))
+				if parseErr == nil && pid > 1 && pid != os.Getpid() && pid != os.Getppid() {
 					// Try to kill the process (ignore errors since process might already be dead)
 					killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					_, _ = executil.KillPID(killCtx, pid)

@@ -39,6 +39,17 @@ type Planner struct {
 	// txnMetrics is injected into TransactionPrimitive at creation time
 	// for recording transaction duration and count.
 	txnMetrics *engine.TransactionMetrics
+
+	// slotBasedReplicationEnabled reports, read live, whether the
+	// slot-based-replication feature is on. When true, a non-temporary
+	// logical replication slot created via plain SQL (e.g.
+	// pg_create_logical_replication_slot) with a literal failover=true is
+	// admitted instead of rejected (see rejectNonTemporaryReplicationSlot).
+	// Dynamic so it tracks config reloads; nil reads as disabled. Set via
+	// SetSlotBasedReplicationEnabled. Mirrors
+	// handler.MultigatewayHandler.SetSlotBasedReplicationEnabled, which gates
+	// the same feature for the replication-protocol preamble.
+	slotBasedReplicationEnabled func() bool
 }
 
 // NewPlanner creates a new query planner.
@@ -48,6 +59,22 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger, txnMetrics *engin
 		logger:            logger,
 		txnMetrics:        txnMetrics,
 	}
+}
+
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates
+// admitting a non-temporary logical failover replication slot created via
+// plain SQL. Must be called before connections are accepted. A nil getter
+// (the default) keeps the feature off, rejecting every non-temporary slot as
+// before.
+func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	p.slotBasedReplicationEnabled = enabled
+}
+
+// admitsFailoverSlots reports whether the planner should admit a
+// non-temporary logical replication slot created with failover=true,
+// reading the dynamic gate live.
+func (p *Planner) admitsFailoverSlots() bool {
+	return p.slotBasedReplicationEnabled != nil && p.slotBasedReplicationEnabled()
 }
 
 // PlanOptions carries planning inputs for a single Plan call.
@@ -171,7 +198,7 @@ func (p *Planner) Plan(
 	// construction already analyzed and safe. The normalizer is configured to
 	// preserve literals inside set_config calls so its args remain A_Const at
 	// this point.
-	analysis, err := analyzeStatement(stmt, unsafeConnection)
+	analysis, err := analyzeStatement(stmt, unsafeConnection, p.admitsFailoverSlots())
 	if err != nil {
 		return nil, err
 	}
@@ -518,25 +545,54 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	return plan, nil
 }
 
-// routePrimitive builds the leading Route for a query. When analysis flagged a
-// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
-// rewritten out so it returns the gateway-owned value and the Route is wrapped in
-// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
-// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
-// a plain Route over the original statement. The flag is set only when a rewrite is
-// actually required, so the common case never walks the tree here.
-func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+// applyRouteRewrites applies opts.RewriteCurrentSetting if required, in a
+// single place both route-building paths (routePrimitive and planSelectStmt)
+// share, so a second rewrite that also needs to run at this layer only needs
+// to be added here once rather than in both callers in lockstep.
+//
+// A gateway-managed current_setting call is rewritten out so it returns the
+// gateway-owned value (see rewriteGatewayManagedCurrentSetting); reads
+// carries the synthetic value slots a GatewayManagedValueRoute must fill
+// from gateway state at execute time.
+//
+// stmt may already be a rewritten clone from an earlier, caller-specific pass
+// (planSelectStmt's gateway-managed set_config rewrite runs before this).
+// rewrote is false, and routeAST == stmt, when the rewrite didn't apply — it
+// is set only when the rewrite is actually required, so the common case
+// never walks the tree here.
+func applyRouteRewrites(stmt ast.Stmt, opts PlanOptions) (routeAST ast.Stmt, reads []engine.GatewayManagedSettingRead, rewrote bool, err error) {
+	routeAST = stmt
 	if opts.RewriteCurrentSetting {
-		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		rewritten, csReads, err := rewriteGatewayManagedCurrentSetting(routeAST)
 		if err != nil {
-			return nil, err
+			return nil, nil, false, err
 		}
 		if rewritten != nil {
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
-			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+			routeAST, reads, rewrote = rewritten, csReads, true
 		}
 	}
-	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+	return routeAST, reads, rewrote, nil
+}
+
+// routePrimitive builds the leading Route for a query, applying whichever
+// rewrites analysis flagged as required (see applyRouteRewrites). If no
+// rewrite applies, this is a plain Route over the original statement;
+// otherwise the Route is built from the rewritten AST's own deparse and
+// wrapped in a GatewayManagedValueRoute when there are synthetic value slots
+// to fill at execute time.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	routeAST, reads, rewrote, err := applyRouteRewrites(stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !rewrote {
+		return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+	}
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeAST.SqlString(), routeAST)
+	if len(reads) > 0 {
+		return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+	}
+	return route, nil
 }
 
 // execInfoFromOpts derives the plan-level reservation directives for a

@@ -16,6 +16,7 @@ package multiadmin
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,8 @@ type serviceTarget struct {
 	host          string
 	port          int
 	proxyBasePath string
+	scheme        string
+	tlsConfig     *tls.Config
 }
 
 // parseProxyPath extracts routing information from the proxy path
@@ -115,11 +118,23 @@ func (ma *Multiadmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 func (ma *Multiadmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
 	switch pathInfo.serviceType {
 	case "admin":
-		// Global service - multiadmin proxying to itself
+		// Global service - multiadmin proxying to itself. The hop still goes
+		// over the network, so it follows the listener's own scheme and
+		// presents a client certificate when enforcement is on.
+		tlsConfig, err := ma.senv.HTTPSelfClientTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("self-proxy TLS: %w", err)
+		}
+		scheme := "http"
+		if tlsConfig != nil {
+			scheme = "https"
+		}
 		return &serviceTarget{
 			host:          ma.senv.GetHostname(),
 			port:          ma.senv.GetHTTPPort(),
 			proxyBasePath: "/proxy/admin/" + pathInfo.cellName,
+			scheme:        scheme,
+			tlsConfig:     tlsConfig,
 		}, nil
 
 	case "gate", "pool", "orch":
@@ -129,10 +144,15 @@ func (ma *Multiadmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 			return nil, fmt.Errorf("service not found: %w", err)
 		}
 
+		// Cell services are reached over plaintext: their listeners' TLS
+		// settings are not published in the topology, so there is nothing to
+		// derive a scheme from here. Serving them over TLS needs that to be
+		// advertised first.
 		return &serviceTarget{
 			host:          hostname,
 			port:          httpPort,
 			proxyBasePath: fmt.Sprintf("/proxy/%s/%s/%s", pathInfo.serviceType, pathInfo.cellName, pathInfo.serviceName),
+			scheme:        "http",
 		}, nil
 
 	default:
@@ -160,7 +180,7 @@ func (ma *Multiadmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Create reverse proxy to the target service
 	hostPort := net.JoinHostPort(target.host, strconv.Itoa(target.port))
-	targetURL, err := url.Parse("http://" + hostPort)
+	targetURL, err := url.Parse(target.scheme + "://" + hostPort)
 	if err != nil {
 		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
 		return
@@ -169,6 +189,7 @@ func (ma *Multiadmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// path. SetURL applies the target's scheme/host (what the default director did);
 	// SetXForwarded preserves the X-Forwarded-* headers the Director path added automatically.
 	proxy := &httputil.ReverseProxy{
+		Transport: proxyTransport(target.tlsConfig),
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(targetURL)
 			pr.SetXForwarded()
@@ -269,4 +290,15 @@ func rewriteHTML(htmlContent []byte, proxyBasePath string) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// proxyTransport returns the transport for one proxied hop: the shared default
+// when the target is plaintext, or a clone carrying tlsConfig when it is not.
+func proxyTransport(tlsConfig *tls.Config) http.RoundTripper {
+	if tlsConfig == nil {
+		return nil // ReverseProxy falls back to http.DefaultTransport
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = tlsConfig
+	return t
 }

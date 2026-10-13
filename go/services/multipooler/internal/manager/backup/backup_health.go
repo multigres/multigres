@@ -70,8 +70,11 @@ type HealthTracker struct {
 	ready  bool
 	reason string // one of the ReadyReason* constants
 
-	// WAL archive lag (primary only; set from pg_stat_archiver).
-	lastArchived time.Time // zero if unknown / not primary
+	// WAL archive lag (primary only; set from pg_stat_archiver + archive_status).
+	archiverOnPrimary bool      // true once the archiver was read on a primary
+	lastArchived      time.Time // zero if unknown / not primary
+	oldestPending     time.Time // ready-time of oldest unarchived segment; zero if caught up
+	pendingCount      int64     // completed segments awaiting archive; 0 if caught up
 
 	// Updated inline by the Backup() RPC.
 	failuresSinceSuccess int64
@@ -100,7 +103,10 @@ type Snapshot struct {
 	CompleteCount        int64
 	Ready                bool
 	Reason               string
+	ArchiverOnPrimary    bool      // true once the archiver was read on a primary
 	LastArchived         time.Time // zero if unknown / not primary
+	OldestPending        time.Time // ready-time of oldest unarchived segment; zero if caught up
+	PendingCount         int64     // completed segments awaiting archive; 0 if caught up
 	FailuresSinceSuccess int64
 	InProgressStart      time.Time // zero when no backup running
 	LeaseHeld            bool
@@ -123,7 +129,10 @@ func (t *HealthTracker) Snapshot() Snapshot {
 		CompleteCount:        t.completeCount,
 		Ready:                t.ready,
 		Reason:               reason,
+		ArchiverOnPrimary:    t.archiverOnPrimary,
 		LastArchived:         t.lastArchived,
+		OldestPending:        t.oldestPending,
+		PendingCount:         t.pendingCount,
 		FailuresSinceSuccess: t.failuresSinceSuccess,
 		InProgressStart:      t.inProgressStart,
 		LeaseHeld:            t.leaseHeld,
@@ -149,11 +158,16 @@ func (t *HealthTracker) applyReadiness(ready bool, reason string) {
 	t.reason = reason
 }
 
-// applyArchiver stores the WAL archive state computed by the poller.
-func (t *HealthTracker) applyArchiver(lastArchived time.Time) {
+// applyArchiver stores the WAL archive state computed by the poller. onPrimary
+// is false on a standby (which does not archive), in which case the caller
+// passes zero values and the gauges stop emitting.
+func (t *HealthTracker) applyArchiver(onPrimary bool, lastArchived, oldestPending time.Time, pendingCount int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.archiverOnPrimary = onPrimary
 	t.lastArchived = lastArchived
+	t.oldestPending = oldestPending
+	t.pendingCount = pendingCount
 }
 
 // SetLeaseHeld records whether this pooler currently holds the backup lease.
@@ -431,7 +445,7 @@ func resolveReadiness(reachable bool, repoReason, configReason string, archiving
 // passive, continuous signal — a cheap system-view read, no forced I/O.
 func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) (archivingFailing bool) {
 	if !pgMode.OutOfRecovery() {
-		e.health.applyArchiver(time.Time{})
+		e.health.applyArchiver(false, time.Time{}, time.Time{}, 0)
 		return false
 	}
 
@@ -445,6 +459,6 @@ func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) (archi
 		return false
 	}
 
-	e.health.applyArchiver(stats.LastArchived)
+	e.health.applyArchiver(true, stats.LastArchived, stats.OldestPending, stats.PendingCount)
 	return stats.FailedCount > 0 && stats.LastFailed.After(stats.LastArchived)
 }

@@ -48,11 +48,10 @@ func TestPgParity(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Minute)
 
-	primary := setup.GetPrimary(t)
 	pgTarget := suiteutil.Target{
 		Name: "postgres",
 		Host: "localhost",
-		Port: primary.Pgctld.PgPort,
+		Port: setup.PostgresPort(t),
 		User: shardsetup.DefaultTestUser,
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
@@ -60,7 +59,7 @@ func TestPgParity(t *testing.T) {
 	mgwTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "localhost",
-		Port: setup.MultigatewayPgPort,
+		Port: setup.ClientPort(),
 		User: shardsetup.DefaultTestUser,
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",

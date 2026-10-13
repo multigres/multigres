@@ -107,7 +107,9 @@ func (v Value) IsNull() bool {
 // plus unique prefixes. The prefix "o" is invalid because it is ambiguous
 // between "on" and "off".
 func ParseBool(s string) (bool, bool) {
-	v := strings.ToLower(strings.TrimSpace(s))
+	// PostgreSQL's bytewise isspace() accepts ASCII whitespace, not all of
+	// Unicode's White_Space characters (for example a non-breaking space).
+	v := strings.ToLower(strings.Trim(s, " \t\n\r\v\f"))
 	if v == "" {
 		return false, false
 	}

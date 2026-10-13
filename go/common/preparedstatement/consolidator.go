@@ -73,14 +73,38 @@ type PortalInfo struct {
 	*PreparedStatementInfo
 }
 
+// PreparedStatementInfo shares a parsed statement and its immutable metadata
+// across connections. It must not be copied after first use.
 type PreparedStatementInfo struct {
 	*querypb.PreparedStatement
 	astStruct ast.Stmt
+
+	canonicalOnce sync.Once
+	canonicalSQL  string
+	fingerprint   string
 }
 
-// AstStmt returns the parsed AST statement for this prepared statement.
+// AstStmt returns the shared parsed AST statement. Callers must not mutate it;
+// semantic rewrites must clone the tree.
 func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
 	return psi.astStruct
+}
+
+// CanonicalSQLAndFingerprint returns the AST's canonical SQL and its fingerprint.
+// Placeholders and literals are preserved; this does not normalize bind values.
+// Initialization is lazy so statements that do not need a cache key pay no
+// reconstruction cost. The consolidator shares this object across connections,
+// so concurrent first use is synchronized; warm calls only read the cached data.
+// Database/session-dependent cache keys and plans must remain with the caller.
+// Empty statements return empty metadata.
+func (psi *PreparedStatementInfo) CanonicalSQLAndFingerprint() (string, string) {
+	psi.canonicalOnce.Do(func() {
+		if psi.astStruct != nil {
+			psi.canonicalSQL = psi.astStruct.SqlString()
+			psi.fingerprint = ast.FingerprintSQL(psi.canonicalSQL)
+		}
+	})
+	return psi.canonicalSQL, psi.fingerprint
 }
 
 // IsEmpty reports whether this prepared statement was created from an empty or

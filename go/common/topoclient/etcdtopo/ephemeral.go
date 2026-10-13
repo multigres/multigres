@@ -15,6 +15,7 @@
 package etcdtopo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path"
@@ -38,6 +39,15 @@ import (
 // the files are gone and only their owner knows they should exist; re-creating
 // them is the owner's job, via toporeg's re-assertion loop. All this layer
 // does is forget the dead lease so the next write grants a fresh one.
+//
+// Re-assertion runs every few seconds in every gateway and orchestrator, and
+// almost always finds the file exactly as it left it. Writing anyway would
+// cost a Raft proposal, a new MVCC revision and an event to every watcher per
+// tick, which across many clusters sharing one etcd dominates its write load
+// and fills the backend between compactions. So both writes first read the
+// file and return early when it already holds the same contents on the
+// current lease: steady state is one linearizable read, and only a real
+// change (file missing, contents differ, lease replaced) reaches the write.
 
 // ephemeralState holds the lease shared by this connection's ephemeral files.
 type ephemeralState struct {
@@ -48,6 +58,10 @@ type ephemeralState struct {
 // PutEphemeral is part of the topoclient.Conn interface.
 func (s *etcdtopo) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
 	nodePath := path.Join(s.root, filePath)
+
+	if current, err := s.ephemeralCurrent(ctx, nodePath, contents); err != nil || current {
+		return err
+	}
 
 	leaseID, err := s.ephemeralLease(ctx)
 	if err != nil {
@@ -68,6 +82,13 @@ func (s *etcdtopo) PutEphemeral(ctx context.Context, filePath string, contents [
 // ClaimEphemeral is part of the topoclient.Conn interface.
 func (s *etcdtopo) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
 	nodePath := path.Join(s.root, filePath)
+
+	// Holding our contents on our live lease means the claim is ours and
+	// current; anything else falls through to the atomic transactions below,
+	// which remain the only thing that decides ownership.
+	if current, err := s.ephemeralCurrent(ctx, nodePath, contents); err != nil || current {
+		return err
+	}
 
 	leaseID, err := s.ephemeralLease(ctx)
 	if err != nil {
@@ -108,6 +129,33 @@ func (s *etcdtopo) ClaimEphemeral(ctx context.Context, filePath string, contents
 		return topoclient.NewError(topoclient.NodeExists, nodePath)
 	}
 	return nil
+}
+
+// ephemeralCurrent reports whether nodePath already holds contents bound to
+// this connection's current lease, in which case a write would change nothing.
+//
+// The read is linearizable on purpose: a serializable read from a member cut
+// off from the leader could keep reporting a file that has since been deleted,
+// and the owner would never repair it. A lease that ended without the watcher
+// noticing yet is harmless here: etcd deleted its files when it ended, so the
+// read finds nothing and the caller writes.
+func (s *etcdtopo) ephemeralCurrent(ctx context.Context, nodePath string, contents []byte) (bool, error) {
+	s.eph.mu.Lock()
+	leaseID := s.eph.leaseID
+	s.eph.mu.Unlock()
+	if leaseID == 0 {
+		return false, nil
+	}
+
+	resp, err := s.cli.Get(ctx, nodePath)
+	if err != nil {
+		return false, convertError(err, nodePath)
+	}
+	if len(resp.Kvs) == 0 {
+		return false, nil
+	}
+	kv := resp.Kvs[0]
+	return clientv3.LeaseID(kv.Lease) == leaseID && bytes.Equal(kv.Value, contents), nil
 }
 
 // ephemeralLease returns the connection's lease, granting and starting

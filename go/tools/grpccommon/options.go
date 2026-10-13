@@ -31,7 +31,34 @@ var (
 	maxMessageSize = 16 * 1024 * 1024
 	// enablePrometheus sets a flag to enable grpc client/server grpc monitoring.
 	enablePrometheus bool
+
+	// otelInstrumentationEnabled reports whether OpenTelemetry gRPC
+	// instrumentation (the otelgrpc stats handler) is attached to clients
+	// created by NewClient. It is a function rather than a value so the owner
+	// of the process-wide setting (servenv, via --grpc-otel-instrumentation)
+	// can register it before flags are parsed while NewClient still sees the
+	// parsed value at dial time. The default keeps instrumentation on for
+	// callers without a servenv, such as the multigres CLI.
+	otelInstrumentationEnabled = func() bool { return true }
 )
+
+// SetOTelInstrumentationEnabled registers the process-wide decision on whether
+// gRPC clients created by NewClient carry OpenTelemetry instrumentation. The
+// function is evaluated on every NewClient call, so it may read configuration
+// that is only final after flag parsing. Passing nil restores the default
+// (enabled).
+func SetOTelInstrumentationEnabled(enabled func() bool) {
+	if enabled == nil {
+		enabled = func() bool { return true }
+	}
+	otelInstrumentationEnabled = enabled
+}
+
+// OTelInstrumentationEnabled reports the current process-wide decision, see
+// SetOTelInstrumentationEnabled.
+func OTelInstrumentationEnabled() bool {
+	return otelInstrumentationEnabled()
+}
 
 // RegisterFlags installs grpccommon flags on the given FlagSet.
 //
@@ -111,11 +138,14 @@ func (f funcOption) apply(c *clientConfig) {
 }
 
 // NewClient creates a gRPC client with OpenTelemetry instrumentation.
-// Use WithPeerService to set the remote service identifier in traces.
+// Use WithAttributes to add span attributes such as the remote pooler identity.
 // Use WithDialOptions to pass standard gRPC dial options.
 //
 // All ClientOptions are used to configure a single stats handler, preventing
-// duplication and ensuring consistent telemetry across the application.
+// duplication and ensuring consistent telemetry across the application. The
+// stats handler is omitted when OTelInstrumentationEnabled reports false: it
+// runs on every RPC (header extraction, span and metric attribute sets), which
+// on the gateway to pooler hop means once per SQL statement.
 func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
 	cfg := &clientConfig{}
 	for _, opt := range opts {
@@ -128,13 +158,16 @@ func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
 	// limit, so without this a >4 MiB result (e.g. a large row streamed from the
 	// pooler to the gateway) fails with RESOURCE_EXHAUSTED "received message larger
 	// than max".
-	allOpts := append([]grpc.DialOption{
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler(cfg.otelOptions...)),
+	allOpts := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxMessageSize),
 			grpc.MaxCallSendMsgSize(maxMessageSize),
 		),
-	}, cfg.dialOptions...)
+	}
+	if OTelInstrumentationEnabled() {
+		allOpts = append(allOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler(cfg.otelOptions...)))
+	}
+	allOpts = append(allOpts, cfg.dialOptions...)
 
 	return grpc.NewClient(target, allOpts...)
 }

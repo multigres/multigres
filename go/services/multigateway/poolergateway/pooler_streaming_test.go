@@ -141,7 +141,7 @@ func setupStreamingTestWithCallback(
 	}
 
 	logger := slog.Default()
-	conn, err := newPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
+	conn, err := newPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), true, onHealthUpdate)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Shutdown()

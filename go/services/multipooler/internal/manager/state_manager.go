@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -171,6 +172,20 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	return component.OnStateChange(ctx, servingstate.State{
 		Routing:       deriveRoutingState(ssm.pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
+	})
+}
+
+// Unregister removes a component so it receives no further state changes.
+// A component that is closed must be unregistered first: otherwise the next
+// fan-out calls its OnStateChange and can restart it. Holding mu also waits
+// out any fan-out in flight, so once Unregister returns, nothing can reach
+// the component through this manager. Unregistering a component that is not
+// registered is a no-op.
+func (ssm *StateManager) Unregister(component StateAware) {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	ssm.components = slices.DeleteFunc(ssm.components, func(c StateAware) bool {
+		return c == component
 	})
 }
 

@@ -9,6 +9,13 @@ ignore:
   # catalog is pure generated data — same treatment as asthelpergen above.
   - "go/tools/metricsgen/**"
   - "go/observability/metriccatalog/catalog_generated.go"
+  # Build-time PostgreSQL builtin-catalog generator and its generated tables.
+  # The tool runs from `make pgcatalog`, not the coverage-collecting test CI,
+  # and the *_generated.go tables are pure generated data — same treatment as
+  # metricsgen above. The hand-written pgcatalog.go (lookup APIs) keeps its
+  # coverage; only the generator and generated output are ignored.
+  - "go/tools/pgcataloggen/**"
+  - "go/common/pgcatalog/*_generated.go"
   # PostgreSQL regression / isolation harness lives behind opt-in env
   # gates (RUN_PGREGRESS, RUN_PGISOLATION, RUN_EXTENDED_QUERY_SERVING_TESTS),
   # so coverage-collecting CI never executes any of it — every new line

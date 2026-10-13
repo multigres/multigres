@@ -37,6 +37,7 @@ import (
 
 // mockIExecute is a mock implementation of IExecute for testing.
 type mockIExecute struct {
+	lastPortalInfo *preparedstatement.PortalInfo
 	// StreamExecute behavior
 	streamExecuteErr error
 	// streamExecuteResult, when non-nil, is passed to StreamExecute's callback
@@ -120,6 +121,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
+	m.lastPortalInfo = portalInfo
 	return nil
 }
 

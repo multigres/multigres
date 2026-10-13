@@ -131,6 +131,17 @@ if [[ "$*" == *"--help"* ]]; then
     echo "postgres is the PostgreSQL database server."
     exit 0
 fi
+# postgres -C <guc> prints the configured value and exits (used by pgctld's
+# Status to report the effective max_connections).
+if [[ "$1" == "-C" ]]; then
+    case "$2" in
+        max_connections) echo "100" ;;
+        superuser_reserved_connections) echo "3" ;;
+        reserved_connections) echo "0" ;;
+        *) echo "unknown GUC: $2" >&2; exit 1 ;;
+    esac
+    exit 0
+fi
 echo "Mock PostgreSQL server starting..."
 # For testing, create a fake PID file
 DATADIR=""
@@ -152,7 +163,8 @@ for arg in "$@"; do
 done
 
 if [ -n "$DATADIR" ]; then
-    echo "12345" > "$DATADIR/postmaster.pid"
+    # Use a PID above the Linux pid_max ceiling for this parse-only mock.
+    echo "4194305" > "$DATADIR/postmaster.pid"
     echo "$DATADIR" >> "$DATADIR/postmaster.pid"
     echo "$(date +%s)" >> "$DATADIR/postmaster.pid"
     echo "5432" >> "$DATADIR/postmaster.pid"
@@ -165,6 +177,18 @@ fi
 
 	// Mock pg_ctl
 	MockBinary(t, binDir, "pg_ctl", `
+# Only the dedicated mock PID file establishes ownership of a process.
+stop_mock_processes() {
+    if [ -f "$DATADIR/mock-postgres.pids" ]; then
+        while read -r PID; do
+            if [[ "$PID" =~ ^[0-9]+$ ]] && [ "$PID" -gt 1 ] && [ "$PID" -ne "$$" ] && [ "$PID" -ne "$PPID" ]; then
+                kill "$PID" 2>/dev/null || true
+            fi
+        done < "$DATADIR/mock-postgres.pids"
+        rm -f "$DATADIR/mock-postgres.pids"
+    fi
+}
+
 case "$1" in
     "init" | "initdb")
         mkdir -p "$3/base"
@@ -199,6 +223,7 @@ case "$1" in
             # actually running" check is now a pg_isready probe.
             sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
+            echo "$MOCK_PID" >> "$DATADIR/mock-postgres.pids"
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
             echo "$(date +%s)" >> "$DATADIR/postmaster.pid"
@@ -231,11 +256,7 @@ case "$1" in
         done
         
         if [ -n "$DATADIR" ]; then
-            # Kill the old background process if it exists
-            if [ -f "$DATADIR/postmaster.pid" ]; then
-                OLD_PID=$(head -n 1 "$DATADIR/postmaster.pid")
-                kill "$OLD_PID" 2>/dev/null || true
-            fi
+            stop_mock_processes
             rm -f "$DATADIR/postmaster.pid"
             echo "waiting for server to shut down.... done"
             echo "server stopped"
@@ -243,6 +264,7 @@ case "$1" in
             # Start a new background process; see the "start" case above.
             sleep 3600 >/dev/null 2>&1 &
             MOCK_PID=$!
+            echo "$MOCK_PID" >> "$DATADIR/mock-postgres.pids"
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
             echo "$(date +%s)" >> "$DATADIR/postmaster.pid"
@@ -274,10 +296,8 @@ case "$1" in
             esac
         done
         
-        # Kill the background process if it exists
-        if [ -n "$DATADIR" ] && [ -f "$DATADIR/postmaster.pid" ]; then
-            PID=$(head -n 1 "$DATADIR/postmaster.pid")
-            kill "$PID" 2>/dev/null || true
+        if [ -n "$DATADIR" ]; then
+            stop_mock_processes
             rm -f "$DATADIR/postmaster.pid"
         fi
         echo "waiting for server to shut down.... done"

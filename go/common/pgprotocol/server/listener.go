@@ -362,7 +362,7 @@ func (l *Listener) handleConnection(conn *Conn) {
 		}
 	}()
 
-	conn.logger.Info("connection accepted", "remote_addr", conn.RemoteAddr())
+	conn.logger.Debug("connection accepted", "remote_addr", conn.RemoteAddr())
 
 	// Serve the connection (startup + command loop).
 	if err := conn.serve(); err != nil {
@@ -381,7 +381,7 @@ func (l *Listener) handleConnection(conn *Conn) {
 		}
 	}
 
-	conn.logger.Info("connection closed")
+	conn.logger.Debug("connection closed")
 }
 
 // CloseListener closes only the TCP listener and stops accepting new connections.
@@ -398,7 +398,7 @@ func (l *Listener) Close() error {
 	l.cancel()
 	err := l.listener.Close()
 	l.wg.Wait()
-	l.logger.Info("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	l.logger.Debug("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return err
 }
 

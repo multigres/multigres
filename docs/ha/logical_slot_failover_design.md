@@ -980,9 +980,10 @@ The sticky per-backend reservation (`protoutil.ReasonLogicalReplication`) is del
 A live walsender stream is physically one backend, and on the client-driven path (§3.1.1) it tears down on
 failover and the consumer reconnects to the new primary with a fresh reservation — so nothing needs to be
 tracked shard-wide for the feature to work. Un-pinning the reservation so a stream can be _carried_ across a
-promotion without teardown is only needed for the transparent repoint, and is deferred to that step (§3.1.2);
-the SQL-function path (`pg_create_logical_replication_slot` on an ordinary connection) also stays guarded by
-the planner until then.
+promotion without teardown is only needed for the transparent repoint, and is deferred to that step (§3.1.2).
+The SQL-function path (`pg_create_logical_replication_slot` on an ordinary connection) is admitted by the
+planner too, but only for a call that spells out a literal `failover=true` itself — it is not auto-marked
+(see §3.2.1's "Boundaries of the rewrite" for why the two forms differ).
 
 Admitting these slots is gated behind a dynamic Multigateway flag, `enable-slot-based-replication` (default
 off, mirroring the Multipooler flag of the same name and read live so it is reloadable). With the flag off the
@@ -1021,9 +1022,21 @@ altering only `TWO_PHASE`, is relayed unchanged; with the feature off the comman
 Boundaries of the rewrite:
 
 - **Command form only.** Auto-marking applies to the walsender `CREATE_REPLICATION_SLOT` command — the form a
-  real subscriber sends. The SQL-function forms (`pg_create_logical_replication_slot(...)`) cannot be rewritten
-  (no AST→SQL deparser), so they keep the plain guard: a non-temporary non-failover logical slot is **rejected**
-  (over a replication connection and, via the planner, over an ordinary one).
+  real subscriber sends, which never passes through the planner — and is patched as text
+  (`rewriteCreateReplicationSlotAddFailover`), since its grammar is fixed and small enough to tokenize safely.
+  Only a genuinely omitted `FAILOVER` option is injected; an explicit `FAILOVER false` is never touched (see
+  the opt-out bullet below).
+- **The SQL-function form requires an explicit `failover=true`.** `pg_create_logical_replication_slot(...)` on
+  an ordinary connection is admitted by the planner only when the call spells the argument out
+  (`rejectNonTemporaryReplicationSlot`); an omitted one is rejected exactly as it is with the feature off.
+  Auto-marking it was tried and removed deliberately: making admission conditional on a rewrite that some
+  later code path must remember to perform turns a single predicate into a two-step invariant, and the planner
+  has roughly eight independent plan-construction paths (`planDefault`/`routePrimitive`, `planSelectStmt`,
+  `planCopyStmt`, `planHoldCursorDeclare`, `planTempTableCreation`, `planExecuteStmt`,
+  `tryUnwrapWrappedExecute`, and the portal path) that each had to uphold it — several silently did not. Worse,
+  the promise freezes into anything PostgreSQL stores and re-invokes later (a view body, a column `DEFAULT`, a
+  `CHECK` constraint), where the flag can never be re-checked. Requiring the client to be explicit keeps what
+  Postgres runs identical to what the client wrote.
 - **Explicit opt-out honored.** An explicit `FAILOVER false` is a deliberate client choice and stays rejected
   (it never appears in a real subscriber command — the walreceiver omits the option when false rather than
   emitting `FAILOVER false`).

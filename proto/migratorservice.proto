@@ -1,0 +1,409 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package migrator;
+
+import "clustermetadata.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/migrator";
+
+// MigrationPhase is the lifecycle phase of a migration workflow.
+enum MigrationPhase {
+  MIGRATION_PHASE_UNSPECIFIED = 0;
+  MIGRATION_PHASE_CREATED = 1;
+  MIGRATION_PHASE_VALIDATING = 2;
+  MIGRATION_PHASE_SCHEMA_COPY = 3;
+  MIGRATION_PHASE_CREATE_PUBLICATION = 4;
+  MIGRATION_PHASE_COPYING = 5;
+  MIGRATION_PHASE_DROPPED = 6;
+  MIGRATION_PHASE_FAILED = 7;
+  MIGRATION_PHASE_COMPLETING = 8;
+  // IMPORTING/EXPORTING are the caught-up steady states (importing from / serving
+  // and exporting to the external database). SWITCHING_TO_* are the transient
+  // cutover (to export) and roll-back (to import). STREAMING/SWITCHING (the
+  // original, non-directional phases) were split into these so the phase
+  // records the direction and, mid-switch, the target it is heading to (its
+  // intent) — which makes a mid-switch failover resumable.
+  MIGRATION_PHASE_IMPORTING = 9;
+  MIGRATION_PHASE_EXPORTING = 10;
+  MIGRATION_PHASE_SWITCHING_TO_IMPORT = 11;
+  MIGRATION_PHASE_SWITCHING_TO_EXPORT = 12;
+}
+
+// MigrationDirection is which side is currently the publisher.
+enum MigrationDirection {
+  MIGRATION_DIRECTION_UNSPECIFIED = 0;
+  // IMPORT: the external old database is the source (old DB -> Multigres).
+  MIGRATION_DIRECTION_IMPORT = 1;
+  // EXPORT: Multigres is the source (Multigres -> old DB), for fail-back.
+  MIGRATION_DIRECTION_EXPORT = 2;
+}
+
+// TableSpec selects tables for a migration, mirroring one CREATE PUBLICATION
+// "FOR TABLE" entry. qualified_names are the (optionally schema-qualified)
+// table names ("schema.table").
+message TableSpec {
+  repeated string qualified_names = 1;
+}
+
+// SchemaSpec selects tables in a schema rather than tables and matches
+// FOR TABLES IN SCHEMA name [, ...] construction.
+message SchemaSpec {
+  repeated string schemata = 1;
+}
+
+// SelectionObject is one entry in a migration's table selection: either a table
+// (optionally with per-table clauses, see TableSpec) or a whole schema. Schema
+// selection is a SNAPSHOT of the tables owned by the source role in that schema
+// at create time — tables added to the schema later are NOT auto-included
+// (native dynamic FOR TABLES IN SCHEMA would require superuser on the source).
+message SelectionObject {
+  oneof object {
+    TableSpec table = 1;
+    SchemaSpec schema = 2;
+    bool all = 3;
+  }
+}
+
+// Migration is the static, immutable configuration of a migration workflow —
+// everything a caller supplies in CreateMigrationRequest. Live state (phase,
+// progress, errors) is reported separately by MigrationStatus.
+message MigrationRecord {
+  int64 id = 1;
+  // name is the optional, human-friendly identifier, unique per target database.
+  // Empty for migrations created without one. The generated id remains the stable
+  // internal key.
+  string name = 2;
+  // connection_name is the name of the stored Connection this migration reads
+  // its source DSN from, live, for as long as the migration exists (see
+  // Connection) — required, every migration has one. This is a standing
+  // reference, not a one-time copy: altering the named connection takes
+  // effect on the migration's very next action, not just at create time.
+  string connection_name = 3;
+  // target identifies the destination shard (database, table_group, shard).
+  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // same across the topology and routing layers (see query.Target, which
+  // reuses it for the same reason) — a database can have multiple
+  // tablegroups, each with its own shard namespace, so database+shard alone
+  // do not uniquely identify a shard.
+  clustermetadata.ShardKey target = 4;
+  SelectionObject objects = 6;
+  // sequence_margin is added past each sequence's max at a direction switch.
+  // Set at create time; not currently changeable afterward.
+  int64 sequence_margin = 7;
+}
+
+// MigrationStatus is the live, observed state of a migration workflow:
+// everything that changes after creation. Every RPC that hands back a
+// migration returns both it and the migration's static Migration.
+message MigrationStatus {
+  int64 id = 1;
+  MigrationPhase phase = 2;
+  // last_error is the failure reason, set when phase is FAILED.
+  string last_error = 3;
+  // total_relations / ready_relations report initial-copy progress (srsubstate).
+  int64 total_relations = 4;
+  int64 ready_relations = 5;
+  bool caught_up = 6;
+  string publication_name = 7;
+  string subscription_name = 8;
+  google.protobuf.Timestamp created_at = 9;
+  // active_direction is which side is currently the publisher.
+  MigrationDirection active_direction = 10;
+  // streaming_since is set when the migration first reaches STREAMING.
+  google.protobuf.Timestamp streaming_since = 11;
+  // lag_bytes / lag_seconds are the live replication lag measured on the current
+  // publisher (the external source in IMPORT, the Multigres target in EXPORT):
+  // lag_bytes = pg_current_wal_lsn() - confirmed_flush_lsn, lag_seconds = the
+  // walsender's replay_lag. Both are 0 when the migration is not streaming or the
+  // lag cannot be read. lag_bytes is the same measure
+  // SetMigrationDirectionRequest.max_lag_bytes gates on.
+  uint64 lag_bytes = 12;
+  double lag_seconds = 13;
+}
+
+message MigrationOptions {
+  // skip_copy_data skips the initial COPY at subscription setup (the data is
+  // assumed to be seeded out-of-band). false (the default) performs the
+  // initial COPY.
+  bool skip_copy_data = 1;
+  // skip_schema_copy skips the pg_dump --schema-only step (target schema exists).
+  bool skip_schema_copy = 2;
+}
+
+enum MigrationEvent {
+  MIGRATION_EVENT_UNSPECIFIED = 0;
+  MIGRATION_EVENT_CREATE = 1;
+  MIGRATION_EVENT_START = 2;
+  MIGRATION_EVENT_PHASE = 3;
+  MIGRATION_EVENT_ACTIVATE = 4;
+  MIGRATION_EVENT_DEACTIVATE = 5;
+  MIGRATION_EVENT_DROP = 6;
+  MIGRATION_EVENT_FAILED = 7;
+}
+
+// MigrationJournalEntry is one row of a migration's durable, append-only audit
+// log (multigres.migration_journal): each lifecycle action (create, start, phase
+// advance, direction switch, drop, failure) appends one entry. It is an internal
+// audit surface — never contains credentials — and, unlike the Migration
+// projection, is retained after the migration is dropped.
+message MigrationJournalEntry {
+  // seq is the database-generated global monotonic audit order.
+  int64 seq = 1;
+  google.protobuf.Timestamp created_at = 2;
+  int64 migration_id = 3;
+  // migration_name is the migration's optional name, denormalized at write time
+  // so the entry stays readable after the migration row is dropped.
+  string migration_name = 4;
+  // event is the action: CREATE, START, PHASE, ACTIVATE, DEACTIVATE, DROP, FAILED.
+  MigrationEvent event = 5;
+  // phase is the migration phase in effect at (or resulting from) the action.
+  MigrationPhase phase = 6;
+  // direction is the active replication direction at the action.
+  MigrationDirection direction = 7;
+  // from_lsn is the drained-to / quiesce LSN on the old writer (direction switch
+  // and graceful drop); empty otherwise.
+  string from_lsn = 8;
+  // to_lsn is the start LSN on the new writer (direction switch); empty otherwise.
+  string to_lsn = 9;
+  // last_error is the failure reason (FAILED entries).
+  string last_error = 10;
+  // detail is free-form context, e.g. "COPYING->IMPORTING" for a phase advance.
+  string detail = 11;
+}
+
+// GetMigrationJournalRequest addresses one migration by id or, when id is empty,
+// by name. A dropped migration is addressable only by id (the row that carried
+// the name is gone, though its journal entries are retained).
+message GetMigrationJournalRequest {
+  int64 id = 1;
+  string name = 2;
+}
+message GetMigrationJournalResponse {
+  // entries are the migration's journal entries, oldest first.
+  repeated MigrationJournalEntry entries = 1;
+}
+
+message CreateMigrationRequest {
+  MigrationRecord migration = 1;
+  MigrationOptions options = 2;
+
+  // quiesce_roles are optional application role names on the source whose CONNECT
+  // privilege is revoked during the ACTIVATE cutover (and restored on a deactivate
+  // rollback or teardown), so they cannot reconnect and write to the source once it
+  // becomes a subscriber. The hard quiesce always freezes and terminates existing
+  // client backends; naming roles here additionally fences reconnects that would
+  // otherwise diverge. Each role must exist on the source and must not be the DSN's
+  // own role (validated at create time). Empty leaves the terminate + read-only
+  // barrier as the only guard.
+  repeated string quiesce_roles = 9;
+}
+message CreateMigrationResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
+// MigrationRef addresses one migration: by id, or by its unique name.
+message MigrationRef {
+  oneof ref {
+    int64 id = 1;
+    string name = 2;
+  }
+}
+
+// SetMigrationDirectionRequest declaratively sets the migration's active
+// direction. Setting the current direction is a no-op. For a migration that
+// has not yet started (still short of COPYING), direction=IMPORT runs the
+// initial setup pipeline (validate, schema copy, publication, subscription,
+// catch-up) — there is no separate start action, since there is nothing yet
+// to resume. Otherwise this performs the symmetric cutover/rollback: drain
+// the current publisher, flip direction, establish the reverse link.
+// Requires a caught-up STREAMING state for an already-running migration.
+message SetMigrationDirectionRequest {
+  MigrationRef ref = 1;
+  MigrationDirection direction = 2;
+  // max_lag_bytes is the readiness threshold for a cutover to EXPORT. Before
+  // quiescing the source, the switch polls the live replication lag (the bytes
+  // of source WAL the target has not yet confirmed-consumed) and proceeds only
+  // once it is at or below this many bytes, so the residual drain under the
+  // read-only barrier completes inside the gateway's failover-buffer window
+  // (queries buffered during the cutover are replayed, not refused). 0 uses
+  // the server default. Choosing it too large relative to the gateway buffer
+  // window risks the buffer overflowing mid-cutover; keeping it small enough
+  // is the operator's responsibility (not enforced here). Only meaningful for
+  // direction=EXPORT on a migration currently IMPORTING; ignored otherwise.
+  optional uint64 max_lag_bytes = 3;
+  // wait_timeout_seconds bounds how long the switch blocks waiting for the lag
+  // to fall to max_lag_bytes. 0 uses the server default. If the threshold is
+  // not reached within the timeout, the call fails with a precondition error
+  // and the migration stays in the IMPORT direction (no cutover, no serving
+  // change). Only meaningful alongside max_lag_bytes.
+  optional int64 wait_timeout_seconds = 4;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
+  // ... PHASE): it gates the destructive DropTables step a not-yet-started
+  // IMPORT runs, so a caller who merely has database CREATE +
+  // pg_create_subscription (enough to pass the gateway's migration-DDL
+  // authorization gate) cannot name an existing target table it does not own
+  // and have it dropped via the admin pool. Left empty on the CLI/multiadmin
+  // path, which has no SQL-authenticated identity to set it from; the check
+  // is skipped in that case, unchanged from before this field existed.
+  string caller_role = 5;
+}
+message SetMigrationDirectionResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
+// GetMigrationRequest addresses one migration by ref (id or name).
+message GetMigrationRequest {
+  MigrationRef ref = 1;
+}
+message GetMigrationResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
+// ListMigrationsRequest lists the ids of every migration. At most one
+// migration exists at a time today, so this returns 0 or 1 ids; fetch full
+// details for each via GetMigration.
+message ListMigrationsRequest {
+}
+message ListMigrationsResponse {
+  repeated int64 ids = 1;
+}
+
+// DropMigrationRequest is addressed by ref (id or name).
+message DropMigrationRequest {
+  MigrationRef ref = 1;
+  // wait blocks until the migration reaches a completable (caught-up) state,
+  // then drains and tears down. Mutually exclusive with force.
+  bool wait = 2;
+  // wait_timeout_seconds bounds wait (0 = no timeout).
+  int64 wait_timeout_seconds = 3;
+  // force skips the drain and tears down from any phase.
+  bool force = 4;
+}
+message DropMigrationResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
+// Connection is a stored, named source conninfo. It is scoped to the shard
+// whose Migrator created it — its row lives only in that shard's own
+// multigres.migration_connection, so which shard it belongs to is implied by
+// which Migrator you asked, not a field on the message. Every migration
+// references one by id via Migration.connection_name. Connections are
+// immutable once created: there is no in-place update, only create/drop —
+// so a migration's resolved source never changes underneath it except by
+// pointing it at a different, newly-created connection.
+message Connection {
+  int64 id = 1;
+  // name is the unique, required identifier used to reference this connection
+  // from Migration.connection_name.
+  string name = 2;
+  // dsn is a full libpq conninfo (may include TLS options). Returned as-is on
+  // read paths, which may expose a password — same trust model as
+  // Migration.connection_name's resolved source; see that field's doc comment.
+  string dsn = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// ConnectionRef addresses one connection: by id, or by its unique name.
+message ConnectionRef {
+  oneof ref {
+    int64 id = 1;
+    string name = 2;
+  }
+}
+
+message CreateConnectionRequest {
+  Connection connection = 1;
+}
+message CreateConnectionResponse {
+  Connection connection = 1;
+}
+
+// GetConnectionRequest addresses one connection by ref (id or name).
+message GetConnectionRequest {
+  ConnectionRef ref = 1;
+}
+message GetConnectionResponse {
+  Connection connection = 1;
+}
+
+// ListConnectionsRequest lists every stored connection in full (unlike
+// ListMigrationsRequest, which returns ids only) — there is no "fetch one at a
+// time" need here, and SHOW CONNECTIONS wants the whole table in one call.
+message ListConnectionsRequest {
+}
+message ListConnectionsResponse {
+  repeated Connection connections = 1;
+}
+
+// DropConnectionRequest is addressed by ref (id or name). Dropping a
+// connection still referenced by a migration (migration.connection_id) fails
+// with a foreign-key-violation error; point those migrations elsewhere first.
+message DropConnectionRequest {
+  ConnectionRef ref = 1;
+  bool if_exists = 2;
+}
+message DropConnectionResponse {
+}
+
+// Migrator coordinates one logical-replication migration per workflow,
+// from a standalone source postgres into a multigres target shard.
+service Migrator {
+  // CreateMigration records a migration's configuration (no database changes).
+  rpc CreateMigration(CreateMigrationRequest) returns (CreateMigrationResponse);
+
+  // GetMigration returns status for one migration, addressed by ref (id or name).
+  rpc GetMigration(GetMigrationRequest) returns (GetMigrationResponse);
+
+  // ListMigrations returns the ids of every migration; fetch full details for
+  // each via GetMigration.
+  rpc ListMigrations(ListMigrationsRequest) returns (ListMigrationsResponse);
+
+  // GetMigrationJournal returns a migration's append-only audit journal (oldest
+  // first). Internal audit surface; entries are retained after a drop, so this
+  // returns them even for a migration whose row is gone (addressed by id).
+  rpc GetMigrationJournal(GetMigrationJournalRequest) returns (GetMigrationJournalResponse);
+
+  // SetMigrationDirection sets the active direction: on a not-yet-started
+  // migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+  // the symmetric cutover (IMPORT -> EXPORT, drain/flip/start serving) or
+  // rollback (EXPORT -> IMPORT, stop serving/flip); setting the current
+  // direction is a no-op.
+  rpc SetMigrationDirection(SetMigrationDirectionRequest) returns (SetMigrationDirectionResponse);
+
+  // DropMigration tears down the subscription/publication/slot and removes
+  // the workflow (default drains first; wait/force modify that).
+  rpc DropMigration(DropMigrationRequest) returns (DropMigrationResponse);
+
+  // CreateConnection stores a named source conninfo, shard-scoped.
+  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse);
+
+  // GetConnection returns one connection, addressed by ref (id or name).
+  rpc GetConnection(GetConnectionRequest) returns (GetConnectionResponse);
+
+  // ListConnections returns every stored connection in full.
+  rpc ListConnections(ListConnectionsRequest) returns (ListConnectionsResponse);
+
+  // DropConnection removes a connection. Fails if a migration still
+  // references it.
+  rpc DropConnection(DropConnectionRequest) returns (DropConnectionResponse);
+}

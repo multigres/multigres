@@ -777,8 +777,9 @@ func TestFilterAndPrioritize_GatedShardWideFallsBackToLowerPriorityShardWide(t *
 }
 
 // TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped tests that
-// a shard-wide problem whose action is AlertOnlyAction (no remediation) rides
-// along with pooler-scoped problems instead of preempting them.
+// a shard-wide problem whose action is AlertOnlyAction (no remediation) is
+// excluded from the result entirely - it can never execute, so it must not
+// occupy the single shard-wide slot or otherwise preempt pooler-scoped fixes.
 func TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped(t *testing.T) {
 	ctx := t.Context()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -820,11 +821,55 @@ func TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped(t *testi
 
 	filtered := engine.filterAndPrioritize(ctx, problems)
 
-	// The alert-only shard-wide problem and the pooler-scoped fix should both
-	// survive - the alert has no action to conflict with anything.
-	require.Len(t, filtered, 2)
-	assert.Equal(t, types.ProblemLeaderHealthUnknown, filtered[0].Code)
-	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[1].Code)
+	// The alert-only problem can never execute, so it's excluded entirely;
+	// only the pooler-scoped fix survives.
+	require.Len(t, filtered, 1)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code)
+}
+
+// TestFilterAndPrioritize_AlertOnlyDoesNotStealPoolerSlot is a regression test:
+// ShardAtRisk is a pooler-scoped alert-only problem (see atRiskProblem). If it
+// sorts ahead of a real, lower-priority problem for the same pooler, the
+// per-pooler dedup must not let the alert-only one occupy that pooler's one
+// candidate slot and starve the real fix.
+func TestFilterAndPrioritize_AlertOnlyDoesNotStealPoolerSlot(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, newTestCoordinator(ts, &rpcclient.FakeClient{}, "cell1"))
+
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "leader-pooler",
+	}
+
+	problems := []types.Problem{
+		{
+			Code:           types.ProblemShardAtRisk,
+			PoolerID:       poolerID,
+			Priority:       types.PriorityHigh,
+			Scope:          types.ScopePooler,
+			RecoveryAction: actions.NewAlertOnlyAction(logger),
+		},
+		{
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID,
+			Priority: types.PriorityNormal,
+			Scope:    types.ScopePooler,
+			RecoveryAction: &mockRecoveryAction{
+				name:    "FixReplication",
+				timeout: 30 * time.Second,
+			},
+		},
+	}
+
+	filtered := engine.filterAndPrioritize(ctx, problems)
+
+	require.Len(t, filtered, 1)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code,
+		"the real fix must not be starved by a higher-priority alert-only problem for the same pooler")
 }
 
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
@@ -1217,6 +1262,93 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// ASSERTION: Recovery should NOT be executed because validation failed
 	assert.False(t, replicaRecovery.executed.Load(),
 		"recovery should be skipped when problem no longer exists after validation")
+}
+
+// TestAttemptRecovery_SkipsAlertOnly tests attemptRecovery's own guard
+// directly (bypassing filterAndPrioritize, which already excludes AlertOnly
+// problems) - it must never call Execute even if handed one directly.
+func TestAttemptRecovery_SkipsAlertOnly(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, newTestCoordinator(ts, &rpcclient.FakeClient{}, "cell1"))
+
+	alertAction := &mockRecoveryAction{
+		metadata: types.RecoveryMetadata{Name: actions.AlertOnlyActionName, Timeout: 5 * time.Second},
+	}
+	problem := types.Problem{
+		Code:           types.ProblemShardAtRisk,
+		CheckName:      "SomeAnalyzer",
+		PoolerID:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pooler1"},
+		ShardKey:       &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+		Scope:          types.ScopePooler,
+		RecoveryAction: alertAction,
+	}
+
+	engine.attemptRecovery(ctx, problem)
+
+	assert.False(t, alertAction.executed.Load(), "attemptRecovery must skip AlertOnlyAction, not call Execute")
+}
+
+// TestRecoveryLoop_AlertOnlyNeverExecutes: AlertOnlyAction is a marker, not a
+// real recovery attempt, so attemptRecovery must never call Execute for it.
+func TestRecoveryLoop_AlertOnlyNeverExecutes(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	fakeClient := &rpcclient.FakeClient{}
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
+
+	var executeCount atomic.Int32
+	alertAction := &mockRecoveryAction{
+		metadata: types.RecoveryMetadata{Name: actions.AlertOnlyActionName, Timeout: 5 * time.Second},
+		executeFn: func(ctx context.Context, problem types.Problem) error {
+			executeCount.Add(1)
+			return nil
+		},
+	}
+
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"}
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	analyzer := &customAnalyzer{
+		name:           "AlwaysActiveAlertCheck",
+		recoveryAction: alertAction,
+		analyzeFn: func(p *store.Pooler) *types.Problem {
+			return &types.Problem{
+				Code:           "ShardAtRisk",
+				CheckName:      "AlwaysActiveAlertCheck",
+				PoolerID:       poolerID,
+				ShardKey:       shardKey,
+				Priority:       types.PriorityNormal,
+				Scope:          types.ScopeShard,
+				RecoveryAction: alertAction,
+				DetectedAt:     time.Now(),
+				Description:    "shard is at risk",
+			}
+		},
+	}
+	analysis.SetTestAnalyzers([]analysis.Analyzer{analyzer})
+	t.Cleanup(analysis.ResetAnalyzers)
+
+	replicaPooler := &multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       poolerID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
+		},
+		LastSeen: timestamppb.Now(),
+		Status:   &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_REPLICA},
+	}
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
+
+	for range 5 {
+		engine.performRecoveryCycle(ctx)
+	}
+	assert.Equal(t, int32(0), executeCount.Load(),
+		"AlertOnlyAction is a marker, not a real recovery attempt - attemptRecovery must never call Execute for it")
 }
 
 // TestRecoveryLoop_PostRecoveryRefresh tests that after a shard-wide recovery,

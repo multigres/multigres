@@ -89,6 +89,14 @@ func (v *Viper) Set(key string, value any) {
 	// future config reloads.
 	v.live.Set(key, value)
 
+	// Every dynamic Value reading this key now returns the new value, exactly
+	// as it would after a config-file reload, so subscribers have to hear
+	// about it from here too. A subscriber's whole contract is "tell me when
+	// the live config changed"; leaving this path silent means a consumer
+	// that reacts to a change (invalidating a cache keyed on the old value,
+	// say) never runs, and nothing later makes it run.
+	v.notifySubscribers()
+
 	// Do a non-blocking signal to persist here. Our channel has a buffer of 1,
 	// so if we've signalled for some other Set call that hasn't been persisted
 	// yet, this Set will get persisted along with that one and any other
@@ -96,6 +104,21 @@ func (v *Viper) Set(key string, value any) {
 	select {
 	case v.setCh <- struct{}{}:
 	default:
+	}
+}
+
+// notifySubscribers tells everyone registered via Notify that the live config
+// changed. Sends are non-blocking onto buffered channels: a subscriber that
+// hasn't drained its previous notification already has one pending, and
+// coalescing is correct because the signal carries no value — the consumer
+// re-reads whatever it cares about. Non-blocking also means a slow or
+// abandoned consumer can never stall the mutation that triggered this.
+func (v *Viper) notifySubscribers() {
+	for _, ch := range v.subscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -160,13 +183,7 @@ func (v *Viper) Watch(ctx context.Context, static *viper.Viper, minWaitInterval 
 		}
 
 		v.loadFromDisk()
-
-		for _, ch := range v.subscribers {
-			select {
-			case ch <- struct{}{}:
-			default:
-			}
-		}
+		v.notifySubscribers()
 	})
 	v.disk.WatchConfig()
 

@@ -34,3 +34,13 @@ func NewManagerForTesting(t testing.TB, id *clustermetadatapb.ID, promises *Cons
 	t.Helper()
 	return newConsensusManager(id, promises, rules, broadcaster)
 }
+
+// NewStaticLeaderManagerForTesting is NewManagerForTesting for a static leader
+// (see ConsensusManager.staticLeader): CachedConsensusStatus, StartsAsPrimary,
+// LeaderInRecoveryAction and ResignGuard all behave as they would for Minigres.
+func NewStaticLeaderManagerForTesting(t testing.TB, id *clustermetadatapb.ID, promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
+	t.Helper()
+	cm := newConsensusManager(id, promises, rules, broadcaster)
+	cm.staticLeader = true
+	return cm
+}

@@ -156,7 +156,7 @@ func TestAnalyzeProceduralBody_Reject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			_, err := analyzeStatement(parseOne(t, tt.sql), false, false)
 			require.ErrorContains(t, err, tt.wantMsg)
 		})
 	}
@@ -236,7 +236,7 @@ func TestAnalyzeProceduralBody_ChildCoverage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			_, err := analyzeStatement(parseOne(t, tt.sql), false, false)
 			require.ErrorContains(t, err, tt.wantMsg)
 		})
 	}
@@ -290,7 +290,7 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			_, err := analyzeStatement(parseOne(t, tt.sql), false, false)
 			require.NoError(t, err)
 		})
 	}
@@ -308,10 +308,10 @@ func TestAnalyzeProceduralBody_UnsafeConnection(t *testing.T) {
 	for _, sql := range unsafe {
 		t.Run(sql, func(t *testing.T) {
 			// Enforced: rejected.
-			_, err := analyzeStatement(parseOne(t, sql), false)
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
 			require.Error(t, err)
 			// unsafe-connection: allowed.
-			_, err = analyzeStatement(parseOne(t, sql), true)
+			_, err = analyzeStatement(parseOne(t, sql), true, false)
 			require.NoError(t, err)
 		})
 	}
@@ -333,7 +333,7 @@ func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
 		}
 		for name, sql := range allow {
 			t.Run(name, func(t *testing.T) {
-				_, err := analyzeStatement(parseOne(t, sql), false)
+				_, err := analyzeStatement(parseOne(t, sql), false, false)
 				require.NoError(t, err)
 			})
 		}
@@ -357,7 +357,7 @@ func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
 		}
 		for name, sql := range reject {
 			t.Run(name, func(t *testing.T) {
-				_, err := analyzeStatement(parseOne(t, sql), false)
+				_, err := analyzeStatement(parseOne(t, sql), false, false)
 				require.Error(t, err)
 			})
 		}
@@ -386,7 +386,7 @@ func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, sql), false)
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
 			require.NoError(t, err)
 		})
 	}
@@ -413,7 +413,7 @@ func TestAnalyzeDynamicExecute_VarDataflow(t *testing.T) {
 	}
 	for name, sql := range reject {
 		t.Run("reject/"+name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, sql), false)
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
 			require.Error(t, err)
 		})
 	}
@@ -441,7 +441,7 @@ func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, sql), false)
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
 			require.NoError(t, err)
 		})
 	}
@@ -457,7 +457,7 @@ func TestAnalyzeDynamicExecute_ConstrainedFormatS(t *testing.T) {
 	}
 	for name, sql := range reject {
 		t.Run("reject/"+name, func(t *testing.T) {
-			_, err := analyzeStatement(parseOne(t, sql), false)
+			_, err := analyzeStatement(parseOne(t, sql), false, false)
 			require.Error(t, err)
 		})
 	}
@@ -478,7 +478,7 @@ func TestAnalyzeProceduralBody_TransactionScopedSet(t *testing.T) {
 		}
 		for name, sql := range allow {
 			t.Run(name, func(t *testing.T) {
-				_, err := analyzeStatement(parseOne(t, sql), false)
+				_, err := analyzeStatement(parseOne(t, sql), false, false)
 				require.NoError(t, err)
 			})
 		}
@@ -492,7 +492,7 @@ func TestAnalyzeProceduralBody_TransactionScopedSet(t *testing.T) {
 		}
 		for name, sql := range reject {
 			t.Run(name, func(t *testing.T) {
-				_, err := analyzeStatement(parseOne(t, sql), false)
+				_, err := analyzeStatement(parseOne(t, sql), false, false)
 				require.Error(t, err)
 			})
 		}
@@ -503,6 +503,6 @@ func TestAnalyzeProceduralBody_TransactionScopedSet(t *testing.T) {
 // parse as PL/pgSQL is rejected rather than passed through.
 func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
 	// A body that is not a valid PL/pgSQL block (missing BEGIN) fails to parse.
-	_, err := analyzeStatement(parseOne(t, "DO $$ this is not plpgsql $$"), false)
+	_, err := analyzeStatement(parseOne(t, "DO $$ this is not plpgsql $$"), false, false)
 	require.ErrorContains(t, err, "could not be parsed for safety analysis")
 }

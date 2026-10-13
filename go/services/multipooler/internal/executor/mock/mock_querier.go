@@ -118,6 +118,24 @@ func (m *QueryService) AddQueryPatternOnceWithError(pattern string, err error) {
 	})
 }
 
+// PrependQueryPatternOnce adds a query pattern that is matched before every
+// previously-registered pattern, and is consumed after the first match. Query
+// matches the pattern list in registration order, so a pattern appended via
+// AddQueryPatternOnce normally only takes priority over patterns added
+// earlier; this lets a test helper absorb a well-known query that happens
+// ahead of the test's own setup (e.g. a startup probe fired by the production
+// code under test) without disturbing the order of patterns the test already
+// queued for its own assertions.
+func (m *QueryService) PrependQueryPatternOnce(pattern string, result *sqltypes.Result) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.patterns = append([]queryPattern{{
+		pattern:     regexp.MustCompile(pattern),
+		result:      result,
+		consumeOnce: true,
+	}}, m.patterns...)
+}
+
 // ExpectationsWereMet returns an error if any consumeOnce patterns were not matched.
 // This is useful for verifying that all expected queries were executed.
 func (m *QueryService) ExpectationsWereMet() error {

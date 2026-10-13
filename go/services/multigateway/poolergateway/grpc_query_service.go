@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryrpc"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -40,6 +41,7 @@ import (
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
 // This is a private implementation used internally by PoolerGateway.
 type grpcQueryService struct {
+	executeStreams *streamPool
 	// conn is the gRPC connection to the multipooler
 	conn *grpc.ClientConn
 
@@ -65,13 +67,20 @@ func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
+	reuseQueryStreams bool,
 ) queryservice.QueryService {
+	client := multipoolerservice.NewMultipoolerServiceClient(conn)
+	var streams *streamPool
+	if reuseQueryStreams {
+		streams = newStreamPool(client, conn)
+	}
 	return &grpcQueryService{
-		conn:        conn,
-		client:      multipoolerservice.NewMultipoolerServiceClient(conn),
-		logger:      logger,
-		poolerID:    poolerID,
-		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
+		executeStreams: streams,
+		conn:           conn,
+		client:         client,
+		logger:         logger,
+		poolerID:       poolerID,
+		copyStreams:    make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 
@@ -119,10 +128,28 @@ func (g *grpcQueryService) StreamExecute(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
-	// Call the gRPC StreamExecute
-	stream, err := g.client.StreamExecute(ctx, req)
-	if err != nil {
-		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
+	var stream interface {
+		Recv() (*multipoolerservice.StreamExecuteResponse, error)
+	}
+	if g.executeStreams != nil {
+		reused, used, err := g.executeStreams.Open(ctx, req)
+		if err != nil {
+			if !used {
+				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start execute stream")
+			}
+			return nil, mterrors.FromGRPC(err)
+		}
+		if used {
+			defer reused.Release()
+			stream = reused
+		}
+	}
+	if stream == nil {
+		legacy, err := g.client.StreamExecute(ctx, req)
+		if err != nil {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
+		}
+		stream = legacy
 	}
 
 	var reservedState *querypb.ReservedState
@@ -204,7 +231,7 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 	// way to tell a pick/dial failure from a connection lost after the request
 	// was delivered and possibly executed, so marking it could double-apply a
 	// write on retry.
-	res, err := g.client.ExecuteQuery(ctx, req)
+	res, err := callUnary(ctx, g, req, g.client.ExecuteQuery)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "execute query")
 	}
@@ -243,10 +270,28 @@ func (g *grpcQueryService) PortalStreamExecute(
 		CallerId:           callerid.FromContext(ctx),
 	}
 
-	// Call the gRPC PortalStreamExecute
-	stream, err := g.client.PortalStreamExecute(ctx, req)
-	if err != nil {
-		return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
+	var stream interface {
+		Recv() (*multipoolerservice.PortalStreamExecuteResponse, error)
+	}
+	if g.executeStreams != nil {
+		reused, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
+		if err != nil {
+			if !used {
+				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal execute stream")
+			}
+			return nil, mterrors.FromGRPC(err)
+		}
+		if used {
+			defer reused.Release()
+			stream = executionStream[*multipoolerservice.PortalStreamExecuteResponse]{reused}
+		}
+	}
+	if stream == nil {
+		legacy, err := g.client.PortalStreamExecute(ctx, req)
+		if err != nil {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
+		}
+		stream = legacy
 	}
 
 	var reservedState *querypb.ReservedState
@@ -326,7 +371,7 @@ func (g *grpcQueryService) Describe(
 	}
 
 	// Call the gRPC Describe
-	response, err := g.client.Describe(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.Describe)
 	if err != nil {
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "describe failed")
 	}
@@ -344,6 +389,9 @@ func (g *grpcQueryService) Describe(
 
 // Close closes the gRPC connection.
 func (g *grpcQueryService) Close() error {
+	if g.executeStreams != nil {
+		g.executeStreams.Close()
+	}
 	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
@@ -689,7 +737,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error (sqlstate + message); Wrapf adds a debug-context prefix on top
 	// without breaking the errors.As chain to that diagnostic.
-	response, err := g.client.ConcludeTransaction(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.ConcludeTransaction)
 	if err != nil {
 		return nil, reservedStateFromGRPCErr(err), mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
@@ -757,7 +805,7 @@ func (g *grpcQueryService) DiscardTempTables(
 	// attached by the multipooler so the client sees the underlying PostgreSQL
 	// error; Wrapf adds a debug-context prefix without breaking the
 	// errors.As chain to that diagnostic.
-	response, err := g.client.DiscardTempTables(ctx, req)
+	response, err := callUnary(ctx, g, req, g.client.DiscardTempTables)
 	if err != nil {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "discard temp tables")
 	}
@@ -815,7 +863,7 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
 	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
 	// prefix without breaking the errors.As chain to that diagnostic.
-	resp, err := g.client.ReleaseReservedConnection(ctx, req)
+	resp, err := callUnary(ctx, g, req, g.client.ReleaseReservedConnection)
 	if err != nil {
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}

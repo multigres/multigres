@@ -15,7 +15,11 @@
 package multiorch
 
 import (
+	"context"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,10 +133,41 @@ func TestRewindDivergedReplica(t *testing.T) {
 		return execErr == nil
 	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "R1 should be writable after promotion")
 
-	// Write a diverging row to R1 — this row must not exist on P
-	_, err = r1DB.Exec("INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
+	// R1 has no followers: this deliberately divergent write must flush locally
+	// without waiting for any synchronous standbys inherited during promotion.
+	// Keep the override transaction-local and bound the write so a regression
+	// fails here instead of consuming the entire integration suite's timeout.
+	writeCtx, cancelWrite := context.WithTimeout(t.Context(), utils.ScaleTimeout(10*time.Second))
+	defer cancelWrite()
+	divergentTx, err := r1DB.BeginTx(writeCtx, nil)
+	require.NoError(t, err, "should begin divergent write on R1")
+	defer func() { _ = divergentTx.Rollback() }()
+	_, err = divergentTx.ExecContext(writeCtx, "SET LOCAL synchronous_commit = 'local'")
+	require.NoError(t, err, "should require only local WAL flush for divergent write")
+	_, err = divergentTx.ExecContext(writeCtx, "INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
 	require.NoError(t, err, "should write diverging data to R1")
+	require.NoError(t, divergentTx.Commit(), "should commit divergent write on R1")
+	cancelWrite()
 	t.Log("Wrote diverging data to R1 on new timeline")
+
+	// Close and archive the WAL segment containing the divergent checkpoint. The
+	// test removes this segment from the target's pg_wal after crash recovery, so
+	// pg_rewind can succeed only by fetching it from the archive.
+	_, err = r1DB.Exec("CHECKPOINT")
+	require.NoError(t, err, "should checkpoint divergent timeline")
+	var archivedTargetWAL string
+	err = r1DB.QueryRow("SELECT pg_walfile_name(pg_switch_wal())").Scan(&archivedTargetWAL)
+	require.NoError(t, err, "should switch divergent WAL")
+	archiveDone := filepath.Join(r1Inst.Pgctld.PoolerDir, "pg_data", "pg_wal", "archive_status", archivedTargetWAL+".done")
+	var archivedTargetPath string
+	require.Eventually(t, func() bool {
+		if _, statErr := os.Stat(archiveDone); statErr != nil {
+			return false
+		}
+		archivedTargetPath = findArchivedWAL(filepath.Join(setup.TempDir, "backup-repo"), archivedTargetWAL)
+		return archivedTargetPath != ""
+	}, utils.ScaleTimeout(30*time.Second), 200*time.Millisecond, "target WAL %s should exist in the archive", archivedTargetWAL)
+	t.Logf("Archived target WAL %s at %s", archivedTargetWAL, archivedTargetPath)
 
 	// Close R1 DB connection before stopping postgres
 	_ = r1DB.Close()
@@ -161,6 +196,15 @@ func TestRewindDivergedReplica(t *testing.T) {
 	})
 	require.NoError(t, err, "should restart R1 as standby")
 	t.Log("Restarted R1 as standby (diverged timeline, primary_conninfo set)")
+
+	// The postmaster has completed crash recovery, so the closed segment is no
+	// longer needed by the running server. Remove it before the monitor invokes
+	// pg_rewind, reproducing a target whose required WAL has been recycled.
+	localTargetWAL := filepath.Join(r1Inst.Pgctld.PoolerDir, "pg_data", "pg_wal", archivedTargetWAL)
+	require.FileExists(t, localTargetWAL, "target WAL should be local before simulating recycling")
+	require.NoError(t, os.Remove(localTargetWAL), "should remove target WAL from local pg_wal")
+	require.NoFileExists(t, localTargetWAL, "target WAL must be absent locally before pg_rewind")
+	t.Logf("Removed archived target WAL %s from R1 pg_wal", archivedTargetWAL)
 
 	// Re-enable postgres restarts so multipooler manages R1 going forward
 	resumeRestarts()
@@ -229,4 +273,19 @@ func TestRewindDivergedReplica(t *testing.T) {
 		return isReplicaInStandbyList(t, primaryClient, r1Name)
 	}, utils.ScaleTimeout(15*time.Second), 1*time.Second, "R1 should be added to P's synchronous standby list")
 	t.Log("R1 is in P's synchronous standby list")
+}
+
+func findArchivedWAL(root, segment string) string {
+	var found string
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		if strings.Contains(path, string(filepath.Separator)+"archive"+string(filepath.Separator)) && strings.Contains(entry.Name(), segment) {
+			found = path
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }

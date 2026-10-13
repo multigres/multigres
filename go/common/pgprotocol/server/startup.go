@@ -293,7 +293,7 @@ func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, neg
 		}
 	}
 
-	c.logger.Info("TLS connection established",
+	c.logger.Debug("TLS connection established",
 		"negotiation", negotiation,
 		"version", connState.Version,
 		"cipher_suite", tls.CipherSuiteName(connState.CipherSuite))
@@ -542,7 +542,7 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		}
 	}
 
-	c.logger.Info("startup message parsed",
+	c.logger.Debug("startup message parsed",
 		"user", c.user,
 		"database", c.database,
 		"replication", c.replicationMode != ReplicationOff)
@@ -845,7 +845,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 		// "password authentication failed" message (28P01), matching PG's
 		// convention of not disclosing why auth failed.
 		if errors.Is(err, scram.ErrUserNotFound) {
-			c.logger.Warn("authentication failed: user not found", "user", c.user)
+			c.logger.Debug("authentication failed: user not found", "user", c.user)
 			return AuthOutcomeUserNotFound, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if errors.Is(err, scram.ErrPasswordExpired) {

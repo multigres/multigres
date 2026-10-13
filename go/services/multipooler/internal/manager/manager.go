@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -427,6 +426,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 			ID:           multipooler.Id,
 			Broadcaster:  pm.healthStreamer,
 			LoadPromises: config.ConsensusEnabled,
+			StaticLeader: config.StaticLeader,
 		})
 		if err != nil {
 			cancel()
@@ -554,6 +554,21 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+
+	// Ensure sidecar tables that a shard bootstrapped by an older pooler
+	// version may be missing (see ensureSidecarSchemas) exist on every
+	// open/resume, not just on promotion.
+	//
+	// The function createSidecarSchema only ever runs once, at genuine shard
+	// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
+	// actual pg_promote() transition. Without this, a plain process restart of
+	// an already-primary pooler would never re-ensure them, even after
+	// upgrading to a pooler version that knows about them.
+	if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
+		if err := pm.ensureSidecarSchemas(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+		}
+	}
 
 	pm.startPostgresMonitorPollerLocked()
 
@@ -852,18 +867,25 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 // following openConnectionsLocked wait for it and retry instead of failing with
 // a closed-pool error.
 func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
-	// Close resources (safe to call even if nil/never opened)
+	// Each of these is unregistered before it is closed. openConnectionsLocked
+	// registers a fresh instance, so one left registered would be restarted by
+	// the next fan-out: every reopen during a pg_rewind loop then leaves another
+	// heartbeat writer that starts at the next promotion, all upserting the same
+	// row.
 	if pm.replTracker != nil {
+		pm.stateManager.Unregister(pm.replTracker)
 		pm.replTracker.Close()
 		pm.replTracker = nil
 	}
 
 	if pm.pubsubListener != nil {
+		pm.stateManager.Unregister(pm.pubsubListener)
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
 	}
 
 	if pm.replStats != nil {
+		pm.stateManager.Unregister(pm.replStats)
 		pm.replStats.Close()
 		pm.replStats = nil
 	}
@@ -1105,7 +1127,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		// need to repeat the check here, since pgctld and multipooler are
 		// co-located and share the same pgbackrest binary.
 		pgPort := int(pm.record.Port("postgres"))
-		socketDir := filepath.Join(pm.record.PoolerDir(), "pg_sockets")
+		socketDir := constants.PostgresSocketDir(pm.record.PoolerDir())
 		pg1User := constants.DefaultPostgresUser
 		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
 		if pm.connPoolMgr != nil {
@@ -1792,8 +1814,9 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "monitorPostgres: postgres state changed, broadcasting health",
-					"postgres_running", newState.postgresRunning)
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+					"postgres_running", newState.postgresRunning,
+					"postgres_ready", newState.postgresReady)
 				pm.broadcastHealth()
 			}
 			// Transition lifecycle STARTING → ACTIVE once postgres is up
