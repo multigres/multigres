@@ -19,7 +19,7 @@ import (
 )
 
 // ProcessResources holds the resources a process has only one of: its serving
-// environment and its gRPC server. The process's main creates and owns them
+// environment and its gRPC servers. The process's main creates and owns them
 // and hands them to every component it runs; components never create their
 // own. When several components run in one process (as in minigres), main
 // hands the same value to each, so they cannot end up with different servers.
@@ -36,6 +36,11 @@ type ProcessResources struct {
 	// GrpcServer is the gRPC server the serving loop starts. Components register
 	// their services on it; main registers its flags.
 	GrpcServer *GrpcServer
+
+	// QueryGrpcServer is where the multipooler serves its query service: the
+	// same as GrpcServer, except in minigres, where it is an in-memory server.
+	// The serving loop must start it too.
+	QueryGrpcServer *GrpcServer
 }
 
 // Validate reports whether every resource is set. A component given an
@@ -48,6 +53,9 @@ func (pr ProcessResources) Validate() error {
 	}
 	if pr.GrpcServer == nil {
 		errs = append(errs, errors.New("GrpcServer is required"))
+	}
+	if pr.QueryGrpcServer == nil {
+		errs = append(errs, errors.New("QueryGrpcServer is required"))
 	}
 	return errors.Join(errs...)
 }

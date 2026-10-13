@@ -129,6 +129,8 @@ type Multipooler struct {
 	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
+	queryGrpcServer *servenv.GrpcServer
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
@@ -302,6 +304,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	}
 	mp.senv = resources.ServEnv
 	mp.grpcServer = resources.GrpcServer
+	mp.queryGrpcServer = resources.QueryGrpcServer
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -550,7 +553,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if consensusEnabled {
 		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	}
-	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
+	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
 
@@ -598,6 +601,16 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 // Database returns the configured database name.
 func (mp *Multipooler) Database() string {
 	return mp.database.Get()
+}
+
+// WatchRecord follows the multipooler's published topology record without the
+// topology: fn gets it right away and after every change, until stop. Requires
+// Init.
+func (mp *Multipooler) WatchRecord(fn func(*clustermetadatapb.Multipooler)) (stop func()) {
+	if mp.poolerManager == nil {
+		panic("multipooler: WatchRecord called before Init")
+	}
+	return mp.poolerManager.WatchPoolerRecord(fn)
 }
 
 // ServiceIdentity returns the identity the multipooler reports when it

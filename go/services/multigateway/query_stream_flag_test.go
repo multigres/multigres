@@ -26,9 +26,11 @@ import (
 
 func TestQueryStreamReuseFlag(t *testing.T) {
 	reg := viperutil.NewRegistry()
+	grpcServer := servenv.NewGrpcServer(reg)
 	mg := NewMultigateway(reg, servenv.ProcessResources{
-		ServEnv:    servenv.NewServEnv(reg),
-		GrpcServer: servenv.NewGrpcServer(reg),
+		ServEnv:         servenv.NewServEnv(reg),
+		GrpcServer:      grpcServer,
+		QueryGrpcServer: grpcServer,
 	}, "/")
 	require.True(t, mg.queryStreamReuse.Default())
 	fs := pflag.NewFlagSet("query-stream-test", pflag.ContinueOnError)

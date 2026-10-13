@@ -1914,3 +1914,10 @@ func (pm *MultipoolerManager) WaitUntilReady(ctx context.Context) error {
 		}
 	}
 }
+
+// WatchPoolerRecord calls fn with the pooler's topology record as it is
+// published, right away and after every change, until the returned stop
+// function is called. See poolerRecord.Watch.
+func (pm *MultipoolerManager) WatchPoolerRecord(fn func(*clustermetadatapb.Multipooler)) (stop func()) {
+	return pm.record.Watch(fn)
+}
