@@ -587,3 +587,50 @@ func TestUpdateRule_FinalizeErrorPropagated(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection reset")
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
+
+// TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN: once the
+// proposal write has returned (a sync standby acked it), and before the decision is
+// written, the hook receives that write's LSN. A failure to decide must not undo it.
+func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	var events []string
+	var gotLSN string
+	var gotAt time.Time
+	rs.onProposalAcked = func(_ context.Context, provenLSN string, at time.Time) {
+		events = append(events, "hook")
+		gotLSN, gotAt = provenLSN, at
+	}
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	mockQueryService.AddQueryPatternOnce(proposeWritePattern, mock.MakeQueryResult(
+		[]string{
+			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+			"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+			"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+			"proposal_created_at", "current_lsn",
+		},
+		[][]any{
+			{
+				int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
+				int64(1), int64(1), "zone1_leader-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:01:00+00",
+				"0/100",
+			},
+		},
+	))
+	mockQueryService.AddQueryPatternOnceWithError(expectedTermPattern, errors.New("connection reset"))
+
+	before := time.Now()
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+
+	require.Error(t, err, "the finalize failed")
+	require.Equal(t, []string{"hook"}, events, "the hook ran once, before the finalize, even though the finalize failed")
+	assert.Equal(t, "0/100", gotLSN, "it receives the proposal write's LSN")
+	assert.False(t, gotAt.Before(before), "stamped after the proposal was acked")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
