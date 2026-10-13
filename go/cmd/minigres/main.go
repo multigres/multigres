@@ -89,7 +89,9 @@ func newMinigres() *minigres {
 	// Configuration files are refused until the halves have separate namespaces
 	// (MUL-1663).
 	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
-	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway)
+	// A nil pooler source watches the topology, as Multigres does, until the
+	// multigateway learns of the multipooler from the multipooler itself.
+	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, nil)
 	return m
 }
 

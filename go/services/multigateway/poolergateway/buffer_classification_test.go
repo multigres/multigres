@@ -209,7 +209,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	ctx := t.Context()
-	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
+	source := NewRemoteSource(nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	cache := poolerwatch.New(ctx, poolerwatch.Config[*poolerConnection]{
 		Logger: logger,
 	})
@@ -217,7 +217,6 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 		Ctx:             ctx,
 		LocalCell:       "zone1",
 		Logger:          logger,
-		DialOpt:         dialOpt,
 		Cache:           cache,
 		OnLeaderServing: onLeaderServing,
 	})
@@ -227,7 +226,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 			if p.GetId().GetName() == frozenPooler {
 				cb = nil
 			}
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, true, cb)
+			conn, err := newPoolerConnection(ctx, p, logger, source, true, cb)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

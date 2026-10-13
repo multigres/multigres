@@ -43,7 +43,7 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 	t.Helper()
 	logger := slog.Default()
 	ctx := t.Context()
-	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
+	source := NewRemoteSource(nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	cache := poolerwatch.New(ctx, poolerwatch.Config[*poolerConnection]{
 		Logger: logger,
 	})
@@ -51,13 +51,12 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 		Ctx:             ctx,
 		LocalCell:       localCell,
 		Logger:          logger,
-		DialOpt:         dialOpt,
 		Cache:           cache,
 		OnLeaderServing: onLeaderServing,
 	})
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, true, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(ctx, p, logger, source, true, lb.onPoolerHealthUpdate)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

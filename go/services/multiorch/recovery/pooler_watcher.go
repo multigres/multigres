@@ -58,7 +58,7 @@ func newPoolerCache(
 	}
 
 	return poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
-		Source:             topoStore,
+		Source:             poolerwatch.NewTopoSource(topoStore),
 		Filter:             matchesAnyTarget,
 		ShutdownGrace:      shutdownGracePeriod,
 		MissingGracePeriod: missingGracePeriod,

@@ -744,7 +744,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 
 	rec := &hookRecorder{}
 	cache := New(ctx, Config[*testRider]{
-		Source:             ts,
+		Source:             NewTopoSource(ts),
 		ShutdownGrace:      time.Hour,
 		MissingGracePeriod: time.Hour,
 		Logger:             silentLogger(),
@@ -769,7 +769,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	// immediately because no per-cell sync channels are registered yet, and
 	// subsequent assertions race the watcher's initial snapshot.
 	require.Eventually(t, func() bool {
-		return cache.topoSource.broadcaster.cellCount() >= 1
+		return watchedCellCount(cache) >= 1
 	}, 2*time.Second, 5*time.Millisecond, "zone1 watcher must register")
 
 	// Sync against an empty cell: should return cleanly with no events.
@@ -818,7 +818,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	// in Sync. Without this, Sync may run before zone2's watcher registers and
 	// the p2 event is missed.
 	require.Eventually(t, func() bool {
-		return cache.topoSource.broadcaster.cellCount() >= 2
+		return watchedCellCount(cache) >= 2
 	}, 2*time.Second, 5*time.Millisecond)
 	require.NoError(t, SyncForTest(t, cache, ctx))
 
@@ -833,9 +833,22 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	// Delete the cell — onCellRemoved fires and OnGone(GoneMissingFromTopo)
 	// is queued for the entries in that cell (sweeper would evict them after
 	// grace; we don't wait, just confirm the cell event arrived).
-	beforeCells := cache.topoSource.broadcaster.cellCount()
+	beforeCells := watchedCellCount(cache)
 	require.NoError(t, ts.DeleteCell(ctx, "zone2", true /*force*/))
 	require.Eventually(t, func() bool {
-		return cache.topoSource.broadcaster.cellCount() < beforeCells
+		return watchedCellCount(cache) < beforeCells
 	}, 2*time.Second, 5*time.Millisecond, "onCellRemoved must deregister the zone2 watcher")
+}
+
+// watchedCellCount returns how many per-cell watchers the cache's topology
+// source has registered.
+func watchedCellCount[T any](cache *PoolerCache[T]) int {
+	source := cache.config.Source.(*TopoSource)
+	source.mu.Lock()
+	watch := source.watch
+	source.mu.Unlock()
+	if watch == nil {
+		return 0
+	}
+	return watch.broadcaster.cellCount()
 }

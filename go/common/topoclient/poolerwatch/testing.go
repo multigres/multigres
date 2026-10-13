@@ -32,10 +32,11 @@ import (
 // *testing.T enforces that production code can't reach it.
 func SyncForTest[T any](t *testing.T, cache *PoolerCache[T], ctx context.Context) error {
 	t.Helper()
-	if cache.topoSource == nil {
+	source, ok := cache.config.Source.(*TopoSource)
+	if !ok {
 		return nil
 	}
-	return cache.topoSource.sync(ctx)
+	return source.sync(ctx)
 }
 
 // SeedForTest drives the cache through an upsert event without needing a

@@ -142,9 +142,9 @@ type Hooks[T any] struct {
 // then construct anything that wants to reference the cache (LB,
 // HealthStream, etc.), then bind hooks that close over those.
 type Config[T any] struct {
-	// Source is the topology backing store. The cache subscribes to it on
-	// Start to receive upserts and deletions. Required.
-	Source topoclient.Store
+	// Source delivers the pooler events (NewTopoSource for the topology). The
+	// cache starts it on Start and stops it on Shutdown. Nil in some tests.
+	Source Source
 
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
@@ -279,10 +279,6 @@ type PoolerCache[T any] struct {
 
 	sweeper *timer.PeriodicRunner
 
-	// topoSource is the optional underlying watch (created in New if
-	// config.Source is provided). Owned and shut down by this cache.
-	topoSource *topoWatch
-
 	// cellLastActivity records the wall-clock time of the most recent watch
 	// event observed for each cell. Surfaced via CellStatuses for admin
 	// pages. Updated under mu.
@@ -328,14 +324,6 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		sweeper:          timer.NewPeriodicRunner(ctx, interval),
 		shutdownDone:     make(chan struct{}),
 	}
-	if config.Source != nil {
-		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger, topoWatchHandlers{
-			OnSnapshot:    c.reconcileCell,
-			OnUpsert:      c.applyUpsert,
-			OnDelete:      c.applyDelete,
-			OnCellRemoved: c.onCellRemoved,
-		})
-	}
 	// Auto-shutdown on parent context cancellation. The goroutine exits as
 	// soon as Shutdown has finished, regardless of who called it first.
 	go func() {
@@ -360,8 +348,13 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
 	c.hooks = hooks
 	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
-	if c.topoSource != nil {
-		c.topoSource.Start()
+	if c.config.Source != nil {
+		c.config.Source.Start(c.ctx, c.config.Logger, Handlers{
+			OnSnapshot:    c.reconcileCell,
+			OnUpsert:      c.applyUpsert,
+			OnDelete:      c.applyDelete,
+			OnCellRemoved: c.onCellRemoved,
+		})
 	}
 }
 
@@ -377,8 +370,8 @@ func (c *PoolerCache[T]) Shutdown() {
 	c.shutdownOnce.Do(func() {
 		defer close(c.shutdownDone)
 		// Stop the watch first so no new events arrive while we tear down.
-		if c.topoSource != nil {
-			c.topoSource.Stop()
+		if c.config.Source != nil {
+			c.config.Source.Stop()
 		}
 		c.sweeper.Stop()
 		c.mu.Lock()

@@ -165,6 +165,10 @@ type Multigateway struct {
 	// the multigateway owns the process, under its service name when it
 	// shares the HTTP server with other components.
 	statusPath string
+
+	// poolerSource finds and reaches poolers; nil means NewRemoteSource,
+	// built in Init once the store and credentials exist.
+	poolerSource poolergateway.PoolerSource
 }
 
 // NewMultigateway creates a new Multigateway instance. reg is the settings
@@ -177,7 +181,9 @@ type Multigateway struct {
 // and constructs them; the multigateway never creates its own. statusPath is
 // where the status page is served ("/" when the multigateway owns the
 // process, under its service name when it shares the HTTP server).
-func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+// poolerSource is where the multigateway finds and reaches poolers: nil means
+// the topology over the network (Multigres); minigres passes a local source.
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, poolerSource poolergateway.PoolerSource) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
 	}
@@ -311,6 +317,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	mg.senv = resources.ServEnv
 	mg.grpcServer = resources.GrpcServer
 	mg.statusPath = statusPath
+	mg.poolerSource = poolerSource
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -420,13 +427,17 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
+	poolerSource := mg.poolerSource
+	if poolerSource == nil {
+		poolerSource = poolergateway.NewRemoteSource(mg.ts, poolerTransportCreds)
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
 		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
 		Ctx:                     mg.shutdownCtx,
-		Source:                  mg.ts,
+		Source:                  poolerSource,
 		LocalCell:               mg.cell.Get(),
 		Logger:                  logger,
-		DialOpt:                 poolerTransportCreds,
 		Buffer:                  mg.buffer,
 		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
 		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
