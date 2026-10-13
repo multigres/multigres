@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,6 +34,217 @@ import (
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
+
+// Check lease accounting before the test closes the pool. Cancelling a caller
+// or closing the transport alone must not hide a missing Release.
+func queryServiceForCopy(t *testing.T, s *operationTestServer) *grpcQueryService {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	g := queryServiceForOperations(t, s)
+	g.executeStreams.m = newStreamPoolMetrics(provider.Meter("copy-test"))
+	t.Cleanup(func() {
+		var metrics metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(context.Background(), &metrics))
+		for _, scope := range metrics.ScopeMetrics {
+			for _, metric := range scope.Metrics {
+				if metric.Name == "mg.gateway.query_stream.active" {
+					for _, point := range metric.Data.(metricdata.Sum[int64]).DataPoints {
+						require.Zero(t, point.Value, "COPY leaked an active lease")
+					}
+				}
+			}
+		}
+		g.copyStreamsMu.Lock()
+		defer g.copyStreamsMu.Unlock()
+		require.Empty(t, g.copyStreams, "COPY retained a stale stream")
+	})
+	return g
+}
+
+func TestReusableCopyReleaseReservedConnection(t *testing.T) {
+	for _, direction := range []pb.CopyBidiExecuteRequest_Direction{pb.CopyBidiExecuteRequest_FROM_STDIN, pb.CopyBidiExecuteRequest_TO_STDOUT} {
+		for _, releaseFails := range []bool{false, true} {
+			name := direction.String()
+			if releaseFails {
+				name += "/release_error"
+			}
+			t.Run(name, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				exited := make(chan struct{})
+				s := &operationTestServer{
+					copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+						defer close(exited)
+						if err := stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_READY, ReservedState: &querypb.ReservedState{ReservedConnectionId: 42}}); err != nil {
+							return err
+						}
+						<-stream.Context().Done()
+						return stream.Context().Err()
+					},
+					call: func(context.Context, proto.Message) (proto.Message, error) {
+						if releaseFails {
+							return nil, status.Error(codes.Unavailable, "release failed")
+						}
+						return &pb.ReleaseReservedConnectionResponse{}, nil
+					},
+				}
+				g := queryServiceForCopy(t, s)
+				target := &querypb.Target{}
+				options := &querypb.ExecuteOptions{ReservedConnectionId: 42}
+				if direction == pb.CopyBidiExecuteRequest_FROM_STDIN {
+					_, _, _, err := g.CopyReady(ctx, target, "COPY t FROM STDIN", options, nil)
+					require.NoError(t, err)
+				} else {
+					_, _, _, _, err := g.CopyOutReady(ctx, target, "COPY t TO STDOUT", options, nil)
+					require.NoError(t, err)
+				}
+				stream := g.copyStreams[42].(*reusableCopyStream)
+				_, err := g.ReleaseReservedConnection(ctx, target, options, false)
+				if releaseFails {
+					require.ErrorContains(t, err, "release failed")
+				} else {
+					require.NoError(t, err)
+				}
+				require.True(t, stream.responses.released, "stale COPY lease was not released")
+				require.ErrorIs(t, stream.Context().Err(), context.Canceled)
+				require.NoError(t, ctx.Err(), "cleanup must not depend on caller cancellation")
+				select {
+				case <-exited:
+				case <-ctx.Done():
+					t.Fatal("stale COPY handler was not cancelled")
+				}
+			})
+		}
+	}
+}
+
+func TestReusableCopyReleaseUnblocksUpload(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	g := queryServiceForCopy(t, &operationTestServer{
+		copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+			if err := stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_READY, ReservedState: &querypb.ReservedState{ReservedConnectionId: 42}}); err != nil {
+				return err
+			}
+			// Leave input unread so the upload exhausts flow control.
+			<-stream.Context().Done()
+			return stream.Context().Err()
+		},
+		call: func(context.Context, proto.Message) (proto.Message, error) {
+			return &pb.ReleaseReservedConnectionResponse{}, nil
+		},
+	})
+	target := &querypb.Target{}
+	options := &querypb.ExecuteOptions{ReservedConnectionId: 42}
+	_, _, _, err := g.CopyReady(ctx, target, "COPY t FROM STDIN", options, nil)
+	require.NoError(t, err)
+	stream := g.copyStreams[42].(*reusableCopyStream)
+	sent := make(chan error, 1)
+	go func() {
+		data := make([]byte, 1024*1024)
+		for {
+			if err := g.CopySendData(ctx, target, data, options); err != nil {
+				sent <- err
+				return
+			}
+		}
+	}()
+	// Wait until Send holds the mutex; cleanup must cancel before acquiring it.
+	require.Eventually(t, func() bool {
+		if stream.sendMu.TryLock() {
+			stream.sendMu.Unlock()
+			return false
+		}
+		return true
+	}, time.Second, time.Millisecond)
+	_, err = g.ReleaseReservedConnection(ctx, target, options, false)
+	require.NoError(t, err)
+	select {
+	case err := <-sent:
+		require.Error(t, err)
+	case <-ctx.Done():
+		t.Fatal("stale COPY cleanup did not unblock the upload")
+	}
+	require.NoError(t, ctx.Err(), "cleanup must not depend on the caller deadline")
+}
+
+func TestReusableCopyCleanupAfterCancellation(t *testing.T) {
+	for _, finalize := range []bool{false, true} {
+		name := "abort_after_send_failure"
+		if finalize {
+			name = "finalize_after_send_failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			exited := make(chan struct{})
+			g := queryServiceForCopy(t, &operationTestServer{copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+				defer close(exited)
+				if err := stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_READY, ReservedState: &querypb.ReservedState{ReservedConnectionId: 42}}); err != nil {
+					return err
+				}
+				<-stream.Context().Done()
+				return stream.Context().Err()
+			}})
+			target := &querypb.Target{}
+			options := &querypb.ExecuteOptions{ReservedConnectionId: 42}
+			_, _, _, err := g.CopyReady(ctx, target, "COPY t FROM STDIN", options, nil)
+			require.NoError(t, err)
+			cancel()
+			select {
+			case <-exited:
+			case <-time.After(5 * time.Second):
+				t.Fatal("COPY handler was not cancelled")
+			}
+			require.Error(t, g.CopySendData(ctx, target, []byte("one\n"), options))
+			// Send failure deliberately retains ownership until finalize/abort
+			// so a terminal response can still supply reservation state.
+			require.Contains(t, g.copyStreams, uint64(42))
+			if finalize {
+				_, _, err = g.CopyFinalize(ctx, target, nil, options)
+				require.Error(t, err)
+			} else {
+				_, err = g.CopyAbort(ctx, target, "stop", options)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestReusableCopyUnexpectedReadyReleasesLease(t *testing.T) {
+	for _, direction := range []pb.CopyBidiExecuteRequest_Direction{pb.CopyBidiExecuteRequest_FROM_STDIN, pb.CopyBidiExecuteRequest_TO_STDOUT} {
+		t.Run(direction.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			exited := make(chan struct{})
+			g := queryServiceForCopy(t, &operationTestServer{copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+				defer close(exited)
+				// DATA is valid during COPY, but not in place of READY. Do not
+				// send another response: rejecting it must cancel the lease.
+				if err := stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_DATA}); err != nil {
+					return err
+				}
+				<-stream.Context().Done()
+				return stream.Context().Err()
+			}})
+			var err error
+			if direction == pb.CopyBidiExecuteRequest_FROM_STDIN {
+				_, _, _, err = g.CopyReady(ctx, &querypb.Target{}, "COPY t FROM STDIN", &querypb.ExecuteOptions{}, nil)
+			} else {
+				_, _, _, _, err = g.CopyOutReady(ctx, &querypb.Target{}, "COPY t TO STDOUT", &querypb.ExecuteOptions{}, nil)
+			}
+			require.ErrorContains(t, err, "expected READY")
+			require.NoError(t, ctx.Err(), "unexpected READY must not wait for the caller deadline")
+			select {
+			case <-exited:
+			case <-ctx.Done():
+				t.Fatal("malformed COPY handshake did not cancel the handler")
+			}
+		})
+	}
+}
 
 func TestReusableCopyLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -83,7 +296,7 @@ func TestReusableCopyLifecycle(t *testing.T) {
 		}
 		return stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_RESULT, Result: (&sqltypes.Result{CommandTag: "COPY 2", RowsAffected: 2}).ToProto(), ReservedState: state})
 	}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	target := &querypb.Target{}
 	for range 2 {
 		_, formats, reserved, err := g.CopyReady(ctx, target, "COPY t FROM STDIN", options, nil)
@@ -128,7 +341,7 @@ func TestReusableCopyEarlyErrorDrainsQueuedInput(t *testing.T) {
 		}
 		return status.Error(codes.InvalidArgument, "duplicate")
 	}, call: func(context.Context, proto.Message) (proto.Message, error) { return &pb.ExecuteQueryResponse{}, nil }}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{Phase: pb.CopyBidiExecuteRequest_INITIATE})
 	require.NoError(t, err)
 	require.NoError(t, stream.Send(&pb.CopyBidiExecuteRequest{Phase: pb.CopyBidiExecuteRequest_DATA, Data: []byte("queued")}))
@@ -160,7 +373,7 @@ func TestReusableCopyWaitsForCompletion(t *testing.T) {
 			return stream.Context().Err()
 		}
 	}}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
 	require.NoError(t, err)
 	result := make(chan error, 1)
@@ -202,7 +415,7 @@ func TestReusableCopyMalformedCompletion(t *testing.T) {
 				}
 				return nil
 			}}
-			g := queryServiceForOperations(t, s)
+			g := queryServiceForCopy(t, s)
 			stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
 			require.NoError(t, err)
 			_, err = stream.Recv()
@@ -230,7 +443,7 @@ func TestReusableCopyFallback(t *testing.T) {
 		}
 		return stream.Send(&pb.CopyBidiExecuteResponse{Phase: pb.CopyBidiExecuteResponse_RESULT})
 	}}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
@@ -245,7 +458,7 @@ func TestReusableCopyAdmissionFailure(t *testing.T) {
 	s := &operationTestServer{copy: func(pb.MultipoolerService_CopyBidiExecuteServer) error {
 		return status.Error(codes.ResourceExhausted, "pool full")
 	}, call: func(context.Context, proto.Message) (proto.Message, error) { return &pb.ExecuteQueryResponse{}, nil }}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, _, _, err := g.CopyReady(ctx, &querypb.Target{}, "COPY t FROM STDIN", &querypb.ExecuteOptions{}, nil)
@@ -268,7 +481,7 @@ func TestReusableCopyAbandonedOutput(t *testing.T) {
 		<-stream.Context().Done()
 		return stream.Context().Err()
 	}}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	options := &querypb.ExecuteOptions{ReservedConnectionId: 1}
@@ -300,7 +513,7 @@ func TestReusableCopyCancellation(t *testing.T) {
 		_, err := stream.Recv() // Waiting for input must be interrupted by cancellation.
 		return err
 	}}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
@@ -354,7 +567,7 @@ func TestReusableCopyMalformedResponseUnblocksSender(t *testing.T) {
 		<-stream.Context().Done()
 		return stream.Context().Err()
 	}}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
@@ -395,7 +608,7 @@ func TestReusableCopyEarlyUploadFailureRetiresTransport(t *testing.T) {
 		}
 		return status.Error(codes.Internal, "backend failed")
 	}, call: func(context.Context, proto.Message) (proto.Message, error) { return &pb.ExecuteQueryResponse{}, nil }}
-	g := queryServiceForOperations(t, s)
+	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})

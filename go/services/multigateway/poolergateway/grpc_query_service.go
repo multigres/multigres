@@ -432,7 +432,8 @@ func (g *grpcQueryService) CopyReady(
 	success := false
 	defer func() {
 		if !success {
-			defer releaseCopyStream(stream)
+			// Cancel an abandoned reusable lease before attempting to drain.
+			releaseCopyStream(stream)
 			_ = stream.CloseSend()
 			_, _ = stream.Recv()
 		}
@@ -844,11 +845,17 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 
 	// Clean up any stale COPY stream for this connection.
 	g.copyStreamsMu.Lock()
-	if stream, ok := g.copyStreams[options.ReservedConnectionId]; ok {
+	stream, ok := g.copyStreams[options.ReservedConnectionId]
+	if ok {
 		delete(g.copyStreams, options.ReservedConnectionId)
-		_ = stream.CloseSend()
 	}
 	g.copyStreamsMu.Unlock()
+	if ok {
+		// Abandon the reusable lease before closing input: CloseSend alone
+		// neither releases it nor interrupts a sender blocked on flow control.
+		releaseCopyStream(stream)
+		_ = stream.CloseSend()
+	}
 
 	req := &multipoolerservice.ReleaseReservedConnectionRequest{
 		Target:                 target,
@@ -983,7 +990,8 @@ func (g *grpcQueryService) CopyOutReady(
 	success := false
 	defer func() {
 		if !success {
-			defer releaseCopyStream(stream)
+			// Cancel an abandoned reusable lease before attempting to drain.
+			releaseCopyStream(stream)
 			_ = stream.CloseSend()
 			_, _ = stream.Recv()
 		}
