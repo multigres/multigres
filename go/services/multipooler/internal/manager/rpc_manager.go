@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // rewindOperationTimeout bounds the detached stop -> pg_rewind ->
@@ -665,6 +666,27 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 
 	return status, nil
+}
+
+// seedHeartbeatFromAckedProposal records a quorum-acked rule proposal as the heartbeat's
+// quorum-commit proof, so a newly promoted leader isn't judged on the previous leader's
+// stale watermark. Best effort: it never fails the rule write.
+func (pm *MultipoolerManager) seedHeartbeatFromAckedProposal(ctx context.Context, provenLSN string, at time.Time) {
+	if provenLSN == "" || pm.replTracker == nil {
+		return
+	}
+	writer := pm.replTracker.HeartbeatWriter()
+	if writer == nil {
+		return
+	}
+	lsn, err := pgutil.ParseLSN(provenLSN)
+	if err != nil {
+		pm.logger.DebugContext(ctx, "not seeding heartbeat: unparseable proposal LSN", "lsn", provenLSN, "error", err)
+		return
+	}
+	if err := writer.RecordProven(ctx, lsn, at); err != nil {
+		pm.logger.DebugContext(ctx, "failed to write heartbeat for acked proposal", "error", err)
+	}
 }
 
 // PrimaryStatus gets the status of the leader server
