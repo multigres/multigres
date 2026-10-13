@@ -11,14 +11,17 @@ Minigres evolves.
 
 ## What runs
 
-- **One process** with one servenv, one gRPC server, one HTTP server and one
-  etcd connection, shared by both halves.
+- **One process** with one servenv, one HTTP server and one etcd connection,
+  shared by both halves, and two gRPC servers: an in-memory one for the
+  queries between the halves, and a TCP one for the admin services.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler the Multigres way:** it discovers the
-  pooler through etcd, follows its gRPC health stream, and dials it over TCP,
-  even though the pooler is in the same process. Making these in-process is
-  planned work.
+- **The multigateway reaches the pooler in memory.** Queries, authentication,
+  LISTEN/NOTIFY and the health stream go over the in-memory gRPC server and
+  never leave the process. The gateway still finds the pooler through etcd but
+  uses only its own pooler, so it never sees other instances' poolers.
+  Learning of the pooler without etcd, and an in-process health subscription,
+  are planned work.
 - **pgctld runs as its own process**, as in Multigres.
 
 Many Minigres processes can share one etcd and one Multiadmin.
@@ -64,7 +67,8 @@ Things to know:
   from `pgctld init` has no Multigres schema.
 - **The durability policy** must currently be `AT_LEAST_2`, because
   `createclustermetadata` has no single-pooler policy and rejects `none`. The
-  static leader does not use the policy today (see below).
+  static leader does not use the policy today (see
+  [Bootstrap and the rule store](#bootstrap-and-the-rule-store)).
 - **Status pages:** `/` is an index linking to `/multigateway` and
   `/multipooler`.
 - **Configuration files are not supported yet.** Settings come from flags and
@@ -83,7 +87,7 @@ Things to know:
 | `--cell`, `--service-id`, `--enable-slot-based-replication` | Given once and applied to both halves. Without a service ID, one is generated and shared by the process and both halves |
 | `--table-group`, `--shard`                                  | Default to `default` and `0-inf`, the only pair the gateway routes to                                                   |
 | servenv, gRPC server and topology flags                     | Defined once for the process                                                                                            |
-| `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see below)                                                    |
+| `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see [The static leader](#the-static-leader))                  |
 
 A flag that both halves define is rejected at startup, so a new flag that
 collides fails loudly instead of silently shadowing another.
@@ -91,7 +95,7 @@ collides fails loudly instead of silently shadowing another.
 ## How it is wired
 
 `servenv.ProcessResources` (`go/common/servenv/process_resources.go`) holds what
-a process has only one of: the servenv and the gRPC server. Every binary's
+a process has only one of: the servenv and its gRPC servers. Every binary's
 `main` creates them and hands them to the halves it runs:
 `multigateway.NewMultigateway` and `multipooler.NewMultipooler` always take them,
 together with the path of the half's status page. The halves never create these
@@ -109,50 +113,78 @@ with different meanings; that is why it refuses configuration files for now.
 `servenv.Init` once with the service name `minigres` and the pooler's identity,
 then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
-## Where Minigres diverges from Multigres, and why
+`ProcessResources` also names the server the pooler serves its query service
+(`MultipoolerService`) on, `QueryGrpcServer`. The Multigres binaries set it to
+their one gRPC server. `cmd/minigres` sets it to an in-memory server
+(`servenv.NewInMemoryGrpcServer`), which nothing outside the process can reach:
+no port, no TLS and no auth, and the external server's limits. The serving loop
+starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
+also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
+and the in-memory server's dial options (`DialOptions`). The gateway then keeps
+only that pooler from the etcd watch (the pooler cache's filter) and connects to
+it in memory; the Multigres binaries pass none and use every pooler in the
+topology.
 
-Everything not listed here runs the Multigres code path unchanged, including
-the query path, the gateway's discovery, health stream and readiness, the
-pooler's bootstrap, and shutdown.
+## The process
 
-### Process ownership
+- **One servenv, initialized once.** `main` creates the servenv, both gRPC
+  servers and the etcd connection for both halves, and calls `servenv.Init`
+  once (a second call is fatal).
+- **One identity.** The process reports the service name `minigres` with the
+  pooler's cell, service ID, database and shard, so it appears once in logs,
+  metrics and traces.
+- **Status pages.** `/` is an index; the halves' pages are at `/multigateway`
+  and `/multipooler`, because the shared HTTP server cannot register `/` twice.
+- **Flags.** Process flags are defined once and shared flags are given once (see
+  [Flags](#flags)). The pooler keeps its own flag set, so it can tell whether its
+  own `pg-port` was set and otherwise adopt it from pgctld.
 
-| Multigres                                                                                      | Minigres                                                                                      | Why                                                                                                                                                                    |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Each binary creates its own servenv, gRPC server and etcd connection, and calls `servenv.Init` | `main` creates one of each for both halves, and `servenv.Init` runs once                      | `servenv.Init` may only run once per process (a second call is `log.Fatal`)                                                                                            |
-| Service identity `multigateway` or `multipooler`                                               | One identity, service name `minigres`, with the pooler's cell, service ID, database and shard | One process should appear once in logs, metrics and traces                                                                                                             |
-| Status page at `/`                                                                             | Index at `/`, with the halves' pages at `/multigateway` and `/multipooler`                    | The shared HTTP mux panics if `/` is registered twice                                                                                                                  |
-| Each binary registers all its flags                                                            | Process flags defined once; shared flags given once; the pooler keeps its own flag set        | A flag set rejects duplicate names, both halves must agree on cell and service ID, and the pooler decides whether to adopt `pg-port` from pgctld by whether it was set |
+## How the gateway reaches the pooler
 
-### The static leader
+- **It uses only its own pooler.** The gateway still discovers poolers through
+  etcd, but keeps only the pooler in its own process and ignores every other
+  one. Even when many Minigres instances share one etcd, queries never reach
+  another instance and readiness counts only its own pooler.
+- **It connects in memory.** The pooler serves its query service
+  (`MultipoolerService`) only on an in-memory gRPC server, and the
+  gateway connects there, without TLS. Queries, authentication, LISTEN/NOTIFY
+  and the health stream never leave the process.
+- **The external gRPC port carries the admin services.** The pooler manager and
+  gateway manager services stay on the TCP port, for Multiadmin and the test
+  harness. Calling the query service on that port returns `Unimplemented`.
+- **The gateway's `--multipooler-grpc-*` flags are not used for queries.** They
+  still configure cancel-request forwarding between gateways, which does not
+  apply to a single gateway and is planned to be turned off.
 
-`cmd/minigres` constructs the pooler as a static leader, which sets
-`StaticLeader` in the pooler manager's configuration, and the consensus manager
-handles it
-(`go/services/multipooler/internal/manager/consensus/manager.go`): it answers
-the role, how PostgreSQL starts, what to do about a standby, and whether
-resigning is allowed. There is no Multiorch, so nothing else would ever make
-the pooler writable.
+## The static leader
 
-| Multigres                                                                                 | Minigres                                                                                              | Why                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The routing role uses the consensus manager's status, which Multiorch's elections fill in | A fixed status naming this pooler leader, returned by the consensus manager's `CachedConsensusStatus` | Consensus never names a leader without Multiorch, so the pooler would never report PRIMARY. One answer for every reader keeps them from disagreeing           |
-| The postgres monitor restarts a stopped Postgres as a standby; Multiorch promotes later   | It restarts Postgres as a primary                                                                     | pgctld defaults to standby because Multiorch decides who writes. After a crash nobody would promote it                                                        |
-| Leader with a standby Postgres: the monitor signals resignation to Multiorch              | The monitor promotes Postgres itself (`promoteStandbyToPrimary`), without recruitment                 | The bootstrap restore leaves a standby (pgBackRest writes `standby.signal`), as does `pgctld restart --as-standby`. Recruitment only fences off other poolers |
-| The consensus service is registered when the service map allows it                        | Never registered, even with `--service-map grpc-consensus`                                            | With a shared etcd, a Multiorch could find this pooler and recruit it, demoting a pooler that then promotes itself back                                       |
-| `ResignLeadership` (Multiadmin `SwitchPrimary`) hands leadership to another pooler        | Returns `FAILED_PRECONDITION`                                                                         | There is no other pooler, and the monitor would promote it straight back, so the call would only cause an outage                                              |
+`cmd/minigres` constructs the pooler as a static leader: it is the only pooler
+of its shard, and there is no Multiorch to make it writable. The consensus
+manager (`go/services/multipooler/internal/manager/consensus/manager.go`)
+answers every question about its role:
 
-Running Multiorch's own bootstrap with a cohort of one does not work as an
-alternative: its shard-initialization analyzer never fires for a single pooler,
-and consensus would have to keep running after every restart.
+- **Role.** The pooler always names itself leader
+  (`CachedConsensusStatus` returns a fixed status), so its routing role is
+  PRIMARY whenever PostgreSQL is out of recovery, and every reader agrees.
+- **Starting PostgreSQL.** The postgres monitor starts and restarts PostgreSQL as
+  a primary, so it is writable again after a crash.
+- **Promotion.** When PostgreSQL is a standby, the monitor promotes it itself
+  (`promoteStandbyToPrimary`). The bootstrap restore leaves a standby (pgBackRest
+  writes `standby.signal`), and so does `pgctld restart --as-standby`.
+- **No consensus.** The consensus service is never registered, even with
+  `--service-map grpc-consensus`, so a Multiorch sharing the etcd cannot recruit
+  and demote the pooler.
+- **No switchover.** `ResignLeadership` (Multiadmin `SwitchPrimary`) returns
+  `FAILED_PRECONDITION`: there is no other pooler, and the monitor would promote
+  this one straight back.
 
-### Kept the same on purpose
+## Bootstrap and the rule store
 
-- **The bootstrap.** The pooler's monitor still runs initdb, creates the
+- **The bootstrap runs in full.** The pooler's monitor runs initdb, creates the
   Multigres schema, takes the first backup, deletes the data directory and
-  restores from the backup. It guarantees a backup and a proven restore path
+  restores from the backup. This guarantees a backup and a proven restore path
   before the first query, at the cost of one restore of an empty database.
-- **The rule store is not written.** A static leader does not write its rule to
+- **The rule store is not written.** The pooler does not write its rule to
   `multigres.current_rule`, so the `Status` RPC reports term 0 and no leader
   while the routing role is PRIMARY. The write waits for a single-pooler
   durability policy: with `AT_LEAST_2`, the rule would make
@@ -186,6 +218,22 @@ in the skip message (`clustersetup.RequireMultigresTopology`):
 
 Everything else in `queryserving` runs unchanged on Minigres, including the
 TLS, authentication, session, transaction, COPY and statement-timeout tests.
+
+**How the harness checks PostgreSQL.** Before each test the harness checks that
+PostgreSQL is out of recovery and that a few settings
+(`synchronous_standby_names`, `synchronous_commit`, `primary_conninfo`) are at
+their baseline, and it can reset settings afterwards (`WithResetGuc`). The two
+harnesses do this differently:
+
+| Harness                    | Runs the checks and resets                                                     | Why                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Multigres (`shardsetup`)   | Through each pooler's query service on its gRPC port (`MultipoolerTestClient`) | The query service is reachable over the network in Multigres                                                                                                                                           |
+| Minigres (`minigressetup`) | Directly on PostgreSQL, as the test user (`clustersetup.PostgresClient`)       | The query service is served only inside the `minigres` process, and the gateway rejects `ALTER SYSTEM`, so the checks go to PostgreSQL itself, like an operator would, not through the path under test |
+
+The tests themselves connect through the gateway's client port on both
+topologies, as a client would. The shared helpers (`QueryStringValue`,
+`SaveGUCs`, `RestoreGUCs`, `ValidateGUCValue`) accept either client through
+`clustersetup.QueryExecutor`.
 
 In CI, `queryserving` and `queryserving/pgparity` run on both topologies on
 every pull request. The pgproto, sqllogictest and PostgREST suites run on both

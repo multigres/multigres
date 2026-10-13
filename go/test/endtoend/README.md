@@ -121,6 +121,10 @@ MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock MULTIGRES_E2E_TOPOLOGY=mi
 which avoids port collisions when several packages run at once; without it each
 package picks free ports itself. The tests that skip under Minigres, and why, are
 listed in [docs/general/minigres.md](../../../docs/general/minigres.md#testing).
+The two harnesses also check PostgreSQL state differently between tests: the
+Multigres harness through each pooler's query service, the Minigres harness
+directly on PostgreSQL (`clustersetup.PostgresClient`), because Minigres serves
+the query service only inside its process.
 CI runs `queryserving` and `queryserving/pgparity` on both topologies on every
 pull request.
 
