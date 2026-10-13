@@ -259,15 +259,13 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 				switch decl := d.(type) {
 				case *plpgsqlast.PLpgSQL_var:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
-					// Flow-insensitive like assigns: any lossy declaration of a name
-					// makes every use of that name lossy.
+					// Flow-insensitive, like assigns: one lossy declaration taints the name.
 					if !textPreservingDeclType(decl.DataType) {
 						r.lossy[decl.Refname] = true
 					}
 				case *plpgsqlast.PLpgSQL_rec:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
-					// A record or %ROWTYPE value is printed in the composite format,
-					// not as written, so it is never a text constant.
+					// Composite values print in their own format: never a text constant.
 					r.lossy[decl.Refname] = true
 				}
 			}
@@ -813,9 +811,9 @@ func executeArgExpr(exprText string) ast.Node {
 	return rt.Val
 }
 
-// unwrapTextCasts strips TypeCast wrappers from n while they cannot change the
-// text, so `'asc'::text` reduces to the literal. Any other cast is kept, which
-// makes the value non-constant.
+// unwrapTextCasts strips TypeCast wrappers while they cannot change the text, so
+// `'asc'::text` reduces to the literal. Any other cast is kept, so the value is
+// non-constant.
 func unwrapTextCasts(n ast.Node) ast.Node {
 	for {
 		tc, ok := n.(*ast.TypeCast)
@@ -829,13 +827,10 @@ func unwrapTextCasts(n ast.Node) ast.Node {
 // textPreservingCast reports whether casting a string literal to tn leaves its
 // text unchanged: text, or varchar with no length.
 //
-// A constant %s argument is substituted as written and re-analyzed, but
-// PostgreSQL substitutes the cast's output. char(n), varchar(n), name and the
-// like truncate or pad it, so `' AS a --'::char(5)` is analyzed with the comment
-// but runs as `... AS a`, exposing a call the comment hid. Every other cast is
-// refused rather than proven safe.
-//
-// Types are matched by name, so the known limitation on reduceSafeExpr applies.
+// PostgreSQL substitutes a cast's output, not the literal as written, and
+// char(n), varchar(n), name and the like truncate or pad it: `' AS a --'::char(5)`
+// is analyzed with the comment but runs as `... AS a`. Every other cast is refused
+// rather than proven safe. Types are matched by name (see reduceSafeExpr).
 func textPreservingCast(tn *ast.TypeName) bool {
 	if tn == nil || tn.Setof || tn.PctType {
 		return false
@@ -868,13 +863,12 @@ func textPreservingCast(tn *ast.TypeName) bool {
 }
 
 // textPreservingDeclType reports whether a variable declared with type t keeps an
-// assigned string unchanged. name truncates to 63 bytes, and "char", char(n) and
-// varchar(n) truncate, pad or drop trailing spaces, so the constants assigned to
-// such a variable are not what a %s argument sees.
+// assigned string unchanged. name, "char", char(n) and varchar(n) truncate or pad
+// it, so the constants assigned to such a variable are not what %s sees.
 //
-// t.TypeName is the type as written, so it is parsed as a type and checked with
-// textPreservingCast, which holds the one allowlist. Anything that does not parse
-// as a plain type (such as tab.col%TYPE) is refused.
+// t.TypeName is the type as written; it is parsed and checked with
+// textPreservingCast so there is one allowlist. Anything that does not parse as a
+// plain type (such as tab.col%TYPE) is refused.
 func textPreservingDeclType(t *plpgsqlast.PLpgSQL_type) bool {
 	if t == nil {
 		return false
@@ -1242,8 +1236,7 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 			return nil, false
 		}
 		name := s.SVal
-		// A lossy type changes the assigned text before %s sees it, so the constants
-		// we would analyze are not what PostgreSQL substitutes.
+		// A lossy type changes the text before %s sees it.
 		if !res.resolvable(name) || visited[name] || res.lossy[name] {
 			return nil, false
 		}

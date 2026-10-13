@@ -510,11 +510,9 @@ func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
 	require.ErrorContains(t, err, "could not be parsed for safety analysis")
 }
 
-// TestAnalyzeDynamicExecute_CastedConstantS checks casts on a constant %s
-// argument. PostgreSQL substitutes the cast's output, so char(n), varchar(n),
-// name and the like truncate or pad it: `' AS a --'::char(5)` is analyzed with
-// the comment but runs as `SELECT 1 AS a, set_config(...)`. Only text and an
-// unbounded varchar may be looked through.
+// TestAnalyzeDynamicExecute_CastedConstantS checks casts on a constant %s argument:
+// PostgreSQL substitutes the cast's output, so `' AS a --'::char(5)` is analyzed
+// with the comment but runs without it. Only text and unbounded varchar pass.
 func TestAnalyzeDynamicExecute_CastedConstantS(t *testing.T) {
 	const exploit = `' AS a --'`
 	wrap := func(arg string) string {
@@ -559,10 +557,8 @@ func TestAnalyzeDynamicExecute_CastedConstantS(t *testing.T) {
 }
 
 // TestAnalyzeDynamicExecute_TypedVariableS checks that a %s argument fed by a
-// variable respects the variable's declared type. A `name` variable silently
-// truncates what is assigned to it to 63 bytes, so the analyzer can check the full
-// value (and the empty one) while PostgreSQL runs the truncated one: here, the
-// truncated value makes `aaaa$q$` one identifier and the set_config call runs.
+// variable respects its declared type: a `name` variable truncates to 63 bytes, so
+// the analyzer checks the full value while PostgreSQL runs the truncated one.
 func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 	hidden := "1 AS " + strings.Repeat("a", 58) + " --"
 	const format = `format('SELECT %s$q$, set_config(''work_mem'',''1GB'',false) AS b, 1 AS c$q$', d)`
@@ -587,8 +583,7 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 		"%TYPE":                assigned("tab.col%TYPE"),
 		"transitive from name": "DO $$ DECLARE d name; w text; BEGIN d := '" + hidden + "'; w := d; EXECUTE " + strings.Replace(format, ", d)", ", w)", 1) + "; END $$",
 		"shadowed by a name":   "DO $$ DECLARE d text; BEGIN DECLARE d name; BEGIN d := '" + hidden + "'; END; EXECUTE " + format + "; END $$",
-		// A record variable is never a text constant: PostgreSQL prints a composite
-		// value in its own format, so it is refused whatever it was set to.
+		// A record variable is never a text constant: composite values print in their own format.
 		"record, declared":         "DO $$ DECLARE d record := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
 		"record, assigned":         "DO $$ DECLARE d record; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
 		"%ROWTYPE, declared":       "DO $$ DECLARE d pg_namespace%ROWTYPE := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$",
@@ -602,9 +597,7 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 		})
 	}
 
-	// The same payloads with a type that keeps the text are only caught by the
-	// content of the statement, not by the type; the safe variants below must stay
-	// accepted.
+	// Types that keep the text, and variables holding a whole statement, stay accepted.
 	accept := map[string]string{
 		"text":                        `DO $$ DECLARE d text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
 		"TEXT":                        `DO $$ DECLARE d TEXT := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
@@ -627,9 +620,8 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 	}
 }
 
-// TestTextPreservingCast_Edges covers the branches of textPreservingCast that SQL
-// text cannot easily reach: type nodes the parser would not produce for a cast,
-// which must be refused rather than guessed at.
+// TestTextPreservingCast_Edges covers branches SQL text can't reach: type nodes
+// the parser would not produce for a cast must be refused.
 func TestTextPreservingCast_Edges(t *testing.T) {
 	names := func(parts ...string) *ast.NodeList {
 		nl := ast.NewNodeList()
