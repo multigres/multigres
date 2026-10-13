@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // TestAnalyzeProceduralBody_Reject covers Tier 1 statements whose PL/pgSQL or SQL
@@ -623,4 +625,49 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestTextPreservingCast_Edges covers the branches of textPreservingCast that SQL
+// text cannot easily reach: type nodes the parser would not produce for a cast,
+// which must be refused rather than guessed at.
+func TestTextPreservingCast_Edges(t *testing.T) {
+	names := func(parts ...string) *ast.NodeList {
+		nl := ast.NewNodeList()
+		for _, p := range parts {
+			nl.Append(ast.NewString(p))
+		}
+		return nl
+	}
+	nonString := ast.NewNodeList()
+	nonString.Append(ast.NewA_Const(ast.NewString("text"), 0))
+
+	cases := map[string]struct {
+		tn   *ast.TypeName
+		want bool
+	}{
+		"nil type":           {nil, false},
+		"SETOF text":         {&ast.TypeName{Names: names("text"), Setof: true}, false},
+		"text%TYPE":          {&ast.TypeName{Names: names("text"), PctType: true}, false},
+		"no names":           {&ast.TypeName{}, false},
+		"non-string name":    {&ast.TypeName{Names: nonString}, false},
+		"three-part name":    {&ast.TypeName{Names: names("db", "pg_catalog", "text")}, false},
+		"other schema":       {&ast.TypeName{Names: names("myschema", "text")}, false},
+		"quoted TEXT":        {&ast.TypeName{Names: names("TEXT")}, false},
+		"text":               {&ast.TypeName{Names: names("text")}, true},
+		"varchar":            {&ast.TypeName{Names: names("varchar")}, true},
+		"pg_catalog.text":    {&ast.TypeName{Names: names("pg_catalog", "text")}, true},
+		"pg_catalog.varchar": {&ast.TypeName{Names: names("pg_catalog", "varchar")}, true},
+		"name":               {&ast.TypeName{Names: names("name")}, false},
+		"empty typmods list": {&ast.TypeName{Names: names("text"), Typmods: ast.NewNodeList()}, true},
+		"empty array bounds": {&ast.TypeName{Names: names("text"), ArrayBounds: ast.NewNodeList()}, true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, textPreservingCast(tc.tn))
+		})
+	}
+
+	t.Run("declared type: nil", func(t *testing.T) {
+		require.False(t, textPreservingDeclType(nil))
+	})
 }
