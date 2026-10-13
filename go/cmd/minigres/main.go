@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multigateway"
+	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multipooler"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -55,6 +56,10 @@ type minigres struct {
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
 
+	// queryGrpcServer serves the query service on an in-memory endpoint;
+	// grpcServer, on the TCP port, carries only the admin services.
+	queryGrpcServer *servenv.GrpcServer
+
 	gateway *multigateway.Multigateway
 	pooler  *multipooler.Multipooler
 
@@ -75,13 +80,13 @@ func newMinigres() *minigres {
 		topoConfig:  topoclient.NewTopoConfig(reg),
 		poolerFlags: pflag.NewFlagSet(constants.ServiceMultipooler, pflag.ContinueOnError),
 	}
+	queryEndpoint := servenv.NewInMemoryEndpoint()
+	m.queryGrpcServer = servenv.NewLocalGrpcServer(m.grpcServer, queryEndpoint)
 	// One value for both halves, so they cannot be given different servers.
 	resources := servenv.ProcessResources{
-		ServEnv:    m.senv,
-		GrpcServer: m.grpcServer,
-		// The query service stays on the TCP server until the multigateway
-		// can reach the multipooler in memory.
-		QueryGrpcServer: m.grpcServer,
+		ServEnv:         m.senv,
+		GrpcServer:      m.grpcServer,
+		QueryGrpcServer: m.queryGrpcServer,
 	}
 	// The only pooler of its shard leads it without consensus.
 	// Each half configures its settings on its own registry: both define keys
@@ -89,9 +94,10 @@ func newMinigres() *minigres {
 	// Configuration files are refused until the halves have separate namespaces
 	// (MUL-1663).
 	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
-	// A nil pooler source watches the topology, as Multigres does, until the
-	// multigateway learns of the multipooler from the multipooler itself.
-	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, nil)
+	// The multigateway learns of the multipooler from the multipooler itself,
+	// not the topology, and reaches it at the query server's endpoint.
+	poolerSource := poolergateway.NewLocalSource(m.pooler, queryEndpoint)
+	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, poolerSource)
 	return m
 }
 
@@ -221,7 +227,7 @@ func (m *minigres) run(ctx context.Context) error {
 		return err
 	}
 	m.senv.HTTPHandleFunc("/", handleIndex)
-	return m.senv.RunDefault(m.grpcServer)
+	return m.senv.RunDefault(m.grpcServer, m.queryGrpcServer)
 }
 
 // handleIndex links to both halves' status pages, which a shared servenv

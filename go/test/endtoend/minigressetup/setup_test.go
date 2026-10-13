@@ -17,13 +17,21 @@ package minigressetup
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -88,4 +96,95 @@ func TestMinigres_ServesQueries(t *testing.T) {
 	}
 	assert.Equal(t, setup.ClientPort(), targets[1].Port, "the proxy target is the minigres client port")
 	assert.Equal(t, setup.GatewayLogFile(), setup.PoolerLogFile(t), "minigres writes both halves to one log")
+}
+
+// TestMinigres_QueriesStayInProcess checks that the query service is served
+// only in memory: the external gRPC port answers the admin services but not
+// MultipoolerService, while queries through the client port still reach the
+// multipooler, which they now can only do without leaving the process.
+func TestMinigres_QueriesStayInProcess(t *testing.T) {
+	skipIfShort(t)
+	setup := setupManager.Get(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// The query service is not on the external port.
+	queryClient, err := clustersetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.Minigres.GrpcPort))
+	require.NoError(t, err)
+	defer queryClient.Close()
+	_, err = queryClient.ExecuteQuery(ctx, "SELECT 1", 1)
+	require.Error(t, err)
+	assert.Equal(t, codes.Unimplemented, status.Code(err), "MultipoolerService must not be served on the external port: %v", err)
+	assert.Contains(t, err.Error(), "unknown service", "the service is absent, not merely unimplemented")
+
+	// The admin services are.
+	managerClient, err := clustersetup.NewMultipoolerClient(setup.Minigres.GrpcPort)
+	require.NoError(t, err)
+	defer managerClient.Close()
+	_, err = managerClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "the pooler manager service stays on the external port")
+
+	// Queries still reach the multipooler, through the gateway.
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	assert.Equal(t, 1, one)
+}
+
+// TestMinigres_GatewayIgnoresOtherPoolers registers another pooler for the same
+// database in the shared topology, as another Minigres process would, and
+// checks that the gateway never learns of it: it follows only the pooler in
+// its own process, not the topology.
+func TestMinigres_GatewayIgnoresOtherPoolers(t *testing.T) {
+	skipIfShort(t)
+	setup := setupManager.Get(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	own, err := setup.TopoServer.GetMultipooler(ctx, &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cellName,
+		Name:      serviceID,
+	})
+	require.NoError(t, err)
+	other := topoclient.NewMultipooler("other-instance-pooler", cellName, "unreachable.invalid")
+	other.ShardKey = own.ShardKey
+	other.PortMap["grpc"] = 1
+	require.NoError(t, setup.TopoServer.CreateMultipooler(ctx, other))
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_ = setup.TopoServer.UnregisterMultipooler(cleanupCtx, other.Id)
+	})
+
+	// A topology watch would deliver the record within milliseconds; give it
+	// ample time, then read the pooler list from the gateway's status page.
+	time.Sleep(3 * time.Second)
+	statusURL := fmt.Sprintf("http://localhost:%d/multigateway", setup.Minigres.HttpPort)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	page := string(body)
+
+	assert.Contains(t, page, "<th>"+serviceID+"</th>", "the gateway lists its own pooler")
+	assert.NotContains(t, page, "other-instance-pooler", "the gateway must not learn of other processes' poolers")
+
+	// Queries still go to the own pooler.
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	assert.Equal(t, 1, one)
 }
