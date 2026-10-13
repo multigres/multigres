@@ -145,13 +145,37 @@ type PoolerGatewayOpts struct {
 	LowLag time.Duration
 	// HighTolerance is the absolute maximum replication lag for replicas.
 	HighTolerance time.Duration
+	// LocalPooler, when set, is the only pooler the gateway uses: every other
+	// pooler in the topology is ignored. minigres sets it. Optional.
+	LocalPooler *LocalPooler
+}
+
+// LocalPooler is the pooler running in the same process as the gateway.
+type LocalPooler struct {
+	// ID returns the pooler's topology ID. It is read when poolers are
+	// discovered, after flags are parsed.
+	ID func() *clustermetadatapb.ID
+	// DialOptions connect to the pooler's query service in the same process,
+	// replacing the topology address and DialOpt.
+	DialOptions []grpc.DialOption
+}
+
+// isLocal reports whether pooler is the local pooler.
+func (l *LocalPooler) isLocal(pooler *clustermetadatapb.Multipooler) bool {
+	id, local := pooler.GetId(), l.ID()
+	return id.GetComponent() == local.GetComponent() && id.GetCell() == local.GetCell() && id.GetName() == local.GetName()
 }
 
 // NewPoolerGateway constructs a PoolerGateway along with its underlying
 // pooler cache and load balancer.
 func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
+	var filter func(*clustermetadatapb.Multipooler) bool
+	if opts.LocalPooler != nil {
+		filter = opts.LocalPooler.isLocal
+	}
 	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
 		Source: opts.Source,
+		Filter: filter,
 		// LastReachedTimestamp is a no-op under the gateway's current
 		// zero-grace config — entries are evicted at the NoNode moment —
 		// but wiring it now means raising the grace to a non-zero value
@@ -196,7 +220,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)

@@ -60,7 +60,8 @@ func newStandaloneMultigateway() *standaloneMultigateway {
 	}
 	// The multigateway's settings share the process's registry, so a
 	// configuration file loaded by servenv reaches them.
-	s.mg = multigateway.NewMultigateway(reg, resources, "/")
+	// A nil local pooler uses every pooler in the topology.
+	s.mg = multigateway.NewMultigateway(reg, resources, "/", nil)
 	return s
 }
 
