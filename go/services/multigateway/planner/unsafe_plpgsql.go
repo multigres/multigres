@@ -868,20 +868,19 @@ func textPreservingCast(tn *ast.TypeName) bool {
 }
 
 // textPreservingDeclType reports whether a variable declared with type t keeps an
-// assigned string unchanged: text, or varchar with no length. name truncates to 63
-// bytes, and "char", char(n) and varchar(n) truncate, pad or drop trailing spaces,
-// so the constants assigned to such a variable are not what a %s argument sees.
-// t.TypeName is the type as written, so it is normalized first; quoted names and
-// anything else are refused rather than proven safe.
+// assigned string unchanged. name truncates to 63 bytes, and "char", char(n) and
+// varchar(n) truncate, pad or drop trailing spaces, so the constants assigned to
+// such a variable are not what a %s argument sees.
+//
+// t.TypeName is the type as written, so it is parsed as a type and checked with
+// textPreservingCast, which holds the one allowlist. Anything that does not parse
+// as a plain type (such as tab.col%TYPE) is refused.
 func textPreservingDeclType(t *plpgsqlast.PLpgSQL_type) bool {
 	if t == nil {
 		return false
 	}
-	switch strings.ToLower(strings.Join(strings.Fields(t.TypeName), " ")) {
-	case "text", "varchar", "character varying", "pg_catalog.text", "pg_catalog.varchar":
-		return true
-	}
-	return false
+	tc, ok := executeArgExpr("NULL::" + t.TypeName).(*ast.TypeCast)
+	return ok && textPreservingCast(tc.TypeName)
 }
 
 // safeExecuteSkeleton reduces an EXECUTE payload expression built from

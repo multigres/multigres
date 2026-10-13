@@ -583,7 +583,6 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 		"text array":           assigned("text[]"),
 		"domain":               assigned("public.mydomain"),
 		"%TYPE":                assigned("tab.col%TYPE"),
-		"quoted text":          assigned(`"text"`),
 		"transitive from name": "DO $$ DECLARE d name; w text; BEGIN d := '" + hidden + "'; w := d; EXECUTE " + strings.Replace(format, ", d)", ", w)", 1) + "; END $$",
 		"shadowed by a name":   "DO $$ DECLARE d text; BEGIN DECLARE d name; BEGIN d := '" + hidden + "'; END; EXECUTE " + format + "; END $$",
 		// A record variable is never a text constant: PostgreSQL prints a composite
@@ -605,17 +604,18 @@ func TestAnalyzeDynamicExecute_TypedVariableS(t *testing.T) {
 	// content of the statement, not by the type; the safe variants below must stay
 	// accepted.
 	accept := map[string]string{
-		"text":                    `DO $$ DECLARE d text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"TEXT":                    `DO $$ DECLARE d TEXT := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"varchar":                 `DO $$ DECLARE d varchar := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"character varying":       `DO $$ DECLARE d character varying := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"pg_catalog.text":         `DO $$ DECLARE d pg_catalog.text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"text COLLATE":            `DO $$ DECLARE d text COLLATE "C" := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"CONSTANT text":           `DO $$ DECLARE d CONSTANT text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"text NOT NULL":           `DO $$ DECLARE d text NOT NULL := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"text, assigned":          `DO $$ DECLARE d text; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
-		"name holding the stmt":   `DO $$ DECLARE v name := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
-		"varchar(n) holding stmt": `DO $$ DECLARE v varchar(100); BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
+		"text":                        `DO $$ DECLARE d text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"TEXT":                        `DO $$ DECLARE d TEXT := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"varchar":                     `DO $$ DECLARE d varchar := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"character varying":           `DO $$ DECLARE d character varying := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"pg_catalog.text":             `DO $$ DECLARE d pg_catalog.text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text COLLATE":                `DO $$ DECLARE d text COLLATE "C" := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"CONSTANT text":               `DO $$ DECLARE d CONSTANT text := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text NOT NULL":               `DO $$ DECLARE d text NOT NULL := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"quoted text (the same type)": `DO $$ DECLARE d "text" := 'asc'; BEGIN EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"text, assigned":              `DO $$ DECLARE d text; BEGIN d := 'asc'; EXECUTE format('SELECT 1 ORDER BY x %s', d); END $$`,
+		"name holding the stmt":       `DO $$ DECLARE v name := 'SELECT 1'; BEGIN EXECUTE v; END $$`,
+		"varchar(n) holding stmt":     `DO $$ DECLARE v varchar(100); BEGIN v := 'SELECT 1'; EXECUTE v; END $$`,
 	}
 	for name, sql := range accept {
 		t.Run("accept/"+name, func(t *testing.T) {
