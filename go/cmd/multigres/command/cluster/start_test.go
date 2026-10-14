@@ -46,6 +46,22 @@ func TestCollectGateways(t *testing.T) {
 	assert.Equal(t, gatewayEndpoint{name: "multigateway", host: "host-b", port: 6433}, got[1])
 }
 
+// TestCollectGateways_Minigres confirms the single-process topology's own
+// pg-serving service counts as a gateway endpoint for the readiness probe,
+// just like multigateway does — the two are interchangeable here because
+// both are listed in constants.PgServingServices, not because of any
+// topology-specific branch in collectGateways.
+func TestCollectGateways_Minigres(t *testing.T) {
+	results := []*provisioner.ProvisionResult{
+		{ServiceName: "etcd", FQDN: "localhost", Ports: map[string]int{"tcp": 2379}},
+		{ServiceName: "minigres", FQDN: "localhost", Ports: map[string]int{"pg_port": 15532, "http_port": 15500}},
+	}
+
+	got := collectGateways(results)
+	require.Len(t, got, 1)
+	assert.Equal(t, gatewayEndpoint{name: "minigres", host: "localhost", port: 15532}, got[0])
+}
+
 func TestExtractBootstrapCredentials_Defaults(t *testing.T) {
 	// Empty config → all defaults.
 	got := extractBootstrapCredentials(map[string]any{})
