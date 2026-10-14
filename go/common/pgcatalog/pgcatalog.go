@@ -131,7 +131,9 @@ type Proc struct {
 	// parameter, or 0 for a non-variadic function - pg_proc.h:84.
 	Variadic Oid
 	// NArgDefaults is pronargdefaults: how many trailing parameters have
-	// defaults - pg_proc.h:62. The default expressions themselves
+	// defaults - pg_proc.h:62. pg_proc.dat leaves it 0; the value is the one
+	// initdb installs through system_functions.sql (CREATE OR REPLACE
+	// FUNCTION ... DEFAULT). The default expressions themselves
 	// (proargdefaults) are not carried; a call that would need them is
 	// recognized but cannot be completed here.
 	NArgDefaults int16

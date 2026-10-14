@@ -16,6 +16,7 @@ package analyze_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,10 @@ import (
 	"github.com/multigres/multigres/go/common/pgeval/analyze"
 	_ "github.com/multigres/multigres/go/common/pgeval/funcs"
 )
+
+// notInCatalog prefixes every lookup miss: the engine declines rather than
+// claims that an object does not exist.
+const notInCatalog = "objects outside pg_catalog are not supported by the gateway evaluation engine: "
 
 // parseExpr returns the raw expression of "SELECT <sql>".
 func parseExpr(t *testing.T, sql string) ast.Node {
@@ -213,15 +218,15 @@ func TestOperatorResolution(t *testing.T) {
 
 	t.Run("errors", func(t *testing.T) {
 		for _, tc := range []struct{ sql, code, message, hint string }{
+			// A miss is not "operator does not exist": a user operator could
+			// match, so the engine declines rather than answers.
 			{
-				"true = 1", mterrors.PgSSUndefinedFunction,
-				"operator does not exist: boolean = integer",
-				"No operator matches the given name and argument types. You might need to add explicit type casts.",
+				"true = 1", mterrors.PgSSFeatureNotSupported,
+				notInCatalog + "no builtin operator matches boolean = integer", "",
 			},
 			{
-				"-true", mterrors.PgSSUndefinedFunction,
-				"operator does not exist: - boolean",
-				"No operator matches the given name and argument type. You might need to add an explicit type cast.",
+				"-true", mterrors.PgSSFeatureNotSupported,
+				notInCatalog + "no builtin operator matches - boolean", "",
 			},
 			{
 				"'1' + '2'", mterrors.PgSSAmbiguousFunction,
@@ -314,8 +319,8 @@ func TestCasts(t *testing.T) {
 
 	t.Run("errors", func(t *testing.T) {
 		for _, tc := range []struct{ sql, code, message string }{
-			{"1::nosuchtype", mterrors.PgSSUndefinedObject, `type "nosuchtype" does not exist`},
-			{"1::pg_catalog.nosuchtype", mterrors.PgSSUndefinedObject, `type "pg_catalog.nosuchtype" does not exist`},
+			{"1::nosuchtype", mterrors.PgSSFeatureNotSupported, notInCatalog + `no builtin type "nosuchtype"`},
+			{"1::pg_catalog.nosuchtype", mterrors.PgSSFeatureNotSupported, notInCatalog + `no builtin type "pg_catalog.nosuchtype"`},
 			{"1::int4[]", mterrors.PgSSCannotCoerce, "cannot cast type integer to integer[]"},
 			{"true::int8", mterrors.PgSSCannotCoerce, "cannot cast type boolean to bigint"},
 			{"1::numeric(10,2)", mterrors.PgSSFeatureNotSupported, ""},
@@ -399,14 +404,21 @@ func TestFunctionResolution(t *testing.T) {
 	})
 
 	t.Run("errors", func(t *testing.T) {
-		notFoundHint := "No function matches the given name and argument types. You might need to add explicit type casts."
 		for _, tc := range []struct{ sql, code, message, hint string }{
-			{"abs()", mterrors.PgSSUndefinedFunction, "function abs() does not exist", notFoundHint},
-			{"abs(1, 2)", mterrors.PgSSUndefinedFunction, "function abs(integer, integer) does not exist", notFoundHint},
-			{"nosuch(1)", mterrors.PgSSUndefinedFunction, "function nosuch(integer) does not exist", notFoundHint},
-			{"pg_catalog.nosuch('a')", mterrors.PgSSUndefinedFunction, "function pg_catalog.nosuch(unknown) does not exist", notFoundHint},
-			{"abs(true)", mterrors.PgSSUndefinedFunction, "function abs(boolean) does not exist", notFoundHint},
-			{"abs(*)", mterrors.PgSSUndefinedFunction, "function abs() does not exist", notFoundHint},
+			// No candidate, whether the name is unknown or the argument
+			// types match no builtin overload: a user function could still
+			// match, so this is not "function does not exist".
+			{"abs()", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches abs()", ""},
+			{"abs(1, 2)", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches abs(integer, integer)", ""},
+			{"nosuch(1)", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches nosuch(integer)", ""},
+			{"pg_catalog.nosuch('a')", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches pg_catalog.nosuch(unknown)", ""},
+			{"abs(true)", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches abs(boolean)", ""},
+			{"abs(*)", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches abs()", ""},
+			{"nosuch(1 ORDER BY 1, 2)", mterrors.PgSSFeatureNotSupported, notInCatalog + "no builtin function matches nosuch(integer)", ""},
+			// Builtins whose defaults initdb installs from system_functions.sql.
+			{"random_normal()", mterrors.PgSSFeatureNotSupported, "function random_normal() requires default arguments, which are not supported by the gateway evaluation engine", ""},
+			{"make_interval(1)", mterrors.PgSSFeatureNotSupported, "function make_interval(integer) requires default arguments, which are not supported by the gateway evaluation engine", ""},
+			{"pg_terminate_backend(1)", mterrors.PgSSFeatureNotSupported, "function pg_terminate_backend(integer) requires default arguments, which are not supported by the gateway evaluation engine", ""},
 			{"pi(*)", mterrors.PgSSWrongObjectType, "pi(*) specified, but pi is not an aggregate function", ""},
 			{"abs(DISTINCT 1)", mterrors.PgSSWrongObjectType, "DISTINCT specified, but abs is not an aggregate function", ""},
 			{"abs(1 ORDER BY 1)", mterrors.PgSSWrongObjectType, "ORDER BY specified, but abs is not an aggregate function", ""},
@@ -764,6 +776,9 @@ func TestFormatTypeBe(t *testing.T) {
 		pgoid.TIMESTAMPTZOID: "timestamp with time zone", pgoid.TEXTOID: "text", pgoid.UNKNOWNOID: "unknown",
 		pgoid.CHAROID: `"char"`, pgoid.ANYOID: `"any"`, pgoid.NAMEOID: "name", pgoid.OIDVECTOROID: "oidvector",
 		pgoid.INT4ARRAYOID: "integer[]", pgoid.TEXTARRAYOID: "text[]", pgoid.ANYELEMENTOID: "anyelement",
+		pgoid.BITOID: "bit", pgoid.INTERVALOID: "interval", pgoid.TIMEOID: "time without time zone",
+		pgoid.TIMETZOID: "time with time zone", pgoid.TIMESTAMPOID: "timestamp without time zone",
+		pgoid.VARBITOID: "bit varying", pgoid.JSONOID: "json", pgoid.XIDOID: "xid", pgoid.MONEYOID: "money",
 	} {
 		assert.Equal(t, want, analyze.FormatTypeBe(typ), "%d", typ)
 	}
@@ -826,9 +841,455 @@ func TestPolymorphicResolution(t *testing.T) {
 		assert.Equal(t, mterrors.PgSSDatatypeMismatch, diag.Code)
 		assert.Equal(t, "could not determine polymorphic type because input has type unknown", diag.Message)
 		diag = analyzeErr(t, ps, "array_append(ARRAY[1], true)")
-		assert.Equal(t, mterrors.PgSSUndefinedFunction, diag.Code)
-		assert.Equal(t, "function array_append(integer[], boolean) does not exist", diag.Message)
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, notInCatalog+"no builtin function matches array_append(integer[], boolean)", diag.Message)
 		diag = analyzeErr(t, ps, "array_ndims(1)")
-		assert.Equal(t, "function array_ndims(integer) does not exist", diag.Message)
+		assert.Equal(t, notInCatalog+"no builtin function matches array_ndims(integer)", diag.Message)
+	})
+}
+
+// TestPatternOperators covers LIKE, ILIKE and SIMILAR TO, which analysis
+// treats as ordinary operator applications (parse_expr.c transformAExprOp).
+func TestPatternOperators(t *testing.T) {
+	t.Parallel()
+	text := pgoid.TEXTOID
+	for _, tc := range []struct{ sql, op string }{
+		{"$1 LIKE $2", "~~"},
+		{"$1 NOT LIKE $2", "!~~"},
+		{"$1 ILIKE $2", "~~*"},
+		{"$1 NOT ILIKE $2", "!~~*"},
+		{"$1 SIMILAR TO $2", "~"},
+		{"$1 NOT SIMILAR TO $2", "!~"},
+	} {
+		ps := analyze.NewParseState()
+		ps.SetFixedParameters([]pgoid.Oid{text, text})
+		op, ok := analyzeExpr(t, ps, tc.sql).(*ast.OpExpr)
+		require.True(t, ok, tc.sql)
+		assert.Equal(t, opOID(t, tc.op, text, text), op.Opno, tc.sql)
+		assert.Equal(t, pgoid.BOOLOID, op.Opresulttype, tc.sql)
+	}
+	// SIMILAR TO wraps the pattern in similar_to_escape().
+	ps := analyze.NewParseState()
+	ps.SetFixedParameters([]pgoid.Oid{text, text})
+	op := analyzeExpr(t, ps, "$1 SIMILAR TO $2").(*ast.OpExpr)
+	f, ok := op.Args.Items[1].(*ast.FuncExpr)
+	require.True(t, ok, "%T", op.Args.Items[1])
+	assert.Equal(t, procOID(t, "similar_to_escape", text), f.Funcid)
+}
+
+func TestBetweenVariants(t *testing.T) {
+	t.Parallel()
+	ps := analyze.NewParseState()
+	i4 := pgoid.INT4OID
+
+	b := analyzeExpr(t, ps, "1 NOT BETWEEN 0 AND 2").(*ast.BoolExpr)
+	assert.Equal(t, ast.OR_EXPR, b.Boolop)
+	assert.Equal(t, opOID(t, "<", i4, i4), b.Args.Items[0].(*ast.OpExpr).Opno)
+	assert.Equal(t, opOID(t, ">", i4, i4), b.Args.Items[1].(*ast.OpExpr).Opno)
+
+	b = analyzeExpr(t, ps, "1 BETWEEN SYMMETRIC 2 AND 0").(*ast.BoolExpr)
+	assert.Equal(t, ast.OR_EXPR, b.Boolop)
+	require.Len(t, b.Args.Items, 2)
+	for _, sub := range b.Args.Items {
+		and := sub.(*ast.BoolExpr)
+		assert.Equal(t, ast.AND_EXPR, and.Boolop)
+		assert.Equal(t, opOID(t, ">=", i4, i4), and.Args.Items[0].(*ast.OpExpr).Opno)
+		assert.Equal(t, opOID(t, "<=", i4, i4), and.Args.Items[1].(*ast.OpExpr).Opno)
+	}
+	// The bounds are swapped in the second disjunct.
+	constInt32(t, b.Args.Items[0].(*ast.BoolExpr).Args.Items[0].(*ast.OpExpr).Args.Items[1], i4, 2)
+	constInt32(t, b.Args.Items[1].(*ast.BoolExpr).Args.Items[0].(*ast.OpExpr).Args.Items[1], i4, 0)
+}
+
+func TestBooleanTestVariants(t *testing.T) {
+	t.Parallel()
+	ps := analyze.NewParseState()
+	for sql, want := range map[string]ast.BoolTestType{
+		"true IS TRUE":        ast.IS_TRUE,
+		"true IS NOT TRUE":    ast.IS_NOT_TRUE,
+		"true IS FALSE":       ast.IS_FALSE,
+		"true IS NOT FALSE":   ast.IS_NOT_FALSE,
+		"true IS UNKNOWN":     ast.IS_UNKNOWN,
+		"true IS NOT UNKNOWN": ast.IS_NOT_UNKNOWN,
+	} {
+		bt, ok := analyzeExpr(t, ps, sql).(*ast.BooleanTest)
+		require.True(t, ok, sql)
+		assert.Equal(t, want, bt.Booltesttype, sql)
+		assert.Equal(t, pgoid.BOOLOID, analyze.ExprType(bt.Arg), sql)
+	}
+	for _, sql := range []string{"1 IS FALSE", "1 IS NOT FALSE", "1 IS NOT UNKNOWN", "1 IS TRUE", "1 IS NOT TRUE"} {
+		diag := analyzeErr(t, ps, sql)
+		assert.Equal(t, mterrors.PgSSDatatypeMismatch, diag.Code, sql)
+		assert.Contains(t, diag.Message, "must be type boolean, not type integer", sql)
+	}
+}
+
+// TestInWithoutCommonType covers the fallback in transformAExprIn: when the
+// list has no common type, each item is compared separately and the
+// results are ORed (parse_expr.c:1121).
+func TestInWithoutCommonType(t *testing.T) {
+	t.Parallel()
+	i4, xid := pgoid.INT4OID, pgoid.XIDOID
+
+	// xid (category U) and integer (category N) have no common type but do
+	// have an = operator.
+	ps := analyze.NewParseState()
+	ps.SetFixedParameters([]pgoid.Oid{xid})
+	b, ok := analyzeExpr(t, ps, "$1 IN ($1, 1)").(*ast.BoolExpr)
+	require.True(t, ok)
+	assert.Equal(t, ast.OR_EXPR, b.Boolop)
+	require.Len(t, b.Args.Items, 2)
+	assert.Equal(t, opOID(t, "=", xid, xid), b.Args.Items[0].(*ast.OpExpr).Opno)
+	assert.Equal(t, opOID(t, "=", xid, i4), b.Args.Items[1].(*ast.OpExpr).Opno)
+	not, ok := analyzeExpr(t, ps, "$1 NOT IN ($1, 1)").(*ast.BoolExpr)
+	require.True(t, ok)
+	assert.Equal(t, ast.AND_EXPR, not.Boolop)
+
+	// money and integer share a category, so money is selected as the
+	// common type, but integer cannot be implicitly coerced to it (the cast
+	// is assignment-level), so the per-item fallback is used and fails.
+	ps = analyze.NewParseState()
+	ps.SetFixedParameters([]pgoid.Oid{pgoid.MONEYOID})
+	diag := analyzeErr(t, ps, "$1 IN ($1, 1)")
+	assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+	assert.Equal(t, notInCatalog+"no builtin operator matches money = integer", diag.Message)
+
+	diag = analyzeErr(t, analyze.NewParseState(), "1 IN (1, true)")
+	assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+	assert.Equal(t, notInCatalog+"no builtin operator matches integer = boolean", diag.Message)
+}
+
+func TestCommonTypeEdges(t *testing.T) {
+	t.Parallel()
+
+	t.Run("all unknown resolves to text", func(t *testing.T) {
+		// textin is not ported, so the coercion itself is unsupported, but
+		// the type choice is made first.
+		diag := analyzeErr(t, analyze.NewParseState(), "COALESCE('a', 'b')")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Contains(t, diag.Message, "textin")
+	})
+
+	t.Run("common type an argument cannot reach", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		ps.SetFixedParameters([]pgoid.Oid{pgoid.MONEYOID})
+		diag := analyzeErr(t, ps, "CASE WHEN true THEN $1 ELSE 1 END")
+		assert.Equal(t, mterrors.PgSSCannotCoerce, diag.Code)
+		// The ELSE result leads the list (parse_expr.c:1718), so integer is
+		// chosen and the money result cannot be coerced to it.
+		assert.Equal(t, "CASE/WHEN could not convert type money to integer", diag.Message)
+	})
+
+	t.Run("simple CASE on an unknown test value", func(t *testing.T) {
+		// The placeholder cannot be coerced later, so an unknown test
+		// expression is resolved to text up front; textin is not ported.
+		diag := analyzeErr(t, analyze.NewParseState(), "CASE '1' WHEN '1' THEN 1 END")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Contains(t, diag.Message, "textin")
+	})
+}
+
+// TestFunctionSelectionHeuristics walks func_select_candidate past the
+// exact-match pass: preferred types, unknown-argument categories, the
+// STRING bias, the last-gasp rule, and the ambiguity errors.
+func TestFunctionSelectionHeuristics(t *testing.T) {
+	t.Parallel()
+	i4, i8, text := pgoid.INT4OID, pgoid.INT8OID, pgoid.TEXTOID
+	i4arr := getArrayType(t, i4)
+	ambiguousHint := "Could not choose a best candidate function. You might need to add explicit type casts."
+
+	t.Run("ambiguous", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		// No unknown inputs and no preferred type among the candidates.
+		diag := analyzeErr(t, ps, "gcd(1::int2, 1::int2)")
+		assert.Equal(t, mterrors.PgSSAmbiguousFunction, diag.Code)
+		assert.Equal(t, "function gcd(smallint, smallint) is not unique", diag.Message)
+		assert.Equal(t, ambiguousHint, diag.Hint)
+		// One unknown input, every candidate in the same category, and the
+		// known type coerces to all of them: the last-gasp rule finds no
+		// unique match.
+		diag = analyzeErr(t, ps, "lcm('1', 1::int2)")
+		assert.Equal(t, mterrors.PgSSAmbiguousFunction, diag.Code)
+		assert.Equal(t, "function lcm(unknown, smallint) is not unique", diag.Message)
+	})
+
+	t.Run("STRING category wins for an unknown argument", func(t *testing.T) {
+		// octet_length(bytea) precedes octet_length(text) in the catalog;
+		// the string candidate still wins the unknown position.
+		ps := analyze.NewParseState()
+		ps.SetVariableParameters([]pgoid.Oid{0})
+		f := analyzeExpr(t, ps, "octet_length($1)").(*ast.FuncExpr)
+		assert.Equal(t, procOID(t, "octet_length", text), f.Funcid)
+		assert.Equal(t, []pgoid.Oid{text}, ps.ParamTypes())
+
+		ps = analyze.NewParseState()
+		ps.SetVariableParameters([]pgoid.Oid{0})
+		f = analyzeExpr(t, ps, "substr($1, 1)").(*ast.FuncExpr)
+		assert.Equal(t, procOID(t, "substr", text, i4), f.Funcid)
+	})
+
+	t.Run("polymorphic candidates", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		f := analyzeExpr(t, ps, "width_bucket(1, ARRAY[1])").(*ast.FuncExpr)
+		assert.Equal(t, procOID(t, "width_bucket", pgoid.ANYCOMPATIBLEOID, pgoid.ANYCOMPATIBLEARRAYOID), f.Funcid)
+		assert.Equal(t, i4, f.Funcresulttype)
+		f = analyzeExpr(t, ps, "width_bucket('1', ARRAY[1])").(*ast.FuncExpr)
+		constInt32(t, f.Args.Items[0], i4, 1, "unknown anycompatible takes the common type")
+
+		// The common type of bigint and integer[] elements is bigint, so the
+		// array is coerced element by element.
+		f = analyzeExpr(t, ps, "width_bucket(1::int8, ARRAY[1])").(*ast.FuncExpr)
+		assert.Equal(t, i8, analyze.ExprType(f.Args.Items[0]))
+		_, ok := f.Args.Items[1].(*ast.ArrayCoerceExpr)
+		assert.True(t, ok, "%T", f.Args.Items[1])
+		// An unknown anycompatiblearray is resolved from the other
+		// argument, then its input function (array_in) is needed.
+		diag := analyzeErr(t, ps, "width_bucket(1, '{1,2}')")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Contains(t, diag.Message, "array_in")
+
+		// anynonarray: 1 || $1 is textanycat; integer[] || 'a' is array_cat
+		// (the anynonarray candidates are rejected for an array input).
+		params := analyze.NewParseState()
+		params.SetVariableParameters([]pgoid.Oid{0})
+		op := analyzeExpr(t, params, "1 || $1").(*ast.OpExpr)
+		assert.Equal(t, opOID(t, "||", pgoid.ANYNONARRAYOID, text), op.Opno)
+		assert.Equal(t, text, op.Opresulttype)
+		diag = analyzeErr(t, ps, "ARRAY[1] || 'a'")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Contains(t, diag.Message, "array_in")
+		op = analyzeExpr(t, ps, "1 || ARRAY[2]").(*ast.OpExpr)
+		assert.Equal(t, opOID(t, "||", pgoid.ANYCOMPATIBLEOID, pgoid.ANYCOMPATIBLEARRAYOID), op.Opno)
+		assert.Equal(t, i4arr, op.Opresulttype)
+
+		// anyenum never matches a builtin type.
+		diag = analyzeErr(t, ps, "enum_first(1)")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, notInCatalog+"no builtin function matches enum_first(integer)", diag.Message)
+
+		// anyarray operands must be the same array type.
+		diag = analyzeErr(t, ps, "ARRAY[1] @> ARRAY[2::int8]")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, notInCatalog+"no builtin operator matches integer[] @> bigint[]", diag.Message)
+
+		// A parameter declared anyarray is accepted for an anyarray argument
+		// when nothing else needs its element type.
+		params = analyze.NewParseState()
+		params.SetFixedParameters([]pgoid.Oid{pgoid.ANYARRAYOID})
+		f = analyzeExpr(t, params, "array_ndims($1)").(*ast.FuncExpr)
+		assert.Equal(t, i4, f.Funcresulttype)
+
+		// Range and multirange resolution needs pg_range.
+		for _, sql := range []string{"lower(int4range(1, 2))", "lower(int4multirange(int4range(1, 2)))"} {
+			diag = analyzeErr(t, ps, sql)
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code, sql)
+			assert.Equal(t, "range types are not supported by the gateway evaluation engine", diag.Message, sql)
+		}
+	})
+
+	t.Run("call shapes", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		for _, tc := range []struct{ sql, code, message string }{
+			{"unnest(ARRAY[1])", mterrors.PgSSFeatureNotSupported, "set-returning functions are not supported by the gateway evaluation engine"},
+			{"row_number()", mterrors.PgSSFeatureNotSupported, "aggregate and window functions are not supported by the gateway evaluation engine: row_number()"},
+			{"percentile_disc(1) WITHIN GROUP (ORDER BY 1)", mterrors.PgSSFeatureNotSupported, ""},
+			{"abs() WITHIN GROUP (ORDER BY 1)", mterrors.PgSSWrongObjectType, "WITHIN GROUP specified, but abs is not an aggregate function"},
+			{"abs(x => 1, 2)", mterrors.PgSSSyntaxError, "positional argument cannot follow named argument"},
+			{"concat(VARIADIC 1)", mterrors.PgSSDatatypeMismatch, "VARIADIC argument must be an array"},
+			{"1 = ANY (1)", mterrors.PgSSWrongObjectType, "op ANY/ALL (array) requires array on right side"},
+			{"1 + ANY (ARRAY[1])", mterrors.PgSSWrongObjectType, "op ANY/ALL (array) requires operator to yield boolean"},
+		} {
+			diag := analyzeErr(t, ps, tc.sql)
+			assert.Equal(t, tc.code, diag.Code, tc.sql)
+			if tc.message != "" {
+				assert.Equal(t, tc.message, diag.Message, tc.sql)
+			}
+		}
+
+		f := analyzeExpr(t, ps, "concat(VARIADIC ARRAY[1, 2])").(*ast.FuncExpr)
+		assert.True(t, f.Funcvariadic)
+		assert.Equal(t, text, f.Funcresulttype)
+
+		args := make([]string, 101)
+		for i := range args {
+			args[i] = "1"
+		}
+		diag := analyzeErr(t, ps, "concat("+strings.Join(args, ", ")+")")
+		assert.Equal(t, mterrors.PgSSTooManyArguments, diag.Code)
+		assert.Equal(t, "cannot pass more than 100 arguments to a function", diag.Message)
+
+		// A void parameter is dropped from the argument list.
+		params := analyze.NewParseState()
+		params.SetFixedParameters([]pgoid.Oid{pgoid.VOIDOID})
+		diag = analyzeErr(t, params, "abs($1)")
+		assert.Equal(t, notInCatalog+"no builtin function matches abs()", diag.Message)
+
+		// A prefix operator with a single candidate skips the heuristics.
+		op := analyzeExpr(t, ps, "|/ 4").(*ast.OpExpr)
+		assert.Equal(t, opOID(t, "|/", 0, pgoid.FLOAT8OID), op.Opno)
+	})
+}
+
+func TestCoercionPathways(t *testing.T) {
+	t.Parallel()
+	i4, i4arr := pgoid.INT4OID, getArrayType(t, pgoid.INT4OID)
+	ps := analyze.NewParseState()
+
+	t.Run("explicit I/O cast from a string type", func(t *testing.T) {
+		c, ok := analyzeExpr(t, ps, "(1::text)::int4").(*ast.CoerceViaIO)
+		require.True(t, ok)
+		assert.Equal(t, i4, c.Resulttype)
+		assert.Equal(t, pgoid.TEXTOID, analyze.ExprType(c.Arg))
+	})
+
+	t.Run("pg_cast with the inout method", func(t *testing.T) {
+		params := analyze.NewParseState()
+		params.SetFixedParameters([]pgoid.Oid{pgoid.JSONOID})
+		c, ok := analyzeExpr(t, params, "$1::jsonb").(*ast.CoerceViaIO)
+		require.True(t, ok)
+		assert.Equal(t, pgoid.JSONBOID, c.Resulttype)
+	})
+
+	t.Run("record[] and other impossible targets", func(t *testing.T) {
+		params := analyze.NewParseState()
+		params.SetFixedParameters([]pgoid.Oid{i4arr})
+		diag := analyzeErr(t, params, "$1::record[]")
+		assert.Equal(t, mterrors.PgSSCannotCoerce, diag.Code)
+		// record[] is category P in pg_type, and the catalog carries no
+		// typsubscript, so formatTypeBe cannot tell it is a true array and
+		// prints the catalog name.
+		assert.Equal(t, "cannot cast type integer[] to _record", diag.Message)
+
+		diag = analyzeErr(t, ps, "ARRAY[1]::int4")
+		assert.Equal(t, "cannot cast type integer[] to integer", diag.Message)
+		diag = analyzeErr(t, ps, "ARRAY[true]::int8[]")
+		assert.Equal(t, "cannot cast type boolean to bigint", diag.Message)
+	})
+
+	t.Run("array parameters as elements", func(t *testing.T) {
+		params := analyze.NewParseState()
+		params.SetFixedParameters([]pgoid.Oid{i4arr})
+		a := analyzeExpr(t, params, "ARRAY[$1, $1]").(*ast.ArrayExpr)
+		assert.True(t, a.Multidims)
+		assert.Equal(t, i4arr, a.ArrayTypeid)
+		a = analyzeExpr(t, params, "ARRAY[$1]::int4[]").(*ast.ArrayExpr)
+		assert.True(t, a.Multidims)
+		assert.Equal(t, i4arr, a.ArrayTypeid)
+	})
+
+	t.Run("internally generated TypeName", func(t *testing.T) {
+		tn := &ast.TypeName{TypeOid: pgoid.INT8OID}
+		tree, err := ps.TransformExpr(ast.NewTypeCast(parseExpr(t, "1"), tn, -1))
+		require.NoError(t, err)
+		f, ok := tree.(*ast.FuncExpr)
+		require.True(t, ok, "%T", tree)
+		assert.Equal(t, pgoid.INT8OID, f.Funcresulttype)
+
+		pct := ast.NewTypeName([]string{"t"})
+		pct.PctType = true
+		_, err = ps.TransformExpr(ast.NewTypeCast(parseExpr(t, "1"), pct, -1))
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, "%TYPE references are not supported by the gateway evaluation engine", diag.Message)
+	})
+
+	t.Run("qualified type names", func(t *testing.T) {
+		diag := analyzeErr(t, ps, "1::a.b.c")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, "cross-database references are not implemented: a.b.c", diag.Message)
+		diag = analyzeErr(t, ps, "1::a.b.c.d")
+		assert.Equal(t, mterrors.PgSSSyntaxError, diag.Code)
+		assert.Equal(t, "improper qualified name (too many dotted names): a.b.c.d", diag.Message)
+		diag = analyzeErr(t, ps, "1::nosuch[]")
+		assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+		assert.Equal(t, notInCatalog+`no builtin type "nosuch[]"`, diag.Message)
+	})
+}
+
+// TestRawNodeKinds feeds node kinds the grammar does not emit for a SELECT
+// target but that callers may construct.
+func TestRawNodeKinds(t *testing.T) {
+	t.Parallel()
+	ps := analyze.NewParseState()
+
+	tree, err := ps.TransformExpr(ast.NewA_ArrayExpr(ast.NewNodeList(parseExpr(t, "1"), parseExpr(t, "2")), -1))
+	require.NoError(t, err)
+	a, ok := tree.(*ast.ArrayExpr)
+	require.True(t, ok, "%T", tree)
+	assert.Equal(t, getArrayType(t, pgoid.INT4OID), a.ArrayTypeid)
+
+	_, err = ps.TransformExpr(ast.NewSetToDefault(0, -1, 0))
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+	assert.Equal(t, mterrors.PgSSSyntaxError, diag.Code)
+	assert.Equal(t, "DEFAULT is not allowed in this context", diag.Message)
+
+	// Internal inconsistencies surface as internal errors, not panics.
+	for name, node := range map[string]ast.Node{
+		"A_Expr kind":      ast.NewA_Expr(ast.A_Expr_Kind(99), nil, parseExpr(t, "1"), parseExpr(t, "2"), -1),
+		"BETWEEN bounds":   ast.NewA_Expr(ast.AEXPR_BETWEEN, nil, parseExpr(t, "1"), ast.NewNodeList(parseExpr(t, "1")), -1),
+		"BoolExpr op":      ast.NewBoolExpr(ast.BoolExprType(99), ast.NewNodeList(parseExpr(t, "true"))),
+		"BooleanTest type": ast.NewBooleanTest(parseExpr(t, "true").(ast.Expression), ast.BoolTestType(99)),
+		"integer literal":  ast.NewA_Const(ast.NewInteger(1<<40), -1),
+		"A_Const value":    ast.NewA_Const(nil, -1),
+		"unknown TypeName": ast.NewTypeCast(parseExpr(t, "1"), &ast.TypeName{TypeOid: 999999}, -1),
+	} {
+		_, err := ps.TransformExpr(node)
+		require.True(t, errors.As(err, &diag), name)
+		assert.Equal(t, mterrors.PgSSInternalError, diag.Code, name)
+	}
+}
+
+func TestParameterEdgeCases(t *testing.T) {
+	t.Parallel()
+	i4, i8 := pgoid.INT4OID, pgoid.INT8OID
+
+	t.Run("declared type is cast normally", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		ps.SetVariableParameters([]pgoid.Oid{i4})
+		f := analyzeExpr(t, ps, "$1::int8").(*ast.FuncExpr)
+		assert.Equal(t, procOID(t, "int8", i4), f.Funcid)
+		assert.Equal(t, []pgoid.Oid{i4}, ps.ParamTypes())
+	})
+
+	t.Run("inconsistent deduction", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		ps.SetVariableParameters(nil)
+		// $1 is deduced smallint by the cast, then the common type of the
+		// COALESCE list asks the still-unknown first reference to be integer.
+		diag := analyzeErr(t, ps, "COALESCE($1, $1::int2, 1)")
+		assert.Equal(t, mterrors.PgSSAmbiguousParameter, diag.Code)
+		assert.Equal(t, "inconsistent types deduced for parameter $1", diag.Message)
+		assert.Equal(t, "smallint versus integer", diag.Detail)
+	})
+
+	t.Run("out of range numbers", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		ps.SetVariableParameters(nil)
+		_, err := ps.TransformExpr(ast.NewParamRef(1<<30, -1))
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Equal(t, mterrors.PgSSUndefinedParameter, diag.Code)
+		assert.Equal(t, "there is no parameter $1073741824", diag.Message)
+		_, err = ps.TransformExpr(ast.NewParamRef(0, -1))
+		require.True(t, errors.As(err, &diag))
+		assert.Equal(t, "there is no parameter $0", diag.Message)
+	})
+
+	t.Run("no parameters to check", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		ps.SetVariableParameters(nil)
+		tree := analyzeExpr(t, ps, "1 + 1")
+		require.NoError(t, ps.CheckVariableParameters(tree))
+		assert.Empty(t, ps.ParamTypes())
+	})
+
+	t.Run("negative literal at the int4 boundary", func(t *testing.T) {
+		ps := analyze.NewParseState()
+		constInt32(t, analyzeExpr(t, ps, "-2147483648"), i4, -2147483648)
+		c := analyzeExpr(t, ps, "-2147483649").(*ast.Const)
+		assert.Equal(t, i8, c.Consttype)
+		assert.Equal(t, int32(-1), analyze.ExprTypmod(c))
 	})
 }

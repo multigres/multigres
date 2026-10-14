@@ -359,7 +359,60 @@ func Load(dataDir string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resolve(typeEntries, procEntries, operEntries, castEntries, collEntries)
+	sysFuncs, err := os.ReadFile(filepath.Join(dataDir, "system_functions.sql"))
+	if err != nil {
+		return nil, err
+	}
+	cat, err := resolve(typeEntries, procEntries, operEntries, castEntries, collEntries)
+	if err != nil {
+		return nil, err
+	}
+	if err := cat.applySystemFunctionDefaults(sysFuncs); err != nil {
+		return nil, err
+	}
+	return cat, nil
+}
+
+// applySystemFunctionDefaults sets NArgDefaults from the CREATE OR REPLACE
+// FUNCTION ... DEFAULT redefinitions in system_functions.sql, which is where
+// initdb attaches every builtin default (pg_proc.dat never sets
+// pronargdefaults). Every defaulted signature in the SQL must match exactly
+// one pg_proc row.
+func (cat *Catalog) applySystemFunctionDefaults(sysFuncs []byte) error {
+	typeNames := make(map[uint32]string, len(cat.Types))
+	known := make(map[string]bool, len(cat.Types))
+	for _, t := range cat.Types {
+		typeNames[t.Oid] = t.Name
+		known[t.Name] = true
+	}
+	defaults, err := ParseSystemFunctionDefaults(sysFuncs, func(name string) bool { return known[name] })
+	if err != nil {
+		return err
+	}
+	matched := make(map[string]bool, len(defaults))
+	for i := range cat.Procs {
+		p := &cat.Procs[i]
+		args := make([]string, len(p.ArgTypes))
+		for j, oid := range p.ArgTypes {
+			args[j] = typeNames[oid]
+		}
+		sig := p.Name + "(" + strings.Join(args, ",") + ")"
+		n, ok := defaults[sig]
+		if !ok {
+			continue
+		}
+		if matched[sig] {
+			return fmt.Errorf("system_functions.sql: %s matches more than one pg_proc.dat row", sig)
+		}
+		matched[sig] = true
+		p.NArgDefaults = n
+	}
+	for sig := range defaults {
+		if !matched[sig] {
+			return fmt.Errorf("system_functions.sql: %s has no pg_proc.dat row", sig)
+		}
+	}
+	return nil
 }
 
 func resolve(typeEntries, procEntries, operEntries, castEntries, collEntries []Entry) (*Catalog, error) {
@@ -690,6 +743,9 @@ func (r *resolver) resolveProcs(entries []Entry) ([]ProcRow, error) {
 		if row.Variadic, err = lookup(r.typeOids, e.Get("provariadic", "0"), "pg_type", true); err != nil {
 			return nil, fail("provariadic", err)
 		}
+		// pronargdefaults is never set in pg_proc.dat; the real counts come
+		// from system_functions.sql (applySystemFunctionDefaults). Reading
+		// the field keeps the row faithful should a release start setting it.
 		nDefaults, err := strconv.ParseInt(e.Get("pronargdefaults", "0"), 10, 16)
 		if err != nil {
 			return nil, fail("pronargdefaults", err)

@@ -109,6 +109,11 @@ func expressionCorpus() []expressionCase {
 		"array_cat(ARRAY[1], ARRAY[2::int8])", "array_position(ARRAY[1, 2], 2::int8)", "array_ndims(ARRAY[[1], [2]])",
 		"array_fill(1::int8, ARRAY[2])", "array_fill('1', ARRAY[2])", "array_lower(ARRAY[1], 1)", "array_ndims(1)",
 		"array_remove(ARRAY[1::int8], 1)", "ARRAY[1]::int8[]", "ARRAY[[1, 2]]::int2[]", "ARRAY[1] = ARRAY[1::int8]",
+		// Defaults installed by system_functions.sql: the server accepts the
+		// short calls, the engine must decline them rather than report
+		// "function does not exist".
+		"random_normal()", "random_normal(0)", "random_normal(0, 1)", "make_interval(1)", "make_interval()",
+		"pg_terminate_backend(1)", "jsonb_set('{}', '{a}', '1')", "parse_ident('a.b')",
 	} {
 		add(sql)
 	}
@@ -170,6 +175,8 @@ func expressionCorpus() []expressionCase {
 // engine can evaluate is also executed and the output text compared. A
 // construct the engine reports as unsupported (SQLSTATE 0A000) is counted
 // and skipped: the harness checks what is claimed, not what is missing.
+// The one exception is a catalog lookup miss, which the server must share
+// (see compareExpression).
 func compareExpressions(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	cases := expressionCorpus()
 	compared, unsupported, valuesCompared, failures := 0, 0, 0, 0
@@ -262,6 +269,20 @@ func compareExpression(t *testing.T, ctx context.Context, conn *pgx.Conn, tc exp
 		return fail("local analysis failed with a non-PostgreSQL error: %v", localErr)
 	}
 	if localDiag != nil && localDiag.Code == mterrors.PgSSFeatureNotSupported {
+		if strings.Contains(localDiag.Message, ": no builtin ") {
+			// The engine declines a name the builtin catalog does not
+			// resolve because a user object might. The corpus references
+			// none, so the server must have missed too: a resolution here
+			// would mean the local catalog or lookup is wrong.
+			switch {
+			case pgErr == nil:
+				return fail("the builtin catalog found no match but the server resolved it to %s",
+					analyze.FormatTypeBe(pgoid.Oid(sd.Fields[0].DataTypeOID)))
+			case pgErr.Code != mterrors.PgSSUndefinedFunction && pgErr.Code != mterrors.PgSSUndefinedObject:
+				return fail("the builtin catalog found no match but the server failed differently (%s: %s)",
+					pgErr.Code, pgErr.Message)
+			}
+		}
 		return expressionOutcome{status: "skip", reason: skipReason(localDiag.Message)}
 	}
 	if pgErr != nil || localDiag != nil {

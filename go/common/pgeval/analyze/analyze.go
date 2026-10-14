@@ -68,7 +68,14 @@
 //   - named arguments and parameter defaults (proargnames and
 //     proargdefaults are not in the compiled-in catalog);
 //   - objects outside pg_catalog, including user-defined types, functions
-//     and operators that a search_path could make visible.
+//     and operators that a search_path could make visible. A name the
+//     builtin catalog does not resolve at all is reported the same way,
+//     because the gateway cannot tell a typo from a user object: there is no
+//     "function does not exist" (42883) or "type does not exist" (42704)
+//     here. Resolution among builtins is authoritative only as far as the
+//     builtin catalog goes: a user overload that would shadow a builtin, or
+//     that would break a tie the builtins alone leave ambiguous (42725), is
+//     not seen.
 //
 // Errors carry no position: the Go grammar does not record source offsets
 // for expression nodes.

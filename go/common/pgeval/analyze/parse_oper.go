@@ -242,12 +242,10 @@ func opError(op *ast.NodeList, arg1, arg2 Oid, fdresult funcDetailCode, _ int) {
 			"Could not choose a best candidate operator. You might need to add explicit type casts.",
 			"operator is not unique: %s", opSignatureString(op, arg1, arg2))
 	}
-	hint := "No operator matches the given name and argument types. You might need to add explicit type casts."
-	if arg1 == pgoid.InvalidOid || arg2 == pgoid.InvalidOid {
-		hint = "No operator matches the given name and argument type. You might need to add an explicit type cast."
-	}
-	ereportHint(mterrors.PgSSUndefinedFunction, hint,
-		"operator does not exist: %s", opSignatureString(op, arg1, arg2))
+	// Upstream reports "operator does not exist" (42883) with a hint about
+	// explicit casts. The builtin catalog cannot rule out a user operator of
+	// this name, so the miss is not authoritative.
+	notInBuiltinCatalog("operator matches %s", opSignatureString(op, arg1, arg2))
 }
 
 // makeOp builds the OpExpr for an operator application, resolving the

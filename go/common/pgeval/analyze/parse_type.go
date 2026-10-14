@@ -116,11 +116,13 @@ func lookupTypeName(typeName *ast.TypeName) (*pgcatalog.Type, int32) {
 }
 
 // typenameType looks a TypeName up, reporting an error if it names no type -
-// parse_type.c:264.
+// parse_type.c:264. Upstream's error is "type does not exist" (42704); the
+// builtin catalog cannot rule out a user type of this name, so the miss is
+// not authoritative.
 func typenameType(typeName *ast.TypeName) (*pgcatalog.Type, int32) {
 	t, typmod := lookupTypeName(typeName)
 	if t == nil {
-		ereport(mterrors.PgSSUndefinedObject, "type \"%s\" does not exist", typeNameToString(typeName))
+		notInBuiltinCatalog("type %q", typeNameToString(typeName))
 	}
 	return t, typmod
 }

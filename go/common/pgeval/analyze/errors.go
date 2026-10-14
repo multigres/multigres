@@ -59,6 +59,19 @@ func ereportDetail(sqlstate, detail, format string, args ...any) {
 	pgerror.Ereport(mterrors.NewPgError("ERROR", sqlstate, fmt.Sprintf(format, args...), detail))
 }
 
+// notInBuiltinCatalog raises feature_not_supported for a name the builtin
+// catalog does not resolve: "no builtin function matches f(integer)". Only
+// pg_catalog is visible here, and a user-defined function, operator or type
+// in a schema on the search_path could resolve the very same name, so
+// PostgreSQL's "does not exist" (42883/42704) would not be authoritative.
+// The statement is left for PostgreSQL to judge instead. The tail is
+// appended after ": " so that every miss shares one message prefix with
+// requireBuiltinSchema.
+func notInBuiltinCatalog(format string, args ...any) {
+	unsupported("objects outside pg_catalog are not supported by the gateway evaluation engine: no builtin %s",
+		fmt.Sprintf(format, args...))
+}
+
 // unsupported raises feature_not_supported for a construct the gateway
 // cannot analyze yet. It is the analysis-time counterpart of fmgr's stub for
 // an unported function body: the SQL is valid, the engine is incomplete, and

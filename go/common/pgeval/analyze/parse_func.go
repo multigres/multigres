@@ -723,18 +723,11 @@ func (p *ParseState) parseFuncOrColumn(funcname *ast.NodeList, fargs []ast.Node,
 			"Could not choose a best candidate function. You might need to add explicit type casts.",
 			"function %s is not unique", funcSignatureString(funcname, actualArgTypes))
 	default:
-		// Not found as a function. Since we're dealing with function
-		// notation, report "function does not exist".
-		if fn.AggOrder != nil && fn.AggOrder.Len() > 1 && !fn.AggWithinGroup {
-			// It's agg(x, ORDER BY y,z) ... perhaps misplaced ORDER BY
-			ereportHint(mterrors.PgSSUndefinedFunction,
-				"No aggregate function matches the given name and argument types. "+
-					"Perhaps you misplaced ORDER BY; ORDER BY must appear after all regular arguments of the aggregate.",
-				"function %s does not exist", funcSignatureString(funcname, actualArgTypes))
-		}
-		ereportHint(mterrors.PgSSUndefinedFunction,
-			"No function matches the given name and argument types. You might need to add explicit type casts.",
-			"function %s does not exist", funcSignatureString(funcname, actualArgTypes))
+		// Not found as a function. Upstream reports "function does not
+		// exist" (42883) here, with a hint about ORDER BY placement when
+		// that looks like the cause. The builtin catalog cannot rule out a
+		// user function of this name, so the miss is not authoritative.
+		notInBuiltinCatalog("function matches %s", funcSignatureString(funcname, actualArgTypes))
 	}
 
 	// enforce consistency with polymorphic argument and return types,
