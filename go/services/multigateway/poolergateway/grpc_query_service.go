@@ -62,20 +62,16 @@ type grpcQueryService struct {
 }
 
 // newGRPCQueryService creates a new QueryService that uses gRPC to communicate
-// with a multipooler instance.
+// with a multipooler instance. Reusable streams are always enabled; the stream
+// pool selects dedicated RPCs only when compatibility requires it.
 func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
-	reuseQueryStreams bool,
 ) queryservice.QueryService {
 	client := multipoolerservice.NewMultipoolerServiceClient(conn)
-	var streams *streamPool
-	if reuseQueryStreams {
-		streams = newStreamPool(client, conn)
-	}
 	return &grpcQueryService{
-		executeStreams: streams,
+		executeStreams: newStreamPool(client, conn),
 		conn:           conn,
 		client:         client,
 		logger:         logger,

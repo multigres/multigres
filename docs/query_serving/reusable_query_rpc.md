@@ -1,8 +1,8 @@
 # Reusable query RPC transport
 
-Rollback: `--query-stream-reuse=false` on multigateway restores per-call
-query-service RPCs; `--grpc-stream-workers=0` on any server restores gRPC's
-goroutine-per-stream default. Both are independent.
+Reusable query streams are always enabled.
+`--grpc-stream-workers=0` restores gRPC's goroutine-per-stream default
+without changing the query transport or its completion acknowledgement.
 
 The gateway sends sequential SQL, portal, COPY and unary query-service operations
 over one bidirectional `ExecuteStream` RPC. This reuses HTTP/2 stream state and a
@@ -107,9 +107,13 @@ Requests carrying outgoing RPC metadata or nonstandard propagation use the
 legacy per-call path. Servers reject reuse with authorization headers before
 the readiness handshake. This preserves per-call credential validation for
 the standard authenticated path; deployments adding custom call-level
-interceptors/credentials must assess them before enabling transport reuse.
-`--query-stream-reuse=false` (or `MT_QUERY_STREAM_REUSE=false`) disables reuse
-on gateway restart, without reverting the worker improvements.
+interceptors/credentials must assess their compatibility with transport reuse.
+
+An unsupported RPC, an unsupported operation, outgoing metadata, or unsupported
+propagation selects a dedicated RPC before submission. Successful fallback
+operations behave normally, but an in-flight statement timeout closes the client
+session with FATAL SQLSTATE 08006 because cleanup cannot be acknowledged.
+The `legacy_*` transport metrics below identify which fallback is being used.
 
 ## Interceptor audit
 

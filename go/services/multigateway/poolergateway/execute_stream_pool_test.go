@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -76,8 +77,8 @@ func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.Multi
 	go func() { _ = s.Serve(l) }()
 	cc, err := grpc.NewClient("passthrough:///test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() }))
 	require.NoError(t, err)
-	c := pb.NewMultipoolerServiceClient(cc)
-	p := newStreamPool(c, cc)
+	qs := newGRPCQueryService(cc, "test-pooler", slog.Default()).(*grpcQueryService)
+	c, p := qs.client, qs.executeStreams
 	t.Cleanup(func() { p.Close(); _ = cc.Close(); s.Stop(); _ = l.Close() })
 	stopStreamServer = s.Stop
 	return c, p

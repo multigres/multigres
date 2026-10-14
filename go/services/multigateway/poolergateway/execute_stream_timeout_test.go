@@ -17,11 +17,15 @@ package poolergateway
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -166,18 +170,96 @@ func TestStreamingCallbackTimeoutWaitsForCleanup(t *testing.T) {
 	}
 }
 
-func TestLegacyTimeoutIsFatal(t *testing.T) {
-	g := queryServiceForOperations(t, &operationTestServer{call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}})
-	g.executeStreams = nil
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer cancel()
-	_, _, err := g.ExecuteQuery(ctx, &querypb.Target{}, "SELECT 1", &querypb.ExecuteOptions{})
-	var diagnostic *mterrors.PgDiagnostic
-	require.ErrorAs(t, err, &diagnostic)
-	require.Equal(t, "FATAL", diagnostic.Severity)
+// Model a custom tracing header that the operation envelope cannot carry.
+type nonstandardTestPropagator struct{}
+
+func (nonstandardTestPropagator) Inject(_ context.Context, carrier propagation.TextMapCarrier) {
+	carrier.Set("custom-trace", "value")
+}
+
+func (nonstandardTestPropagator) Extract(ctx context.Context, _ propagation.TextMapCarrier) context.Context {
+	return ctx
+}
+
+func (nonstandardTestPropagator) Fields() []string { return []string{"custom-trace"} }
+
+// Compatibility fallbacks remain necessary even though reuse cannot be disabled.
+// A timeout on a dedicated RPC must not advertise readiness without cleanup.
+func TestCompatibilityFallbackTimeoutIsFatal(t *testing.T) {
+	for _, reason := range []string{"rpc_unsupported", "operation_unsupported", "metadata", "propagation"} {
+		t.Run(reason, func(t *testing.T) {
+			for _, operation := range []string{"unary", "sql", "portal", "copy"} {
+				t.Run(operation, func(t *testing.T) {
+					var calls atomic.Int32
+					var submitted atomic.Bool
+					s := &operationTestServer{
+						call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
+							calls.Add(1)
+							<-ctx.Done()
+							return nil, ctx.Err()
+						},
+						copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+							calls.Add(1)
+							<-stream.Context().Done()
+							return stream.Context().Err()
+						},
+						custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+							if reason == "rpc_unsupported" {
+								return status.Error(codes.Unimplemented, "old peer")
+							}
+							if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_DESCRIBE}}); err != nil {
+								return err
+							}
+							if _, err := stream.Recv(); err == nil {
+								submitted.Store(true)
+							}
+							return nil
+						},
+					}
+					g := queryServiceForOperations(t, s)
+					ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+					defer cancel()
+					if reason == "metadata" {
+						ctx = metadata.AppendToOutgoingContext(ctx, "x-test", "per-call")
+					}
+					if reason == "propagation" {
+						previous := otel.GetTextMapPropagator()
+						// The initial OTel no-op delegates to the first propagator
+						// installed. Restore a concrete no-op instead of that proxy.
+						if len(previous.Fields()) == 0 {
+							previous = propagation.NewCompositeTextMapPropagator()
+						}
+						otel.SetTextMapPropagator(nonstandardTestPropagator{})
+						t.Cleanup(func() { otel.SetTextMapPropagator(previous) })
+					}
+					target := &querypb.Target{}
+					options := &querypb.ExecuteOptions{}
+					var err error
+					switch operation {
+					case "unary":
+						_, _, err = g.ExecuteQuery(ctx, target, "SELECT 1", options)
+					case "sql":
+						_, err = g.StreamExecute(ctx, target, "SELECT 1", options, nil, noopStreamCallback)
+					case "portal":
+						_, err = g.PortalStreamExecute(ctx, target, &querypb.PreparedStatement{}, &querypb.Portal{}, options, nil, nil, noopStreamCallback)
+					case "copy":
+						_, _, _, err = g.CopyReady(ctx, target, "COPY t FROM STDIN", options, nil)
+					}
+					var diagnostic *mterrors.PgDiagnostic
+					require.ErrorAs(t, err, &diagnostic)
+					require.Equal(t, "FATAL", diagnostic.Severity)
+					require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
+					require.Equal(t, int32(1), calls.Load(), "exactly one dedicated operation must run")
+					require.False(t, submitted.Load(), "fallback must precede submission")
+					if reason == "metadata" || reason == "propagation" {
+						require.Zero(t, s.streams.Load())
+					} else {
+						require.Equal(t, int32(1), s.streams.Load())
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestCopyTimeoutInterruptsInputAndWaitsForCleanup(t *testing.T) {
