@@ -299,9 +299,8 @@ func TestUnaryWaitsForCompletionAndRejectsMalformedReplies(t *testing.T) {
 	}
 }
 
-// Transport refactor only: caller deadlines still cancel the active stream
-// immediately. The future wait-for-cancel change must be reviewed separately.
-func TestUnaryDeadlineRetainsImmediateCancellation(t *testing.T) {
+// A timeout must not return before the pooler has acknowledged cleanup.
+func TestUnaryDeadlineWaitsForCompletion(t *testing.T) {
 	started, cancelled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	defer close(release)
 	s := &operationTestServer{call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
@@ -322,15 +321,21 @@ func TestUnaryDeadlineRetainsImmediateCancellation(t *testing.T) {
 		t.Fatal("handler did not start")
 	}
 	select {
-	case err := <-result:
-		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
-	case <-time.After(5 * time.Second):
-		t.Fatal("caller waited for cleanup")
-	}
-	select {
 	case <-cancelled:
 	case <-time.After(5 * time.Second):
 		t.Fatal("backend operation was not cancelled")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("returned before cleanup: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	release <- struct{}{}
+	select {
+	case err := <-result:
+		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not return after cleanup")
 	}
 }
 

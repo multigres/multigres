@@ -25,15 +25,17 @@ import (
 
 func TestProcessResourcesValidate(t *testing.T) {
 	reg := viperutil.NewRegistry()
+	grpcServer := NewGrpcServer(reg)
 	complete := ProcessResources{
-		ServEnv:    NewServEnv(reg),
-		GrpcServer: NewGrpcServer(reg),
+		ServEnv:         NewServEnv(reg),
+		GrpcServer:      grpcServer,
+		QueryGrpcServer: grpcServer,
 	}
 	require.NoError(t, complete.Validate())
 
 	err := ProcessResources{}.Validate()
 	require.Error(t, err)
-	for _, missing := range []string{"ServEnv", "GrpcServer"} {
+	for _, missing := range []string{"ServEnv", "GrpcServer", "QueryGrpcServer"} {
 		assert.Contains(t, err.Error(), missing)
 	}
 }

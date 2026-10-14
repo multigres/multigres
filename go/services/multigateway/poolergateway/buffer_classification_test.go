@@ -227,7 +227,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 			if p.GetId().GetName() == frozenPooler {
 				cb = nil
 			}
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, true, cb)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, nil, true, cb)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

@@ -18,6 +18,7 @@ package servenv
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,9 +41,11 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // This file handles gRPC server, on its own port.
@@ -141,6 +144,10 @@ type GrpcServer struct {
 	// sv is the paired ServEnv, set by Create. It is where --tls-cert/-key/-ca
 	// now live, shared with the HTTP listener - see the field doc there.
 	sv *ServEnv
+
+	// memListener is set by NewInMemoryGrpcServer: the server serves on it,
+	// without TLS or auth, instead of a port.
+	memListener *bufconn.Listener
 
 	// otelInstrumentation controls whether the OpenTelemetry gRPC stats
 	// handler is attached to this process's gRPC server and clients. The
@@ -256,6 +263,54 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 	// parsed value at dial time, whichever happens first.
 	grpccommon.SetOTelInstrumentationEnabled(g.OTelInstrumentationEnabled)
 	return g
+}
+
+// inMemoryBufferSize is each in-memory connection's buffer; it does not limit
+// message size.
+const inMemoryBufferSize = 1 << 20
+
+// NewInMemoryGrpcServer returns a gRPC server that only the same process can
+// reach (in minigres, the multigateway calling the multipooler): no flags, no
+// port, no TLS, no auth, and the external server's limits and OpenTelemetry
+// setting. Clients connect with DialOptions.
+func NewInMemoryGrpcServer(external *GrpcServer) *GrpcServer {
+	// A private registry: settings not copied below keep their defaults.
+	g := NewGrpcServer(viperutil.NewRegistry())
+	g.maxConnectionAge = external.maxConnectionAge
+	g.maxConnectionAgeGrace = external.maxConnectionAgeGrace
+	g.initialConnWindowSize = external.initialConnWindowSize
+	g.initialWindowSize = external.initialWindowSize
+	g.streamWorkers = external.streamWorkers
+	g.keepAliveEnforcementPolicyMinTime = external.keepAliveEnforcementPolicyMinTime
+	g.keepAliveEnforcementPolicyPermitWithoutStream = external.keepAliveEnforcementPolicyPermitWithoutStream
+	g.keepaliveTime = external.keepaliveTime
+	g.keepaliveTimeout = external.keepaliveTimeout
+	g.otelInstrumentation = external.otelInstrumentation
+	g.memListener = bufconn.Listen(inMemoryBufferSize)
+	// NewGrpcServer repointed the process-wide client OpenTelemetry switch.
+	grpccommon.SetOTelInstrumentationEnabled(external.OTelInstrumentationEnabled)
+	return g
+}
+
+// isInMemory reports whether the server was built by NewInMemoryGrpcServer.
+func (g *GrpcServer) isInMemory() bool {
+	return g.memListener != nil
+}
+
+// DialOptions returns what a client in the same process passes to
+// grpc.NewClient to reach a server built by NewInMemoryGrpcServer, with any
+// target: a dialer into its listener and plaintext credentials. Nil for any
+// other server.
+func (g *GrpcServer) DialOptions() []grpc.DialOption {
+	if !g.isInMemory() {
+		return nil
+	}
+	return []grpc.DialOption{
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return g.memListener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
 }
 
 // OTelInstrumentationEnabled reports whether OpenTelemetry gRPC
@@ -383,6 +438,10 @@ func (g *GrpcServer) SocketFile() string {
 
 // IsEnabled returns true if gRPC server is enabled
 func (g *GrpcServer) IsEnabled() bool {
+	if g.isInMemory() {
+		return true
+	}
+
 	if g.port.Get() != 0 {
 		return true
 	}
@@ -440,16 +499,21 @@ func (g *GrpcServer) Create(sv *ServEnv) error {
 	// is plain Go, not an artifact of load order.
 	// When --tls-ca is also set, mutual TLS is enabled (client certs required).
 	// BuildServerTLSConfig validates the cert/key/ca combinations.
-	cert := resolveTLSPath(sv.tlsCert.Get(), g.cert.Get())
-	key := resolveTLSPath(sv.tlsKey.Get(), g.key.Get())
-	ca := resolveTLSPath(sv.tlsCA.Get(), g.ca.Get())
-	tlsConfig, err := grpccommon.BuildServerTLSConfig(cert, key, ca, g.serverCA.Get())
-	if err != nil {
-		return fmt.Errorf("failed to configure gRPC TLS: %w", err)
-	}
-	if tlsConfig != nil {
-		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
-		slog.Info("gRPC TLS enabled", "cert", cert, "mtls", ca != "")
+	// The --tls-* files are for network listeners, not the in-memory one.
+	var tlsConfig *tls.Config
+	if !g.isInMemory() {
+		cert := resolveTLSPath(sv.tlsCert.Get(), g.cert.Get())
+		key := resolveTLSPath(sv.tlsKey.Get(), g.key.Get())
+		ca := resolveTLSPath(sv.tlsCA.Get(), g.ca.Get())
+		var err error
+		tlsConfig, err = grpccommon.BuildServerTLSConfig(cert, key, ca, g.serverCA.Get())
+		if err != nil {
+			return fmt.Errorf("failed to configure gRPC TLS: %w", err)
+		}
+		if tlsConfig != nil {
+			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			slog.Info("gRPC TLS enabled", "cert", cert, "mtls", ca != "")
+		}
 	}
 
 	// Validate that mtls auth is not used without transport TLS. Without
@@ -600,7 +664,7 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 // Serve starts the gRPC server and begins listening for requests
 func (g *GrpcServer) Serve(sv *ServEnv) error {
 	// skip if not enabled
-	if g.port.Get() == 0 {
+	if !g.isInMemory() && g.port.Get() == 0 {
 		return nil
 	}
 
@@ -619,11 +683,18 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 		healthServer.SetServingStatus(service, healthpb.HealthCheckResponse_SERVING)
 	}
 
-	// listen on the port
-	slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
-	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
-	if err != nil {
-		return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
+	var listener net.Listener
+	if g.isInMemory() {
+		slog.Info("listening for gRPC calls in memory")
+		listener = g.memListener
+	} else {
+		// listen on the port
+		slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
+		var err error
+		listener, err = net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
+		if err != nil {
+			return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
+		}
 	}
 
 	// and serve on it

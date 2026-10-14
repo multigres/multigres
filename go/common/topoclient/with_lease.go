@@ -17,6 +17,7 @@ package topoclient
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 )
 
@@ -109,9 +110,17 @@ func WithLease(
 
 	// Monitor lease health and cancel context on loss
 	fnCtx, cancelCause := context.WithCancelCause(lockCtx)
-	defer cancelCause(nil)
+
+	// Stop the monitor and wait for it before the deferred unlock above runs, so
+	// a check cannot observe our own release and report it as a lost lease.
+	monitorDone := make(chan struct{})
+	defer func() {
+		cancelCause(nil)
+		<-monitorDone
+	}()
 
 	go func() {
+		defer close(monitorDone)
 		ticker := time.NewTicker(options.checkInterval)
 		defer ticker.Stop()
 		for {
@@ -121,6 +130,11 @@ func WithLease(
 			case <-ticker.C:
 				checkCtx := context.WithoutCancel(fnCtx)
 				if err := check(checkCtx); err != nil {
+					if fnCtx.Err() != nil {
+						return
+					}
+					recordLeaseLost(fnCtx)
+					slog.WarnContext(fnCtx, "lease lost", "action", action, "error", err)
 					cancelCause(ErrLeaseLost)
 					return
 				}

@@ -165,6 +165,10 @@ type Multigateway struct {
 	// the multigateway owns the process, under its service name when it
 	// shares the HTTP server with other components.
 	statusPath string
+
+	// localPooler, when set, is the only pooler the multigateway uses (see
+	// poolergateway.LocalPooler). nil in Multigres.
+	localPooler *poolergateway.LocalPooler
 }
 
 // NewMultigateway creates a new Multigateway instance. reg is the settings
@@ -177,7 +181,9 @@ type Multigateway struct {
 // and constructs them; the multigateway never creates its own. statusPath is
 // where the status page is served ("/" when the multigateway owns the
 // process, under its service name when it shares the HTTP server).
-func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string) *Multigateway {
+// localPooler is the pooler in the same process, the only one the multigateway
+// then uses (minigres); nil uses every pooler in the topology (Multigres).
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
 	}
@@ -311,6 +317,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	mg.senv = resources.ServEnv
 	mg.grpcServer = resources.GrpcServer
 	mg.statusPath = statusPath
+	mg.localPooler = localPooler
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -427,6 +434,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		LocalCell:               mg.cell.Get(),
 		Logger:                  logger,
 		DialOpt:                 poolerTransportCreds,
+		LocalPooler:             mg.localPooler,
 		Buffer:                  mg.buffer,
 		LowLag:                  time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
 		HighTolerance:           time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,

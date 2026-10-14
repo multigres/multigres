@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryrpc"
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
 // openCopy submits INITIATE exactly once, selecting the dedicated RPC only
@@ -46,9 +47,9 @@ func (g *grpcQueryService) openCopy(ctx context.Context, req *pb.CopyBidiExecute
 	if err := stream.Send(req); err != nil {
 		_ = stream.CloseSend()
 		_, _ = stream.Recv()
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(legacyTimeoutError(ctx, err)), "failed to send INITIATE")
 	}
-	return stream, nil
+	return &legacyCopyStream{MultipoolerService_CopyBidiExecuteClient: stream, ctx: ctx}, nil
 }
 
 // reusableCopyStream holds an exclusive lease across READY, DATA and the final
@@ -67,9 +68,13 @@ func (s *reusableCopyStream) Send(req *pb.CopyBidiExecuteRequest) error {
 	if s.closed {
 		return io.EOF
 	}
-	return s.responses.lease.stream.Send(&pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_CopyInput{
+	err := s.responses.lease.stream.Send(&pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_CopyInput{
 		CopyInput: &pb.CopyStreamInput{Input: &pb.CopyStreamInput_Request{Request: req}},
 	}})
+	if err != nil {
+		return s.responses.incomplete(err)
+	}
+	return nil
 }
 
 func (s *reusableCopyStream) CloseSend() error {
@@ -79,9 +84,13 @@ func (s *reusableCopyStream) CloseSend() error {
 		return nil
 	}
 	s.closed = true
-	return s.responses.lease.stream.Send(&pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_CopyInput{
+	err := s.responses.lease.stream.Send(&pb.ExecuteStreamRequest{Operation: &pb.ExecuteStreamRequest_CopyInput{
 		CopyInput: &pb.CopyStreamInput{Input: &pb.CopyStreamInput_End{End: true}},
 	}})
+	if err != nil {
+		return s.responses.incomplete(err)
+	}
+	return nil
 }
 
 func (s *reusableCopyStream) Recv() (*pb.CopyBidiExecuteResponse, error) {
@@ -122,6 +131,16 @@ func (s *reusableCopyStream) Recv() (*pb.CopyBidiExecuteResponse, error) {
 			}
 			return nil, err
 		}
+		if errors.Is(s.responses.ctx.Err(), context.DeadlineExceeded) {
+			// Completion has now acknowledged cleanup; retain reservation state while
+			// reporting the gateway-owned statement timeout instead of COPY's text error.
+			if isFatalRPC(err) {
+				return nil, err
+			}
+			response.Phase = pb.CopyBidiExecuteResponse_ERROR
+			response.ErrorDiagnostic = mterrors.PgDiagnosticToProto(mterrors.NewStatementTimeout())
+			response.Error = response.ErrorDiagnostic.Message
+		}
 		// ERROR carries the authoritative reservation state, diagnostics and
 		// notices. A handler error in completion must not hide that payload.
 		if response.Phase == pb.CopyBidiExecuteResponse_ERROR {
@@ -155,5 +174,51 @@ func (s *reusableCopyStream) Release() {
 func releaseCopyStream(stream pb.MultipoolerService_CopyBidiExecuteClient) {
 	if reusable, ok := stream.(*reusableCopyStream); ok {
 		reusable.Release()
+	}
+}
+
+// Dedicated RPCs cannot acknowledge cleanup once their deadline expires.
+type legacyCopyStream struct {
+	pb.MultipoolerService_CopyBidiExecuteClient
+	ctx context.Context
+}
+
+func (s *legacyCopyStream) Send(req *pb.CopyBidiExecuteRequest) error {
+	return legacyTimeoutError(s.ctx, s.MultipoolerService_CopyBidiExecuteClient.Send(req))
+}
+
+func (s *legacyCopyStream) Recv() (*pb.CopyBidiExecuteResponse, error) {
+	response, err := s.MultipoolerService_CopyBidiExecuteClient.Recv()
+	return response, legacyTimeoutError(s.ctx, err)
+}
+
+// completeCopy drains a timed-out operation even when a callback or send error
+// exits the ordinary receive loop. Preserve the terminal reservation state.
+func completeCopy(ctx context.Context, stream pb.MultipoolerService_CopyBidiExecuteClient, state *querypb.ReservedState, err error) (*querypb.ReservedState, error) {
+	defer releaseCopyStream(stream)
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return state, err
+	}
+	reusable, ok := stream.(*reusableCopyStream)
+	if !ok {
+		return nil, mterrors.FromGRPC(completionUnconfirmed())
+	}
+	if reusable.responses.done {
+		return state, err
+	}
+	if reusable.responses.released {
+		return nil, mterrors.FromGRPC(completionUnconfirmed())
+	}
+	for {
+		response, recvErr := reusable.Recv()
+		if recvErr != nil {
+			return nil, mterrors.FromGRPC(recvErr)
+		}
+		if response.Phase == pb.CopyBidiExecuteResponse_ERROR {
+			return response.GetReservedState(), copyErrorFromResp(response)
+		}
+		if response.Phase == pb.CopyBidiExecuteResponse_RESULT {
+			return response.GetReservedState(), mterrors.NewStatementTimeout()
+		}
 	}
 }

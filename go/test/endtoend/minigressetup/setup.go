@@ -271,13 +271,20 @@ func (s *Setup) waitForPrimary(t *testing.T) {
 // saveBaselineGucs records the clean-state settings after bootstrap.
 func (s *Setup) saveBaselineGucs(t *testing.T) {
 	t.Helper()
-	client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+	pg, err := s.postgresClient()
 	require.NoError(t, err)
-	defer client.Close()
+	defer pg.Close()
 
 	ctx, cancel := context.WithTimeout(s.runningCtx, 10*time.Second)
 	defer cancel()
-	s.baselineGucs = clustersetup.SaveGUCs(ctx, client.Pooler, baselineGucNames)
+	s.baselineGucs = clustersetup.SaveGUCs(ctx, pg, baselineGucNames)
+}
+
+// postgresClient connects directly to PostgreSQL. The harness checks and resets
+// PostgreSQL state this way because the multipooler's query service is served
+// only inside the minigres process.
+func (s *Setup) postgresClient() (*clustersetup.PostgresClient, error) {
+	return clustersetup.NewPostgresClient(s.Pgctld.PgPort)
 }
 
 // ClientPort returns the minigres client port.
@@ -351,24 +358,24 @@ func (s *Setup) SetupTest(t *testing.T, opts ...clustersetup.SetupTestOption) {
 		t.Fatalf("SetupTest: %v. Previous test leaked state.", err)
 	}
 
-	client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+	pg, err := s.postgresClient()
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	restore := maps.Clone(s.baselineGucs)
-	maps.Copy(restore, clustersetup.SaveGUCs(ctx, client.Pooler, cfg.GucsToReset))
+	maps.Copy(restore, clustersetup.SaveGUCs(ctx, pg, cfg.GucsToReset))
 	cancel()
-	client.Close()
+	pg.Close()
 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+		pg, err := s.postgresClient()
 		if err != nil {
-			t.Errorf("Cleanup: failed to connect to minigres: %v", err)
+			t.Errorf("Cleanup: failed to connect to postgres: %v", err)
 			return
 		}
-		clustersetup.RestoreGUCs(cleanupCtx, t, client.Pooler, restore, serviceID)
-		client.Close()
+		clustersetup.RestoreGUCs(cleanupCtx, t, pg, restore, serviceID)
+		pg.Close()
 
 		require.Eventually(t, func() bool {
 			return s.validateCleanState() == nil
@@ -403,7 +410,13 @@ func (s *Setup) validateCleanState() error {
 	}
 	defer client.Close()
 
-	inRecovery, err := clustersetup.QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
+	pg, err := s.postgresClient()
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+	defer pg.Close()
+
+	inRecovery, err := clustersetup.QueryStringValue(ctx, pg, "SELECT pg_is_in_recovery()")
 	if err != nil {
 		return fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
@@ -427,7 +440,7 @@ func (s *Setup) validateCleanState() error {
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(s.baselineGucs)) {
-		if err := clustersetup.ValidateGUCValue(ctx, client.Pooler, name, s.baselineGucs[name], serviceID); err != nil {
+		if err := clustersetup.ValidateGUCValue(ctx, pg, name, s.baselineGucs[name], serviceID); err != nil {
 			return err
 		}
 	}
