@@ -54,11 +54,11 @@ func (a *RecruitAbandonedAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem,
 // Also consulted by ReplicaNotReplicatingAnalyzer to defer to this analyzer
 // instead of sending a SetPrimary the follower would just ignore.
 func revocationStrandsFollower(sa *snapshot.Shard, p *multiorchdatapb.PoolerHealthState) bool {
-	if sa.HighestIntendedRule() == nil {
+	if sa.HighestIntendedRule().IsEmpty() {
 		return false
 	}
 	revocation := p.GetConsensusStatus().GetTermRevocation()
-	return commonconsensus.IsRuleRevoked(sa.HighestIntendedRule(), revocation)
+	return sa.HighestIntendedRule().IsRevokedBy(revocation)
 }
 
 // revocationAgedPastFailoverGrace reports whether the follower's revocation was

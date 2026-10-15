@@ -117,6 +117,20 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		require.NotNil(t, problems[0].RecoveryAction)
 	})
 
+	t.Run("a placeholder 0.0 rule is not a rule: the follower is not stranded", func(t *testing.T) {
+		// Rule numbers start above 0.0, so a position holding only the zero
+		// placeholder means no rule has been established. Against it the
+		// revocation would otherwise look like it outranks the shard's rule.
+		placeholder := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: primaryID}}
+		follower := strandedFollower(now.Add(-time.Minute), placeholder, true)
+
+		require.False(t, revocationStrandsFollower(&snapshot.Shard{Poolers: []*multiorchdatapb.PoolerHealthState{follower}}, follower))
+
+		// Control: the same revocation does strand a follower behind a real rule.
+		real := strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true)
+		require.True(t, revocationStrandsFollower(&snapshot.Shard{Poolers: []*multiorchdatapb.PoolerHealthState{real}}, real))
+	})
+
 	t.Run("ignores follower that already caught up to the revoked term", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		// Own rule reached term 2: no longer self-revoked.

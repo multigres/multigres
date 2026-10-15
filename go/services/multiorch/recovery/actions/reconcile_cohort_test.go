@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -51,7 +52,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
 
 	// rule is the highest known consensus position setupStore's primary
-	// publishes. Tests pass it as RecheckedProblem.HighestKnownRule to stand
+	// publishes. Tests pass it as RecheckedProblem.HighestIntendedRule to stand
 	// in for what the engine's recheck would have supplied — Execute no
 	// longer derives it from the store itself.
 	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
@@ -112,7 +113,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.NoError(t, err)
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
@@ -163,7 +164,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemCohortMemberIneligible,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.NoError(t, err)
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
@@ -184,15 +185,51 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "find target pooler")
 		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
+	t.Run("skips the member-side SetPrimary when the leader reports only a placeholder rule after ADD", func(t *testing.T) {
+		// A 0.0 rule is the placeholder for "no rule established", so the leader
+		// has nothing real to relay; the ADD itself still succeeds and the pooler's
+		// own monitor covers the member.
+		placeholder := &clustermetadatapb.ConsensusStatus{
+			Id: primaryID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: primaryID}},
+			},
+		}
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: placeholder,
+				}},
+			},
+			UpdateConsensusRuleResponses: map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+				"multipooler-cell1-primary": {},
+			},
+		}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
+
+		require.NoError(t, err)
+		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+		assert.NotContains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
+	})
+
 	t.Run("returns error when no consensus rule is known for the shard", func(t *testing.T) {
-		// HighestKnownRule is nil — the engine's recheck found no rule for the
+		// HighestIntendedRule is empty — the engine's recheck found no rule for the
 		// shard (e.g. no poolers ever reported one). Execute trusts that
 		// verdict directly rather than re-deriving it from the store.
 		fakeClient := &rpcclient.FakeClient{}
@@ -244,7 +281,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not look able to commit writes right now")
@@ -269,7 +306,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "UpdateConsensusRule failed")
@@ -298,7 +335,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: undecided})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(undecided)})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "undecided rule proposal")
@@ -322,7 +359,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Code:     types.ProblemReplicaNotReplicating,
 			ShardKey: shardKey,
 			PoolerID: replicaID,
-		}, HighestKnownRule: rule})
+		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported problem code")
@@ -332,12 +369,16 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 // selfLeaderConsensus builds a consensus status in which the pooler names itself
 // as the consensus leader (so commonconsensus.HighestKnownRule/IsLeader identify
-// it) without a recorded rule number.
+// it) under a real rule number, as a leader that just applied a rule change
+// would report.
 func selfLeaderConsensus(id *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: id}},
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 8},
+				LeaderId:   id,
+			}},
 		},
 	}
 }
