@@ -1480,9 +1480,11 @@ func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, ex
 }
 
 // freshenQuorumProof returns proof, or, if it is old enough that the decided rule would
-// start out looking stalled (a slow proposal write or propagation), a newer one from a
-// no-op write on the proposal that waits for the same acks. Best effort: if that write
-// fails or times out, the older proof stands.
+// start out looking stalled, a newer one from a no-op write on the proposal that waits
+// for the same acks. A proposal or propagation can be slow because the new leader is on a
+// much more advanced timeline and replicas must catch up, or because a replica had to be
+// pg_rewound before the acks could arrive. Best effort: if that write fails or times out,
+// the older proof stands.
 func (rs *ruleStore) freshenQuorumProof(ctx context.Context, proof *quorumProof, term, subterm int64) *quorumProof {
 	if proof == nil || time.Since(proof.startedAt) < rs.proofRefreshAfter {
 		return proof
