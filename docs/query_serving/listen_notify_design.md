@@ -216,7 +216,9 @@ When a client disconnects:
   stops, closes every subscriber channel, and the stream handler returns;
   the gateway's receive loop sees EOF. (Listener requests return at once
   on a stopped listener, so the handler's unsubscribe cleanup cannot hang
-  and keep the stream open past the demotion.) The session then reopens
+  and keep the stream open past the demotion; each listener start owns a
+  fresh request queue, so a request that races the stop is never replayed
+  into the next start.) The session then reopens
   the stream in the background, resolving the current leader through the
   load balancer and resubscribing its active channel set, so a client that
   only ran LISTEN and then idled keeps receiving without issuing any
@@ -240,9 +242,15 @@ When a client disconnects:
   interval. Streams that end without any leader change (the pooler
   replacing its listener on a connection reopen, a transient gRPC error)
   are retried immediately once and then on the same cadence.
-- **In-line retry on LISTEN/UNLISTEN.** A subscription update that fails on
-  a stale stream reopens the stream once and resends before reporting an
-  error to the client. If that reopen fails, the background reconnect takes
+- **The channel set is the client's intent.** The gateway applies every
+  LISTEN/UNLISTEN to the session's channel set before talking to the pooler,
+  so a LISTEN issued while no leader is reachable is still remembered and
+  subscribed once the leader-serving hook fires, and an UNLISTEN issued while
+  the stream is down is not resurrected on reconnect. Any failed send closes
+  the stream, so an open stream always matches the channel set; the next
+  stream resubscribes exactly that set (the pooler drops every subscription
+  of a stream when it ends). A LISTEN that fails on a stale stream reopens
+  the stream once in line; if that fails, the background reconnect takes
   over.
 - **PubSubListener reconnect.** If the dedicated PostgreSQL connection
   drops, PubSubListener reconnects with backoff (2s initial, 5s on

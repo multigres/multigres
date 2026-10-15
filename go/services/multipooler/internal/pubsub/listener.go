@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -64,22 +63,25 @@ type Listener struct {
 	logger      *slog.Logger
 	metrics     *PubSubMetrics
 
-	// requests is the serialized command channel for the event loop.
+	// mu guards the lifecycle fields below. Every Start gets a fresh requests
+	// queue and stopped channel: a request that races Stop lands in a queue
+	// nothing will ever read again, instead of being replayed by the next
+	// Start (which could re-register an already-closed subscriber channel and
+	// make the following Stop close it twice).
+	mu sync.Mutex
+
+	// requests is the serialized command channel for the current event loop.
 	requests chan request
 
-	// cancel stops the background goroutines.
+	// stopped is closed when the current event loop exits. submit selects on
+	// this to avoid blocking forever when the Listener is not running.
+	stopped chan struct{}
+
+	// cancel stops the background goroutines; nil when not running.
 	cancel context.CancelFunc
 
 	// wg tracks background goroutines.
 	wg sync.WaitGroup
-
-	// stopped is closed when the event loop exits. Public methods select on this
-	// to avoid blocking forever when the Listener is not running.
-	stopped chan struct{}
-
-	// running is true between Start and Stop. Read from gRPC stream handlers
-	// so a demoted pooler refuses new notification streams.
-	running atomic.Bool
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
@@ -90,29 +92,31 @@ func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, m
 		poolManager: poolManager,
 		logger:      logger,
 		metrics:     metrics,
-		requests:    make(chan request, 64),
 		stopped:     stopped,
 	}
 }
 
 // Start begins the background event loop. Idempotent — no-op if already running.
 func (l *Listener) Start(ctx context.Context) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.cancel != nil {
 		return // already running
 	}
+	l.requests = make(chan request, 64)
 	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
-	l.running.Store(true)
-	go l.run(ctx)
+	go l.run(ctx, l.requests, l.stopped)
 }
 
 // Stop shuts down the listener and waits for goroutines to exit. Idempotent.
 func (l *Listener) Stop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.cancel == nil {
 		return // not running
 	}
-	l.running.Store(false)
 	l.cancel()
 	l.wg.Wait()
 	l.cancel = nil
@@ -121,7 +125,9 @@ func (l *Listener) Stop() {
 // Running reports whether the listener is between Start and Stop, i.e. this
 // pooler is the writable, serving leader and can carry notification streams.
 func (l *Listener) Running() bool {
-	return l.running.Load()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cancel != nil
 }
 
 // OnStateChange implements manager.StateAware. The listener runs only when this
@@ -183,14 +189,21 @@ func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notificati
 // can succeed against a loop that is already gone, and a caller that then
 // waited on done alone would hang forever. That hang kept NotificationStream
 // handlers (and so the gateway's streams) alive on a demoted pooler.
+//
+// The queue and stopped channel are snapshotted together so req only ever
+// targets one event loop: if that loop is gone, req stays in its orphaned
+// queue and a later Start, which has its own queue, never sees it.
 func (l *Listener) submit(req request) {
+	l.mu.Lock()
+	requests, stopped := l.requests, l.stopped
+	l.mu.Unlock()
 	select {
-	case l.requests <- req:
+	case requests <- req:
 		select {
 		case <-req.done:
-		case <-l.stopped:
+		case <-stopped:
 		}
-	case <-l.stopped:
+	case <-stopped:
 	}
 }
 
@@ -213,9 +226,9 @@ type readerMessage struct {
 //
 // This eliminates the need to reconnect when subscribing/unsubscribing, preventing
 // notification loss for existing channels.
-func (l *Listener) run(ctx context.Context) {
+func (l *Listener) run(ctx context.Context, requests chan request, stopped chan struct{}) {
 	defer l.wg.Done()
-	defer close(l.stopped)
+	defer close(stopped)
 
 	// Channel refcounts: channel name -> number of subscribers.
 	channels := make(map[string]int)
@@ -301,18 +314,9 @@ func (l *Listener) run(ctx context.Context) {
 			for sub := range allSubs {
 				close(sub)
 			}
-			// Drop requests queued after the loop stopped reading so they
-			// are not replayed against a future Start.
-			for {
-				select {
-				case req := <-l.requests:
-					close(req.done)
-				default:
-					return
-				}
-			}
+			return
 
-		case req := <-l.requests:
+		case req := <-requests:
 			switch req.typ {
 			case reqSubscribe:
 				oldCount := channels[req.channel]

@@ -44,10 +44,12 @@ type fakeNotificationStream struct {
 }
 
 func (f *fakeNotificationStream) Send(req *multipoolerpb.NotificationStreamRequest) error {
+	// Ack first, record second: once a test observes the request in sent,
+	// the ack is already queued, so the test may close resps safely.
+	f.resps <- &multipoolerpb.NotificationStreamResponse{Ready: true}
 	f.mu.Lock()
 	f.sent = append(f.sent, req)
 	f.mu.Unlock()
-	f.resps <- &multipoolerpb.NotificationStreamResponse{Ready: true}
 	return nil
 }
 
@@ -175,4 +177,79 @@ func TestNotificationSession_ReconnectsOnLeaderServing(t *testing.T) {
 	require.Equal(t, []string{"ch"}, client.stream(1).subscribed())
 
 	m.UnsubscribeAll(notifCh)
+}
+
+// A LISTEN issued while no leader is reachable (mid-failover) still counts as
+// the client's intent: the engine has already told the client it succeeded.
+// The session records the channel without a stream and the leader-serving
+// hook opens the stream with it, rather than leaving the client silently
+// unsubscribed.
+func TestNotificationSession_SubscribeWithoutLeaderIsRestored(t *testing.T) {
+	client := &fakeNotificationClient{}
+	var leaderKnown atomic.Bool
+	m := NewGRPCNotificationManager(
+		func() multipoolerpb.MultipoolerServiceClient {
+			if !leaderKnown.Load() {
+				return nil
+			}
+			return client
+		},
+		slog.New(slog.DiscardHandler), nil)
+	notifCh := make(chan *sqltypes.Notification, 8)
+
+	m.Subscribe("ch", notifCh)
+	require.Equal(t, 0, client.count(), "no leader: no stream can open")
+	require.False(t, m.lookupSession(notifCh).empty(), "the subscription must be remembered")
+
+	leaderKnown.Store(true)
+	m.OnLeaderServing(nil)
+	require.Eventually(t, func() bool {
+		return client.count() == 1 && len(client.stream(0).subscribed()) == 1
+	}, 5*time.Second, 5*time.Millisecond, "leader-serving hook should open the stream with the channel")
+	require.Equal(t, []string{"ch"}, client.stream(0).subscribed())
+
+	m.UnsubscribeAll(notifCh)
+}
+
+// An UNLISTEN issued while the stream is down takes effect locally, so the
+// reopened stream subscribes only what the client still wants.
+func TestNotificationSession_UnsubscribeWhileDisconnectedIsNotResurrected(t *testing.T) {
+	client := &fakeNotificationClient{}
+	var leaderKnown atomic.Bool
+	leaderKnown.Store(true)
+	m := NewGRPCNotificationManager(
+		func() multipoolerpb.MultipoolerServiceClient {
+			if !leaderKnown.Load() {
+				return nil
+			}
+			return client
+		},
+		slog.New(slog.DiscardHandler), nil)
+	notifCh := make(chan *sqltypes.Notification, 8)
+
+	m.Subscribe("a", notifCh)
+	m.Subscribe("b", notifCh)
+	require.Equal(t, 1, client.count())
+
+	leaderKnown.Store(false)
+	close(client.stream(0).resps)
+	time.Sleep(50 * time.Millisecond)
+	require.Equal(t, 1, client.count())
+
+	m.Unsubscribe("b", notifCh)
+	require.Equal(t, 1, client.count(), "no leader: unsubscribe must not open a stream")
+
+	leaderKnown.Store(true)
+	m.OnLeaderServing(nil)
+	require.Eventually(t, func() bool {
+		return client.count() == 2 && len(client.stream(1).subscribed()) == 1
+	}, 5*time.Second, 5*time.Millisecond, "leader-serving hook should reopen the stream")
+	require.Equal(t, []string{"a"}, client.stream(1).subscribed())
+
+	// Unsubscribing the last channel while disconnected ends the session.
+	leaderKnown.Store(false)
+	close(client.stream(1).resps)
+	time.Sleep(50 * time.Millisecond)
+	m.Unsubscribe("a", notifCh)
+	require.Nil(t, m.lookupSession(notifCh), "session with no channels must be removed")
 }

@@ -177,27 +177,11 @@ func (s *notificationSession) update(subscribe, unsubscribe []string, unsubscrib
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	req := &multipoolerpb.NotificationStreamRequest{
-		SubscribeChannels:   subscribe,
-		UnsubscribeChannels: unsubscribe,
-		UnsubscribeAll:      unsubscribeAll,
-	}
-	if err := s.ensureStreamLocked(); err != nil {
-		return err
-	}
-	if err := s.sendAndWaitLocked(req); err != nil {
-		// One in-line reopen keeps LISTEN/UNLISTEN synchronous for the client
-		// when the stream went stale. If the reopen itself fails, the next
-		// leader health update wakes reconnectLoop to try again.
-		s.closeStreamLocked()
-		if restartErr := s.startLocked(); restartErr != nil {
-			return fmt.Errorf("%w; reconnect failed: %w", err, restartErr)
-		}
-		if err = s.sendAndWaitLocked(req); err != nil {
-			return err
-		}
-	}
-
+	// active is what the client asked for, applied before any send so a
+	// LISTEN that lands while no leader is reachable is still restored by
+	// reconnectLoop. A failed send closes the stream, so an open stream is
+	// always in sync with active, and the next stream resubscribes exactly
+	// active (the pooler drops every subscription when its stream ends).
 	if unsubscribeAll {
 		clear(s.active)
 	}
@@ -206,6 +190,31 @@ func (s *notificationSession) update(subscribe, unsubscribe []string, unsubscrib
 	}
 	for _, ch := range subscribe {
 		s.active[ch] = true
+	}
+
+	var sendErr error
+	if s.stream != nil {
+		sendErr = s.sendAndWaitLocked(&multipoolerpb.NotificationStreamRequest{
+			SubscribeChannels:   subscribe,
+			UnsubscribeChannels: unsubscribe,
+			UnsubscribeAll:      unsubscribeAll,
+		})
+		if sendErr == nil {
+			return nil
+		}
+		s.closeStreamLocked()
+	}
+	if len(s.active) == 0 {
+		return nil
+	}
+	// One in-line open keeps LISTEN/UNLISTEN synchronous for the client; it
+	// subscribes the whole active set, which already includes this update. If
+	// it fails, the next leader health update wakes reconnectLoop to retry.
+	if err := s.startLocked(); err != nil {
+		if sendErr != nil {
+			return fmt.Errorf("%w; reconnect failed: %w", sendErr, err)
+		}
+		return err
 	}
 	return nil
 }
@@ -221,13 +230,6 @@ func (s *notificationSession) stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closeStreamLocked()
-}
-
-func (s *notificationSession) ensureStreamLocked() error {
-	if s.stream != nil {
-		return nil
-	}
-	return s.startLocked()
 }
 
 // closeStreamLocked tears down the current stream, if any.

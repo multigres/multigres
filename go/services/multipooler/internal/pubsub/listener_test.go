@@ -28,10 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// running reports whether the listener's background event loop is active. Start
-// sets cancel; Stop (which waits for the goroutine to exit) clears it.
-func running(l *Listener) bool { return l.cancel != nil }
-
 // newTestListener builds a Listener with no pool manager. The dedicated PG
 // connection is acquired lazily on the first subscribe, so a listener that is
 // only started/stopped (no subscribers) never touches the pool — which lets us
@@ -88,7 +84,7 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 			l := newTestListener(t)
 			err := l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantRunning, running(l))
+			assert.Equal(t, tt.wantRunning, l.Running())
 		})
 	}
 }
@@ -100,12 +96,12 @@ func TestListenerOnStateChangeStopsOnDemotion(t *testing.T) {
 	l := newTestListener(t)
 
 	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
-	require.True(t, running(l), "listener should run while leader+writable+serving")
+	require.True(t, l.Running(), "listener should run while leader+writable+serving")
 
 	// Postgres falls back into recovery (demoted to standby) while still nominally
 	// the leader: the listener must stop.
 	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
-	assert.False(t, running(l), "listener must stop once postgres is no longer writable")
+	assert.False(t, l.Running(), "listener must stop once postgres is no longer writable")
 }
 
 // Requests against a stopped listener must return promptly. The requests
@@ -134,4 +130,26 @@ func TestListenerRequestsDoNotBlockWhenStopped(t *testing.T) {
 			t.Fatal("request against a stopped listener blocked")
 		}
 	}
+}
+
+// A request that races Stop must not be replayed by the next Start. With one
+// queue shared across lifecycles, a subscribe enqueued after the event loop
+// exited was picked up by the next loop, which re-registered an already
+// closed subscriber channel and then panicked closing it again on Stop. Each
+// Start now owns a fresh queue; a request left in an old one is never read.
+func TestListenerStaleRequestNotReplayedAfterRestart(t *testing.T) {
+	l := newTestListener(t)
+	l.Start(t.Context())
+	l.Stop()
+
+	// Simulate the race: the request lands in the old lifecycle's queue after
+	// its loop is gone. Going through submit would just return on stopped.
+	sub := make(chan *sqltypes.Notification)
+	close(sub)
+	old := l.requests
+	old <- request{typ: reqSubscribe, channel: "ch", subCh: sub, done: make(chan struct{})}
+
+	l.Start(t.Context())
+	require.NotEqual(t, old, l.requests, "Start must begin with an empty queue")
+	l.Stop() // would panic (double close of sub) if the stale subscribe had been replayed
 }
