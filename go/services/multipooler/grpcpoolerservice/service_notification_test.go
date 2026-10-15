@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -49,10 +51,26 @@ func TestNotificationStream_UsesListenerSetAfterRegistration(t *testing.T) {
 	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
 	srv := &poolerService{pooler: p}
 
-	p.SetPubSubListener(pubsub.NewListener(nil, logger, nil))
+	l := pubsub.NewListener(nil, logger, nil)
+	l.Start(t.Context())
+	t.Cleanup(l.Stop)
+	p.SetPubSubListener(l)
 
 	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
 	require.NoError(t, err)
+}
+
+// A pooler that is not the writable, serving leader has a stopped listener.
+// It must refuse the stream so the gateway retries against the current
+// leader instead of holding a stream that acks subscribes it cannot serve.
+func TestNotificationStream_ListenerNotRunning(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	srv := &poolerService{pooler: p}
+	p.SetPubSubListener(pubsub.NewListener(nil, logger, nil))
+
+	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
+	require.Equal(t, codes.Unavailable, status.Code(err))
 }
 
 // NotificationStream is only reachable once the manager has run its startup

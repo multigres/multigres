@@ -18,7 +18,9 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
@@ -104,4 +106,32 @@ func TestListenerOnStateChangeStopsOnDemotion(t *testing.T) {
 	// the leader: the listener must stop.
 	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	assert.False(t, running(l), "listener must stop once postgres is no longer writable")
+}
+
+// Requests against a stopped listener must return promptly. The requests
+// channel is buffered, so a send can succeed after the event loop has exited;
+// waiting on done alone then hangs forever, which kept NotificationStream
+// handlers alive on a demoted pooler. Many iterations so both select arms
+// get exercised.
+func TestListenerRequestsDoNotBlockWhenStopped(t *testing.T) {
+	l := newTestListener(t)
+	l.Start(t.Context())
+	l.Stop()
+	require.False(t, l.Running())
+
+	sub := make(chan *sqltypes.Notification, 1)
+	for range 100 {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			l.SubscribeCh("ch", sub)
+			l.Unsubscribe("ch", sub)
+			l.UnsubscribeAll(sub)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("request against a stopped listener blocked")
+		}
+	}
 }

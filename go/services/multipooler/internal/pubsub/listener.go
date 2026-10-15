@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -75,6 +76,10 @@ type Listener struct {
 	// stopped is closed when the event loop exits. Public methods select on this
 	// to avoid blocking forever when the Listener is not running.
 	stopped chan struct{}
+
+	// running is true between Start and Stop. Read from gRPC stream handlers
+	// so a demoted pooler refuses new notification streams.
+	running atomic.Bool
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
@@ -98,6 +103,7 @@ func (l *Listener) Start(ctx context.Context) {
 	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
+	l.running.Store(true)
 	go l.run(ctx)
 }
 
@@ -106,9 +112,16 @@ func (l *Listener) Stop() {
 	if l.cancel == nil {
 		return // not running
 	}
+	l.running.Store(false)
 	l.cancel()
 	l.wg.Wait()
 	l.cancel = nil
+}
+
+// Running reports whether the listener is between Start and Stop, i.e. this
+// pooler is the writable, serving leader and can carry notification streams.
+func (l *Listener) Running() bool {
+	return l.running.Load()
 }
 
 // OnStateChange implements manager.StateAware. The listener runs only when this
@@ -136,11 +149,7 @@ func (l *Listener) Unsubscribe(channel string, subCh chan *sqltypes.Notification
 		subCh:   subCh,
 		done:    make(chan struct{}),
 	}
-	select {
-	case l.requests <- req:
-		<-req.done
-	case <-l.stopped:
-	}
+	l.submit(req)
 }
 
 // UnsubscribeAll removes a subscriber from all channels.
@@ -151,11 +160,7 @@ func (l *Listener) UnsubscribeAll(subCh chan *sqltypes.Notification) {
 		subCh: subCh,
 		done:  make(chan struct{}),
 	}
-	select {
-	case l.requests <- req:
-		<-req.done
-	case <-l.stopped:
-	}
+	l.submit(req)
 }
 
 // SubscribeCh registers an existing notification channel to receive notifications
@@ -169,9 +174,22 @@ func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notificati
 		subCh:   notifCh,
 		done:    make(chan struct{}),
 	}
+	l.submit(req)
+}
+
+// submit queues req for the event loop and waits for it to be processed.
+// Returns immediately once the Listener is stopped, including when the loop
+// exits after req was queued: the requests channel is buffered, so the send
+// can succeed against a loop that is already gone, and a caller that then
+// waited on done alone would hang forever. That hang kept NotificationStream
+// handlers (and so the gateway's streams) alive on a demoted pooler.
+func (l *Listener) submit(req request) {
 	select {
 	case l.requests <- req:
-		<-req.done
+		select {
+		case <-req.done:
+		case <-l.stopped:
+		}
 	case <-l.stopped:
 	}
 }
@@ -283,7 +301,16 @@ func (l *Listener) run(ctx context.Context) {
 			for sub := range allSubs {
 				close(sub)
 			}
-			return
+			// Drop requests queued after the loop stopped reading so they
+			// are not replayed against a future Start.
+			for {
+				select {
+				case req := <-l.requests:
+					close(req.done)
+				default:
+					return
+				}
+			}
 
 		case req := <-l.requests:
 			switch req.typ {

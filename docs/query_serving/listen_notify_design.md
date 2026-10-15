@@ -210,10 +210,40 @@ When a client disconnects:
 
 ## Resilience
 
-- **gRPC stream reconnect.** If the gRPC stream between the gateway's
-  GRPCNotificationManager and the multipooler breaks (e.g., multipooler
-  restart), the stream is automatically re-established with a 2-second
-  backoff. Notifications sent during the reconnect window are lost.
+- **Leader change (pooler demotion).** The gateway holds one gRPC
+  `NotificationStream` per listening client session. When the pooler that
+  carries it stops being the writable, serving leader, its PubSubListener
+  stops, closes every subscriber channel, and the stream handler returns;
+  the gateway's receive loop sees EOF. (Listener requests return at once
+  on a stopped listener, so the handler's unsubscribe cleanup cannot hang
+  and keep the stream open past the demotion.) The session then reopens
+  the stream in the background, resolving the current leader through the
+  load balancer and resubscribing its active channel set, so a client that
+  only ran LISTEN and then idled keeps receiving without issuing any
+  further statement. A pooler whose listener is not running refuses new
+  streams, so the gateway cannot settle on a demoted leader during the
+  handover. The same path covers any other stream error (e.g., multipooler
+  restart). A session never has two streams open at once, which preserves
+  cross-channel ordering, and attempts stop when the client session ends.
+  The `mg.gateway.notification.streams` gauge counts streams that have
+  completed their resubscribe handshake.
+- **Reconnect is event-driven, with no timer of its own.** A session
+  attempts a reconnect when its stream ends and whenever the load
+  balancer's leader-serving hook fires, which happens on every health
+  update in which the elected leader attests PRIMARY and SERVING. The
+  common case, a planned failover, therefore reconnects as soon as the
+  gateway observes the new leader serving. An attempt that fails (no
+  leader known yet, the new leader's listener not started yet, a
+  resubscribe timeout) waits for the next hook firing. Because the pooler
+  broadcasts health on a periodic heartbeat (`DefaultHealthHeartbeatInterval`,
+  30 seconds) as well as on changes, that wait is bounded by one heartbeat
+  interval. Streams that end without any leader change (the pooler
+  replacing its listener on a connection reopen, a transient gRPC error)
+  are retried immediately once and then on the same cadence.
+- **In-line retry on LISTEN/UNLISTEN.** A subscription update that fails on
+  a stale stream reopens the stream once and resends before reporting an
+  error to the client. If that reopen fails, the background reconnect takes
+  over.
 - **PubSubListener reconnect.** If the dedicated PostgreSQL connection
   drops, PubSubListener reconnects with backoff (2s initial, 5s on
   repeated failure) and re-LISTENs all active channels.
