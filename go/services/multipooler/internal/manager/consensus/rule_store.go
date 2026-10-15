@@ -38,6 +38,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -86,10 +87,15 @@ type ruleStore struct {
 	queryService executor.InternalQueryService
 	syncStandby  SyncStandbyManager
 
-	// onProposalAcked, if set, is called with a proposal's write LSN (empty if not
-	// known) and the time just before a proposal is finalized as a decision, once the
-	// proposal has been quorum-acked. It must be quick and must not fail the write.
-	onProposalAcked func(ctx context.Context, provenLSN string, at time.Time)
+	// onProposalAcked, if set, is called just before a quorum-acked proposal is finalized
+	// as a decision, with the LSN of the write that was acked and when that write started.
+	// It must be quick and must not fail the write.
+	onProposalAcked func(ctx context.Context, lsn pgutil.LSN, startedAt time.Time)
+
+	// A proof older than proofRefreshAfter is refreshed, within proofRefreshTimeout,
+	// before the decision. Fields so tests can shrink them.
+	proofRefreshAfter   time.Duration
+	proofRefreshTimeout time.Duration
 
 	mu      sync.Mutex
 	lastPos *clustermetadatapb.PoolerPosition // updated on every ObservePosition / UpdateRule
@@ -103,11 +109,22 @@ func NewRuleStore(
 	ssm SyncStandbyManager,
 ) *ruleStore {
 	return &ruleStore{
-		logger:       logger,
-		queryService: qs,
-		syncStandby:  ssm,
+		logger:              logger,
+		queryService:        qs,
+		syncStandby:         ssm,
+		proofRefreshAfter:   defaultProofRefreshAfter,
+		proofRefreshTimeout: defaultProofRefreshTimeout,
 	}
 }
+
+const (
+	// defaultProofRefreshAfter is how old a quorum proof may be at decision time before it
+	// is refreshed: half the orchestrator's 20s staleness bound, so a decided rule doesn't
+	// start out looking stalled.
+	defaultProofRefreshAfter = 10 * time.Second
+	// defaultProofRefreshTimeout bounds the refresh, so it can't hold up the decision.
+	defaultProofRefreshTimeout = 2 * time.Second
+)
 
 // cacheRuleObservation updates the in-memory position cache.
 func (rs *ruleStore) cacheRuleObservation(pos *clustermetadatapb.PoolerPosition) {
@@ -748,6 +765,7 @@ func (rs *ruleStore) maybeFinalizeStuckProposal(
 	// this isn't proving anything about the old proposal specifically — the
 	// cert already establishes safety — it's just an ordinary commit needed
 	// to make progress.
+	confirmStartedAt := time.Now()
 	confirmedLSN, err := rs.confirmProposalQuorum(lockedCtx, stuckRuleNumber.GetCoordinatorTerm(), stuckRuleNumber.GetLeaderSubterm())
 	if err != nil {
 		return nil, false, fmt.Errorf("propagation: failed to confirm stuck proposal quorum: %w", err)
@@ -759,7 +777,8 @@ func (rs *ruleStore) maybeFinalizeStuckProposal(
 	// field of the resulting decision comes from the proposal itself.
 	decidedPos, err := rs.markProposalAsDecision(ctx,
 		stuckRuleNumber.GetCoordinatorTerm(), stuckRuleNumber.GetLeaderSubterm(),
-		topoclient.ClusterIDString(stuckProposal.GetCoordinatorId()), stuckProposal.GetCreationTime().AsTime(), confirmedLSN)
+		topoclient.ClusterIDString(stuckProposal.GetCoordinatorId()), stuckProposal.GetCreationTime().AsTime(),
+		&quorumProof{lsn: confirmedLSN, startedAt: confirmStartedAt})
 	if err != nil {
 		return nil, false, fmt.Errorf("propagation: failed to finish deciding stuck proposal: %w", err)
 	}
@@ -997,6 +1016,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		}),
 	}
 	eventlog.Emit(ctx, rs.logger, eventlog.Started, proposeEvent)
+	proposalStartedAt := time.Now()
 	proposalPos, writeErr := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
 		casTerm:          currentTerm,
 		casSubterm:       currentSubterm,
@@ -1023,7 +1043,15 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	eventlog.Emit(ctx, rs.logger, eventlog.Success, proposeEvent)
 
 	// Finalize: promote the just-written proposal to decision.
-	pos, err := rs.markProposalAsDecision(ctx, update.termNumber, nextSubterm, coordinatorIDStr, update.createdAt, proposalPos.GetLsn())
+	//
+	// TODO: apply transition.Incoming before this finalize, not after. Once the proposal is
+	// durable under the combined policy, the decision only needs the incoming cohort's acks;
+	// an outgoing member that holds just the proposal makes multiorch push it forward and find
+	// the decided rule on the incoming side. That would also let freshenQuorumProof's no-op
+	// write wait on the incoming cohort alone. Needs a safety review of how recruit and
+	// propagation treat an undecided proposal on the outgoing cohort.
+	pos, err := rs.markProposalAsDecision(ctx, update.termNumber, nextSubterm, coordinatorIDStr, update.createdAt,
+		rs.newQuorumProof(ctx, proposalPos.GetLsn(), proposalStartedAt))
 	if err != nil {
 		return nil, err
 	}
@@ -1047,8 +1075,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 // (like leader/cohort/policy) come from the
 // proposal itself, not from whoever is now finalizing it.
 //
-// provenLSN is the LSN of the proposal's write, or empty if the caller does not
-// have it. It is passed to onProposalAcked.
+// proof describes the quorum-acked write that justifies the decision, and is passed to
+// onProposalAcked; nil if the caller has none.
 //
 // The CAS key is the proposal itself (expectedTerm/expectedSubterm), not the
 // prior decision: by the time this is called the proposal is the source of
@@ -1059,13 +1087,14 @@ func (rs *ruleStore) markProposalAsDecision(
 	expectedTerm, expectedSubterm int64,
 	coordinatorIDStr string,
 	createdAt time.Time,
-	provenLSN string,
+	proof *quorumProof,
 ) (*clustermetadatapb.PoolerPosition, error) {
 	// By now the proposal is quorum-acked (its write blocked on a sync standby, or
 	// propagation confirmed it), so it can no longer be lost, only decided. Tell the
 	// hook first, so anything that observes the decision also sees this proof.
-	if rs.onProposalAcked != nil {
-		rs.onProposalAcked(ctx, provenLSN, time.Now())
+	proof = rs.freshenQuorumProof(ctx, proof, expectedTerm, expectedSubterm)
+	if rs.onProposalAcked != nil && proof != nil {
+		rs.onProposalAcked(ctx, proof.lsn, proof.startedAt)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
@@ -1401,7 +1430,7 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 // needs before it may trust and finalize the proposal via
 // markProposalAsDecision. It returns the WAL LSN read just before the write
 // committed, which that quorum-acked commit therefore also covers.
-func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, expectedSubterm int64) (string, error) {
+func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, expectedSubterm int64) (pgutil.LSN, error) {
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 
@@ -1431,19 +1460,61 @@ func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, ex
 		expectedTerm,
 		expectedSubterm)
 	if err != nil {
-		return "", mterrors.Wrap(err, "failed to confirm stuck proposal quorum")
+		return 0, mterrors.Wrap(err, "failed to confirm stuck proposal quorum")
 	}
 
 	// Zero rows means the expected proposal is no longer there — a concurrent
 	// writer raced in since it was read.
 	if len(result.StructuredRows()) == 0 {
-		return "", errRuleConflict
+		return 0, errRuleConflict
 	}
-	lsn, err := executor.GetString(result.StructuredRows()[0], 0)
+	raw, err := executor.GetString(result.StructuredRows()[0], 0)
 	if err != nil {
-		return "", mterrors.Wrap(err, "failed to read confirmed proposal LSN")
+		return 0, mterrors.Wrap(err, "failed to read confirmed proposal LSN")
+	}
+	lsn, err := pgutil.ParseLSN(raw)
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to parse confirmed proposal LSN")
 	}
 	return lsn, nil
+}
+
+// freshenQuorumProof returns proof, or, if it is old enough that the decided rule would
+// start out looking stalled (a slow proposal write or propagation), a newer one from a
+// no-op write on the proposal that waits for the same acks. Best effort: if that write
+// fails or times out, the older proof stands.
+func (rs *ruleStore) freshenQuorumProof(ctx context.Context, proof *quorumProof, term, subterm int64) *quorumProof {
+	if proof == nil || time.Since(proof.startedAt) < rs.proofRefreshAfter {
+		return proof
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, rs.proofRefreshTimeout)
+	defer cancel()
+	startedAt := time.Now()
+	lsn, err := rs.confirmProposalQuorum(refreshCtx, term, subterm)
+	if err != nil {
+		rs.logger.WarnContext(ctx, "could not refresh the quorum proof before deciding the rule; using the older one", "error", err)
+		return proof
+	}
+	return &quorumProof{lsn: lsn, startedAt: startedAt}
+}
+
+// quorumProof is a write known to be quorum-acked: its LSN, and when it started. The
+// start time is taken before the write, as the heartbeat writer does for its own
+// proofs, so a proof can only look older than the ack, never newer.
+type quorumProof struct {
+	lsn       pgutil.LSN
+	startedAt time.Time
+}
+
+// newQuorumProof builds the proof for a write whose LSN the database reported as text.
+// It returns nil, and the decision proceeds without a proof, if the LSN can't be parsed.
+func (rs *ruleStore) newQuorumProof(ctx context.Context, rawLSN string, startedAt time.Time) *quorumProof {
+	lsn, err := pgutil.ParseLSN(rawLSN)
+	if err != nil {
+		rs.logger.WarnContext(ctx, "not recording a quorum proof for the proposal: unparseable LSN", "lsn", rawLSN, "error", err)
+		return nil
+	}
+	return &quorumProof{lsn: lsn, startedAt: startedAt}
 }
 
 // queryRuleHistory returns the most recent rule history records in descending

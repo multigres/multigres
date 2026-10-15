@@ -429,7 +429,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 			StaticLeader: config.StaticLeader,
 			// A decided rule follows a proposal a sync standby already acked, which is
 			// as good a proof the leader can commit as a heartbeat.
-			OnProposalAcked: pm.seedHeartbeatFromAckedProposal,
+			OnProposalAcked: pm.recordHeartbeatForAckedProposal,
 		})
 		if err != nil {
 			cancel()

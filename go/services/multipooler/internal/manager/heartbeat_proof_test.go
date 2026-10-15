@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 const heartbeatWritePattern = "(?s)INSERT INTO multigres\\.heartbeat.*"
@@ -35,8 +36,10 @@ func newHeartbeatProofManager(t *testing.T, queryService *mock.QueryService) *Mu
 	return pm
 }
 
-func TestSeedHeartbeatFromAckedProposal(t *testing.T) {
-	at := time.Now()
+func TestRecordHeartbeatForAckedProposal(t *testing.T) {
+	startedAt := time.Now()
+	lsn, err := pgutil.ParseLSN("0/100")
+	require.NoError(t, err)
 
 	t.Run("records the proof and writes the heartbeat row", func(t *testing.T) {
 		queryService := mock.NewQueryService()
@@ -46,12 +49,12 @@ func TestSeedHeartbeatFromAckedProposal(t *testing.T) {
 		), func(string) { writes++ })
 		pm := newHeartbeatProofManager(t, queryService)
 
-		pm.seedHeartbeatFromAckedProposal(t.Context(), "0/100", at)
+		pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
 
-		lsn, ts, have := pm.replTracker.HeartbeatWriter().LastProven()
+		got, ts, have := pm.replTracker.HeartbeatWriter().LastProven()
 		require.True(t, have)
-		assert.Equal(t, "0/100", lsn.String())
-		assert.Equal(t, at, ts)
+		assert.Equal(t, "0/100", got.String())
+		assert.Equal(t, startedAt, ts)
 		assert.Equal(t, 1, writes)
 	})
 
@@ -60,36 +63,16 @@ func TestSeedHeartbeatFromAckedProposal(t *testing.T) {
 		queryService.AddQueryPatternWithError(heartbeatWritePattern, errors.New("boom"))
 		pm := newHeartbeatProofManager(t, queryService)
 
-		pm.seedHeartbeatFromAckedProposal(t.Context(), "0/100", at)
+		pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
 
-		lsn, _, have := pm.replTracker.HeartbeatWriter().LastProven()
+		got, _, have := pm.replTracker.HeartbeatWriter().LastProven()
 		require.True(t, have)
-		assert.Equal(t, "0/100", lsn.String())
+		assert.Equal(t, "0/100", got.String())
 	})
-
-	for name, provenLSN := range map[string]string{
-		"an empty LSN is ignored":       "",
-		"an unparseable LSN is ignored": "not-an-lsn",
-	} {
-		t.Run(name, func(t *testing.T) {
-			queryService := mock.NewQueryService()
-			writes := 0
-			queryService.AddQueryPatternWithCallback(heartbeatWritePattern, mock.MakeQueryResult(
-				[]string{"pg_current_wal_lsn"}, [][]any{{"0/900"}},
-			), func(string) { writes++ })
-			pm := newHeartbeatProofManager(t, queryService)
-
-			pm.seedHeartbeatFromAckedProposal(t.Context(), provenLSN, at)
-
-			_, _, have := pm.replTracker.HeartbeatWriter().LastProven()
-			assert.False(t, have)
-			assert.Zero(t, writes)
-		})
-	}
 
 	t.Run("no heartbeat tracker is a no-op", func(t *testing.T) {
 		pm := newGracefulShutdownTestManager(t, nil)
 		pm.replTracker = nil
-		assert.NotPanics(t, func() { pm.seedHeartbeatFromAckedProposal(t.Context(), "0/100", at) })
+		assert.NotPanics(t, func() { pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt) })
 	})
 }

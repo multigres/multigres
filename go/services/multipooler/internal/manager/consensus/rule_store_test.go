@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -588,23 +589,9 @@ func TestUpdateRule_FinalizeErrorPropagated(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-// TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN: once the
-// proposal write has returned (a sync standby acked it), and before the decision is
-// written, the hook receives that write's LSN. A failure to decide must not undo it.
-func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *testing.T) {
-	mockQueryService := mock.NewQueryService()
-	rs := newMockRuleStore(mockQueryService)
-
-	var events []string
-	var gotLSN string
-	var gotAt time.Time
-	rs.onProposalAcked = func(_ context.Context, provenLSN string, at time.Time) {
-		events = append(events, "hook")
-		gotLSN, gotAt = provenLSN, at
-	}
-
-	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
-	mockQueryService.AddQueryPatternOnce(proposeWritePattern, mock.MakeQueryResult(
+// mockProposeWriteResult is the result of the proposal write, reporting currentLSN.
+func mockProposeWriteResult(currentLSN string) *sqltypes.Result {
+	return mock.MakeQueryResult(
 		[]string{
 			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
 			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
@@ -618,10 +605,32 @@ func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *tes
 				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
 				int64(1), int64(1), "zone1_leader-1", "{zone1_member-1,zone1_member-2}",
 				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:01:00+00",
-				"0/100",
+				currentLSN,
 			},
 		},
-	))
+	)
+}
+
+// TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN: once the
+// proposal write has returned (a sync standby acked it), and before the decision is
+// written, the hook receives that write's LSN and the time the write started. A failure
+// to decide must not undo it.
+func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	var events []string
+	var gotLSN pgutil.LSN
+	var gotStartedAt time.Time
+	rs.onProposalAcked = func(_ context.Context, lsn pgutil.LSN, startedAt time.Time) {
+		events = append(events, "hook")
+		gotLSN, gotStartedAt = lsn, startedAt
+	}
+
+	var writeServedAt time.Time
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	mockQueryService.AddQueryPatternWithCallback(proposeWritePattern, mockProposeWriteResult("0/100"),
+		func(string) { writeServedAt = time.Now() })
 	mockQueryService.AddQueryPatternOnceWithError(expectedTermPattern, errors.New("connection reset"))
 
 	before := time.Now()
@@ -630,9 +639,89 @@ func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *tes
 
 	require.Error(t, err, "the finalize failed")
 	require.Equal(t, []string{"hook"}, events, "the hook ran once, before the finalize, even though the finalize failed")
-	assert.Equal(t, "0/100", gotLSN, "it receives the proposal write's LSN")
-	assert.False(t, gotAt.Before(before), "stamped after the proposal was acked")
+	assert.Equal(t, "0/100", gotLSN.String(), "it receives the proposal write's LSN")
+	assert.False(t, gotStartedAt.Before(before), "the start time is from this update")
+	assert.False(t, gotStartedAt.After(writeServedAt), "the start time is taken before the proposal write, not after it was acked")
+}
+
+// TestUpdateRule_NoProofWhenTheProposalLSNIsUnparseable: a proposal write that reports
+// an LSN we can't parse still gets decided, just without recording a proof.
+func TestUpdateRule_NoProofWhenTheProposalLSNIsUnparseable(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	hookCalls := 0
+	rs.onProposalAcked = func(context.Context, pgutil.LSN, time.Time) { hookCalls++ }
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	mockQueryService.AddQueryPatternOnce(proposeWritePattern, mockProposeWriteResult("not-an-lsn"))
+	mockQueryService.AddQueryPatternOnceWithError(expectedTermPattern, errors.New("connection reset"))
+
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+
+	require.ErrorContains(t, err, "connection reset", "the decision was still attempted")
+	assert.Zero(t, hookCalls)
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// TestUpdateRule_RefreshesAnOldQuorumProofBeforeDeciding: a proof from a slow proposal
+// write would make the decided rule look stalled, so it is refreshed by a no-op write
+// that waits for the same acks. A fast proposal is not refreshed, and a failed refresh
+// leaves the older proof in place.
+func TestUpdateRule_RefreshesAnOldQuorumProofBeforeDeciding(t *testing.T) {
+	type outcome struct {
+		lsn              string
+		startedAt        time.Time
+		proposalServedAt time.Time
+		refreshes        int
+	}
+	run := func(t *testing.T, refreshAfter time.Duration, refreshErr error) outcome {
+		t.Helper()
+		var got outcome
+		qs := mock.NewQueryService()
+		rs := newMockRuleStore(qs)
+		rs.proofRefreshAfter = refreshAfter
+		rs.onProposalAcked = func(_ context.Context, lsn pgutil.LSN, startedAt time.Time) {
+			got.lsn, got.startedAt = lsn.String(), startedAt
+		}
+		qs.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+		qs.AddQueryPatternWithCallback(proposeWritePattern, mockProposeWriteResult("0/100"),
+			func(string) { got.proposalServedAt = time.Now() })
+		// Registered before the decide pattern: the refresh query also mentions expected_term.
+		if refreshErr != nil {
+			qs.AddQueryPatternWithError(confirmProposalQuorumPattern, refreshErr)
+		} else {
+			qs.AddQueryPatternWithCallback(confirmProposalQuorumPattern,
+				mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/200"}}),
+				func(string) { got.refreshes++ })
+		}
+		qs.AddQueryPatternOnceWithError(expectedTermPattern, errors.New("connection reset"))
+
+		coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+		_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+		require.ErrorContains(t, err, "connection reset", "the decision was still attempted")
+		return got
+	}
+
+	t.Run("a fast proposal is not refreshed", func(t *testing.T) {
+		got := run(t, time.Hour, nil)
+		assert.Equal(t, "0/100", got.lsn)
+		assert.Zero(t, got.refreshes)
+	})
+
+	t.Run("a slow proposal gets a newer proof from a fresh write", func(t *testing.T) {
+		got := run(t, time.Nanosecond, nil)
+		assert.Equal(t, "0/200", got.lsn, "the proof is the refresh write's")
+		assert.Equal(t, 1, got.refreshes)
+		assert.False(t, got.startedAt.Before(got.proposalServedAt), "its start time is after the proposal write")
+	})
+
+	t.Run("a failed refresh keeps the older proof", func(t *testing.T) {
+		got := run(t, time.Nanosecond, errors.New("standby gone"))
+		assert.Equal(t, "0/100", got.lsn)
+		assert.False(t, got.startedAt.After(got.proposalServedAt), "the older proof's start time stands")
+	})
 }
 
 // confirmProposalQuorumPattern matches confirmProposalQuorum's no-op write.
@@ -652,7 +741,7 @@ func TestConfirmProposalQuorum(t *testing.T) {
 		})
 		lsn, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
 		require.NoError(t, err)
-		assert.Equal(t, "0/ABC", lsn)
+		assert.Equal(t, "0/ABC", lsn.String())
 	})
 
 	t.Run("a query error is wrapped", func(t *testing.T) {
@@ -682,5 +771,15 @@ func TestConfirmProposalQuorum(t *testing.T) {
 		_, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read confirmed proposal LSN")
+	})
+
+	t.Run("an unparseable LSN is reported", func(t *testing.T) {
+		rs := newStore(func(qs *mock.QueryService) {
+			qs.AddQueryPattern(confirmProposalQuorumPattern, mock.MakeQueryResult(
+				[]string{"pg_current_wal_lsn"}, [][]any{{"not-an-lsn"}}))
+		})
+		_, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse confirmed proposal LSN")
 	})
 }

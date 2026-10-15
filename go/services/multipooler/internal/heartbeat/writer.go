@@ -188,12 +188,9 @@ func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 // the leader's own first-hand view -- available even when no follower is
 // reachable to relay the replicated row.
 //
-// Purely in-memory, so it goes empty right after a process restart. It can
-// also look stale immediately after a promotion, before this pooler's own
-// first heartbeat write lands -- but Recruit always demotes a former primary
-// to standby and restarts it before it can be recruited again, so becoming
-// leader always means a real pg_promote() out of recovery, which the
-// analyzer's promotion grace period already covers.
+// Purely in-memory, so it goes empty right after a process restart. A new
+// leader's first proof is recorded when its rule is decided (see RecordProven),
+// not by a write of its own, so it doesn't have to wait for two ticks.
 func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	lastProven := w.lastProven.Load()
 	if lastProven == nil {
@@ -202,14 +199,13 @@ func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	return lastProven.lsn, lastProven.ts, true
 }
 
-// RecordProven records a quorum-acked LSN the caller has already proved (at) as the
-// writer's latest proven watermark, then forces an immediate heartbeat write carrying
-// it. The write does not wait for a synchronous standby: its WAL precedes any later
-// commit that does, so the proof replicates with it. Used for a rule proposal whose
-// write blocked until a standby acked it, so a new leader reports a fresh proof
-// without waiting for its own first two writes. The watermark never moves backwards.
-func (w *Writer) RecordProven(ctx context.Context, lsn pgutil.LSN, at time.Time) error {
-	w.raiseProven(lsn, at)
+// RecordProven records a write the caller has proved quorum-acked as the latest proven
+// watermark, then forces an immediate heartbeat write carrying it. startedAt is when that
+// write began, as with a normal tick. The forced write skips the synchronous-commit wait:
+// its WAL precedes the decision's commit, which does wait, so the proof replicates with it.
+// The watermark never moves backwards.
+func (w *Writer) RecordProven(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) error {
+	w.raiseProven(lsn, startedAt)
 	writeCtx, cancel := context.WithTimeout(ctx, w.interval)
 	defer cancel()
 	return w.write(writeCtx, false)

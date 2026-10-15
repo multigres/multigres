@@ -162,9 +162,9 @@ type Deps struct {
 	// ConsensusManager.staticLeader).
 	StaticLeader bool
 	// OnProposalAcked, if set, is called before a quorum-acked rule proposal is
-	// finalized as a decision, with the proposal's write LSN (empty if unknown) and
-	// the time. See ruleStore.onProposalAcked.
-	OnProposalAcked func(ctx context.Context, provenLSN string, at time.Time)
+	// finalized as a decision, with the acked write's LSN and when it started. See
+	// ruleStore.onProposalAcked.
+	OnProposalAcked func(ctx context.Context, lsn pgutil.LSN, startedAt time.Time)
 }
 
 // NewConsensusManager builds a ConsensusManager and the components it owns — the

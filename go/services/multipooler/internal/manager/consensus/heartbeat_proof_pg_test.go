@@ -30,14 +30,12 @@ import (
 
 // newProofRecorder returns a rule-store hook that records every LSN it is given
 // and writes it through a real heartbeat writer, as the multipooler wires it.
-func newProofRecorder(t *testing.T, writer *heartbeat.Writer) (hook func(context.Context, string, time.Time), lsns *[]string) {
+func newProofRecorder(t *testing.T, writer *heartbeat.Writer) (hook func(context.Context, pgutil.LSN, time.Time), lsns *[]string) {
 	t.Helper()
 	var got []string
-	return func(ctx context.Context, provenLSN string, at time.Time) {
-		got = append(got, provenLSN)
-		lsn, err := pgutil.ParseLSN(provenLSN)
-		require.NoError(t, err, "the hook must receive a parseable LSN")
-		require.NoError(t, writer.RecordProven(ctx, lsn, at))
+	return func(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
+		got = append(got, lsn.String())
+		require.NoError(t, writer.RecordProven(ctx, lsn, startedAt))
 	}, &got
 }
 
