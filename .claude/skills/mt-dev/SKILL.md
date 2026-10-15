@@ -10,8 +10,15 @@ Development commands for the multigres project.
 ## Command Structure
 
 ```text
-/mt-dev [test-type] [args...]
+/mt-dev [minigres] [test-type] [args...]
 ```
+
+The optional leading `minigres` qualifier runs integration tests against the
+single-process Minigres topology instead of full Multigres — see "Minigres
+Topology" under Integration Tests. It's a prefix, not a package name, so it
+composes with any package: `/mt-dev minigres integration queryserving`,
+and (once a package gains Minigres awareness) `/mt-dev minigres integration
+<that-package>` too, with no new alias needed per package.
 
 ## For Claude Code
 
@@ -133,15 +140,24 @@ Integration tests are end-to-end tests that start real components (Multigateway,
 - `localprovisioner` - Local cluster provisioning and setup
 - `shardsetup` - Shard configuration and management
 - `pgregresstest` - PostgreSQL regression tests (opt-in, comprehensive)
-- `minigres` - Runs the `queryserving` suite against the single-process
-  Minigres topology instead of full Multigres (sets
-  `MULTIGRES_E2E_TOPOLOGY=minigres`). Only `queryserving` and its
-  `sqllogictest`/`pgparity`/`pgproto`/`postgresttests` sub-packages have any
-  Minigres awareness today — `pgregresstest`, `multipooler`, `multiorch`,
-  `shardsetup`, etc. always run against full Multigres regardless of this
-  alias. Tests that inherently need a second pooler or Multiorch (failover
-  buffering, replica reads, cross-gateway cancel) skip themselves under this
-  topology; see the table in `docs/general/minigres.md`.
+
+### Minigres Topology
+
+Prefix any integration command with `minigres` to run it against the
+single-process Minigres topology instead of full Multigres, e.g.
+`/mt-dev minigres integration queryserving`. This sets
+`MULTIGRES_E2E_TOPOLOGY=minigres` in the test environment — a qualifier on
+the command, not a separate package, so it composes with whichever package
+follows rather than needing its own alias.
+
+Only `queryserving` and its `sqllogictest`/`pgparity`/`pgproto`/
+`postgresttests` sub-packages have any Minigres awareness today —
+`pgregresstest`, `multipooler`, `multiorch`, `shardsetup`, etc. read nothing
+from that env var, so prefixing them with `minigres` is a harmless no-op
+that still runs against full Multigres. Tests that inherently need a second
+pooler or Multiorch (failover buffering, replica reads, cross-gateway
+cancel) skip themselves under this topology; see the table in
+`docs/general/minigres.md`.
 
 ### Integration Test Command Syntax
 
@@ -164,7 +180,7 @@ Examples:
 - `/mt-dev integration multipooler` → `make build && go test ./go/test/endtoend/multipooler/...`
 - `/mt-dev integration multiorch` → `make build && go test ./go/test/endtoend/multiorch/...`
 - `/mt-dev integration queryserving` → `make build && go test ./go/test/endtoend/queryserving/...`
-- `/mt-dev integration minigres` → `make build && MULTIGRES_E2E_TOPOLOGY=minigres go test ./go/test/endtoend/queryserving/...` (the `minigres` package name is a topology alias for `queryserving`, not a separate test directory — there is no `go/test/endtoend/minigres/`)
+- `/mt-dev minigres integration queryserving` → `make build && MULTIGRES_E2E_TOPOLOGY=minigres go test ./go/test/endtoend/queryserving/...`
 
 **Run specific test:**
 
@@ -238,7 +254,7 @@ Same flags as unit tests, plus:
 - "test multiorch TestFixReplication" → `/mt-dev integration multiorch TestFixReplication`
 - "run all integration tests with race detector" → `/mt-dev integration all -race`
 - "test query serving" → `/mt-dev integration queryserving`
-- "run queryserving tests against minigres" → `/mt-dev integration minigres`
+- "run queryserving tests against minigres" → `/mt-dev minigres integration queryserving`
 
 ---
 
@@ -527,16 +543,23 @@ This will print all log files to stdout after the test fails, making them visibl
 
 ### Argument Parsing Logic
 
-1. **First argument** (required):
+1. **Leading `minigres` token** (optional, integration tests only): if the
+   first argument is literally `minigres`, consume it as a topology
+   qualifier (set `MULTIGRES_E2E_TOPOLOGY=minigres` in the command's
+   environment) and parse everything after it as the normal
+   `[test-type] [args...]` command below. It is never itself the
+   package-name argument.
+
+2. **First remaining argument** (required):
    - For unit tests: package path or "all"
    - For integration tests: package name or "all"
 
-2. **Second argument** (optional):
+3. **Second remaining argument** (optional):
    - If starts with `Test`: use as `-run <TestName>` argument
    - If starts with `-`: treat as flag
    - Otherwise: error, show help
 
-3. **Additional arguments**:
+4. **Additional arguments**:
    - Parse as flags and append to go test command
    - Preserve order and formatting
 
@@ -552,6 +575,13 @@ go test [flags] [-run TestName] <package-path>
 
 ```bash
 make build && scripts/portpool.sh start && MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock go test [flags] [-run TestName] ./go/test/endtoend/<package>/...
+```
+
+**Integration tests with the `minigres` qualifier:** same as above, with
+`MULTIGRES_E2E_TOPOLOGY=minigres` added to the env:
+
+```bash
+make build && scripts/portpool.sh start && MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock MULTIGRES_E2E_TOPOLOGY=minigres go test [flags] [-run TestName] ./go/test/endtoend/<package>/...
 ```
 
 ### Output Handling
