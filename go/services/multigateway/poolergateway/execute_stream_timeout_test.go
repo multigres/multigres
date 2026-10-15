@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -183,15 +184,14 @@ func (nonstandardTestPropagator) Extract(ctx context.Context, _ propagation.Text
 
 func (nonstandardTestPropagator) Fields() []string { return []string{"custom-trace"} }
 
-// Compatibility fallbacks remain necessary even though reuse cannot be disabled.
+// Dedicated RPCs preserve per-call authorization, metadata and propagation.
 // A timeout on a dedicated RPC must not advertise readiness without cleanup.
 func TestCompatibilityFallbackTimeoutIsFatal(t *testing.T) {
-	for _, reason := range []string{"rpc_unsupported", "operation_unsupported", "metadata", "propagation"} {
+	for _, reason := range []string{"authorization", "metadata", "propagation"} {
 		t.Run(reason, func(t *testing.T) {
 			for _, operation := range []string{"unary", "sql", "portal", "copy"} {
 				t.Run(operation, func(t *testing.T) {
 					var calls atomic.Int32
-					var submitted atomic.Bool
 					s := &operationTestServer{
 						call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
 							calls.Add(1)
@@ -203,20 +203,12 @@ func TestCompatibilityFallbackTimeoutIsFatal(t *testing.T) {
 							<-stream.Context().Done()
 							return stream.Context().Err()
 						},
-						custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-							if reason == "rpc_unsupported" {
-								return status.Error(codes.Unimplemented, "old peer")
-							}
-							if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_DESCRIBE}}); err != nil {
-								return err
-							}
-							if _, err := stream.Recv(); err == nil {
-								submitted.Store(true)
-							}
-							return nil
-						},
 					}
-					g := queryServiceForOperations(t, s)
+					var dialOptions []grpc.DialOption
+					if reason == "authorization" {
+						dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(&testPerCallCredentials{}))
+					}
+					g := queryServiceForOperations(t, s, dialOptions...)
 					ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 					defer cancel()
 					if reason == "metadata" {
@@ -250,7 +242,6 @@ func TestCompatibilityFallbackTimeoutIsFatal(t *testing.T) {
 					require.Equal(t, "FATAL", diagnostic.Severity)
 					require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
 					require.Equal(t, int32(1), calls.Load(), "exactly one dedicated operation must run")
-					require.False(t, submitted.Load(), "fallback must precede submission")
 					if reason == "metadata" || reason == "propagation" {
 						require.Zero(t, s.streams.Load())
 					} else {
@@ -411,6 +402,40 @@ func TestStreamingCallbackErrorIdentity(t *testing.T) {
 				_, err = g.StreamExecute(t.Context(), &querypb.Target{}, "SELECT 1", &querypb.ExecuteOptions{}, nil, callback)
 			}
 			require.ErrorIs(t, err, callbackErr)
+		})
+	}
+}
+
+// The pooler's RPC deadline may expire before the gateway's local timer runs.
+// A dedicated transport still cannot confirm cleanup in that case.
+func TestDedicatedRemoteDeadlineIsFatal(t *testing.T) {
+	g := queryServiceForOperations(t, &operationTestServer{
+		call: func(context.Context, proto.Message) (proto.Message, error) {
+			return nil, status.Error(codes.DeadlineExceeded, "remote deadline")
+		},
+		copy: func(pb.MultipoolerService_CopyBidiExecuteServer) error {
+			return status.Error(codes.DeadlineExceeded, "remote deadline")
+		},
+	})
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "token")
+	for _, operation := range []string{"unary", "sql", "portal", "copy"} {
+		t.Run(operation, func(t *testing.T) {
+			var err error
+			switch operation {
+			case "unary":
+				_, _, err = g.ExecuteQuery(ctx, nil, "SELECT 1", nil)
+			case "sql":
+				_, err = g.StreamExecute(ctx, nil, "SELECT 1", nil, nil, noopStreamCallback)
+			case "portal":
+				_, err = g.PortalStreamExecute(ctx, nil, &querypb.PreparedStatement{}, &querypb.Portal{}, nil, nil, nil, noopStreamCallback)
+			case "copy":
+				_, _, _, err = g.CopyReady(ctx, &querypb.Target{}, "COPY t FROM STDIN", nil, nil)
+			}
+			var diagnostic *mterrors.PgDiagnostic
+			require.ErrorAs(t, err, &diagnostic)
+			require.Equal(t, "FATAL", diagnostic.Severity)
+			require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
+			require.NoError(t, ctx.Err())
 		})
 	}
 }

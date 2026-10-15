@@ -41,6 +41,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
@@ -69,13 +70,14 @@ func (s *streamTestServer) StreamExecute(req *pb.StreamExecuteRequest, out pb.Mu
 	return s.execute(req, out)
 }
 
-func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServiceClient, *streamPool) {
+func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer, extraDialOptions ...grpc.DialOption) (pb.MultipoolerServiceClient, *streamPool) {
 	t.Helper()
 	l := bufconn.Listen(1 << 20)
 	s := grpc.NewServer()
 	pb.RegisterMultipoolerServiceServer(s, impl)
 	go func() { _ = s.Serve(l) }()
-	cc, err := grpc.NewClient("passthrough:///test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() }))
+	dialOptions := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() })}, extraDialOptions...)
+	cc, err := grpc.NewClient("passthrough:///test", dialOptions...)
 	require.NoError(t, err)
 	qs := newGRPCQueryService(cc, "test-pooler", slog.Default()).(*grpcQueryService)
 	c, p := qs.client, qs.executeStreams
@@ -215,20 +217,6 @@ func TestCancellationAndAbandonment(t *testing.T) {
 	}
 }
 
-func TestFallbackBeforeSendingSQL(t *testing.T) {
-	s := &streamTestServer{custom: func(pb.MultipoolerService_ExecuteStreamServer) error {
-		return status.Error(codes.Unimplemented, "old server")
-	}}
-	_, p := connectStreamPool(t, s)
-	for range 3 {
-		r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{Query: "never sent"})
-		require.NoError(t, err)
-		require.False(t, used)
-		require.Nil(t, r)
-	}
-	require.EqualValues(t, 1, s.streams.Load())
-}
-
 func TestMetadataAndInvalidPropagation(t *testing.T) {
 	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
 	c, p := connectStreamPool(t, s)
@@ -259,7 +247,7 @@ func TestMetadataAndInvalidPropagation(t *testing.T) {
 func TestTransportLossNotReplayed(t *testing.T) {
 	var received atomic.Int32
 	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 			return err
 		}
 		if _, err := stream.Recv(); err != nil {
@@ -316,7 +304,7 @@ func TestRetirementAndLateCancellation(t *testing.T) {
 func TestMalformedFrames(t *testing.T) {
 	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Result: &pb.ExecuteStreamResponse_Response{Response: &pb.StreamExecuteResponse{}}, Completion: &statuspb.Status{}}} {
 		s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 				return err
 			}
 			if _, err := stream.Recv(); err != nil {
@@ -383,7 +371,7 @@ func TestIdleExpirationAndRepeatedRelease(t *testing.T) {
 
 func TestTransportEOFCannotReportSuccess(t *testing.T) {
 	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 			return err
 		}
 		if _, err := stream.Recv(); err != nil {
@@ -452,58 +440,59 @@ func TestPoolMetrics(t *testing.T) {
 	}, sums)
 }
 
-// Both a newly detected unsupported RPC and its cached fallback must remain
-// distinguishable from a missing operation on an otherwise reusable stream.
-func TestPoolFallbackMetrics(t *testing.T) {
-	for _, rpcUnsupported := range []bool{true, false} {
-		reason := "legacy_operation_unsupported"
-		if rpcUnsupported {
-			reason = "legacy_rpc_unsupported"
-		}
-		t.Run(reason, func(t *testing.T) {
-			s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-				if rpcUnsupported {
-					return status.Error(codes.Unimplemented, "old server")
-				}
-				// The original handshake only supports StreamExecute.
-				if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
-					return err
-				}
-				_, err := stream.Recv()
-				return err
-			}}
-			_, p := connectStreamPool(t, s)
-			reader := sdkmetric.NewManualReader()
-			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
-			p.m = newStreamPoolMetrics(provider.Meter("test"))
-			for range 2 {
-				r, used, err := p.open(t.Context(), queryrpc.Request(&pb.ExecuteQueryRequest{}))
-				require.NoError(t, err)
-				require.False(t, used)
-				require.Nil(t, r)
-			}
-			require.EqualValues(t, 1, s.streams.Load())
-			require.Equal(t, rpcUnsupported, p.unsupported.Load())
+// Credentials supplied by gRPC are invisible to the caller's outgoing context.
+// The server must explicitly identify authorization as the reason for refusing
+// reuse, and every dedicated call must still receive fresh credentials.
+type testPerCallCredentials struct{ calls atomic.Int32 }
 
-			var rm metricdata.ResourceMetrics
-			require.NoError(t, reader.Collect(t.Context(), &rm))
-			counts := map[string]int64{}
-			for _, sm := range rm.ScopeMetrics {
-				for _, m := range sm.Metrics {
-					if m.Name != "mg.gateway.query_stream.operations" {
-						continue
-					}
-					for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
-						transport, ok := dp.Attributes.Value("transport")
-						require.True(t, ok)
-						counts[transport.AsString()] += dp.Value
-					}
-				}
+func (c *testPerCallCredentials) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"authorization": fmt.Sprintf("token-%d", c.calls.Add(1))}, nil
+}
+
+func (*testPerCallCredentials) RequireTransportSecurity() bool { return false }
+
+func TestPerCallAuthorizationFallback(t *testing.T) {
+	var calls atomic.Int32
+	s := &operationTestServer{call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
+		n := calls.Add(1)
+		md, _ := metadata.FromIncomingContext(ctx)
+		if got := md.Get("authorization"); len(got) != 1 || got[0] != fmt.Sprintf("token-%d", n+1) {
+			return nil, status.Error(codes.Unauthenticated, "missing fresh credentials")
+		}
+		if n == 2 {
+			return nil, status.Error(codes.Unauthenticated, "token rejected")
+		}
+		return &pb.ExecuteQueryResponse{}, nil
+	}}
+	g := queryServiceForOperations(t, s, grpc.WithPerRPCCredentials(&testPerCallCredentials{}))
+	p := g.executeStreams
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	p.m = newStreamPoolMetrics(provider.Meter("test"))
+	_, _, err := g.ExecuteQuery(t.Context(), nil, "SELECT 1", nil)
+	require.NoError(t, err)
+	_, _, err = g.ExecuteQuery(t.Context(), nil, "SELECT 2", nil)
+	require.ErrorContains(t, err, "token rejected")
+	require.EqualValues(t, 2, calls.Load())
+	require.EqualValues(t, 1, s.streams.Load())
+	require.True(t, p.perCallAuthorization.Load())
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	counts := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "mg.gateway.query_stream.operations" {
+				continue
 			}
-			require.Equal(t, map[string]int64{reason: 2}, counts)
-		})
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				transport, ok := dp.Attributes.Value("transport")
+				require.True(t, ok)
+				counts[transport.AsString()] += dp.Value
+			}
+		}
 	}
+	require.Equal(t, map[string]int64{"legacy_authorization": 2}, counts)
 }
 
 func TestHandshakeHonoursCallerDeadline(t *testing.T) {

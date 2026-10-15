@@ -154,11 +154,14 @@ type midStreamFailServer struct {
 	multipoolerservice.UnimplementedMultipoolerServiceServer
 }
 
-func (s *midStreamFailServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	stream grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	if err := stream.Send(&multipoolerservice.StreamExecuteResponse{}); err != nil {
+func (s *midStreamFailServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Result: &multipoolerservice.ExecuteStreamResponse_Response{Response: &multipoolerservice.StreamExecuteResponse{}}}); err != nil {
 		return err
 	}
 	return status.Error(codes.Unavailable, "transport is closing")
@@ -192,11 +195,18 @@ type promotedPoolerServer struct {
 	*controllableHealthServer
 }
 
-func (s *promotedPoolerServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	_ grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	return nil
+func (s *promotedPoolerServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return err
+		}
+		if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Completion: status.New(codes.OK, "").Proto()}); err != nil {
+			return err
+		}
+	}
 }
 
 // newTestLBFrozenHealth is newTestLBWithLeaderServing with one twist: the
