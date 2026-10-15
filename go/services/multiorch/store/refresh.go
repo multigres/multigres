@@ -84,9 +84,7 @@ func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.Multipoole
 			result.Skipped++
 			continue
 		}
-		wg.Add(1)
-		go func(pooler *Pooler) {
-			defer wg.Done()
+		wg.Go(func() {
 			err := pooler.refreshNow(ctx, rpcClient)
 			mu.Lock()
 			defer mu.Unlock()
@@ -97,7 +95,7 @@ func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.Multipoole
 				return
 			}
 			result.Refreshed++
-		}(pooler)
+		})
 	}
 	wg.Wait()
 	return result

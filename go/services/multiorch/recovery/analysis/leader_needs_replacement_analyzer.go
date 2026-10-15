@@ -337,9 +337,7 @@ func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderI
 		return a.blindOrStuck(sa, leaderID, cohort,
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
 	}
-	problems := a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
-	problems[0].SkipPreRecheckRefresh = causeIsConclusive(cause)
-	return problems
+	return a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
 }
 
 // causeIsConclusive reports whether a failover cause cannot be refuted by fresher
@@ -797,5 +795,7 @@ func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *ShardAnalysis, leaderI
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: action,
+		// Only consulted for actions that ask for a refresh; false for every other code.
+		SkipPreRecheckRefresh: causeIsConclusive(code),
 	}}
 }

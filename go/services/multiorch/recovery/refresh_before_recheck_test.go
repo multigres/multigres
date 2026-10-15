@@ -151,9 +151,9 @@ func TestAttemptRecovery_RegatesAFailoverAfterTheRecheck(t *testing.T) {
 	action := appointAction(0)
 	engine, _, problem := newRefreshEngine(t, action, false)
 
-	shard := store.FindShardMembers(engine.poolerCache, problem.ShardKey)
-	require.Len(t, shard.Poolers, 1)
-	shard.Poolers[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+	poolers := store.FindPoolersInShard(engine.poolerCache, problem.ShardKey)
+	require.Len(t, poolers, 1)
+	poolers[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 		h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{
 				Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},

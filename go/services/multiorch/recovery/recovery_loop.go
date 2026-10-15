@@ -352,9 +352,9 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// orchestrator acting: a recruit based on an out-of-date term is rejected by the
 	// pooler's term check.
 	if timeout := problem.RecoveryAction.Metadata().RefreshBeforeRecheckTimeout; timeout > 0 && !problem.SkipPreRecheckRefresh {
-		shard := store.FindShardMembers(re.poolerCache, problem.ShardKey)
+		poolers := store.FindPoolersInShard(re.poolerCache, problem.ShardKey)
 		refreshStart := time.Now()
-		refresh := store.RefreshRecentInParallel(ctx, re.rpcClient, shard.Poolers, timeout, re.logger)
+		refresh := store.RefreshRecentInParallel(ctx, re.rpcClient, poolers, timeout, re.logger)
 		span.SetAttributes(
 			attribute.Int64("pre_recheck_refresh.duration_ms", time.Since(refreshStart).Milliseconds()),
 			attribute.Int("pre_recheck_refresh.refreshed", refresh.Refreshed),
