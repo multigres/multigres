@@ -634,3 +634,53 @@ func TestUpdateRule_ProposalAckedHookRunsBeforeFinalizeWithTheProposalLSN(t *tes
 	assert.False(t, gotAt.Before(before), "stamped after the proposal was acked")
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
+
+// confirmProposalQuorumPattern matches confirmProposalQuorum's no-op write.
+const confirmProposalQuorumPattern = `(?s)SET proposal_created_at = proposal_created_at.*RETURNING pg_current_wal_lsn`
+
+func TestConfirmProposalQuorum(t *testing.T) {
+	newStore := func(configure func(*mock.QueryService)) *ruleStore {
+		mockQueryService := mock.NewQueryService()
+		configure(mockQueryService)
+		return newMockRuleStore(mockQueryService)
+	}
+
+	t.Run("returns the LSN read before the write committed", func(t *testing.T) {
+		rs := newStore(func(qs *mock.QueryService) {
+			qs.AddQueryPattern(confirmProposalQuorumPattern, mock.MakeQueryResult(
+				[]string{"pg_current_wal_lsn"}, [][]any{{"0/ABC"}}))
+		})
+		lsn, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "0/ABC", lsn)
+	})
+
+	t.Run("a query error is wrapped", func(t *testing.T) {
+		rs := newStore(func(qs *mock.QueryService) {
+			qs.AddQueryPatternWithError(confirmProposalQuorumPattern, errors.New("connection reset"))
+		})
+		_, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to confirm stuck proposal quorum")
+		assert.Contains(t, err.Error(), "connection reset")
+	})
+
+	t.Run("no row means the proposal changed under us", func(t *testing.T) {
+		rs := newStore(func(qs *mock.QueryService) {
+			qs.AddQueryPattern(confirmProposalQuorumPattern, mock.MakeQueryResult(
+				[]string{"pg_current_wal_lsn"}, [][]any{}))
+		})
+		_, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
+		assert.ErrorIs(t, err, errRuleConflict)
+	})
+
+	t.Run("a row without the LSN column is reported", func(t *testing.T) {
+		rs := newStore(func(qs *mock.QueryService) {
+			qs.AddQueryPattern(confirmProposalQuorumPattern, mock.MakeQueryResult(
+				[]string{"pg_current_wal_lsn"}, [][]any{{}}))
+		})
+		_, err := rs.confirmProposalQuorum(t.Context(), 4, 1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read confirmed proposal LSN")
+	})
+}

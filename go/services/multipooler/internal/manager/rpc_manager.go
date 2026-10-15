@@ -675,16 +675,12 @@ func (pm *MultipoolerManager) seedHeartbeatFromAckedProposal(ctx context.Context
 	if provenLSN == "" || pm.replTracker == nil {
 		return
 	}
-	writer := pm.replTracker.HeartbeatWriter()
-	if writer == nil {
-		return
-	}
 	lsn, err := pgutil.ParseLSN(provenLSN)
 	if err != nil {
 		pm.logger.DebugContext(ctx, "not seeding heartbeat: unparseable proposal LSN", "lsn", provenLSN, "error", err)
 		return
 	}
-	if err := writer.RecordProven(ctx, lsn, at); err != nil {
+	if err := pm.replTracker.HeartbeatWriter().RecordProven(ctx, lsn, at); err != nil {
 		pm.logger.DebugContext(ctx, "failed to write heartbeat for acked proposal", "error", err)
 	}
 }
