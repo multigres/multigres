@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/pgoid"
 	"github.com/multigres/multigres/go/common/pgcatalog"
 	"github.com/multigres/multigres/go/common/pgeval/analyze"
+	"github.com/multigres/multigres/go/common/pgeval/exec"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
 )
@@ -381,211 +382,42 @@ func skipReason(message string) string {
 	return message
 }
 
-// errNotEvaluable marks a tree the test evaluator cannot run: a node kind
-// outside its scope or a builtin without a ported body.
-var errNotEvaluable = errors.New("not evaluable by the test harness")
+// errNotEvaluable marks a tree the engine cannot run yet: a construct
+// outside the evaluator's scope or a builtin without a ported body.
+var errNotEvaluable = errors.New("not evaluable by the gateway engine yet")
 
-// evaluate runs an analyzed tree with the ported builtins. It is a test
-// aid, deliberately small: enough of the executor's expression semantics
-// to turn the analyzer's choice of operators and casts into a value that
-// PostgreSQL can be asked to confirm.
-func evaluate(tree ast.Node) (result datum.NullableDatum, err error) {
-	e := &evaluator{}
-	err = pgerror.Recover(func() { result = e.eval(tree) })
-	if e.notEvaluable {
-		return result, errNotEvaluable
-	}
+// evaluate runs an analyzed tree through the gateway evaluator.
+func evaluate(tree ast.Node) (datum.NullableDatum, error) {
+	state, err := exec.Prepare(tree)
 	if err != nil {
-		var diag *mterrors.PgDiagnostic
-		if errors.As(err, &diag) && diag.Code == mterrors.PgSSFeatureNotSupported {
-			return result, errNotEvaluable
-		}
+		return datum.NullableDatum{}, notEvaluableOr(err)
 	}
-	return result, err
+	result, err := state.Eval(nil)
+	return result, notEvaluableOr(err)
 }
 
-type evaluator struct {
-	caseValues   []datum.NullableDatum // CaseTestExpr stack
-	notEvaluable bool
-}
-
-func (e *evaluator) giveUp() datum.NullableDatum {
-	e.notEvaluable = true
-	pgerror.Ereportf(mterrors.PgSSFeatureNotSupported, "test evaluator: node not evaluable")
-	return datum.NullableDatum{}
-}
-
-func (e *evaluator) call(funcid pgoid.Oid, args []ast.Node) datum.NullableDatum {
-	info, err := fmgr.FmgrInfoFor(funcid)
-	if err != nil {
-		pgerror.Elogf("%v", err)
+// notEvaluableOr maps feature_not_supported to errNotEvaluable and keeps
+// every other error for the comparison with the server.
+func notEvaluableOr(err error) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) && diag.Code == mterrors.PgSSFeatureNotSupported {
+		return errNotEvaluable
 	}
-	fcinfo := fmgr.NewFunctionCallInfo(info, len(args), pgoid.InvalidOid)
-	for i, arg := range args {
-		fcinfo.Args[i] = e.eval(arg)
-	}
-	value := fmgr.CallFunction(fcinfo)
-	return datum.NullableDatum{Value: value, IsNull: fcinfo.IsNull}
-}
-
-func (e *evaluator) eval(n ast.Node) datum.NullableDatum {
-	switch n := n.(type) {
-	case *ast.Const:
-		return datum.NullableDatum{Value: n.Constvalue, IsNull: n.Constisnull}
-	case *ast.FuncExpr:
-		return e.call(n.Funcid, n.Args.Items)
-	case *ast.OpExpr:
-		return e.call(n.Opfuncid, n.Args.Items)
-	case *ast.RelabelType:
-		return e.eval(n.Arg)
-	case *ast.CoerceToDomain:
-		return e.eval(n.Arg)
-	case *ast.CoerceViaIO:
-		arg := e.eval(n.Arg)
-		if arg.IsNull {
-			return arg
-		}
-		text := e.output(analyze.ExprType(n.Arg), arg.Value)
-		return e.input(n.Resulttype, text)
-	case *ast.BoolExpr:
-		return e.boolExpr(n)
-	case *ast.NullTest:
-		arg := e.eval(n.Arg)
-		return datum.NullableDatum{Value: datum.BoolGetDatum(arg.IsNull == (n.Nulltesttype == ast.IS_NULL))}
-	case *ast.BooleanTest:
-		arg := e.eval(n.Arg)
-		v := !arg.IsNull && datum.DatumGetBool(arg.Value)
-		var result bool
-		switch n.Booltesttype {
-		case ast.IS_TRUE:
-			result = !arg.IsNull && v
-		case ast.IS_NOT_TRUE:
-			result = arg.IsNull || !v
-		case ast.IS_FALSE:
-			result = !arg.IsNull && !v
-		case ast.IS_NOT_FALSE:
-			result = arg.IsNull || v
-		case ast.IS_UNKNOWN:
-			result = arg.IsNull
-		case ast.IS_NOT_UNKNOWN:
-			result = !arg.IsNull
-		}
-		return datum.NullableDatum{Value: datum.BoolGetDatum(result)}
-	case *ast.DistinctExpr:
-		l, r := e.eval(n.Args.Items[0]), e.eval(n.Args.Items[1])
-		if l.IsNull || r.IsNull {
-			return datum.NullableDatum{Value: datum.BoolGetDatum(l.IsNull != r.IsNull)}
-		}
-		eq := e.callValues(n.Opfuncid, l, r)
-		return datum.NullableDatum{Value: datum.BoolGetDatum(eq.IsNull || !datum.DatumGetBool(eq.Value))}
-	case *ast.NullIfExpr:
-		l, r := e.eval(n.Args.Items[0]), e.eval(n.Args.Items[1])
-		// if either argument is NULL they can't be equal
-		if !l.IsNull && !r.IsNull {
-			if eq := e.callValues(n.Opfuncid, l, r); !eq.IsNull && datum.DatumGetBool(eq.Value) {
-				return datum.NullableDatum{IsNull: true}
-			}
-		}
-		// Arguments aren't equal, so return the first one
-		return l
-	case *ast.CaseExpr:
-		if n.Arg != nil {
-			e.caseValues = append(e.caseValues, e.eval(n.Arg))
-			defer func() { e.caseValues = e.caseValues[:len(e.caseValues)-1] }()
-		}
-		for _, w := range n.Args.Items {
-			when := w.(*ast.CaseWhen)
-			if cond := e.eval(when.Expr); !cond.IsNull && datum.DatumGetBool(cond.Value) {
-				return e.eval(when.Result)
-			}
-		}
-		return e.eval(n.Defresult)
-	case *ast.CaseTestExpr:
-		return e.caseValues[len(e.caseValues)-1]
-	case *ast.CoalesceExpr:
-		for _, arg := range n.Args.Items {
-			if v := e.eval(arg); !v.IsNull {
-				return v
-			}
-		}
-		return datum.NullableDatum{IsNull: true}
-	}
-	// Param, ArrayExpr, ScalarArrayOpExpr, ArrayCoerceExpr, MinMaxExpr (needs
-	// the type cache's comparison function) are outside the harness.
-	return e.giveUp()
-}
-
-func (e *evaluator) callValues(funcid pgoid.Oid, args ...datum.NullableDatum) datum.NullableDatum {
-	info, err := fmgr.FmgrInfoFor(funcid)
-	if err != nil {
-		pgerror.Elogf("%v", err)
-	}
-	fcinfo := fmgr.NewFunctionCallInfo(info, len(args), pgoid.InvalidOid)
-	copy(fcinfo.Args, args)
-	value := fmgr.CallFunction(fcinfo)
-	return datum.NullableDatum{Value: value, IsNull: fcinfo.IsNull}
-}
-
-// boolExpr applies three-valued AND/OR/NOT - execExprInterp.c:1600.
-func (e *evaluator) boolExpr(n *ast.BoolExpr) datum.NullableDatum {
-	if n.Boolop == ast.NOT_EXPR {
-		arg := e.eval(n.Args.Items[0])
-		if arg.IsNull {
-			return arg
-		}
-		return datum.NullableDatum{Value: datum.BoolGetDatum(!datum.DatumGetBool(arg.Value))}
-	}
-	anyNull := false
-	for _, arg := range n.Args.Items {
-		v := e.eval(arg)
-		if v.IsNull {
-			anyNull = true
-			continue
-		}
-		b := datum.DatumGetBool(v.Value)
-		if n.Boolop == ast.AND_EXPR && !b {
-			return datum.NullableDatum{Value: datum.BoolGetDatum(false)}
-		}
-		if n.Boolop == ast.OR_EXPR && b {
-			return datum.NullableDatum{Value: datum.BoolGetDatum(true)}
-		}
-	}
-	if anyNull {
-		return datum.NullableDatum{IsNull: true}
-	}
-	return datum.NullableDatum{Value: datum.BoolGetDatum(n.Boolop == ast.AND_EXPR)}
-}
-
-func (e *evaluator) output(typ pgoid.Oid, value datum.Datum) string {
-	t := pgcatalog.TypeByOid(typ)
-	out := e.callValues(t.Output, datum.NullableDatum{Value: value})
-	return string(datum.DatumGetBytes(out.Value))
-}
-
-func (e *evaluator) input(typ pgoid.Oid, text string) datum.NullableDatum {
-	t := pgcatalog.TypeByOid(typ)
-	ioparam := t.Oid
-	if t.Elem != pgoid.InvalidOid {
-		ioparam = t.Elem
-	}
-	return e.callValues(t.Input,
-		datum.NullableDatum{Value: datum.BytesGetDatum([]byte(text))},
-		datum.NullableDatum{Value: datum.ObjectIdGetDatum(ioparam)},
-		datum.NullableDatum{Value: datum.Int32GetDatum(-1)})
+	return err
 }
 
 // outputText renders a value through its type's output function, or
 // errNotEvaluable when that function is not ported.
-func outputText(typ pgoid.Oid, value datum.Datum) (string, error) {
-	var text string
-	e := &evaluator{}
-	err := pgerror.Recover(func() { text = e.output(typ, value) })
+func outputText(typ pgoid.Oid, value datum.Datum) (text string, err error) {
+	flinfo, err := fmgr.FmgrInfoFor(pgcatalog.TypeByOid(typ).Output)
 	if err != nil {
-		var diag *mterrors.PgDiagnostic
-		if errors.As(err, &diag) && diag.Code == mterrors.PgSSFeatureNotSupported {
-			return "", errNotEvaluable
-		}
 		return "", err
+	}
+	err = pgerror.Recover(func() {
+		text = string(datum.DatumGetBytes(fmgr.FunctionCall1Coll(flinfo, pgoid.InvalidOid, value)))
+	})
+	if err != nil {
+		return "", notEvaluableOr(err)
 	}
 	return strings.Clone(text), nil
 }
