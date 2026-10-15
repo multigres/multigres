@@ -432,8 +432,8 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 // problem still exists before executing a recovery action.
 //
 // Under streaming, the store is continuously updated by ManagerHealthStream
-// streams, so no explicit force-poll is needed. We simply re-generate the
-// shard analysis from the current store and re-run the analyzer.
+// streams, so no explicit force-poll is needed. We simply freeze the
+// shard again from the current store and re-run the analyzer.
 //
 // Returns nil (with a nil error) if the problem is no longer detected — the
 // caller should skip recovery. Otherwise returns the redetected problem

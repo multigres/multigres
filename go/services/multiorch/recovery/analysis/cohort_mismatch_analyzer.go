@@ -66,19 +66,19 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 
 	// We only act when the shard has a reachable, ready leader to receive the
 	// rule update. Bootstrap and failover paths set up the cohort separately.
-	if !leaderServing(sa) {
+	if !intendedLeaderServing(sa) {
 		return nil, nil
 	}
 
 	// Detect against proposals as well as decisions to ensure we surface a problem, but
 	// the action to resolve will defer taking action if a proposal is in progress.
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
+	intendedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache
 	// cohort member (no pooler rider carries its ID otherwise).
-	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(undecidedRule.GetCohortMembers()))
-	for _, id := range undecidedRule.GetCohortMembers() {
+	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(intendedRule.GetCohortMembers()))
+	for _, id := range intendedRule.GetCohortMembers() {
 		cohortIDs[topoclient.ComponentIDString(id)] = id
 	}
 
@@ -117,7 +117,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 			// removal lands per cycle regardless — the rest fail the CAS and
 			// retry next cycle against the now-changed cohort.
 			if types.PoolerIsCohortIneligible(pa.GetAvailabilityStatus()) &&
-				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
+				commonconsensus.IsCohortMemberRemovalSafe(intendedRule, id) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",
@@ -180,7 +180,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 		//
 		// For non-tombstone missing-from-cache cases the pooler may still be
 		// alive somewhere; gate those on the durability policy.
-		if !isTombstone && !commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
+		if !isTombstone && !commonconsensus.IsCohortMemberRemovalSafe(intendedRule, id) {
 			continue
 		}
 		if isTombstone {

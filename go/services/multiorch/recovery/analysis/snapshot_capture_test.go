@@ -51,7 +51,7 @@ func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetada
 func TestSnapshotShards_EmptyStore(t *testing.T) {
 	generator := newTestCapture(store.NewTestCache(t))
 
-	analyses := flattenShardAnalyses(generator.all())
+	analyses := flattenPoolers(generator.all())
 
 	assert.Empty(t, analyses, "should return empty slice for empty store")
 }
@@ -89,7 +89,7 @@ func TestSnapshotShards_SinglePrimary(t *testing.T) {
 	store.SeedCache(t, ps, store.NewPooler(primary, nil))
 
 	generator := newTestCapture(ps)
-	analyses := flattenShardAnalyses(generator.all())
+	analyses := flattenPoolers(generator.all())
 
 	require.Len(t, analyses, 1, "should generate one analysis")
 
@@ -213,7 +213,7 @@ func TestSnapshotShards_PrimaryWithReplicas(t *testing.T) {
 	store.SeedCache(t, ps, store.NewPooler(replica2, nil))
 
 	generator := newTestCapture(ps)
-	analyses := flattenShardAnalyses(generator.all())
+	analyses := flattenPoolers(generator.all())
 
 	require.Len(t, analyses, 3, "should generate three analyses")
 
@@ -291,7 +291,7 @@ func TestSnapshotShards_Replica(t *testing.T) {
 	generator := newTestCapture(ps)
 	shards := generator.all()
 
-	require.Len(t, shards, 1, "should generate one shard analysis")
+	require.Len(t, shards, 1, "should snapshot one shard")
 	sa := shards[0]
 	require.Len(t, sa.Poolers, 2, "should generate two pooler analyses")
 
@@ -355,7 +355,7 @@ func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
 	store.SeedCache(t, ps, store.NewPooler(tg2Primary, nil))
 
 	generator := newTestCapture(ps)
-	analyses := flattenShardAnalyses(generator.all())
+	analyses := flattenPoolers(generator.all())
 
 	require.Len(t, analyses, 2, "should generate two analyses")
 
@@ -396,7 +396,7 @@ func TestSnapshotShards_SkipsNilEntries(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	analyses := flattenShardAnalyses(gen.all())
+	analyses := flattenPoolers(gen.all())
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
@@ -492,7 +492,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	// HighestTermDiscoveredPrimaryID should be set even when postgres is down
 	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
 	// But PrimaryReachable should be false because postgres is down
-	assert.False(t, leaderServing(sa), "primary should NOT be serving when postgres is down")
+	assert.False(t, intendedLeaderServing(sa), "primary should NOT be serving when postgres is down")
 }
 
 // TestPopulatePrimaryInfo_DemotedViaRecruit covers the scenario where a primary is
@@ -565,7 +565,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
 		assert.Equal(t, "primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
-		assert.False(t, leaderServing(sa), "demoted primary reporting REPLICA should not be serving")
+		assert.False(t, intendedLeaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 
 	t.Run("topology type REPLICA, PoolerType REPLICA, primary term > 0 via ConsensusStatus (stale etcd)", func(t *testing.T) {
@@ -610,7 +610,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
 		assert.Equal(t, "former-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
-		assert.False(t, leaderServing(sa), "demoted primary reporting REPLICA should not be serving")
+		assert.False(t, intendedLeaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 }
 
@@ -662,7 +662,7 @@ func TestSnapshotShard_LeaderNamedButAbsentFromStore(t *testing.T) {
 	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "consensus must still identify the leader")
 	assert.Equal(t, "absent-leader", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
 	assert.Nil(t, sa.IntendedLeader(), "no health state exists for the named leader")
-	assert.False(t, leaderServing(sa), "a leader with no health cannot be serving")
+	assert.False(t, intendedLeaderServing(sa), "a leader with no health cannot be serving")
 }
 
 // TestSnapshotShard_StaleLeaderSupersededViaFollowerRule is a regression
@@ -812,7 +812,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
 	assert.Equal(t, "new-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name,
 		"should pick primary with highest PrimaryTerm")
-	assert.True(t, leaderServing(sa),
+	assert.True(t, intendedLeaderServing(sa),
 		"primary must appear reachable when new primary has postgres running")
 }
 
@@ -969,7 +969,7 @@ func TestSnapshotShards_GroupsByShardKey(t *testing.T) {
 	gen := newTestCapture(ps)
 	shards := gen.all()
 
-	require.Len(t, shards, 2, "should produce one ShardAnalysis per shard")
+	require.Len(t, shards, 2, "should produce one snapshot per shard")
 
 	countByShard := make(map[string]int)
 	for _, sa := range shards {

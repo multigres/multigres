@@ -92,10 +92,10 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		}
 	}
 
-	// newSA builds a ShardAnalysis with the given analyses, a serving leader, and
+	// newSA builds a shard snapshot with the given analyses, a serving leader, and
 	// the shard's committed rule at term 1.
 	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
-		return newShardAnalysis(&snapshot.Shard{
+		return newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Poolers:            analyses,
 			Now:                now,

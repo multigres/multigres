@@ -25,9 +25,9 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// flattenShardAnalyses collects all rider entries across all ShardAnalysis groups.
+// flattenPoolers collects the pooler snapshots across all shards.
 // Used in tests to assert on individual poolers without caring about shard grouping.
-func flattenShardAnalyses(shards []*snapshot.Shard) []*multiorchdatapb.PoolerHealthState {
+func flattenPoolers(shards []*snapshot.Shard) []*multiorchdatapb.PoolerHealthState {
 	var analyses []*multiorchdatapb.PoolerHealthState
 	for _, sa := range shards {
 		analyses = append(analyses, sa.Poolers...)
@@ -35,7 +35,7 @@ func flattenShardAnalyses(shards []*snapshot.Shard) []*multiorchdatapb.PoolerHea
 	return analyses
 }
 
-// findPoolerByName returns the rider with the given name from a ShardAnalysis,
+// findPoolerByName returns the rider with the given name from a shard snapshot,
 // or nil if not found.
 func findPoolerByName(sa *snapshot.Shard, name string) *multiorchdatapb.PoolerHealthState {
 	for _, pa := range sa.Poolers {
@@ -46,7 +46,7 @@ func findPoolerByName(sa *snapshot.Shard, name string) *multiorchdatapb.PoolerHe
 	return nil
 }
 
-// analyzeOne wraps a single rider in a ShardAnalysis, calls Analyze, and returns
+// analyzeOne wraps a single pooler snapshot in a shard snapshot, calls Analyze, and returns
 // the first problem detected (or nil) along with any error.
 func analyzeOne(analyzer Analyzer, a *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	sa := &snapshot.Shard{
@@ -61,15 +61,15 @@ func analyzeOne(analyzer Analyzer, a *multiorchdatapb.PoolerHealthState) (*types
 	return nil, err
 }
 
-// ruleCarrierName names the inert pooler newShardAnalysis uses to publish a rule.
+// ruleCarrierName names the inert pooler newTestShard uses to publish a rule.
 const ruleCarrierName = "rule-carrier"
 
-// newShardAnalysis publishes rule as the shard's highest position and adds
+// newTestShard publishes rule as the shard's highest position and adds
 // leader to the shard's poolers. A nil rule with a leader defaults to a rule
 // naming that leader. The rule rides on an inert observer pooler (never
 // observed, so never evidence of anything), keeping the leader's own health
 // untouched.
-func newShardAnalysis(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, leader *multiorchdatapb.PoolerHealthState) *snapshot.Shard {
+func newTestShard(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, leader *multiorchdatapb.PoolerHealthState) *snapshot.Shard {
 	if leader != nil {
 		if !slices.Contains(sa.Poolers, leader) {
 			sa.Poolers = append(sa.Poolers, leader)

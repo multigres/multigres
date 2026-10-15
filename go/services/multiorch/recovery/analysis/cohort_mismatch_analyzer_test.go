@@ -81,7 +81,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	}
 
 	// leaderRider builds a fresh, currently-serving leader: recent snapshot,
-	// postgres ready, names itself leader. leaderServing(sa) reads this rider, so
+	// postgres ready, names itself leader. intendedLeaderServing(sa) reads this rider, so
 	// subtests that want an unusable leader mutate sa.IntendedLeader() (see below).
 	leaderRider := func() *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
@@ -95,7 +95,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
 		leader := leaderRider()
 		analyses := append([]*multiorchdatapb.PoolerHealthState{leader}, replicas...)
-		return newShardAnalysis(&snapshot.Shard{
+		return newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
@@ -109,7 +109,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		}, leader)
 	}
 
-	// missingMemberShard builds a ShardAnalysis where the cohort lists every
+	// missingMemberShard builds a shard snapshot where the cohort lists every
 	// id in cohortIDs, but only the analyses argument actually shows up in
 	// Analyses — i.e. ids in cohortIDs but absent from analyses are
 	// "missing from the cache" from the analyzer's perspective. tombstones,
@@ -127,7 +127,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		for _, id := range tombstones {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
 		}
-		return newShardAnalysis(&snapshot.Shard{
+		return newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
@@ -168,7 +168,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// resolve cohort membership from the proposal here, so replicaA is
 		// already considered a member and must NOT be flagged as missing.
 		leader := leaderRider()
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),

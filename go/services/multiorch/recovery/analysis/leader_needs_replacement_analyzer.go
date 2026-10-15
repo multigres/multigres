@@ -70,7 +70,7 @@ const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 // question is whether we could recover if the leader were lost.
 //
 // TODO(pooler-reported health): this analyzer reasons about postgres running/ready
-// directly (leaderPostgresReady/Running). Directionally it should trust a pooler's
+// directly (intendedLeaderPostgresReady/Running). Directionally it should trust a pooler's
 // self-reported fitness — the pooler knows it is e.g. mid-restart and still fit —
 // with backstops for when a pooler is wrong, rather than second-guessing postgres
 // state here.
@@ -129,28 +129,28 @@ func followerStreamingFromLeader(sa *snapshot.Shard, replica *multiorchdatapb.Po
 	return true
 }
 
-// leaderObservedLive reports whether the orchestrator holds a recent, valid
+// intendedLeaderObservedLive reports whether the orchestrator holds a recent, valid
 // observation of the leader's pooler — the freshness-aware liveness basis for
 // failover detection. It deliberately keys off observation age (sa.Now vs the
 // leader's last snapshot, bounded by sa.AvailabilityPolicy.LeaderLivenessFreshness) rather
 // than whether a particular health stream is currently connected, so a brief
 // stream interruption does not read as a dead leader while a genuinely stalled
 // stream does.
-func leaderObservedLive(sa *snapshot.Shard) bool {
+func intendedLeaderObservedLive(sa *snapshot.Shard) bool {
 	if sa.IntendedLeader() == nil {
 		return false
 	}
 	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderLivenessFreshness)
 }
 
-// leaderHasResigned reports whether the leader has voluntarily signalled it
+// intendedLeaderHasResigned reports whether the leader has voluntarily signalled it
 // should be replaced — cohort-eligibility INELIGIBLE or a term-matched
 // REQUESTING_DEMOTION — read from its self-reported AvailabilityStatus.
-func leaderHasResigned(sa *snapshot.Shard) bool {
+func intendedLeaderHasResigned(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && types.LeaderNeedsReplacement(sa.IntendedLeader())
 }
 
-// leaderShutdownTombstoned reports whether the shard's leader has been observed in
+// intendedLeaderShutdownTombstoned reports whether the shard's leader has been observed in
 // LIFECYCLE_SHUTDOWN. That lifecycle is written to topology at the END of a graceful
 // shutdown (after the drain), so acting on it does not preempt the drain — and it is
 // durable, so it still fires when the ephemeral REQUESTING_DEMOTION health broadcast is
@@ -158,7 +158,7 @@ func leaderHasResigned(sa *snapshot.Shard) bool {
 // sa.IntendedLeader()), so we match it by ID against the cache's tombstone set; the leaderID still
 // comes from the shard rule, so we can act with no cached leader. STOPPING is
 // deliberately NOT consulted: it is observability-only and precedes the drain.
-func leaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetadatapb.ID) bool {
+func intendedLeaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetadatapb.ID) bool {
 	if leaderID == nil {
 		return false
 	}
@@ -166,35 +166,35 @@ func leaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetadatapb.ID
 	return ok
 }
 
-// leaderPostgresReady reports the leader's last-snapshot pg_isready result.
-func leaderPostgresReady(sa *snapshot.Shard) bool {
+// intendedLeaderPostgresReady reports the leader's last-snapshot pg_isready result.
+func intendedLeaderPostgresReady(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresReady()
 }
 
-// leaderServing reports whether the leader is a healthy, currently-serving
+// intendedLeaderServing reports whether the leader is a healthy, currently-serving
 // primary suitable to drive a leader-led change (cohort reconcile, replica
 // re-pointing): a recent observation (within the policy's leader-change
 // freshness), postgres accepting connections, and not resigned. This is the Q3
 // gate — not latency-sensitive, so requiring freshness merely defers a
 // non-urgent change when our view of the leader is stale.
-func leaderServing(sa *snapshot.Shard) bool {
+func intendedLeaderServing(sa *snapshot.Shard) bool {
 	if sa.IntendedLeader() == nil {
 		return false
 	}
 	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) &&
-		leaderPostgresReady(sa) &&
-		!leaderHasResigned(sa)
+		intendedLeaderPostgresReady(sa) &&
+		!intendedLeaderHasResigned(sa)
 }
 
-// leaderPostgresRunning reports whether the leader's last snapshot shows its
+// intendedLeaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
-func leaderPostgresRunning(sa *snapshot.Shard) bool {
+func intendedLeaderPostgresRunning(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresRunning()
 }
 
-// leaderLastPostgresReadyTime returns when the leader's postgres last reported
+// intendedLeaderLastPostgresReadyTime returns when the leader's postgres last reported
 // ready per its snapshots, or the zero time if never observed ready.
-func leaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
+func intendedLeaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
 	if sa.IntendedLeader() == nil {
 		return time.Time{}
 	}
@@ -204,14 +204,14 @@ func leaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
 	return time.Time{}
 }
 
-// leaderPromoting reports whether the leader's last snapshot shows pg_promote()
+// intendedLeaderPromoting reports whether the leader's last snapshot shows pg_promote()
 // in progress (postgres in the PROMOTING state).
-func leaderPromoting(sa *snapshot.Shard) bool {
+func intendedLeaderPromoting(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil &&
 		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
 
-// leaderInRecovery reports whether the leader's last snapshot shows its postgres
+// intendedLeaderInRecovery reports whether the leader's last snapshot shows its postgres
 // genuinely in recovery as a STANDBY (pg_is_in_recovery() = true) — a node the
 // consensus rule names as leader but whose postgres never left recovery and so
 // cannot accept writes. Mirrors snapshot.LeaderWritesProgressing's rule that recovery
@@ -225,7 +225,7 @@ func leaderPromoting(sa *snapshot.Shard) bool {
 // pg_isready, so the anti-flap timeout already fails them over — treating them as
 // "in recovery" here would instead fail over every primary restart. PROMOTING is
 // handled upstream by inPromotionGrace.
-func leaderInRecovery(sa *snapshot.Shard) bool {
+func intendedLeaderInRecovery(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil &&
 		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
@@ -245,7 +245,7 @@ func leaderInRecovery(sa *snapshot.Shard) bool {
 // postgres monitor self-resigns if the promotion turns out unbacked/stuck (rule
 // absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star.
 func inPromotionGrace(sa *snapshot.Shard) bool {
-	if !leaderPromoting(sa) || !leaderObservedLive(sa) || !leaderPostgresRunning(sa) {
+	if !intendedLeaderPromoting(sa) || !intendedLeaderObservedLive(sa) || !intendedLeaderPostgresRunning(sa) {
 		return false
 	}
 	ruleAge := sa.Now.Sub(commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetCreationTime().AsTime())
@@ -257,26 +257,26 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
-	leaderID := undecidedRule.GetLeaderId()
-	cohort := undecidedRule.GetCohortMembers()
+	intendedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
+	intendedLeaderID := intendedRule.GetLeaderId()
+	intendedCohort := intendedRule.GetCohortMembers()
 
-	// No rule at all yet, or a rule naming neither a leader nor a cohort — the
+	// No rule at all yet, or a rule naming neither a leader nor a intendedCohort — the
 	// initial, unbootstrapped state. ShardNeedsInitialization owns that, so do
 	// nothing here; there's no established policy to read yet either.
-	if leaderID == nil && len(cohort) == 0 {
+	if intendedLeaderID == nil && len(intendedCohort) == 0 {
 		return nil, nil
 	}
 
-	policy, err := commonconsensus.NewPolicyFromProto(undecidedRule.GetDurabilityPolicy())
+	policy, err := commonconsensus.NewPolicyFromProto(intendedRule.GetDurabilityPolicy())
 	if err != nil {
 		return nil, mterrors.Wrap(err, "leader-needs-replacement: durability policy unavailable")
 	}
 
-	// A non-empty cohort with no designated leader needs one recruited.
-	if leaderID == nil {
-		return a.emitFailover(sa, nil, policy, cohort, types.ProblemLeaderUnspecified,
-			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardKey)), nil
+	// A non-empty intendedCohort with no designated leader needs one recruited.
+	if intendedLeaderID == nil {
+		return a.emitFailover(sa, nil, policy, intendedCohort, types.ProblemLeaderUnspecified,
+			fmt.Sprintf("Shard %s has intendedCohort members but no designated leader", sa.ShardKey)), nil
 	}
 
 	// Suppress failover briefly while the leader is mid-promotion (see
@@ -284,26 +284,26 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 	if inPromotionGrace(sa) {
 		a.factory.Logger().Info("primary promotion in progress within grace, suppressing failover",
 			"shard_key", sa.ShardKey.String(),
-			"promoting_primary", topoclient.ComponentIDString(leaderID),
-			"rule_age", sa.Now.Sub(undecidedRule.GetCreationTime().AsTime()))
+			"promoting_primary", topoclient.ComponentIDString(intendedLeaderID),
+			"rule_age", sa.Now.Sub(intendedRule.GetCreationTime().AsTime()))
 		return nil, nil
 	}
 
 	// Judge the leader: healthy, must-replace (with a cause), or inconclusive.
-	leaderLive := leaderObservedLive(sa)
-	cause, description, inconclusive := a.leaderReplacementCause(sa, cohort, leaderID, leaderLive, policy)
+	leaderLive := intendedLeaderObservedLive(sa)
+	cause, description, inconclusive := a.leaderReplacementCause(sa, intendedCohort, intendedLeaderID, leaderLive, policy)
 
 	switch {
 	case inconclusive:
 		// We can neither confirm the leader healthy nor conclusively convict it.
 		// Never fail over; surface only a blind spot we cannot act through.
-		return a.emitInconclusive(sa, leaderID, policy, cohort), nil
+		return a.emitInconclusive(sa, intendedLeaderID, policy, intendedCohort), nil
 	case cause == "":
 		// Healthy leader — but warn if losing it now would strand the shard.
-		return a.atRiskProblemIfDegraded(sa, policy, cohort, leaderID), nil
+		return a.atRiskProblemIfDegraded(sa, policy, intendedCohort, intendedLeaderID), nil
 	default:
 		// Must replace: gate on whether a failover could actually succeed.
-		return a.emitFailover(sa, leaderID, policy, cohort, cause, description), nil
+		return a.emitFailover(sa, intendedLeaderID, policy, intendedCohort, cause, description), nil
 	}
 }
 
@@ -428,12 +428,12 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	policy commonconsensus.DurabilityPolicy,
 ) (cause types.ProblemCode, description string, inconclusive bool) {
 	// First-hand, authoritative intent to step down — act immediately, bypassing
-	// progress/liveness signals. leaderHasResigned is the fast path (the leader's
+	// progress/liveness signals. intendedLeaderHasResigned is the fast path (the leader's
 	// REQUESTING_DEMOTION/INELIGIBLE health broadcast); the SHUTDOWN tombstone is the
 	// durable fallback for when that ephemeral broadcast is lost.
 	// TODO: first-hand causes still wait the shared failover grace; they could skip it
 	// (intent doesn't flap; multi-orch safety is the Recruit CAS), cutting the write outage.
-	if leaderHasResigned(sa) || leaderShutdownTombstoned(sa, leaderID) {
+	if intendedLeaderHasResigned(sa) || intendedLeaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
 			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
 	}
@@ -446,7 +446,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// alert-only ShardAtRisk instead of routing to failover. Convict it so a real
 	// primary is promoted. Placed before both healthy verdicts to guard the whole
 	// live-leader path. (PROMOTING is handled upstream by inPromotionGrace; transient
-	// non-ready states are handled by the anti-flap timeout — see leaderInRecovery.)
+	// non-ready states are handled by the anti-flap timeout — see intendedLeaderInRecovery.)
 	//
 	// TODO: this is a tactical guard. We are not yet verifying that the leader is
 	// non-revoked on the highest-known coordinator term, so this protects against a
@@ -454,14 +454,14 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// pooler that knows it should be acting as leader would detect in its postgres
 	// monitor that it is in recovery mode and publish that it needs to resign
 	// leadership — replace this guard once that lands.
-	if leaderLive && leaderInRecovery(sa) {
+	if leaderLive && intendedLeaderInRecovery(sa) {
 		return types.ProblemLeaderUnhealthy,
 			fmt.Sprintf("Leader for shard %s is reachable but its postgres is in recovery (not a primary)", sa.ShardKey), false
 	}
 
 	// Healthy and serving as a postgres primary — but still check the
 	// quorum-commit backstop before calling it healthy.
-	if leaderLive && leaderPostgresReady(sa) {
+	if leaderLive && intendedLeaderPostgresReady(sa) {
 		return a.quorumCommitStuckCause(sa, cohort, leaderID, policy)
 	}
 
@@ -471,9 +471,9 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 		// responded within the response window; once it lapses, a wedged postgres
 		// must not block failover forever. (Interim guard, replaced by the LSN
 		// progress signal when LeaderQuorumWritesStalled lands.)
-		if leaderPostgresRunning(sa) {
+		if intendedLeaderPostgresRunning(sa) {
 			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
-			lastReady := leaderLastPostgresReadyTime(sa)
+			lastReady := intendedLeaderLastPostgresReadyTime(sa)
 			if !lastReady.IsZero() && time.Since(lastReady) <= threshold {
 				return "", "", false
 			}

@@ -14,11 +14,10 @@
 
 package analysis
 
-// Tests for the call-time predicate helpers on ShardAnalysis (leaderServing,
-// leaderPostgresReady, replicasStreamingFromLeader). These derive verdicts
-// from an already-built ShardAnalysis; the analyzers consume them, so they
-// live alongside the helpers rather than with the generator that only
-// assembles the ShardAnalysis.
+// Tests for the call-time predicate helpers over a shard snapshot
+// (intendedLeaderServing, intendedLeaderPostgresReady, replicasStreamingFromLeader).
+// These derive verdicts from an already-built snapshot; the analyzers consume
+// them, so they live alongside the helpers rather than with the capture code.
 
 import (
 	"testing"
@@ -69,7 +68,7 @@ func allFollowersStreaming(sa *snapshot.Shard) bool {
 	return replicaCount > 0 && connectedCount == replicaCount
 }
 
-func TestLeaderServing(t *testing.T) {
+func TestIntendedLeaderServing(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {
 		ps := store.NewTestCache(t)
 
@@ -121,8 +120,8 @@ func TestLeaderServing(t *testing.T) {
 		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, leaderPostgresReady(sa))
-		assert.True(t, leaderServing(sa))
+		assert.True(t, intendedLeaderPostgresReady(sa))
+		assert.True(t, intendedLeaderServing(sa))
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
@@ -173,8 +172,8 @@ func TestLeaderServing(t *testing.T) {
 		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, leaderPostgresReady(sa))
-		assert.False(t, leaderServing(sa))
+		assert.False(t, intendedLeaderPostgresReady(sa))
+		assert.False(t, intendedLeaderServing(sa))
 	})
 }
 

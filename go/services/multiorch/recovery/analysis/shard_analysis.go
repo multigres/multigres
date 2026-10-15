@@ -148,8 +148,8 @@ func compareLeaderTimeline(a, b *multiorchdatapb.PoolerHealthState) int {
 	)
 }
 
-// analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
-// Both the shard analysis and the per-pooler analysis are passed so callbacks can
+// analyzeAllPoolers runs fn against each pooler in sa, collecting all problems.
+// Both the shard snapshot and the pooler's snapshot are passed so callbacks can
 // access shard-level context alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
 func analyzeAllPoolers(sa *snapshot.Shard, fn func(*snapshot.Shard, *multiorchdatapb.PoolerHealthState) (*types.Problem, error)) ([]types.Problem, error) {

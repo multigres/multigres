@@ -68,7 +68,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
@@ -98,7 +98,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
@@ -128,7 +128,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			h := staleRider
 			h.LastSeen = timestamppb.New(now.Add(-time.Hour))
 		}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
@@ -149,7 +149,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
@@ -194,7 +194,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
@@ -227,7 +227,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		stale1ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-1"}
 		stale2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-2"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&snapshot.Shard{
+		sa := newTestShard(&snapshot.Shard{
 			ShardKey:           shardKey,
 			Now:                now,
 			AvailabilityPolicy: availabilityPolicy,
