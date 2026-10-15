@@ -94,14 +94,12 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	// newSA builds a ShardAnalysis with the given analyses, a serving leader, and
 	// the shard's committed rule at term 1.
 	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
-		return &ShardAnalysis{
-			ShardKey:        shardKey,
-			Poolers:         analyses,
-			Leader:          leaderHealth(),
-			HighestPosition: highestPosition,
-			Now:             now,
-			Policy:          DefaultAvailabilityPolicy(),
-		}
+		return newShardAnalysis(&ShardAnalysis{
+			ShardKey: shardKey,
+			Poolers:  analyses,
+			Now:      now,
+			Policy:   DefaultAvailabilityPolicy(),
+		}, highestPosition, leaderHealth())
 	}
 
 	// noGraceFactory treats a revocation as abandoned immediately (grace 0).
@@ -150,10 +148,10 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		// on this term right now; don't race it.
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
-		sa.HighestPosition = &clustermetadatapb.RulePosition{
+		setRule(sa, &clustermetadatapb.RulePosition{
 			Decision: ruleLedBy(1, 0).Decision,
 			Proposal: ruleLedBy(2, 0).Decision,
-		}
+		})
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
@@ -162,7 +160,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores when no serving leader is known", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
-		sa.Leader = nil
+		removePooler(sa, poolerID(sa.IntendedLeader()).GetName())
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)

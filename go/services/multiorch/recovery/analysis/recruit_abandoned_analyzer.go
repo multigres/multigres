@@ -49,16 +49,16 @@ func (a *RecruitAbandonedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, 
 // revocationStrandsFollower reports whether the rule orch would relay via
 // SetPrimary is rejected by the follower's recorded TermRevocation — the
 // signature of an abandoned recruit. It mirrors IsRuleRevoked against
-// HighestPosition exactly as SetPrimary's own gate does (rather than the
+// HighestIntendedRule exactly as SetPrimary's own gate does (rather than the
 // stricter ValidateRevocation) so detection can't drift from enforcement.
 // Also consulted by ReplicaNotReplicatingAnalyzer to defer to this analyzer
 // instead of sending a SetPrimary the follower would just ignore.
 func revocationStrandsFollower(sa *ShardAnalysis, p *multiorchdatapb.PoolerHealthState) bool {
-	if sa.HighestPosition == nil {
+	if sa.HighestIntendedRule() == nil {
 		return false
 	}
 	revocation := p.GetConsensusStatus().GetTermRevocation()
-	return commonconsensus.IsRuleRevoked(sa.HighestPosition, revocation)
+	return commonconsensus.IsRuleRevoked(sa.HighestIntendedRule(), revocation)
 }
 
 // revocationAgedPastFailoverGrace reports whether the follower's revocation was
@@ -94,14 +94,14 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorc
 
 	// We need a known leader with an address to dial: the fix drives an
 	// UpdateConsensusRule on the leader and then a SetPrimary toward the follower.
-	if sa.Leader == nil || sa.Leader.GetMultipooler().GetHostname() == "" {
+	if host, _ := leaderEndpoint(sa.IntendedLeader()); host == "" {
 		return nil, nil
 	}
 
 	// Only proceed if it looks safe to attempt a write on the leader right now —
 	// otherwise we can't distinguish an abandoned recruit from a live election
 	// still in flight (see store.LeaderWritesProgressing).
-	if !store.LeaderWritesProgressing(sa.Leader, sa.HighestPosition, sa.Now, sa.Policy.LeaderChangeFreshness) {
+	if !store.LeaderWritesProgressing(sa.IntendedLeader(), sa.HighestIntendedRule(), sa.Now, sa.Policy.LeaderChangeFreshness) {
 		return nil, nil
 	}
 

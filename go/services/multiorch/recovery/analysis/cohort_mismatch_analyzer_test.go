@@ -81,7 +81,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	// leaderRider builds a fresh, currently-serving leader: recent snapshot,
 	// postgres ready, names itself leader. leaderServing(sa) reads this rider, so
-	// subtests that want an unusable leader mutate sa.Leader (see below).
+	// subtests that want an unusable leader mutate sa.IntendedLeader() (see below).
 	leaderRider := func() *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
 			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
@@ -94,20 +94,18 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
 		leader := leaderRider()
 		analyses := append([]*multiorchdatapb.PoolerHealthState{leader}, replicas...)
-		return &ShardAnalysis{
+		return newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{
-				Decision: &clustermetadatapb.ShardRule{
-					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-					LeaderId:      primaryID,
-					CohortMembers: standbys,
-				},
+			Now:      time.Now(),
+			Policy:   DefaultAvailabilityPolicy(),
+			Poolers:  analyses,
+		}, &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:      primaryID,
+				CohortMembers: standbys,
 			},
-			Now:     time.Now(),
-			Policy:  DefaultAvailabilityPolicy(),
-			Leader:  leader,
-			Poolers: analyses,
-		}
+		}, leader)
 	}
 
 	// missingMemberShard builds a ShardAnalysis where the cohort lists every
@@ -128,22 +126,20 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		for _, id := range tombstones {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
 		}
-		return &ShardAnalysis{
-			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{
-				Decision: &clustermetadatapb.ShardRule{
-					RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-					LeaderId:         primaryID,
-					CohortMembers:    cohortIDs,
-					DurabilityPolicy: policy,
-				},
-			},
+		return newShardAnalysis(&ShardAnalysis{
+			ShardKey:     shardKey,
 			Now:          time.Now(),
 			Policy:       DefaultAvailabilityPolicy(),
-			Leader:       leader,
 			Poolers:      full,
 			TombstoneIDs: tombSet,
-		}
+		}, &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:         primaryID,
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: policy,
+			},
+		}, leader)
 	}
 
 	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
@@ -171,27 +167,25 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// resolve cohort membership from the proposal here, so replicaA is
 		// already considered a member and must NOT be flagged as missing.
 		leader := leaderRider()
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{
-				Decision: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-					LeaderId:   primaryID,
-				},
-				Proposal: &clustermetadatapb.ShardRule{
-					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
-					LeaderId:      primaryID,
-					CohortMembers: []*clustermetadatapb.ID{replicaA},
-				},
-			},
-			Now:    time.Now(),
-			Policy: DefaultAvailabilityPolicy(),
-			Leader: leader,
+			Now:      time.Now(),
+			Policy:   DefaultAvailabilityPolicy(),
 			Poolers: []*multiorchdatapb.PoolerHealthState{
 				leader,
 				healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_UNKNOWN),
 			},
-		}
+		}, &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:   primaryID,
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+				LeaderId:      primaryID,
+				CohortMembers: []*clustermetadatapb.ID{replicaA},
+			},
+		}, leader)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
@@ -322,7 +316,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when leader is unreachable", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.LastSeen = nil
 		} // stale observation → not serving
 		problems, err := analyzer.Analyze(sa)
@@ -333,7 +327,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when leader postgres is not ready", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.Status.PostgresReady = false
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -380,7 +374,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// Inject the leader as a non-cohort-member by mutating its state to
 		// look like an addition candidate apart from naming itself leader.
 		{
-			h := leaderShard.Poolers[0]
+			h := leaderShard.IntendedLeader()
 			h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
 			}

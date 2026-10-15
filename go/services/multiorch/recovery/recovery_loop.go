@@ -460,7 +460,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
 	}
-	rule := shardAnalysis.HighestPosition
+	rule := shardAnalysis.HighestIntendedRule()
 
 	// Re-run the analyzer that originally detected this problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)

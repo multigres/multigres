@@ -92,11 +92,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	}
 
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "", false, "")},
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -108,11 +107,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("detects replica with replication stopped", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "primary.example.com", true, "")},
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -123,11 +121,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("detects replica with primary_conninfo set but WAL receiver not active", func(t *testing.T) {
 		// Simulates timeline divergence: primary_conninfo is set but the WAL receiver
 		// repeatedly gets FATAL (timeline conflict) and is not running between retries.
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "primary.example.com", false, "")},
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -141,13 +138,12 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			h := replica
 			h.Status.ReplicationStatus = nil
 		}
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{replica},
 			Now:      time.Now(),
 			Policy:   DefaultAvailabilityPolicy(),
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -161,13 +157,12 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			h.Status.PostgresRunning = false
 			h.Status.ReplicationStatus = nil
 		}
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{replica},
 			Now:      time.Now(),
 			Policy:   DefaultAvailabilityPolicy(),
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -181,13 +176,12 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			h := replica
 			h.LastSeen = timestamppb.New(now.Add(-time.Minute))
 		}
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{replica},
 			Now:      now,
 			Policy:   DefaultAvailabilityPolicy(),
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -202,13 +196,12 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			h := replica
 			h.StreamConnected = false
 		}
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{replica},
 			Now:      time.Now(),
 			Policy:   DefaultAvailabilityPolicy(),
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -219,22 +212,20 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// Skip the problem when we have no health for the leader (Leader is nil), so
 	// we don't know where to point the replica. Waiting one cycle is cheap.
 	t.Run("skips when no usable primary is known", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   nil,
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "", true, "")},
-		}
+		}, nil, nil)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
 	})
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "primary.example.com", false, "streaming")},
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -242,11 +233,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores replica with WAL receiver in waiting state", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			Leader:   leaderHealth(),
 			Poolers:  []*multiorchdatapb.PoolerHealthState{pooler(replicaID, false, true, "primary.example.com", false, "waiting")},
-		}
+		}, nil, leaderHealth())
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

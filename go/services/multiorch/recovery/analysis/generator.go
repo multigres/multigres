@@ -18,9 +18,6 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -131,7 +128,9 @@ func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.Shard
 	for _, pooler := range poolers {
 		sa.Poolers = append(sa.Poolers, pooler)
 	}
-	g.computeShardLevelFields(sa, poolers)
+	if g.policyLookup != nil {
+		sa.BootstrapDurabilityPolicy = g.policyLookup(shardKey.Database)
+	}
 	return sa
 }
 
@@ -172,20 +171,6 @@ func buildPoolersByShard(poolerStore *store.PoolerCache) PoolersByShard {
 	return poolersByShard
 }
 
-// poolerByID returns the pooler with the given ID, or nil if id is nil or no
-// pooler matches.
-func poolerByID(poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, id *clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
-	if id == nil {
-		return nil
-	}
-	for _, pooler := range poolers {
-		if proto.Equal(pooler.GetMultipooler().GetId(), id) {
-			return pooler
-		}
-	}
-	return nil
-}
-
 // observationFresh reports whether the pooler's most recent successful health
 // snapshot is recent enough (within maxAge, measured against now on the
 // orchestrator clock) to be trusted as a live observation.
@@ -202,33 +187,4 @@ func observationFresh(h *multiorchdatapb.PoolerHealthState, now time.Time, maxAg
 		return false
 	}
 	return age <= maxAge
-}
-
-// computeShardLevelFields populates shard-level aggregates on sa after all per-pooler
-// analyses have been built. These fields describe the shard as a whole rather than
-// any individual pooler, so they are computed once here rather than per-pooler.
-func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState) {
-	// Bootstrap durability policy lookup.
-	if g.policyLookup != nil {
-		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
-	}
-
-	// The shard's single leader is named by the highest known consensus rule
-	// across all poolers — consensus is the source of truth, never the PoolerType
-	// label. HighestShardRule.GetLeaderId() is the leader; GetCohortMembers() is its
-	// recorded cohort. Whether that leader is reachable is captured separately below.
-	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
-	for _, pooler := range poolers {
-		if cs := pooler.GetConsensusStatus(); cs != nil {
-			statuses = append(statuses, cs)
-		}
-	}
-	sa.HighestPosition = commonconsensus.HighestKnownRule(statuses)
-
-	// Leader is the snapshot the highest consensus rule names as leader (may be nil
-	// if we have no health for it). All leader judgments — liveness/failover (Q1),
-	// resignation, and the leader-serving gate for leader-led changes (Q3) — are
-	// derived from this snapshot inside the analyzers (leaderServing, leaderObservedLive,
-	// …), not pre-baked here.
-	sa.Leader = poolerByID(poolers, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
 }

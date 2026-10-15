@@ -17,6 +17,8 @@ package analysis
 import (
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -55,25 +57,64 @@ type ShardAnalysis struct {
 	// shard's pooler.
 	TombstoneIDs map[topoclient.ComponentID]struct{}
 
-	// HighestPosition is the highest known consensus position across all poolers
-	// in the shard (commonconsensus.HighestKnownRule), or nil if no leader is
-	// known. It is the single source of leader identity: HighestRule() names
-	// the shard leader and its GetCohortMembers() is the recorded synchronous
-	// cohort. Whether that leader is currently serving is judged by
-	// leaderServing() from the snapshot, not stored here.
-	HighestPosition *clustermetadatapb.RulePosition
-
-	// Leader is the health of the pooler that HighestPosition's rule names as
-	// leader, or nil if we have no health for it. The rule can name a leader we
-	// have never observed; in that case we don't know where to point replicas,
-	// so consumers that need the leader's host/port (e.g. ReplicaNotReplicating)
-	// gate on Leader being non-nil rather than on reachability — an
-	// unreachable-but-known leader is still the official term leader.
-	Leader *multiorchdatapb.PoolerHealthState
-
 	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
 	// May be nil if not yet configured or not available.
 	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
+}
+
+// HighestIntendedRule returns the highest rule position anyone has told us of,
+// or nil if no rule is known. A rule can sit at three levels:
+//
+//   - decided: the decision half of a pooler's own position, settled;
+//   - in the WAL: a pooler's own position, which may also carry an undecided
+//     proposal (these are what "position" always means);
+//   - intended: the above plus positions only advertised through a
+//     ReplicationPrimary, which no pooler's WAL need hold yet.
+//
+// This is the intended level (commonconsensus.HighestKnownRule), so it is not
+// called a position: a follower can learn of a newer leader via SetPrimary
+// before that leader has promoted or recorded the rule.
+func (sa *ShardAnalysis) HighestIntendedRule() *clustermetadatapb.RulePosition {
+	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(sa.Poolers))
+	for _, p := range sa.Poolers {
+		if cs := p.GetConsensusStatus(); cs != nil {
+			statuses = append(statuses, cs)
+		}
+	}
+	return commonconsensus.HighestKnownRule(statuses)
+}
+
+// IntendedLeaderID returns the ID the shard's rule names as leader, or nil if
+// no rule is known. That is the leader the coordinator is installing, not
+// necessarily one that is established or serving: the rule may still be
+// undecided, and followers can learn of it through SetPrimary before the named
+// leader has been promoted or has recorded it. Judge whether it is serving
+// from its snapshot (see leaderServing).
+func (sa *ShardAnalysis) IntendedLeaderID() *clustermetadatapb.ID {
+	return commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId()
+}
+
+// Pooler returns the snapshot for id, or nil if the shard has none.
+func (sa *ShardAnalysis) Pooler(id *clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
+	if id == nil {
+		return nil
+	}
+	for _, p := range sa.Poolers {
+		if proto.Equal(poolerID(p), id) {
+			return p
+		}
+	}
+	return nil
+}
+
+// IntendedLeader returns the snapshot of the pooler IntendedLeaderID names, or
+// nil if no rule is known or we have no health for that pooler. The rule can
+// name a leader we have never observed; in that case we don't know where to
+// point replicas, so consumers that need the leader's host/port gate on
+// IntendedLeader being non-nil rather than on reachability — an
+// unreachable-but-known leader is still the intended one.
+func (sa *ShardAnalysis) IntendedLeader() *multiorchdatapb.PoolerHealthState {
+	return sa.Pooler(sa.IntendedLeaderID())
 }
 
 // Replicas returns the snapshots of all follower poolers.
@@ -90,6 +131,12 @@ func (sa *ShardAnalysis) Replicas() []*multiorchdatapb.PoolerHealthState {
 // The helpers below derive analyzer-relevant judgments from a pooler's raw
 // health (Health()). They replaced the digested PoolerAnalysis fields so the
 // snapshot stays the single source of truth and there is no parallel cached copy.
+
+// leaderEndpoint returns the leader's postgres host and port; host is "" when
+// there is no leader snapshot or it hasn't reported a hostname.
+func leaderEndpoint(leader *multiorchdatapb.PoolerHealthState) (host string, port int32) {
+	return leader.GetMultipooler().GetHostname(), leader.GetMultipooler().GetPortMap()["postgres"]
+}
 
 // poolerID returns the pooler's ID from its health record.
 func poolerID(p *multiorchdatapb.PoolerHealthState) *clustermetadatapb.ID {

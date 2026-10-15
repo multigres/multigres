@@ -71,7 +71,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 
 	// Detect against proposals as well as decisions to ensure we surface a problem, but
 	// the action to resolve will defer taking action if a proposal is in progress.
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition)
+	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache

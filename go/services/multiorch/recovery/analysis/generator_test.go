@@ -301,7 +301,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	assert.NotEqual(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(replicaAnalysis[0].GetConsensusStatus()))
 
 	// Primary health is now a shard-level field
-	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId(), "should have topology primary ID populated")
+	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "should have topology primary ID populated")
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.T) {
@@ -429,7 +429,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil.
-	assert.Nil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
+	assert.Nil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
 }
 
 // Task 7: Test for primary with postgres down
@@ -486,7 +486,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	require.NotNil(t, analysis)
 
 	// HighestTermDiscoveredPrimaryID should be set even when postgres is down
-	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
+	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
 	// But PrimaryReachable should be false because postgres is down
 	assert.False(t, leaderServing(sa), "primary should NOT be serving when postgres is down")
 }
@@ -559,8 +559,8 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		gen := NewAnalysisGenerator(ps, nil)
 		sa, err := gen.GenerateShardAnalysis(shardKey)
 		require.NoError(t, err)
-		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
-		assert.Equal(t, "primary", commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().Name)
+		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
+		assert.Equal(t, "primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
 		assert.False(t, leaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 
@@ -604,8 +604,8 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		gen := NewAnalysisGenerator(ps, nil)
 		sa, err := gen.GenerateShardAnalysis(shardKey)
 		require.NoError(t, err)
-		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
-		assert.Equal(t, "former-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().Name)
+		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
+		assert.Equal(t, "former-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
 		assert.False(t, leaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 }
@@ -655,9 +655,9 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 	sa, err := gen.GenerateShardAnalysis(shardKey)
 	require.NoError(t, err)
 
-	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId(), "consensus must still identify the leader")
-	assert.Equal(t, "absent-leader", commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().Name)
-	assert.Nil(t, sa.Leader, "no health state exists for the named leader")
+	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "consensus must still identify the leader")
+	assert.Equal(t, "absent-leader", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
+	assert.Nil(t, sa.IntendedLeader(), "no health state exists for the named leader")
 	assert.False(t, leaderServing(sa), "a leader with no health cannot be serving")
 }
 
@@ -706,11 +706,11 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 	sa, err := gen.GenerateShardAnalysis(shardKey)
 	require.NoError(t, err)
 
-	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
-	assert.Equal(t, "new-leader", commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().Name,
+	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
+	assert.Equal(t, "new-leader", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name,
 		"the leader named by the follower's higher-term rule must win over the stale self-claiming leader")
-	assert.Equal(t, int64(6), commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetRuleNumber().GetCoordinatorTerm())
-	assert.Nil(t, sa.Leader, "the new leader has no health state yet, so Leader is nil")
+	assert.Equal(t, int64(6), commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetRuleNumber().GetCoordinatorTerm())
+	assert.Nil(t, sa.IntendedLeader(), "the new leader has no health state yet, so Leader is nil")
 }
 
 // TestPopulatePrimaryInfo_PicksHighestPrimaryTerm verifies that when two primaries transiently
@@ -805,8 +805,8 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 	// The shard-level topology primary must point to the new (correct) primary, not the stale one.
 	// If it pointed to the stale primary (postgres dead), PrimaryReachable would be false
 	// and LeaderIsDeadAnalyzer would falsely trigger a new election.
-	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
-	assert.Equal(t, "new-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().Name,
+	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
+	assert.Equal(t, "new-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name,
 		"should pick primary with highest PrimaryTerm")
 	assert.True(t, leaderServing(sa),
 		"primary must appear reachable when new primary has postgres running")
@@ -819,7 +819,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 	// analysis. Leadership is the highest known consensus rule, regardless of
 	// reachability.
 	leaderOf := func(sa *ShardAnalysis) (string, int64) {
-		return commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId().GetName(), commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetRuleNumber().GetCoordinatorTerm()
+		return commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().GetName(), commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetRuleNumber().GetCoordinatorTerm()
 	}
 
 	t.Run("highest-rule primary wins among two", func(t *testing.T) {

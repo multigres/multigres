@@ -101,30 +101,29 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// window never accidentally suppresses detection; promotion subtests reset it.
 	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
 		now := time.Now()
-		sa := &ShardAnalysis{
+		sa := newShardAnalysis(&ShardAnalysis{
 			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
-				LeaderId:         leaderID,
-				CohortMembers:    []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
-				CreationTime:     timestamppb.New(now.Add(-time.Hour)),
-				DurabilityPolicy: atLeastN(2),
-			}},
-			Now:    now,
-			Policy: DefaultAvailabilityPolicy(),
-			Leader: &multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{
-					Id:       leaderID,
-					ShardKey: shardKey,
-					Hostname: "leader-host",
-					PortMap:  map[string]int32{"postgres": 5432},
-				},
-				Status: &multipoolermanagerdatapb.Status{},
-			},
+			Now:      now,
+			Policy:   DefaultAvailabilityPolicy(),
 			Poolers: []*multiorchdatapb.PoolerHealthState{
 				freshFollower(follower1ID, now),
 				freshFollower(follower2ID, now),
 			},
-		}
+		}, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			LeaderId:         leaderID,
+			CohortMembers:    []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
+			CreationTime:     timestamppb.New(now.Add(-time.Hour)),
+			DurabilityPolicy: atLeastN(2),
+		}}, &multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       leaderID,
+				ShardKey: shardKey,
+				Hostname: "leader-host",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
+			Status: &multipoolermanagerdatapb.Status{},
+		})
 		for _, o := range overrides {
 			o(sa)
 		}
@@ -136,7 +135,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// is also marked initialized so it can participate in a recruitment quorum.
 	setLeaderLive := func(sa *ShardAnalysis, live bool) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			if live {
 				h.LastSeen = timestamppb.New(sa.Now)
 				h.Status.IsInitialized = true
@@ -161,7 +160,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// setRuleCreatedNow marks the leadership rule as freshly created, so the
 	// promotion grace window is in effect.
 	setRuleCreatedNow := func(sa *ShardAnalysis) {
-		sa.HighestPosition.Decision.CreationTime = timestamppb.New(sa.Now)
+		sa.HighestIntendedRule().Decision.CreationTime = timestamppb.New(sa.Now)
 	}
 
 	// setRuleUndecided models a genuine leadership transition still in
@@ -170,17 +169,17 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// locally-confirmed rule -- still names a distinct prior leader. A
 	// promotion to leaderID that's genuinely undecided can't already be
 	// reflected in the decision; if it were, it would BE decided.
-	// commonconsensus.IsRuleDecided(sa.HighestPosition) is false throughout,
+	// commonconsensus.IsRuleDecided(sa.HighestIntendedRule()) is false throughout,
 	// simulating a leader whose promotion hasn't yet demonstrated a
 	// quorum-acked commit (the finalize/decide commit itself is
 	// quorum-gated, so it can't complete while a required standby is still
 	// catching up).
 	setRuleUndecided := func(sa *ShardAnalysis) {
-		decision := sa.HighestPosition.Decision
+		decision := sa.HighestIntendedRule().Decision
 		proposal := proto.Clone(decision).(*clustermetadatapb.ShardRule) // still names leaderID here
 		proposal.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
 		proposal.CreationTime = timestamppb.New(sa.Now)
-		sa.HighestPosition.Proposal = proposal
+		sa.HighestIntendedRule().Proposal = proposal
 
 		decision.LeaderId = priorLeaderID
 		decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}
@@ -191,25 +190,25 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// verdict fields (now derived inside LeaderNeedsReplacementAnalyzer).
 	setLeaderPGRunning := func(sa *ShardAnalysis, running bool) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.Status.PostgresRunning = running
 		}
 	}
 	setLeaderPGReady := func(sa *ShardAnalysis, ready bool) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.Status.PostgresReady = ready
 		}
 	}
 	setLeaderLastReady := func(sa *ShardAnalysis, at time.Time) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.LastPostgresReadyTime = timestamppb.New(at)
 		}
 	}
 	setLeaderPromoting := func(sa *ShardAnalysis) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 		}
 	}
@@ -219,7 +218,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// postgres never left recovery and cannot accept writes.
 	setLeaderPGStandby := func(sa *ShardAnalysis) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 		}
 	}
@@ -229,7 +228,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// treats as a resignation.
 	setLeaderResigned := func(sa *ShardAnalysis) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
@@ -245,6 +244,9 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	connectReplica := func(sa *ShardAnalysis) {
 		for i, pa := range sa.Poolers {
 			id := poolerID(pa)
+			if id.GetName() == ruleCarrierName || proto.Equal(id, leaderID) {
+				continue
+			}
 			sa.Poolers[i] = &multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 				LastSeen:    timestamppb.New(sa.Now),
@@ -287,7 +289,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// (the first-hand signal, vs. setQuorumCommitTs's cohort-observed one).
 	setLeaderQuorumCommitTs := func(sa *ShardAnalysis, at time.Time) {
 		{
-			h := sa.Leader
+			h := sa.IntendedLeader()
 			if h.Status.PrimaryStatus == nil {
 				h.Status.PrimaryStatus = &multipoolermanagerdatapb.PrimaryStatus{}
 			}
@@ -369,7 +371,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// positively testify they are cut off from the leader, so the revocation set is
 	// durability-sufficient and the leader is convicted.
 	cutOffAllFollowers := func(sa *ShardAnalysis) {
-		sa.Poolers = []*multiorchdatapb.PoolerHealthState{cutOffFollower(follower1ID, sa.Now), cutOffFollower(follower2ID, sa.Now)}
+		setFollowers(sa, cutOffFollower(follower1ID, sa.Now), cutOffFollower(follower2ID, sa.Now))
 	}
 
 	t.Run("detects dead leader (cohort confirms it is cut off)", func(t *testing.T) {
@@ -392,10 +394,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// connect grace) — not enough time to connect, so it does NOT testify. Only
 		// follower2 is cut off → sub-quorum revocation set → no failover.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers = []*multiorchdatapb.PoolerHealthState{
-				cutOffCandidate(follower1ID, leaderID, sa.Now, "leader-host", 5432, sa.Now),
-				cutOffFollower(follower2ID, sa.Now),
-			}
+			setFollowers(sa, cutOffCandidate(follower1ID, leaderID, sa.Now, "leader-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now))
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -409,10 +409,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// follower1's own rule names follower2, not the leader — it is uninformed of
 		// the current term, so it does not testify against this leader.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers = []*multiorchdatapb.PoolerHealthState{
-				cutOffCandidate(follower1ID, follower2ID, sa.Now.Add(-time.Hour), "leader-host", 5432, sa.Now),
-				cutOffFollower(follower2ID, sa.Now),
-			}
+			setFollowers(sa, cutOffCandidate(follower1ID, follower2ID, sa.Now.Add(-time.Hour), "leader-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now))
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -425,10 +423,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// follower1 is not pointed at the leader (primary_conninfo → other-host), so it
 		// is not refusing THIS leader.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers = []*multiorchdatapb.PoolerHealthState{
-				cutOffCandidate(follower1ID, leaderID, sa.Now.Add(-time.Hour), "other-host", 5432, sa.Now),
-				cutOffFollower(follower2ID, sa.Now),
-			}
+			setFollowers(sa, cutOffCandidate(follower1ID, leaderID, sa.Now.Add(-time.Hour), "other-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now))
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -468,7 +464,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 			}
 		}
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers = []*multiorchdatapb.PoolerHealthState{viaReplPrimary(follower1ID, sa.Now), viaReplPrimary(follower2ID, sa.Now)}
+			setFollowers(sa, viaReplPrimary(follower1ID, sa.Now), viaReplPrimary(follower2ID, sa.Now))
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -668,7 +664,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.HighestPosition = nil
+			setRule(sa, nil)
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -682,7 +678,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// failed. Rather than convict on stale evidence (ShardStuck), surface the
 		// blind spot.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers = nil // no reachable cohort member, leader not fresh
+			setFollowers(sa) // no reachable cohort member, leader not fresh
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -716,7 +712,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// LeaderUnreachableByCohort instead.)
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			{
-				h := sa.Poolers[1]
+				h := findPoolerByName(sa, follower2ID.Name)
 				h.LastSeen = timestamppb.New(sa.Now.Add(-time.Hour))
 			}
 		})
@@ -734,7 +730,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// majority of 3, so the failover is infeasible.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			{
-				h := sa.Poolers[1]
+				h := findPoolerByName(sa, follower2ID.Name)
 				h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 					CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 						Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
@@ -756,7 +752,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// follower1, below the majority of 3, so the failover is infeasible.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			{
-				h := sa.Poolers[1]
+				h := findPoolerByName(sa, follower2ID.Name)
 				h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 					RecruitBlockedUntil: &clustermetadatapb.LsnPosition{Lsn: "0/2000000"},
 				}
@@ -779,7 +775,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			dropFollower(sa, follower1ID)
 			{
-				h := sa.Poolers[0]
+				h := findPoolerByName(sa, follower2ID.Name)
 				h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 					CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 						Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
@@ -819,7 +815,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// no ShardAtRisk fires (it would otherwise fire forever for any minimum-size
 		// cohort, e.g. the spurious-failover-recovery e2e scenario).
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.HighestPosition.Decision.CohortMembers = []*clustermetadatapb.ID{leaderID, follower1ID}
+			sa.HighestIntendedRule().Decision.CohortMembers = []*clustermetadatapb.ID{leaderID, follower1ID}
 			dropFollower(sa, follower2ID)
 			setLeaderLive(sa, true)
 			setLeaderPGReady(sa, true)
@@ -834,7 +830,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// A rule with cohort members but no designated leader needs one recruited.
 		// Both followers are reachable, so recruitment is feasible and actionable.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.HighestPosition.Decision.LeaderId = nil
+			sa.HighestIntendedRule().Decision.LeaderId = nil
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -849,8 +845,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// An empty cohort with no leader is the initial, unbootstrapped rule —
 		// ShardNeedsInitialization owns that, so this analyzer does nothing.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.HighestPosition.Decision.LeaderId = nil
-			sa.HighestPosition.Decision.CohortMembers = nil
+			sa.HighestIntendedRule().Decision.LeaderId = nil
+			sa.HighestIntendedRule().Decision.CohortMembers = nil
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -866,7 +862,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// happens to be connected at this instant.
 		sa := deadLeaderShardAnalysis(cutOffAllFollowers, func(sa *ShardAnalysis) {
 			{
-				h := sa.Poolers[0]
+				h := findPoolerByName(sa, follower1ID.Name)
 				h.StreamConnected = false
 			}
 		})
@@ -952,7 +948,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// meets AtLeast(2) and failover is suppressed. Without the leader-self-vouch
 		// this would be LeaderUnreachableByCohort.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers[0] = &multiorchdatapb.PoolerHealthState{
+			replacePooler(sa, follower1ID, &multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
@@ -968,7 +964,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					Id:              follower1ID,
 					CurrentPosition: &clustermetadatapb.PoolerPosition{Lsn: "0/1"},
 				},
-			}
+			})
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -984,7 +980,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// member reachable), we warn ShardAtRisk instead. Guards against regressing to
 		// ShardStuck when the positive streaming signal is dropped.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Poolers[0] = &multiorchdatapb.PoolerHealthState{
+			replacePooler(sa, follower1ID, &multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
@@ -996,7 +992,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 						LastMsgReceiveTime: timestamppb.New(sa.Now),
 					},
 				},
-			}
+			})
 			dropFollower(sa, follower2ID)
 		})
 
@@ -1040,12 +1036,12 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("shutdown tombstone drives failover when the leader is gone from cache", func(t *testing.T) {
-		// The leader has fully shut down: evicted from the live cache (sa.Leader nil)
+		// The leader has fully shut down: evicted from the live cache (sa.IntendedLeader() nil)
 		// but recorded as a SHUTDOWN tombstone. With the ephemeral resignation broadcast
 		// lost, the durable tombstone still drives the failover — leaderID comes from the
 		// shard rule, so we act with no cached leader.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Leader = nil
+			removePooler(sa, leaderID.Name)
 			sa.TombstoneIDs = map[topoclient.ComponentID]struct{}{
 				topoclient.ComponentIDString(leaderID): {},
 			}
