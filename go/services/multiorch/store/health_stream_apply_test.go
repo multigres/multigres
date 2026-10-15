@@ -17,11 +17,9 @@ package store
 import (
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -55,12 +53,10 @@ func TestHealthStream_applySnapshot(t *testing.T) {
 		assert.Zero(t, pooler.Health().GetStreamSnapshotsReceived())
 	})
 
-	t.Run("a snapshot is written through the shared field path, keeping the pooler's capture time", func(t *testing.T) {
+	t.Run("a snapshot is written through the shared field path", func(t *testing.T) {
 		hs, pooler := newStream(t)
-		capturedAt := timestamppb.New(time.Now().Add(-2 * time.Second))
 
 		hs.applySnapshot(t.Context(), pooler, &multipoolermanagerdatapb.ManagerHealthSnapshot{
-			CapturedAt: capturedAt,
 			Status: &multipoolermanagerdatapb.StatusResponse{
 				Status: &multipoolermanagerdatapb.Status{PostgresReady: true},
 			},
@@ -72,7 +68,6 @@ func TestHealthStream_applySnapshot(t *testing.T) {
 		assert.True(t, health.GetStatus().GetPostgresReady())
 		assert.NotNil(t, health.GetLastSeen())
 		assert.NotNil(t, health.GetLastPostgresReadyTime())
-		assert.Equal(t, capturedAt.AsTime(), health.GetPoolerCapturedAt().AsTime(), "a streamed snapshot carries its pooler-clock capture time")
 		assert.EqualValues(t, 1, health.GetStreamSnapshotsReceived())
 	})
 }

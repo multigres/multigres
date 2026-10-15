@@ -131,8 +131,7 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 // applyStatusResponse updates p's cached health from a fresh StatusResponse, from
 // a live RPC that was issued at requestedAt. It returns false, leaving p unmodified,
 // if the response has no Status payload: an empty answer must not clobber good cached
-// data. A StatusResponse has no pooler-stamped capture time, so PoolerCapturedAt (a
-// pooler-clock field) is cleared as unknown, not stamped with the orchestrator's clock.
+// data.
 //
 // If a streamed snapshot landed after requestedAt, it is at least as fresh as this
 // response, so the write is skipped (and true is returned) rather than moving the
@@ -148,16 +147,14 @@ func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResp
 		if seen := h.GetLastSeen(); seen != nil && seen.AsTime().After(requestedAt) {
 			return
 		}
-		applyStatusFields(h, status, now, nil)
+		applyStatusFields(h, status, now)
 	})
 	return true
 }
 
-// applyStatusFields writes a StatusResponse's fields into h, including
-// PoolerCapturedAt, so it never describes a staler observation than the rest.
-// status.GetStatus() must be non-nil. capturedAt is the pooler-clock capture time: a
-// streamed snapshot has one, a live RPC passes nil (unknown).
-func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipoolermanagerdatapb.StatusResponse, now, capturedAt *timestamppb.Timestamp) {
+// applyStatusFields writes a StatusResponse's fields into h. status.GetStatus() must be
+// non-nil.
+func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp) {
 	h.LastCheckSuccessful = now
 	h.LastSeen = now
 	h.Status = proto.Clone(status.GetStatus()).(*multipoolermanagerdatapb.Status)
@@ -176,7 +173,6 @@ func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipooler
 	}
 	// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 	// left at its previous value so callers can reason about "last known good" time.
-	h.PoolerCapturedAt = capturedAt
 }
 
 // ObservationAge reports how long ago — on the orchestrator's clock — this

@@ -68,22 +68,6 @@ func TestPooler_refreshNow(t *testing.T) {
 		assert.Equal(t, "primary", health.GetMultipooler().GetId().GetName())
 	})
 
-	t.Run("clears PoolerCapturedAt instead of stamping it with the orchestrator's clock", func(t *testing.T) {
-		pooler := newPooler()
-		pooler.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.PoolerCapturedAt = timestamppb.New(time.Now().Add(-time.Minute)) // pooler clock, from a streamed snapshot
-		})
-		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PostgresReady: true},
-		})
-
-		require.NoError(t, pooler.refreshNow(ctx, fakeClient))
-
-		assert.Nil(t, pooler.Health().GetPoolerCapturedAt(),
-			"a live RPC carries no pooler capture time, so the pooler-clock field must read as unknown")
-	})
-
 	t.Run("leaves LastPostgresReadyTime alone when postgres is not ready", func(t *testing.T) {
 		pooler := newPooler()
 		fakeClient := rpcclient.NewFakeClient()

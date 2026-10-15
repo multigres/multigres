@@ -404,10 +404,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 	poolerIDStr := topoclient.ComponentIDString(poolerHealth.Health().Multipooler.Id)
 	update := func(existing *Pooler) *Pooler {
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			// snapshot.CapturedAt (pooler clock) is passed through as the
-			// capture time so consumers can reason about observation age
-			// without conflating it with LastSeen (orch clock, receipt time).
-			applyStatusFields(h, snapshot.Status, now, snapshot.CapturedAt)
+			applyStatusFields(h, snapshot.Status, now)
 			h.StreamSnapshotsReceived++
 		})
 		return existing
