@@ -121,6 +121,10 @@ const (
 	// defaultProofRefreshAfter is how old a quorum proof may be at decision time before it
 	// is refreshed: half the orchestrator's 20s staleness bound, so a decided rule doesn't
 	// start out looking stalled.
+	//
+	// TODO: factor values like this, and the orchestrator's staleness bound it is derived
+	// from, into go/common/availability, and eventually pass the availability policy into
+	// Promote() so the pooler aligns itself with the orchestrator's expectations.
 	defaultProofRefreshAfter = 10 * time.Second
 	// defaultProofRefreshTimeout bounds the refresh, so it can't hold up the decision.
 	defaultProofRefreshTimeout = 2 * time.Second
