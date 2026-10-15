@@ -22,8 +22,8 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // CohortMismatchAnalyzer detects drift between the desired cohort and the
@@ -86,7 +86,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	seen := make(map[topoclient.ComponentID]struct{}, len(cohortIDs))
 
 	var problems []types.Problem
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		id := poolerID(pa)
 		key := topoclient.ComponentIDString(id)
 		// Removal candidates: current cohort members signaling INELIGIBLE.
@@ -115,7 +115,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			// and UpdateConsensusRule's compare-and-swap means only one
 			// removal lands per cycle regardless — the rest fail the CAS and
 			// retry next cycle against the now-changed cohort.
-			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
+			if types.PoolerIsCohortIneligible(pa.GetAvailabilityStatus()) &&
 				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
@@ -244,8 +244,8 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *store.Pooler) bool {
-	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState) bool {
+	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
 	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {

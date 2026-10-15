@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -64,9 +65,9 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 		return nil, nil
 	}
 
-	var staleLeaders []*store.Pooler
-	for _, pa := range sa.Analyses {
-		hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+	var staleLeaders []*multiorchdatapb.PoolerHealthState
+	for _, pa := range sa.Poolers {
+		hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.ObservationFreshness)
 		if !ok || commonconsensus.SelfConsensusRole(hs.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 			continue
 		}
@@ -98,7 +99,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 			ShardKey:  sa.ShardKey,
 			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_position %s) is stale, current leader %s (leader_position %s)",
 				poolerID(stale).Name,
-				commonconsensus.FormatRulePosition(stale.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()),
+				commonconsensus.FormatRulePosition(stale.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
 				leaderPosition),
 			Priority:       types.PriorityHigh - types.Priority(i),

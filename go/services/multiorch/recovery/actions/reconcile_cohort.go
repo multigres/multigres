@@ -150,7 +150,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 		return mterrors.Wrap(err, "failed to find leader named by consensus rule")
 	}
 
-	if !store.LeaderWritesProgressing(leader, rule, time.Now(), store.DefaultLeaderWriteFreshness) {
+	if !store.LeaderWritesProgressing(leader.Health(), rule, time.Now(), store.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}

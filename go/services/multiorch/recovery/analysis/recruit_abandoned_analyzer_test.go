@@ -58,8 +58,8 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	}
 	highestPosition := ruleLedBy(1, 0)
 
-	leaderHealth := func() *store.Pooler {
-		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+	leaderHealth := func() *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
 			LastSeen:    timestamppb.New(now),
 			Status: &multipoolermanagerdatapb.Status{
@@ -67,14 +67,14 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 				PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: primaryID, CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleLedBy(1, 0)}},
-		}, nil)
+		}
 	}
 
 	// strandedFollower builds a follower recruited at term 2 (revocation revokes
 	// the term-1 rule) whose own WAL rule is still at term 1 — the abandoned
 	// recruit. initiatedAt controls the revocation's age for the grace gate.
-	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *store.Pooler {
-		return newRider(&multiorchdatapb.PoolerHealthState{
+	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: initialized},
@@ -88,15 +88,15 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 					CoordinatorInitiatedAt: timestamppb.New(initiatedAt),
 				},
 			},
-		})
+		}
 	}
 
 	// newSA builds a ShardAnalysis with the given analyses, a serving leader, and
 	// the shard's committed rule at term 1.
-	newSA := func(analyses ...*store.Pooler) *ShardAnalysis {
+	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
 		return &ShardAnalysis{
 			ShardKey:        shardKey,
-			Analyses:        analyses,
+			Poolers:         analyses,
 			Leader:          leaderHealth(),
 			HighestPosition: highestPosition,
 			Now:             now,

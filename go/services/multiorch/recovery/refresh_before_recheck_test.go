@@ -48,8 +48,8 @@ func (a *staleHealthAnalyzer) Name() types.CheckName { return "MockStaleHealth" 
 func (a *staleHealthAnalyzer) RecoveryAction() types.RecoveryAction { return a.action }
 
 func (a *staleHealthAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
-	for _, p := range sa.Analyses {
-		if p.Health().GetStatus().GetPostgresReady() {
+	for _, p := range sa.Poolers {
+		if p.GetStatus().GetPostgresReady() {
 			return nil, nil
 		}
 	}

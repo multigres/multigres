@@ -175,17 +175,16 @@ func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipooler
 	// left at its previous value so callers can reason about "last known good" time.
 }
 
-// ObservationAge reports how long ago — on the orchestrator's clock — this
-// pooler's most recent successful health snapshot was recorded, measured
-// against now. ok is false when no snapshot time has ever been recorded
-// (LastSeen unset), letting callers distinguish "never observed" from
-// "observed but stale".
+// ObservationAge reports how long ago — on the orchestrator's clock — h's
+// snapshot was recorded, measured against now. ok is false when no snapshot
+// time has ever been recorded (LastSeen unset), letting callers distinguish
+// "never observed" from "observed but stale".
 //
 // It deliberately uses LastSeen (the orchestrator-clock receipt time) rather
 // than the pooler-clock pooler_captured_at, so the subtraction against now
 // stays same-clock and is unaffected by skew between the hosts.
-func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
-	ls := p.Health().GetLastSeen()
+func ObservationAge(h *multiorchdatapb.PoolerHealthState, now time.Time) (time.Duration, bool) {
+	ls := h.GetLastSeen()
 	if ls == nil {
 		return 0, false
 	}
@@ -199,18 +198,22 @@ func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
 // uses this same value, so the two packages share one source of truth.
 const DefaultObservationFreshness = 15 * time.Second
 
-// HealthWithin returns the pooler's health snapshot if it was recorded within
-// maxAge of now, and ok=false otherwise (including "never observed"). Prefer
-// this over Health() wherever a decision depends on how current the data is —
-// it makes the staleness tolerance an explicit, mandatory choice at the call
-// site instead of a separately-remembered ObservationAge/observationFresh
-// check that's easy to omit.
-func (p *Pooler) HealthWithin(now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
-	age, ok := p.ObservationAge(now)
+// HealthWithin returns h if it was recorded within maxAge of now, and
+// ok=false otherwise (including "never observed"). Prefer this over reading h
+// directly wherever a decision depends on how current the data is — it makes
+// the staleness tolerance an explicit, mandatory choice at the call site
+// instead of a separately-remembered ObservationAge check that's easy to omit.
+func HealthWithin(h *multiorchdatapb.PoolerHealthState, now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
+	age, ok := ObservationAge(h, now)
 	if !ok || age > maxAge {
 		return nil, false
 	}
-	return p.Health(), true
+	return h, true
+}
+
+// HealthWithin is HealthWithin applied to the pooler's current snapshot.
+func (p *Pooler) HealthWithin(now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
+	return HealthWithin(p.Health(), now, maxAge)
 }
 
 // DefaultLeaderWriteFreshness is the default freshness bound for
@@ -230,15 +233,15 @@ const DefaultLeaderWriteFreshness = 15 * time.Second
 // write", not direct proof of it — the strongest signal would be a recent
 // successful heartbeat write, which isn't surfaced through health today.
 // Tighten this once that signal exists.
-func LeaderWritesProgressing(leader *Pooler, highestKnownPosition *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
+func LeaderWritesProgressing(leader *multiorchdatapb.PoolerHealthState, highestKnownPosition *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
 	if leader == nil {
 		return false
 	}
-	age, ok := leader.ObservationAge(now)
+	age, ok := ObservationAge(leader, now)
 	if !ok || age > freshness {
 		return false
 	}
-	if leader.Health().GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
+	if leader.GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
 		return false
 	}
 	return commonconsensus.IsRuleDecided(highestKnownPosition)

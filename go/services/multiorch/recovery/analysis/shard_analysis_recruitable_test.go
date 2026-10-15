@@ -24,7 +24,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 func TestRecruitable(t *testing.T) {
@@ -45,21 +44,21 @@ func TestRecruitable(t *testing.T) {
 	}
 
 	t.Run("fresh, initialized, eligible, positioned, not blocked", func(t *testing.T) {
-		p := store.NewPooler(base(), nil)
+		p := base()
 		assert.True(t, recruitable(p, now, freshness))
 	})
 
 	t.Run("stale observation", func(t *testing.T) {
 		h := base()
 		h.LastSeen = timestamppb.New(now.Add(-time.Hour))
-		p := store.NewPooler(h, nil)
+		p := h
 		assert.False(t, recruitable(p, now, freshness))
 	})
 
 	t.Run("not initialized", func(t *testing.T) {
 		h := base()
 		h.Status.IsInitialized = false
-		p := store.NewPooler(h, nil)
+		p := h
 		assert.False(t, recruitable(p, now, freshness))
 	})
 
@@ -70,7 +69,7 @@ func TestRecruitable(t *testing.T) {
 				Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
 			},
 		}
-		p := store.NewPooler(h, nil)
+		p := h
 		assert.False(t, recruitable(p, now, freshness))
 	})
 
@@ -82,14 +81,14 @@ func TestRecruitable(t *testing.T) {
 		// recruitable even though it looks otherwise healthy.
 		h := base()
 		h.ConsensusStatus.CurrentPosition = nil
-		p := store.NewPooler(h, nil)
+		p := h
 		assert.False(t, recruitable(p, now, freshness))
 	})
 
 	t.Run("outstanding RecruitBlockedUntil", func(t *testing.T) {
 		h := base()
 		h.ConsensusStatus.RecruitBlockedUntil = &clustermetadatapb.LsnPosition{Lsn: "0/5"}
-		p := store.NewPooler(h, nil)
+		p := h
 		assert.False(t, recruitable(p, now, freshness))
 	})
 }

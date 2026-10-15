@@ -17,32 +17,22 @@ package analysis
 import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
-
-// newRider wraps a PoolerHealthState in a cache rider for analyzer tests.
-// Tests build the real PoolerHealthState (the same shape the generator feeds
-// analyzers in production) rather than a digest mirror; namesSelfAsLeader and
-// the other derivations then fall out of the raw consensus/status the same way
-// they do at runtime (use primaryConsensusStatus for the leader case).
-func newRider(h *multiorchdatapb.PoolerHealthState) *store.Pooler {
-	return store.NewPooler(h, nil)
-}
 
 // flattenShardAnalyses collects all rider entries across all ShardAnalysis groups.
 // Used in tests to assert on individual poolers without caring about shard grouping.
-func flattenShardAnalyses(shards []*ShardAnalysis) []*store.Pooler {
-	var analyses []*store.Pooler
+func flattenShardAnalyses(shards []*ShardAnalysis) []*multiorchdatapb.PoolerHealthState {
+	var analyses []*multiorchdatapb.PoolerHealthState
 	for _, sa := range shards {
-		analyses = append(analyses, sa.Analyses...)
+		analyses = append(analyses, sa.Poolers...)
 	}
 	return analyses
 }
 
 // findPoolerByName returns the rider with the given name from a ShardAnalysis,
 // or nil if not found.
-func findPoolerByName(sa *ShardAnalysis, name string) *store.Pooler {
-	for _, pa := range sa.Analyses {
+func findPoolerByName(sa *ShardAnalysis, name string) *multiorchdatapb.PoolerHealthState {
+	for _, pa := range sa.Poolers {
 		if poolerID(pa).Name == name {
 			return pa
 		}
@@ -52,10 +42,10 @@ func findPoolerByName(sa *ShardAnalysis, name string) *store.Pooler {
 
 // analyzeOne wraps a single rider in a ShardAnalysis, calls Analyze, and returns
 // the first problem detected (or nil) along with any error.
-func analyzeOne(analyzer Analyzer, a *store.Pooler) (*types.Problem, error) {
+func analyzeOne(analyzer Analyzer, a *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	sa := &ShardAnalysis{
-		Analyses: []*store.Pooler{a},
-		Policy:   DefaultAvailabilityPolicy(),
+		Poolers: []*multiorchdatapb.PoolerHealthState{a},
+		Policy:  DefaultAvailabilityPolicy(),
 	}
 	problems, err := analyzer.Analyze(sa)
 	if len(problems) > 0 {

@@ -25,10 +25,10 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // LeaderNeedsReplacementAnalyzer judges a shard's leader/durability situation and
@@ -78,8 +78,8 @@ func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 // non-cohort observer, can be checked. A replica pointed at a different primary (or
 // none) indicates a deeper problem (misconfig/split-brain) and is neither streaming
 // from nor cut off from this leader.
-func replicaConfiguredForLeader(replica *store.Pooler, primaryHost string, primaryPort int32) bool {
-	connInfo := replica.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
+func replicaConfiguredForLeader(replica *multiorchdatapb.PoolerHealthState, primaryHost string, primaryPort int32) bool {
+	connInfo := replica.GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
 	return connInfo.GetHost() != "" && connInfo.GetHost() == primaryHost && connInfo.GetPort() == primaryPort
 }
 
@@ -91,11 +91,11 @@ func replicaConfiguredForLeader(replica *store.Pooler, primaryHost string, prima
 // receiver is in streaming state, and keepalives are fresh (within
 // wal_receiver_status_interval × multiplier, falling back to the default threshold,
 // and never older than wal_receiver_timeout).
-func followerStreamingFromLeader(sa *ShardAnalysis, replica *store.Pooler, primaryHost string, primaryPort int32) bool {
+func followerStreamingFromLeader(sa *ShardAnalysis, replica *multiorchdatapb.PoolerHealthState, primaryHost string, primaryPort int32) bool {
 	if !replicaConfiguredForLeader(replica, primaryHost, primaryPort) {
 		return false
 	}
-	rs := replica.Health().GetStatus().GetReplicationStatus()
+	rs := replica.GetStatus().GetReplicationStatus()
 	if rs.LastReceiveLsn == "" || rs.WalReceiverStatus != "streaming" {
 		return false
 	}
@@ -133,7 +133,7 @@ func leaderObservedLive(sa *ShardAnalysis) bool {
 // should be replaced — cohort-eligibility INELIGIBLE or a term-matched
 // REQUESTING_DEMOTION — read from its self-reported AvailabilityStatus.
 func leaderHasResigned(sa *ShardAnalysis) bool {
-	return sa.Leader != nil && types.LeaderNeedsReplacement(sa.Leader.Health())
+	return sa.Leader != nil && types.LeaderNeedsReplacement(sa.Leader)
 }
 
 // leaderShutdownTombstoned reports whether the shard's leader has been observed in
@@ -154,7 +154,7 @@ func leaderShutdownTombstoned(sa *ShardAnalysis, leaderID *clustermetadatapb.ID)
 
 // leaderPostgresReady reports the leader's last-snapshot pg_isready result.
 func leaderPostgresReady(sa *ShardAnalysis) bool {
-	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresReady()
+	return sa.Leader != nil && sa.Leader.GetStatus().GetPostgresReady()
 }
 
 // leaderServing reports whether the leader is a healthy, currently-serving
@@ -175,7 +175,7 @@ func leaderServing(sa *ShardAnalysis) bool {
 // leaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
 func leaderPostgresRunning(sa *ShardAnalysis) bool {
-	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresRunning()
+	return sa.Leader != nil && sa.Leader.GetStatus().GetPostgresRunning()
 }
 
 // leaderLastPostgresReadyTime returns when the leader's postgres last reported
@@ -184,7 +184,7 @@ func leaderLastPostgresReadyTime(sa *ShardAnalysis) time.Time {
 	if sa.Leader == nil {
 		return time.Time{}
 	}
-	if ts := sa.Leader.Health().GetLastPostgresReadyTime(); ts != nil {
+	if ts := sa.Leader.GetLastPostgresReadyTime(); ts != nil {
 		return ts.AsTime()
 	}
 	return time.Time{}
@@ -194,7 +194,7 @@ func leaderLastPostgresReadyTime(sa *ShardAnalysis) time.Time {
 // in progress (postgres in the PROMOTING state).
 func leaderPromoting(sa *ShardAnalysis) bool {
 	return sa.Leader != nil &&
-		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+		sa.Leader.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
 
 // leaderInRecovery reports whether the leader's last snapshot shows its postgres
@@ -213,7 +213,7 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 // handled upstream by inPromotionGrace.
 func leaderInRecovery(sa *ShardAnalysis) bool {
 	return sa.Leader != nil &&
-		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+		sa.Leader.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
 
 // inPromotionGrace reports whether failover should be briefly suppressed because
@@ -536,7 +536,7 @@ const (
 // RecruitBlockedUntil is deliberately not consulted: a blocked recruit is still
 // pointed at the leader and can report it unreachable — recruitability is a
 // feasibility concern (recruitableCohort), not detection.
-func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnalysis, pa *store.Pooler, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
+func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
 	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
 		return relationUnaware
 	}
@@ -546,7 +546,7 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 	// Not streaming. Does it know it should be following THIS leader? Its highest-known
 	// rule may come from its replication primary, not only its own WAL position.
 	rule := commonconsensus.PossiblyUndecidedRule(
-		commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{pa.Health().GetConsensusStatus()}))
+		commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{pa.GetConsensusStatus()}))
 	if !commonconsensus.RuleNamesLeader(rule, leaderID) {
 		return relationUnaware
 	}
@@ -569,15 +569,15 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 func freshestQuorumCommitTs(sa *ShardAnalysis) *timestamppb.Timestamp {
 	var freshest *timestamppb.Timestamp
 	if sa.Leader != nil {
-		if ts := sa.Leader.Health().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
+		if ts := sa.Leader.GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
 			freshest = ts
 		}
 	}
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		if pa == nil {
 			continue
 		}
-		ts := pa.Health().GetStatus().GetReplicationStatus().GetQuorumCommitTs()
+		ts := pa.GetStatus().GetReplicationStatus().GetQuorumCommitTs()
 		if ts == nil {
 			continue
 		}
@@ -601,12 +601,12 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 	if sa.Leader == nil {
 		return false
 	}
-	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
-	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+	primaryHost := sa.Leader.GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.GetMultipooler().GetPortMap()["postgres"]
 
 	leaderKey := topoclient.ComponentIDString(leaderID)
-	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses))
-	for _, pa := range sa.Analyses {
+	byID := make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, len(sa.Poolers))
+	for _, pa := range sa.Poolers {
 		if pa != nil {
 			byID[topoclient.ComponentIDString(poolerID(pa))] = pa
 		}
@@ -620,7 +620,7 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 		if !ok || !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
 			continue
 		}
-		ts := pa.Health().GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
+		ts := pa.GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
 		if ts != nil && sa.Now.Sub(ts.AsTime()) <= sa.Policy.FollowerStreamFreshness {
 			vouching = append(vouching, member)
 		}
@@ -666,12 +666,12 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *ShardAna
 		// No leader identity to check followers against — no evidence either way.
 		return nil, nil
 	}
-	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
-	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+	primaryHost := sa.Leader.GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.GetMultipooler().GetPortMap()["postgres"]
 	leaderKey := topoclient.ComponentIDString(leaderID)
 
-	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses))
-	for _, pa := range sa.Analyses {
+	byID := make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, len(sa.Poolers))
+	for _, pa := range sa.Poolers {
 		if pa != nil {
 			byID[topoclient.ComponentIDString(poolerID(pa))] = pa
 		}
@@ -720,9 +720,9 @@ func cohortWithout(cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID
 // cohortSatisfying returns the outgoing-cohort members (minus exclude, if
 // non-nil) whose rider passes pred. Shared by freshInitializedCohort and
 // recruitableCohort, which differ only in which question pred asks.
-func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID, pred func(*store.Pooler) bool) []*clustermetadatapb.ID {
-	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses)+1)
-	for _, pa := range sa.Analyses {
+func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID, pred func(*multiorchdatapb.PoolerHealthState) bool) []*clustermetadatapb.ID {
+	byID := make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, len(sa.Poolers)+1)
+	for _, pa := range sa.Poolers {
 		if pa != nil {
 			byID[topoclient.ComponentIDString(poolerID(pa))] = pa
 		}
@@ -755,7 +755,7 @@ func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude
 // (see freshAndInitialized's doc). Used only to judge "do we have any
 // trustworthy signal at all," not recruitment feasibility.
 func freshInitializedCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
-	return cohortSatisfying(sa, cohort, exclude, func(pa *store.Pooler) bool {
+	return cohortSatisfying(sa, cohort, exclude, func(pa *multiorchdatapb.PoolerHealthState) bool {
 		return freshAndInitialized(pa, sa.Now, sa.Policy.ObservationFreshness)
 	})
 }
@@ -768,7 +768,7 @@ func freshInitializedCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, e
 // omitted — used to ask "could we recover if the leader were lost?" for the
 // ShardAtRisk check.
 func recruitableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
-	return cohortSatisfying(sa, cohort, exclude, func(pa *store.Pooler) bool {
+	return cohortSatisfying(sa, cohort, exclude, func(pa *multiorchdatapb.PoolerHealthState) bool {
 		return recruitable(pa, sa.Now, sa.Policy.ObservationFreshness)
 	})
 }

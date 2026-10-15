@@ -45,16 +45,16 @@ func allFollowersStreaming(sa *ShardAnalysis) bool {
 	if sa.Leader == nil {
 		return false
 	}
-	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
-	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
+	primaryHost := sa.Leader.GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.GetMultipooler().GetPortMap()["postgres"]
 	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition)
 	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
 	replicaCount, connectedCount := 0, 0
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		if pa == nil {
 			continue
 		}
-		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			continue
 		}
 		if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
@@ -555,7 +555,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			}, nil))
 
 			gen := NewAnalysisGenerator(ps, nil)
-			analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+			analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 			require.NoError(t, err)
 			assert.False(t, allFollowersStreaming(analysis), "should be false when wal_receiver_status=%q", status)
 		}
@@ -613,7 +613,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := NewAnalysisGenerator(ps, nil)
 		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time is stale")
@@ -673,7 +673,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := NewAnalysisGenerator(ps, nil)
 		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
@@ -737,7 +737,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := NewAnalysisGenerator(ps, nil)
 		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when delay exceeds wal_receiver_timeout")
@@ -792,7 +792,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := NewAnalysisGenerator(ps, nil)
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(analysis), "should be true when last_msg_receive_time is nil")

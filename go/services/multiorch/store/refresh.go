@@ -79,7 +79,7 @@ func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.Multipoole
 		result RefreshResult
 	)
 	for _, pooler := range poolers {
-		age, ok := pooler.ObservationAge(now)
+		age, ok := ObservationAge(pooler.Health(), now)
 		if !ok || age > DefaultObservationFreshness {
 			result.Skipped++
 			continue

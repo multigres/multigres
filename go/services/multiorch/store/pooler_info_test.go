@@ -108,12 +108,12 @@ func TestLeaderWritesProgressing(t *testing.T) {
 		Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6, LeaderSubterm: 0}},
 	}
 
-	leader := func(lastSeen time.Time, status multipoolermanagerdatapb.PostgresStatus) *Pooler {
-		return NewPooler(&multiorchdatapb.PoolerHealthState{
+	leader := func(lastSeen time.Time, status multipoolermanagerdatapb.PostgresStatus) *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{},
 			LastSeen:    timestamppb.New(lastSeen),
 			Status:      &multipoolermanagerdatapb.Status{PostgresStatus: status},
-		}, nil)
+		}
 	}
 
 	t.Run("nil leader is never progressing", func(t *testing.T) {
@@ -131,10 +131,10 @@ func TestLeaderWritesProgressing(t *testing.T) {
 	})
 
 	t.Run("never observed is not progressing", func(t *testing.T) {
-		l := NewPooler(&multiorchdatapb.PoolerHealthState{
+		l := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{},
 			Status:      &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
-		}, nil)
+		}
 		require.False(t, LeaderWritesProgressing(l, decided, now, freshness))
 	})
 

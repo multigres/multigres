@@ -93,10 +93,33 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	require.Len(t, analyses, 1, "should generate one analysis")
 
 	analysis := analyses[0]
-	assert.Equal(t, "testdb", analysis.Health().GetMultipooler().GetShardKey().GetDatabase())
-	assert.Equal(t, "testtg", analysis.Health().GetMultipooler().GetShardKey().GetTableGroup())
-	assert.Equal(t, "0", analysis.Health().GetMultipooler().GetShardKey().GetShard())
-	assert.True(t, commonconsensus.SelfConsensusRole(analysis.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
+	assert.Equal(t, "testdb", analysis.GetMultipooler().GetShardKey().GetDatabase())
+	assert.Equal(t, "testtg", analysis.GetMultipooler().GetShardKey().GetTableGroup())
+	assert.Equal(t, "0", analysis.GetMultipooler().GetShardKey().GetShard())
+	assert.True(t, commonconsensus.SelfConsensusRole(analysis.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
+}
+
+func TestAnalysisGenerator_AnalysesAreFrozenAtConstruction(t *testing.T) {
+	ps := store.NewTestCache(t)
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"}
+	rider := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pooler-1"},
+			ShardKey: shardKey,
+		},
+		Status: &multipoolermanagerdatapb.Status{PostgresReady: true},
+	}, nil)
+	store.SeedCache(t, ps, rider)
+
+	generator := NewAnalysisGenerator(ps, nil)
+
+	// A later health update must not show through an analysis built afterwards.
+	rider.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.PostgresReady = false })
+
+	sa, err := generator.GenerateShardAnalysis(shardKey)
+	require.NoError(t, err)
+	require.Len(t, sa.Poolers, 1)
+	assert.True(t, sa.Poolers[0].GetStatus().GetPostgresReady())
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.T) {
@@ -195,16 +218,16 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	require.Len(t, analyses, 3, "should generate three analyses")
 
 	// Find the primary analysis
-	var primaryAnalysis *store.Pooler
+	var primaryAnalysis *multiorchdatapb.PoolerHealthState
 	for _, a := range analyses {
-		if commonconsensus.SelfConsensusRole(a.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+		if commonconsensus.SelfConsensusRole(a.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			primaryAnalysis = a
 			break
 		}
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.True(t, commonconsensus.SelfConsensusRole(primaryAnalysis.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
+	assert.True(t, commonconsensus.SelfConsensusRole(primaryAnalysis.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
@@ -270,12 +293,12 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 
 	require.Len(t, shards, 1, "should generate one shard analysis")
 	sa := shards[0]
-	require.Len(t, sa.Analyses, 2, "should generate two pooler analyses")
+	require.Len(t, sa.Poolers, 2, "should generate two pooler analyses")
 
 	// Find the replica analysis
 	replicaAnalysis := sa.Replicas()
 	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.NotEqual(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(replicaAnalysis[0].Health().GetConsensusStatus()))
+	assert.NotEqual(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(replicaAnalysis[0].GetConsensusStatus()))
 
 	// Primary health is now a shard-level field
 	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId(), "should have topology primary ID populated")
@@ -335,7 +358,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 	// Verify both table groups are present
 	tableGroups := make(map[string]bool)
 	for _, a := range analyses {
-		tableGroups[a.Health().GetMultipooler().GetShardKey().GetTableGroup()] = true
+		tableGroups[a.GetMultipooler().GetShardKey().GetTableGroup()] = true
 	}
 
 	assert.True(t, tableGroups["tg1"])
@@ -373,7 +396,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
-	assert.Equal(t, "db1", analyses[0].Health().GetMultipooler().GetShardKey().GetDatabase())
+	assert.Equal(t, "db1", analyses[0].GetMultipooler().GetShardKey().GetDatabase())
 }
 
 // Task 7: Test for no primary in shard
@@ -946,7 +969,7 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 
 	countByShard := make(map[string]int)
 	for _, sa := range shards {
-		countByShard[sa.ShardKey.Shard] = len(sa.Analyses)
+		countByShard[sa.ShardKey.Shard] = len(sa.Poolers)
 	}
 	assert.Equal(t, 2, countByShard["0"], "shard 0 should have 2 analyses")
 	assert.Equal(t, 1, countByShard["1"], "shard 1 should have 1 analysis")
@@ -997,5 +1020,5 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 	gen := NewAnalysisGenerator(ps, nil)
 	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
 	require.NoError(t, err)
-	assert.Len(t, sa.Analyses, 2)
+	assert.Len(t, sa.Poolers, 2)
 }

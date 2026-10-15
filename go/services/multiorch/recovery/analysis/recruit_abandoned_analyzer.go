@@ -20,6 +20,7 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -52,11 +53,11 @@ func (a *RecruitAbandonedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, 
 // stricter ValidateRevocation) so detection can't drift from enforcement.
 // Also consulted by ReplicaNotReplicatingAnalyzer to defer to this analyzer
 // instead of sending a SetPrimary the follower would just ignore.
-func revocationStrandsFollower(sa *ShardAnalysis, p *store.Pooler) bool {
+func revocationStrandsFollower(sa *ShardAnalysis, p *multiorchdatapb.PoolerHealthState) bool {
 	if sa.HighestPosition == nil {
 		return false
 	}
-	revocation := p.Health().GetConsensusStatus().GetTermRevocation()
+	revocation := p.GetConsensusStatus().GetTermRevocation()
 	return commonconsensus.IsRuleRevoked(sa.HighestPosition, revocation)
 }
 
@@ -65,8 +66,8 @@ func revocationStrandsFollower(sa *ShardAnalysis, p *store.Pooler) bool {
 // bound within which a live failover completes. Only then do we treat the
 // recruit as abandoned. A revocation with no coordinator_initiated_at (which a
 // valid one always carries) is treated as not-yet-aged, erring toward waiting.
-func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *ShardAnalysis, p *store.Pooler) bool {
-	initiatedAt := p.Health().GetConsensusStatus().GetTermRevocation().GetCoordinatorInitiatedAt()
+func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *ShardAnalysis, p *multiorchdatapb.PoolerHealthState) bool {
+	initiatedAt := p.GetConsensusStatus().GetTermRevocation().GetCoordinatorInitiatedAt()
 	if initiatedAt == nil {
 		return false
 	}
@@ -77,23 +78,23 @@ func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *ShardAn
 	return sa.Now.Sub(initiatedAt.AsTime()) >= grace
 }
 
-func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Pooler) (*types.Problem, error) {
+func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	// Only followers can be stranded; the leader defines the rule.
-	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
-	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+	hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.ObservationFreshness)
 	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}
 
 	// We need a known leader with an address to dial: the fix drives an
 	// UpdateConsensusRule on the leader and then a SetPrimary toward the follower.
-	if sa.Leader == nil || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
+	if sa.Leader == nil || sa.Leader.GetMultipooler().GetHostname() == "" {
 		return nil, nil
 	}
 
@@ -109,7 +110,7 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Po
 	// revocation is a monotonic promise floor that ConsensusStatus keeps reporting
 	// even after the follower's rule catches up, so its mere presence is not
 	// enough.
-	if !commonconsensus.IsSelfRevoked(pa.Health().GetConsensusStatus()) {
+	if !commonconsensus.IsSelfRevoked(pa.GetConsensusStatus()) {
 		return nil, nil
 	}
 

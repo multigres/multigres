@@ -33,13 +33,13 @@ import (
 // always fresh — streamConnected exercises the connectivity flag specifically,
 // independent of observation freshness. Replaces the old PoolerAnalysis
 // literals in this test.
-func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.ShardKey, term int64, streamConnected bool) *store.Pooler {
-	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.ShardKey, term int64, streamConnected bool) *multiorchdatapb.PoolerHealthState {
+	return &multiorchdatapb.PoolerHealthState{
 		Multipooler:     &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 		StreamConnected: streamConnected,
 		LastSeen:        timestamppb.Now(),
 		ConsensusStatus: primaryRuleStatus(id, term),
-	}, nil)
+	}
 }
 
 // primaryRuleStatus builds a ConsensusStatus that names id as the primary
@@ -71,7 +71,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey: shardKey,
 			Now:      now,
 			Policy:   availabilityPolicy,
-			Analyses: []*store.Pooler{selfLeaderRider(staleID, shardKey, 5, true)},
+			Poolers:  []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, true)},
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
@@ -102,7 +102,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey: shardKey,
 			Now:      now,
 			Policy:   availabilityPolicy,
-			Analyses: []*store.Pooler{selfLeaderRider(staleID, shardKey, 5, false)},
+			Poolers:  []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, false)},
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
@@ -125,14 +125,15 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 		staleRider := selfLeaderRider(staleID, shardKey, 5, true)
-		staleRider.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		{
+			h := staleRider
 			h.LastSeen = timestamppb.New(now.Add(-time.Hour))
-		})
+		}
 		sa := &ShardAnalysis{
 			ShardKey: shardKey,
 			Now:      now,
 			Policy:   availabilityPolicy,
-			Analyses: []*store.Pooler{staleRider},
+			Poolers:  []*multiorchdatapb.PoolerHealthState{staleRider},
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
@@ -154,7 +155,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey: shardKey,
 			Now:      now,
 			Policy:   availabilityPolicy,
-			Analyses: []*store.Pooler{
+			Poolers: []*multiorchdatapb.PoolerHealthState{
 				selfLeaderRider(newID, shardKey, 6, false),
 				selfLeaderRider(staleID, shardKey, 5, true),
 			},
@@ -179,12 +180,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		// A replica: reachable and initialized, but its consensus status does not
 		// name itself leader, so it is never a stale-leader candidate.
-		analysis := newRider(&multiorchdatapb.PoolerHealthState{
+		analysis := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			},
-		})
+		}
 
 		problem, err := analyzeOne(analyzer, analysis)
 
@@ -201,7 +202,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			Now:      now,
 			Policy:   availabilityPolicy,
 			// Only one primary — it is the leader, no stale primary to detect.
-			Analyses: []*store.Pooler{selfLeaderRider(primaryID, shardKey, 5, true)},
+			Poolers: []*multiorchdatapb.PoolerHealthState{selfLeaderRider(primaryID, shardKey, 5, true)},
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 				LeaderId:   primaryID,
@@ -216,7 +217,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: nil}
-		analysis := newRider(&multiorchdatapb.PoolerHealthState{})
+		analysis := &multiorchdatapb.PoolerHealthState{}
 
 		_, err := analyzeOne(analyzer, analysis)
 
@@ -234,7 +235,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey: shardKey,
 			Now:      now,
 			Policy:   availabilityPolicy,
-			Analyses: []*store.Pooler{
+			Poolers: []*multiorchdatapb.PoolerHealthState{
 				selfLeaderRider(newID, shardKey, 6, false),
 				selfLeaderRider(stale1ID, shardKey, 4, true),
 				selfLeaderRider(stale2ID, shardKey, 5, true),
