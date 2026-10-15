@@ -21,8 +21,8 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
@@ -39,11 +39,11 @@ func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewFixReplicationAction()
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -55,7 +55,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *mul
 
 	// Skip if we don't have a recent enough observation to trust it, or if the
 	// replica is not initialized (ShardNeedsInitialization handles that).
-	hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.FollowerStreamFreshness)
+	hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.FollowerStreamFreshness)
 	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}

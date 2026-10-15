@@ -34,6 +34,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -41,7 +42,7 @@ import (
 // folded into vouchingForLeader: every fresh follower is actively streaming from
 // the leader (and at least one such follower exists). It preserves the
 // per-follower streaming coverage these tests exercise.
-func allFollowersStreaming(sa *ShardAnalysis) bool {
+func allFollowersStreaming(sa *snapshot.Shard) bool {
 	if sa.IntendedLeader() == nil {
 		return false
 	}
@@ -57,7 +58,7 @@ func allFollowersStreaming(sa *ShardAnalysis) bool {
 		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			continue
 		}
-		if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+		if !observationFresh(pa, sa.Now, sa.AvailabilityPolicy.FollowerStreamFreshness) {
 			continue
 		}
 		replicaCount++
@@ -116,8 +117,8 @@ func TestLeaderServing(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, leaderPostgresReady(sa))
@@ -168,8 +169,8 @@ func TestLeaderServing(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, leaderPostgresReady(sa))
@@ -265,8 +266,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(sa), "should be true when all replicas are connected")
@@ -351,8 +352,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when any replica is disconnected")
@@ -404,8 +405,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica is unreachable")
@@ -438,8 +439,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// Primary-only shard: ReplicasConnectedToLeader should be false (no replicas)
@@ -501,8 +502,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica points to wrong primary")
@@ -554,8 +555,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				},
 			}, nil))
 
-			gen := NewAnalysisGenerator(ps, nil)
-			analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+			gen := newTestCapture(ps)
+			analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 			require.NoError(t, err)
 			assert.False(t, allFollowersStreaming(analysis), "should be false when wal_receiver_status=%q", status)
 		}
@@ -611,9 +612,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time is stale")
@@ -671,9 +672,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
@@ -735,9 +736,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when delay exceeds wal_receiver_timeout")
@@ -791,8 +792,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		analysis, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(analysis), "should be true when last_msg_receive_time is nil")
@@ -856,8 +857,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			// LastSeen and StreamSnapshotsReceived are both zero — brand new pooler.
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// replica1 is connected; replica2 has never reported health and must not

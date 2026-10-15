@@ -30,6 +30,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -66,11 +67,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	}
 
 	t.Run("fires when quorum of initialized poolers present with no cohort or primary", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -83,11 +84,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not fire when not enough initialized poolers for quorum", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1")},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -104,11 +105,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 			LastSeen:        timestamppb.New(now),
 			Status:          &multipoolermanagerdatapb.Status{IsInitialized: true},
 		}
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), blipped},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -123,11 +124,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 			LastSeen:    timestamppb.New(now.Add(-time.Minute)),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 		}
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), stale},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -151,11 +152,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 				},
 			},
 		}
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), withCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -183,11 +184,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 				IsInitialized: true,
 			},
 		}
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{withCohortAndPrimary, initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -216,11 +217,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 				},
 			},
 		}
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), withProposalCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -229,11 +230,11 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not fire when bootstrap durability policy is unknown", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: nil,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
+			AvailabilityPolicy:        availabilityPolicy,
 			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)

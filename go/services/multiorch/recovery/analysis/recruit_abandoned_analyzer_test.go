@@ -30,6 +30,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -93,12 +94,12 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 
 	// newSA builds a ShardAnalysis with the given analyses, a serving leader, and
 	// the shard's committed rule at term 1.
-	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
-		return newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Poolers:  analyses,
-			Now:      now,
-			Policy:   DefaultAvailabilityPolicy(),
+	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
+		return newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Poolers:            analyses,
+			Now:                now,
+			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 		}, highestPosition, leaderHealth())
 	}
 

@@ -24,8 +24,8 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // StaleLeaderAnalyzer detects stale leaders that came back online after failover.
@@ -51,12 +51,12 @@ func (a *StaleLeaderAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewDemoteStaleLeaderAction()
 }
 
-func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// The shard's leader is the pooler named by the highest known consensus rule.
+	// The shard's leader is the pooler named by the highest intended rule.
 	// Any reachable pooler whose own consensus status says it believes itself the
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
@@ -67,7 +67,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 
 	var staleLeaders []*multiorchdatapb.PoolerHealthState
 	for _, pa := range sa.Poolers {
-		hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.ObservationFreshness)
+		hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness)
 		if !ok || commonconsensus.SelfConsensusRole(hs.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 			continue
 		}

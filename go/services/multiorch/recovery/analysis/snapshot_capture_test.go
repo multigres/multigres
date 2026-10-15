@@ -27,6 +27,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -47,15 +48,15 @@ func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetada
 	}
 }
 
-func TestAnalysisGenerator_GenerateShardAnalyses_EmptyStore(t *testing.T) {
-	generator := NewAnalysisGenerator(store.NewTestCache(t), nil)
+func TestSnapshotShards_EmptyStore(t *testing.T) {
+	generator := newTestCapture(store.NewTestCache(t))
 
-	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
+	analyses := flattenShardAnalyses(generator.all())
 
 	assert.Empty(t, analyses, "should return empty slice for empty store")
 }
 
-func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
+func TestSnapshotShards_SinglePrimary(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	// Add a single primary pooler
@@ -87,8 +88,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	}
 	store.SeedCache(t, ps, store.NewPooler(primary, nil))
 
-	generator := NewAnalysisGenerator(ps, nil)
-	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
+	generator := newTestCapture(ps)
+	analyses := flattenShardAnalyses(generator.all())
 
 	require.Len(t, analyses, 1, "should generate one analysis")
 
@@ -99,7 +100,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	assert.True(t, commonconsensus.SelfConsensusRole(analysis.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 }
 
-func TestAnalysisGenerator_AnalysesAreFrozenAtConstruction(t *testing.T) {
+func TestSnapshotShard_IsFrozenAtCapture(t *testing.T) {
 	ps := store.NewTestCache(t)
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"}
 	rider := store.NewPooler(&multiorchdatapb.PoolerHealthState{
@@ -111,18 +112,17 @@ func TestAnalysisGenerator_AnalysesAreFrozenAtConstruction(t *testing.T) {
 	}, nil)
 	store.SeedCache(t, ps, rider)
 
-	generator := NewAnalysisGenerator(ps, nil)
+	sa, err := newTestCapture(ps).shard(shardKey)
+	require.NoError(t, err)
 
-	// A later health update must not show through an analysis built afterwards.
+	// A later health update must not show through a snapshot already taken.
 	rider.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.PostgresReady = false })
 
-	sa, err := generator.GenerateShardAnalysis(shardKey)
-	require.NoError(t, err)
 	require.Len(t, sa.Poolers, 1)
 	assert.True(t, sa.Poolers[0].GetStatus().GetPostgresReady())
 }
 
-func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.T) {
+func TestSnapshotShards_PrimaryWithReplicas(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
@@ -212,8 +212,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	}
 	store.SeedCache(t, ps, store.NewPooler(replica2, nil))
 
-	generator := NewAnalysisGenerator(ps, nil)
-	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
+	generator := newTestCapture(ps)
+	analyses := flattenShardAnalyses(generator.all())
 
 	require.Len(t, analyses, 3, "should generate three analyses")
 
@@ -230,7 +230,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	assert.True(t, commonconsensus.SelfConsensusRole(primaryAnalysis.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 }
 
-func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
+func TestSnapshotShards_Replica(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
@@ -288,23 +288,27 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	}
 	store.SeedCache(t, ps, store.NewPooler(replica, nil))
 
-	generator := NewAnalysisGenerator(ps, nil)
-	shards := generator.GenerateShardAnalyses()
+	generator := newTestCapture(ps)
+	shards := generator.all()
 
 	require.Len(t, shards, 1, "should generate one shard analysis")
 	sa := shards[0]
 	require.Len(t, sa.Poolers, 2, "should generate two pooler analyses")
 
-	// Find the replica analysis
-	replicaAnalysis := sa.Replicas()
-	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.NotEqual(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(replicaAnalysis[0].GetConsensusStatus()))
+	// Exactly one of the two poolers claims leadership.
+	leaders := 0
+	for _, p := range sa.Poolers {
+		if commonconsensus.SelfConsensusRole(p.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+			leaders++
+		}
+	}
+	assert.Equal(t, 1, leaders)
 
 	// Primary health is now a shard-level field
 	assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "should have topology primary ID populated")
 }
 
-func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.T) {
+func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	// Add poolers from two different table groups
@@ -350,8 +354,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 	}
 	store.SeedCache(t, ps, store.NewPooler(tg2Primary, nil))
 
-	generator := NewAnalysisGenerator(ps, nil)
-	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
+	generator := newTestCapture(ps)
+	analyses := flattenShardAnalyses(generator.all())
 
 	require.Len(t, analyses, 2, "should generate two analyses")
 
@@ -366,7 +370,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 }
 
 // Task 6: Test for skipping nil entries
-func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
+func TestSnapshotShards_SkipsNilEntries(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	// Add a nil entry
@@ -391,8 +395,8 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	analyses := flattenShardAnalyses(gen.GenerateShardAnalyses())
+	gen := newTestCapture(ps)
+	analyses := flattenShardAnalyses(gen.all())
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
@@ -424,8 +428,8 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	gen := newTestCapture(ps)
+	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil.
@@ -479,8 +483,8 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	gen := newTestCapture(ps)
+	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica")
 	require.NotNil(t, analysis)
@@ -556,8 +560,8 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		}, nil))
 		store.SeedCache(t, ps, store.NewPooler(replica, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(shardKey)
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(shardKey)
 		require.NoError(t, err)
 		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
 		assert.Equal(t, "primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
@@ -601,8 +605,8 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		}, nil))
 		store.SeedCache(t, ps, store.NewPooler(replica, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(shardKey)
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(shardKey)
 		require.NoError(t, err)
 		assert.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
 		assert.Equal(t, "former-primary", commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().Name)
@@ -610,12 +614,12 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 	})
 }
 
-// TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore covers the invariant
+// TestSnapshotShard_LeaderNamedButAbsentFromStore covers the invariant
 // that justifies keeping HighestShardRule (consensus identity) and Leader (health)
 // as separate fields: a follower can carry a rule naming a leader whose own health
 // state is not in the store. The leader is then identified by consensus but has no
 // health to attach, so Leader is nil and the leader is treated as unreachable.
-func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
+func TestSnapshotShard_LeaderNamedButAbsentFromStore(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	absentLeaderID := &clustermetadatapb.ID{
@@ -651,8 +655,8 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(shardKey)
+	gen := newTestCapture(ps)
+	sa, err := gen.shard(shardKey)
 	require.NoError(t, err)
 
 	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId(), "consensus must still identify the leader")
@@ -661,7 +665,7 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 	assert.False(t, leaderServing(sa), "a leader with no health cannot be serving")
 }
 
-// TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule is a regression
+// TestSnapshotShard_StaleLeaderSupersededViaFollowerRule is a regression
 // test for the post-failover window where the newly elected leader has not yet
 // reported a direct health update. A stale leader still self-claims leadership
 // at the old term, while a follower already replicates from the new leader at a
@@ -669,7 +673,7 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 // (the rule's LeaderId, including via the replication primary), not from which
 // pooler claims leadership for itself — otherwise the stale leader would be
 // mistaken for the primary and failover suppressed.
-func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
+func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	staleLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
@@ -702,8 +706,8 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(shardKey)
+	gen := newTestCapture(ps)
+	sa, err := gen.shard(shardKey)
 	require.NoError(t, err)
 
 	require.NotNil(t, commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId())
@@ -796,8 +800,8 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		},
 	}, nil))
 
-	generator := NewAnalysisGenerator(ps, nil)
-	sa, err := generator.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"})
+	generator := newTestCapture(ps)
+	sa, err := generator.shard(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica-1")
 	require.NotNil(t, analysis)
@@ -818,7 +822,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 	// leaderName returns the shard leader's name and rule term from the generated
 	// analysis. Leadership is the highest known consensus rule, regardless of
 	// reachability.
-	leaderOf := func(sa *ShardAnalysis) (string, int64) {
+	leaderOf := func(sa *snapshot.Shard) (string, int64) {
 		return commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId().GetName(), commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetRuleNumber().GetCoordinatorTerm()
 	}
 
@@ -827,7 +831,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-2", primaryTerm: 6, consensusTerm: 11},
 		})
-		sa, err := NewAnalysisGenerator(store, nil).GenerateShardAnalysis(shardKey)
+		sa, err := newTestCapture(store).shard(shardKey)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-2", name)
@@ -840,7 +844,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{id: "primary-2", primaryTerm: 4, consensusTerm: 10},
 			{id: "primary-3", primaryTerm: 6, consensusTerm: 9},
 		})
-		sa, err := NewAnalysisGenerator(store, nil).GenerateShardAnalysis(shardKey)
+		sa, err := newTestCapture(store).shard(shardKey)
 		require.NoError(t, err)
 		// primary-3 has the highest rule term (6) even though primary-1 has the
 		// highest consensus term (11) — ranking is by rule, not consensus term.
@@ -853,7 +857,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		store := setupMultiplePrimariesStore(t, []primaryConfig{
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 		})
-		sa, err := NewAnalysisGenerator(store, nil).GenerateShardAnalysis(shardKey)
+		sa, err := newTestCapture(store).shard(shardKey)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-1", name)
@@ -868,7 +872,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 			{primaryConfig: primaryConfig{id: "primary-1", primaryTerm: 5, consensusTerm: 10}, reachable: true},
 			{primaryConfig: primaryConfig{id: "primary-2", primaryTerm: 6, consensusTerm: 11}, reachable: false},
 		})
-		sa, err := NewAnalysisGenerator(store, nil).GenerateShardAnalysis(shardKey)
+		sa, err := newTestCapture(store).shard(shardKey)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-2", name)
@@ -941,7 +945,7 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 	return ps
 }
 
-func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
+func TestSnapshotShards_GroupsByShardKey(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	makePooler := func(name, db, tg, shard string, typ clustermetadatapb.PoolerType) *store.Pooler {
@@ -962,8 +966,8 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 	store.SeedCache(t, ps, makePooler("p0b", "db", "tg", "0", clustermetadatapb.PoolerType_REPLICA))
 	store.SeedCache(t, ps, makePooler("p1a", "db", "tg", "1", clustermetadatapb.PoolerType_PRIMARY))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	shards := gen.GenerateShardAnalyses()
+	gen := newTestCapture(ps)
+	shards := gen.all()
 
 	require.Len(t, shards, 2, "should produce one ShardAnalysis per shard")
 
@@ -975,17 +979,17 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 	assert.Equal(t, 1, countByShard["1"], "shard 1 should have 1 analysis")
 }
 
-func TestGenerateShardAnalysis_ErrorOnMissingShard(t *testing.T) {
+func TestSnapshotShard_ErrorOnMissingShard(t *testing.T) {
 	ps := store.NewTestCache(t)
-	gen := NewAnalysisGenerator(ps, nil)
+	gen := newTestCapture(ps)
 
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	_, err := gen.GenerateShardAnalysis(shardKey)
+	_, err := gen.shard(shardKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "shard not found")
 }
 
-func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
+func TestSnapshotShard_ReturnsAllPoolersInShard(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
@@ -1017,8 +1021,8 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 		},
 	}, nil))
 
-	gen := NewAnalysisGenerator(ps, nil)
-	sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
+	gen := newTestCapture(ps)
+	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
 	require.NoError(t, err)
 	assert.Len(t, sa.Poolers, 2)
 }

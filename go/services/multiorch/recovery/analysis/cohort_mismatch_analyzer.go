@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -58,7 +59,7 @@ func (a *CohortMismatchAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewReconcileCohortAction()
 }
 
-func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -244,11 +245,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState) bool {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState) bool {
 	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
+	if !recruitable(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness) {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby

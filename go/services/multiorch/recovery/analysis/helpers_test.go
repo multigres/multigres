@@ -16,15 +16,18 @@ package analysis
 
 import (
 	"slices"
+	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // flattenShardAnalyses collects all rider entries across all ShardAnalysis groups.
 // Used in tests to assert on individual poolers without caring about shard grouping.
-func flattenShardAnalyses(shards []*ShardAnalysis) []*multiorchdatapb.PoolerHealthState {
+func flattenShardAnalyses(shards []*snapshot.Shard) []*multiorchdatapb.PoolerHealthState {
 	var analyses []*multiorchdatapb.PoolerHealthState
 	for _, sa := range shards {
 		analyses = append(analyses, sa.Poolers...)
@@ -34,7 +37,7 @@ func flattenShardAnalyses(shards []*ShardAnalysis) []*multiorchdatapb.PoolerHeal
 
 // findPoolerByName returns the rider with the given name from a ShardAnalysis,
 // or nil if not found.
-func findPoolerByName(sa *ShardAnalysis, name string) *multiorchdatapb.PoolerHealthState {
+func findPoolerByName(sa *snapshot.Shard, name string) *multiorchdatapb.PoolerHealthState {
 	for _, pa := range sa.Poolers {
 		if poolerID(pa).Name == name {
 			return pa
@@ -46,9 +49,9 @@ func findPoolerByName(sa *ShardAnalysis, name string) *multiorchdatapb.PoolerHea
 // analyzeOne wraps a single rider in a ShardAnalysis, calls Analyze, and returns
 // the first problem detected (or nil) along with any error.
 func analyzeOne(analyzer Analyzer, a *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
-	sa := &ShardAnalysis{
-		Poolers: []*multiorchdatapb.PoolerHealthState{a},
-		Policy:  DefaultAvailabilityPolicy(),
+	sa := &snapshot.Shard{
+		Poolers:            []*multiorchdatapb.PoolerHealthState{a},
+		AvailabilityPolicy: DefaultAvailabilityPolicy(),
 	}
 	problems, err := analyzer.Analyze(sa)
 	if len(problems) > 0 {
@@ -66,7 +69,7 @@ const ruleCarrierName = "rule-carrier"
 // naming that leader. The rule rides on an inert observer pooler (never
 // observed, so never evidence of anything), keeping the leader's own health
 // untouched.
-func newShardAnalysis(sa *ShardAnalysis, rule *clustermetadatapb.RulePosition, leader *multiorchdatapb.PoolerHealthState) *ShardAnalysis {
+func newShardAnalysis(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, leader *multiorchdatapb.PoolerHealthState) *snapshot.Shard {
 	if leader != nil {
 		if !slices.Contains(sa.Poolers, leader) {
 			sa.Poolers = append(sa.Poolers, leader)
@@ -80,7 +83,7 @@ func newShardAnalysis(sa *ShardAnalysis, rule *clustermetadatapb.RulePosition, l
 }
 
 // setRule replaces the shard's published rule; nil clears it.
-func setRule(sa *ShardAnalysis, rule *clustermetadatapb.RulePosition) {
+func setRule(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition) {
 	for _, p := range sa.Poolers {
 		if poolerID(p).GetName() == ruleCarrierName {
 			p.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
@@ -106,7 +109,7 @@ func setRule(sa *ShardAnalysis, rule *clustermetadatapb.RulePosition) {
 }
 
 // removePooler drops the named pooler from the shard's poolers.
-func removePooler(sa *ShardAnalysis, name string) {
+func removePooler(sa *snapshot.Shard, name string) {
 	kept := sa.Poolers[:0:0]
 	for _, p := range sa.Poolers {
 		if poolerID(p).GetName() != name {
@@ -117,7 +120,7 @@ func removePooler(sa *ShardAnalysis, name string) {
 }
 
 // replacePooler swaps the named pooler's snapshot for state.
-func replacePooler(sa *ShardAnalysis, id *clustermetadatapb.ID, state *multiorchdatapb.PoolerHealthState) {
+func replacePooler(sa *snapshot.Shard, id *clustermetadatapb.ID, state *multiorchdatapb.PoolerHealthState) {
 	for i, p := range sa.Poolers {
 		if poolerID(p).GetName() == id.GetName() {
 			sa.Poolers[i] = state
@@ -128,7 +131,7 @@ func replacePooler(sa *ShardAnalysis, id *clustermetadatapb.ID, state *multiorch
 
 // setFollowers replaces the shard's follower snapshots, keeping the published
 // rule and the leader.
-func setFollowers(sa *ShardAnalysis, followers ...*multiorchdatapb.PoolerHealthState) {
+func setFollowers(sa *snapshot.Shard, followers ...*multiorchdatapb.PoolerHealthState) {
 	leader := sa.IntendedLeader()
 	var next []*multiorchdatapb.PoolerHealthState
 	for _, p := range sa.Poolers {
@@ -141,4 +144,26 @@ func setFollowers(sa *ShardAnalysis, followers ...*multiorchdatapb.PoolerHealthS
 		next = append(next, leader)
 	}
 	sa.Poolers = next
+}
+
+// testCapture freezes shards from a test cache the way the engine does.
+type testCapture struct {
+	cache *store.PoolerCache
+	now   time.Time
+}
+
+func newTestCapture(cache *store.PoolerCache) *testCapture {
+	return &testCapture{cache: cache, now: time.Now()}
+}
+
+func (c *testCapture) opts() store.SnapshotOptions {
+	return store.SnapshotOptions{Now: c.now, AvailabilityPolicy: DefaultAvailabilityPolicy()}
+}
+
+func (c *testCapture) all() []*snapshot.Shard {
+	return store.SnapshotShards(c.cache, c.opts())
+}
+
+func (c *testCapture) shard(key *clustermetadatapb.ShardKey) (*snapshot.Shard, error) {
+	return store.SnapshotShard(c.cache, key, c.opts())
 }

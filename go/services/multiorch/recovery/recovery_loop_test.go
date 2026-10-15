@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -77,7 +78,7 @@ func (c *customAnalyzer) RecoveryAction() types.RecoveryAction {
 	return c.recoveryAction
 }
 
-func (c *customAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
+func (c *customAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, pa := range sa.Poolers {
 		if p := c.analyzeFn(pa); p != nil {
@@ -885,7 +886,7 @@ func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return m.recoveryAction
 }
 
-func (m *mockPrimaryDeadAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
+func (m *mockPrimaryDeadAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Poolers {
 		if tSelfIsLeader(a) && !a.StreamConnected {
@@ -918,7 +919,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 	return m.recoveryAction
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
+func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Poolers {
 		if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
@@ -2573,9 +2574,9 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 // and returns all detected problems. Fails the test if any analyzer returns an error.
 func detectProblems(t *testing.T, engine *Engine) []types.Problem {
 	t.Helper()
-	generator := analysis.NewAnalysisGenerator(engine.poolerCache, nil)
+	opts := store.SnapshotOptions{Now: time.Now(), AvailabilityPolicy: analysis.DefaultAvailabilityPolicy()}
 	var problems []types.Problem
-	for _, sa := range generator.GenerateShardAnalyses() {
+	for _, sa := range store.SnapshotShards(engine.poolerCache, opts) {
 		for _, az := range analysis.DefaultAnalyzers(engine.actionFactory) {
 			detected, err := az.Analyze(sa)
 			require.NoError(t, err)

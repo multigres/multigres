@@ -24,6 +24,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -67,11 +68,11 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
-			Poolers:  []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, true)},
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
+			Poolers:            []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, true)},
 		}, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 			LeaderId:   newID,
@@ -97,11 +98,11 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
-			Poolers:  []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, false)},
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
+			Poolers:            []*multiorchdatapb.PoolerHealthState{selfLeaderRider(staleID, shardKey, 5, false)},
 		}, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 			LeaderId:   newID,
@@ -127,11 +128,11 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			h := staleRider
 			h.LastSeen = timestamppb.New(now.Add(-time.Hour))
 		}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
-			Poolers:  []*multiorchdatapb.PoolerHealthState{staleRider},
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
+			Poolers:            []*multiorchdatapb.PoolerHealthState{staleRider},
 		}, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 			LeaderId:   newID,
@@ -148,10 +149,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
 			Poolers: []*multiorchdatapb.PoolerHealthState{
 				selfLeaderRider(newID, shardKey, 6, false),
 				selfLeaderRider(staleID, shardKey, 5, true),
@@ -193,10 +194,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
 			// Only one primary — it is the leader, no stale primary to detect.
 			Poolers: []*multiorchdatapb.PoolerHealthState{selfLeaderRider(primaryID, shardKey, 5, true)},
 		}, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
@@ -226,10 +227,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		stale1ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-1"}
 		stale2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-2"}
 		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      now,
-			Policy:   availabilityPolicy,
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                now,
+			AvailabilityPolicy: availabilityPolicy,
 			Poolers: []*multiorchdatapb.PoolerHealthState{
 				selfLeaderRider(newID, shardKey, 6, false),
 				selfLeaderRider(stale1ID, shardKey, 4, true),

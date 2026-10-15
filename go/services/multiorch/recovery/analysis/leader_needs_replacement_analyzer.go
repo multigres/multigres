@@ -28,8 +28,22 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
+
+// replicationHeartbeatStalenessMultiplier is applied to wal_receiver_status_interval
+// to compute the heartbeat staleness threshold. The replica sends a status message
+// to the primary every wal_receiver_status_interval; the primary echoes a keepalive
+// reply. Three missed intervals means the primary has gone silent well before the
+// wal_receiver_timeout (60s) would disconnect the WAL receiver.
+const replicationHeartbeatStalenessMultiplier = 3
+
+// defaultReplicationHeartbeatStalenessThreshold is the fallback threshold used
+// when wal_receiver_status_interval is not available in the replica's health
+// state. Equals replicationHeartbeatStalenessMultiplier × the default
+// wal_receiver_status_interval (10s).
+const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 
 // LeaderNeedsReplacementAnalyzer judges a shard's leader/durability situation and
 // emits at most one shard-level problem per cycle. It reasons on two axes:
@@ -91,7 +105,7 @@ func replicaConfiguredForLeader(replica *multiorchdatapb.PoolerHealthState, prim
 // receiver is in streaming state, and keepalives are fresh (within
 // wal_receiver_status_interval × multiplier, falling back to the default threshold,
 // and never older than wal_receiver_timeout).
-func followerStreamingFromLeader(sa *ShardAnalysis, replica *multiorchdatapb.PoolerHealthState, primaryHost string, primaryPort int32) bool {
+func followerStreamingFromLeader(sa *snapshot.Shard, replica *multiorchdatapb.PoolerHealthState, primaryHost string, primaryPort int32) bool {
 	if !replicaConfiguredForLeader(replica, primaryHost, primaryPort) {
 		return false
 	}
@@ -118,21 +132,21 @@ func followerStreamingFromLeader(sa *ShardAnalysis, replica *multiorchdatapb.Poo
 // leaderObservedLive reports whether the orchestrator holds a recent, valid
 // observation of the leader's pooler — the freshness-aware liveness basis for
 // failover detection. It deliberately keys off observation age (sa.Now vs the
-// leader's last snapshot, bounded by sa.Policy.LeaderLivenessFreshness) rather
+// leader's last snapshot, bounded by sa.AvailabilityPolicy.LeaderLivenessFreshness) rather
 // than whether a particular health stream is currently connected, so a brief
 // stream interruption does not read as a dead leader while a genuinely stalled
 // stream does.
-func leaderObservedLive(sa *ShardAnalysis) bool {
+func leaderObservedLive(sa *snapshot.Shard) bool {
 	if sa.IntendedLeader() == nil {
 		return false
 	}
-	return observationFresh(sa.IntendedLeader(), sa.Now, sa.Policy.LeaderLivenessFreshness)
+	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderLivenessFreshness)
 }
 
 // leaderHasResigned reports whether the leader has voluntarily signalled it
 // should be replaced — cohort-eligibility INELIGIBLE or a term-matched
 // REQUESTING_DEMOTION — read from its self-reported AvailabilityStatus.
-func leaderHasResigned(sa *ShardAnalysis) bool {
+func leaderHasResigned(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && types.LeaderNeedsReplacement(sa.IntendedLeader())
 }
 
@@ -144,7 +158,7 @@ func leaderHasResigned(sa *ShardAnalysis) bool {
 // sa.IntendedLeader()), so we match it by ID against the cache's tombstone set; the leaderID still
 // comes from the shard rule, so we can act with no cached leader. STOPPING is
 // deliberately NOT consulted: it is observability-only and precedes the drain.
-func leaderShutdownTombstoned(sa *ShardAnalysis, leaderID *clustermetadatapb.ID) bool {
+func leaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetadatapb.ID) bool {
 	if leaderID == nil {
 		return false
 	}
@@ -153,7 +167,7 @@ func leaderShutdownTombstoned(sa *ShardAnalysis, leaderID *clustermetadatapb.ID)
 }
 
 // leaderPostgresReady reports the leader's last-snapshot pg_isready result.
-func leaderPostgresReady(sa *ShardAnalysis) bool {
+func leaderPostgresReady(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresReady()
 }
 
@@ -163,24 +177,24 @@ func leaderPostgresReady(sa *ShardAnalysis) bool {
 // freshness), postgres accepting connections, and not resigned. This is the Q3
 // gate — not latency-sensitive, so requiring freshness merely defers a
 // non-urgent change when our view of the leader is stale.
-func leaderServing(sa *ShardAnalysis) bool {
+func leaderServing(sa *snapshot.Shard) bool {
 	if sa.IntendedLeader() == nil {
 		return false
 	}
-	return observationFresh(sa.IntendedLeader(), sa.Now, sa.Policy.LeaderChangeFreshness) &&
+	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) &&
 		leaderPostgresReady(sa) &&
 		!leaderHasResigned(sa)
 }
 
 // leaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
-func leaderPostgresRunning(sa *ShardAnalysis) bool {
+func leaderPostgresRunning(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresRunning()
 }
 
 // leaderLastPostgresReadyTime returns when the leader's postgres last reported
 // ready per its snapshots, or the zero time if never observed ready.
-func leaderLastPostgresReadyTime(sa *ShardAnalysis) time.Time {
+func leaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
 	if sa.IntendedLeader() == nil {
 		return time.Time{}
 	}
@@ -192,7 +206,7 @@ func leaderLastPostgresReadyTime(sa *ShardAnalysis) time.Time {
 
 // leaderPromoting reports whether the leader's last snapshot shows pg_promote()
 // in progress (postgres in the PROMOTING state).
-func leaderPromoting(sa *ShardAnalysis) bool {
+func leaderPromoting(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil &&
 		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
@@ -200,7 +214,7 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 // leaderInRecovery reports whether the leader's last snapshot shows its postgres
 // genuinely in recovery as a STANDBY (pg_is_in_recovery() = true) — a node the
 // consensus rule names as leader but whose postgres never left recovery and so
-// cannot accept writes. Mirrors store.LeaderWritesProgressing's rule that recovery
+// cannot accept writes. Mirrors snapshot.LeaderWritesProgressing's rule that recovery
 // mode is what actually precludes writes.
 //
 // This is deliberately the STANDBY state specifically, not "anything other than
@@ -211,7 +225,7 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 // pg_isready, so the anti-flap timeout already fails them over — treating them as
 // "in recovery" here would instead fail over every primary restart. PROMOTING is
 // handled upstream by inPromotionGrace.
-func leaderInRecovery(sa *ShardAnalysis) bool {
+func leaderInRecovery(sa *snapshot.Shard) bool {
 	return sa.IntendedLeader() != nil &&
 		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
@@ -230,15 +244,15 @@ func leaderInRecovery(sa *ShardAnalysis) bool {
 // pooler self-asserting leadership and suppresses without a PROMOTING flag; the
 // postgres monitor self-resigns if the promotion turns out unbacked/stuck (rule
 // absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star.
-func inPromotionGrace(sa *ShardAnalysis) bool {
+func inPromotionGrace(sa *snapshot.Shard) bool {
 	if !leaderPromoting(sa) || !leaderObservedLive(sa) || !leaderPostgresRunning(sa) {
 		return false
 	}
 	ruleAge := sa.Now.Sub(commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetCreationTime().AsTime())
-	return ruleAge < sa.Policy.ConnectReplicasToNewLeaderGrace
+	return ruleAge < sa.AvailabilityPolicy.ConnectReplicasToNewLeaderGrace
 }
 
-func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -300,7 +314,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 // AtLeast(2)): that is the operator's chosen posture, not an anomaly, and would
 // otherwise fire forever. The distinguisher: recovery is infeasible now but WOULD
 // be feasible if every cohort member were reachable, i.e. standbys are missing.
-func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *ShardAnalysis, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *snapshot.Shard, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) []types.Problem {
 	recoverableIfLeaderLost := recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, leaderID))
 	recoverableIfFullyReachable := recruitmentFeasible(policy, cohort, cohortWithout(cohort, leaderID))
 	if !recoverableIfLeaderLost && recoverableIfFullyReachable {
@@ -332,7 +346,7 @@ func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reacha
 // Both are alert-only. Otherwise the cause is actionable via AppointLeader. The old
 // leader is not excluded from the reachable set — even an unhealthy-but-reachable
 // leader can still participate in the recruit that establishes the new term.
-func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
 	if !recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.blindOrStuck(sa, leaderID, cohort,
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
@@ -364,7 +378,7 @@ func causeIsConclusive(cause types.ProblemCode) bool {
 //
 // TODO(propagation): the progress axis will further split LeaderHealthUnknown into
 // ShardWritesBlockedOnPropagation when a quorum is catching up but not yet current.
-func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID) []types.Problem {
 	if recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.shardProblem(sa, leaderID, types.ProblemLeaderHealthUnknown, types.PriorityNormal, a.factory.NewAlertOnlyAction(),
 			fmt.Sprintf("Shard %s leader health is unknown: orch cannot confirm it is serving a quorum nor that its cohort is cut off from it", sa.ShardKey))
@@ -376,7 +390,7 @@ func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *ShardAnalysis, lea
 // blindOrStuck returns the alert-only problem for an infeasible failover: no usable
 // health of any cohort member → NoHealthyCohortMembers (blind); otherwise a sub-quorum
 // cohort → ShardStuck (with stuckDescription). Shared by emitFailover/emitInconclusive.
-func (a *LeaderNeedsReplacementAnalyzer) blindOrStuck(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, cohort []*clustermetadatapb.ID, stuckDescription string) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) blindOrStuck(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, cohort []*clustermetadatapb.ID, stuckDescription string) []types.Problem {
 	if !hasUsableShardHealth(sa, cohort) {
 		return a.shardProblem(sa, leaderID, types.ProblemNoHealthyCohortMembers, types.PriorityEmergency, a.factory.NewAlertOnlyAction(),
 			fmt.Sprintf("Shard %s has no healthy cohort members: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
@@ -387,7 +401,7 @@ func (a *LeaderNeedsReplacementAnalyzer) blindOrStuck(sa *ShardAnalysis, leaderI
 // atRiskProblem builds the ShardAtRisk warning. It is ScopePooler (anchored to the
 // healthy leader) and PriorityNormal — deliberately NOT shard-wide/emergency — so
 // it does not suppress the replica recoveries (standby adds) that resolve the risk.
-func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, description string) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, description string) []types.Problem {
 	return []types.Problem{{
 		Code:           types.ProblemShardAtRisk,
 		CheckName:      a.Name(),
@@ -407,7 +421,7 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *ShardAnalysis, leader
 // caller must NOT treat it as healthy). The cause follows the first-hand vs
 // observer-derived principle (see the leader problem docs in the types package).
 func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
-	sa *ShardAnalysis,
+	sa *snapshot.Shard,
 	cohort []*clustermetadatapb.ID,
 	leaderID *clustermetadatapb.ID,
 	leaderLive bool,
@@ -536,8 +550,8 @@ const (
 // RecruitBlockedUntil is deliberately not consulted: a blocked recruit is still
 // pointed at the leader and can report it unreachable — recruitability is a
 // feasibility concern (recruitableCohort), not detection.
-func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
-	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
+	if !observationFresh(pa, sa.Now, sa.AvailabilityPolicy.FollowerStreamFreshness) {
 		return relationUnaware
 	}
 	if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
@@ -550,7 +564,7 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 	if !commonconsensus.RuleNamesLeader(rule, leaderID) {
 		return relationUnaware
 	}
-	if created := rule.GetCreationTime(); created == nil || sa.Now.Sub(created.AsTime()) <= sa.Policy.ConnectReplicasToNewLeaderGrace {
+	if created := rule.GetCreationTime(); created == nil || sa.Now.Sub(created.AsTime()) <= sa.AvailabilityPolicy.ConnectReplicasToNewLeaderGrace {
 		return relationAdapting
 	}
 	if !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
@@ -566,7 +580,7 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnaly
 // since replication only adds delay) and a non-cohort observer's.
 //
 // TODO: verify a report's heartbeat leader_id matches leaderID (fencing-gap misattribution risk).
-func freshestQuorumCommitTs(sa *ShardAnalysis) *timestamppb.Timestamp {
+func freshestQuorumCommitTs(sa *snapshot.Shard) *timestamppb.Timestamp {
 	var freshest *timestamppb.Timestamp
 	if sa.IntendedLeader() != nil {
 		if ts := sa.IntendedLeader().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
@@ -597,7 +611,7 @@ func freshestQuorumCommitTs(sa *ShardAnalysis) *timestamppb.Timestamp {
 // be spoofed by archive replay. Gated on replicaConfiguredForLeader so WAL
 // advance from an unrelated primary can't stand in as evidence of this
 // leader's health.
-func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
+func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
 	leader := sa.IntendedLeader()
 	if leader == nil {
 		return false
@@ -615,7 +629,7 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 			continue
 		}
 		ts := pa.GetStatus().GetReplicationStatus().GetLastReceiveLsnAdvanceTime()
-		if ts != nil && sa.Now.Sub(ts.AsTime()) <= sa.Policy.FollowerStreamFreshness {
+		if ts != nil && sa.Now.Sub(ts.AsTime()) <= sa.AvailabilityPolicy.FollowerStreamFreshness {
 			vouching = append(vouching, member)
 		}
 	}
@@ -634,9 +648,9 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *ShardAnaly
 // show raw LSN progress (they replay WAL ahead of the primary's own
 // synchronous-quorum ack). Absence of evidence must not convict, so this is
 // healthy (cause=="") when no pooler has reported a quorum_commit_ts yet.
-func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) (types.ProblemCode, string, bool) {
+func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) (types.ProblemCode, string, bool) {
 	freshest := freshestQuorumCommitTs(sa)
-	if !consensus.QuorumCommitStale(freshest, sa.Now, sa.Policy.QuorumCommitStaleAfter) {
+	if !consensus.QuorumCommitStale(freshest, sa.Now, sa.AvailabilityPolicy.QuorumCommitStaleAfter) {
 		return "", "", false
 	}
 	// A DECIDED rule already proves a quorum-acked commit succeeded under this
@@ -646,7 +660,7 @@ func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysi
 		return "", "", false
 	}
 	return types.ProblemLeaderQuorumWritesStalled,
-		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardKey, sa.Policy.QuorumCommitStaleAfter), false
+		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardKey, sa.AvailabilityPolicy.QuorumCommitStaleAfter), false
 }
 
 // classifyCohortReachability sorts cohort followers by their relation to the leader,
@@ -655,7 +669,7 @@ func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *ShardAnalysi
 // neither — their silence is not evidence. The leader is appended to `vouching` once
 // any follower streams from it (you cannot stream from a dead primary), so it counts
 // toward the vouching quorum but never toward the cut-off set.
-func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) (vouching, cutOff []*clustermetadatapb.ID) {
+func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) (vouching, cutOff []*clustermetadatapb.ID) {
 	leader := sa.IntendedLeader()
 	if leader == nil {
 		// No leader identity to check followers against — no evidence either way.
@@ -707,7 +721,7 @@ func cohortWithout(cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID
 // cohortSatisfying returns the outgoing-cohort members (minus exclude, if
 // non-nil) whose rider passes pred. Shared by freshInitializedCohort and
 // recruitableCohort, which differ only in which question pred asks.
-func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID, pred func(*multiorchdatapb.PoolerHealthState) bool) []*clustermetadatapb.ID {
+func cohortSatisfying(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID, pred func(*multiorchdatapb.PoolerHealthState) bool) []*clustermetadatapb.ID {
 	excludeKey := topoclient.ComponentIDString(exclude)
 	var satisfying []*clustermetadatapb.ID
 	for _, m := range cohort {
@@ -730,9 +744,9 @@ func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude
 // usable evidence, regardless of whether they could actually be recruited
 // (see freshAndInitialized's doc). Used only to judge "do we have any
 // trustworthy signal at all," not recruitment feasibility.
-func freshInitializedCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
+func freshInitializedCohort(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
 	return cohortSatisfying(sa, cohort, exclude, func(pa *multiorchdatapb.PoolerHealthState) bool {
-		return freshAndInitialized(pa, sa.Now, sa.Policy.ObservationFreshness)
+		return freshAndInitialized(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness)
 	})
 }
 
@@ -743,9 +757,9 @@ func freshInitializedCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, e
 // also requires recruited ⊆ cohort). If exclude is non-nil that member is
 // omitted — used to ask "could we recover if the leader were lost?" for the
 // ShardAtRisk check.
-func recruitableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
+func recruitableCohort(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
 	return cohortSatisfying(sa, cohort, exclude, func(pa *multiorchdatapb.PoolerHealthState) bool {
-		return recruitable(pa, sa.Now, sa.Policy.ObservationFreshness)
+		return recruitable(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness)
 	})
 }
 
@@ -760,12 +774,12 @@ func recruitableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclud
 // This is exactly freshInitializedCohort being non-empty: the leader is itself a
 // cohort member (the rule's CohortMembers includes it, which is why emitFailover
 // recruits with exclude=nil), so a fresh leader already counts here.
-func hasUsableShardHealth(sa *ShardAnalysis, cohort []*clustermetadatapb.ID) bool {
+func hasUsableShardHealth(sa *snapshot.Shard, cohort []*clustermetadatapb.ID) bool {
 	return len(freshInitializedCohort(sa, cohort, nil)) > 0
 }
 
 // shardProblem builds the single shard-scoped problem this analyzer emits.
-func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, code types.ProblemCode, priority types.Priority, action types.RecoveryAction, description string) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, code types.ProblemCode, priority types.Priority, action types.RecoveryAction, description string) []types.Problem {
 	return []types.Problem{{
 		Code:           code,
 		CheckName:      a.Name(),

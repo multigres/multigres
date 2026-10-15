@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -45,7 +45,7 @@ func (a *ShardNeedsInitializationAnalyzer) RecoveryAction() types.RecoveryAction
 	return a.factory.NewShardInitAction()
 }
 
-func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -71,7 +71,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	}
 	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Poolers))
 	for _, pa := range sa.Poolers {
-		if hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
+		if hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}

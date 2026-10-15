@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -64,10 +65,10 @@ type RefreshResult struct {
 // and an unreachable pooler is itself evidence for whatever judgment follows.
 // Best-effort: failures are logged and counted, never returned.
 //
-// TODO: "looks reachable" is DefaultObservationFreshness here, but the analyzer
+// TODO: "looks reachable" is snapshot.DefaultObservationFreshness here, but the analyzer
 // decides whether the leader is observed live with the policy's own
 // LeaderLivenessFreshness. They are both 15s today without being linked; take
-// the threshold from the same source once the policy moves to a shared package.
+// the threshold from the snapshot's AvailabilityPolicy now that it lives in a shared package.
 func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.MultipoolerClient, poolers []*Pooler, timeout time.Duration, logger *slog.Logger) RefreshResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -79,8 +80,7 @@ func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.Multipoole
 		result RefreshResult
 	)
 	for _, pooler := range poolers {
-		age, ok := ObservationAge(pooler.Health(), now)
-		if !ok || age > DefaultObservationFreshness {
+		if _, ok := pooler.HealthWithin(now, snapshot.DefaultObservationFreshness); !ok {
 			result.Skipped++
 			continue
 		}

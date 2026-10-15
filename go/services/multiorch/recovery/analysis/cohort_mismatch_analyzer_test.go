@@ -31,6 +31,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -91,14 +92,14 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		}
 	}
 
-	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
+	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
 		leader := leaderRider()
 		analyses := append([]*multiorchdatapb.PoolerHealthState{leader}, replicas...)
-		return newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      time.Now(),
-			Policy:   DefaultAvailabilityPolicy(),
-			Poolers:  analyses,
+		return newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                time.Now(),
+			AvailabilityPolicy: DefaultAvailabilityPolicy(),
+			Poolers:            analyses,
 		}, &clustermetadatapb.RulePosition{
 			Decision: &clustermetadatapb.ShardRule{
 				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -119,19 +120,19 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		cohortIDs []*clustermetadatapb.ID,
 		tombstones []*clustermetadatapb.ID,
 		analyses ...*multiorchdatapb.PoolerHealthState,
-	) *ShardAnalysis {
+	) *snapshot.Shard {
 		leader := leaderRider()
 		full := append([]*multiorchdatapb.PoolerHealthState{leader}, analyses...)
 		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
 		for _, id := range tombstones {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
 		}
-		return newShardAnalysis(&ShardAnalysis{
-			ShardKey:     shardKey,
-			Now:          time.Now(),
-			Policy:       DefaultAvailabilityPolicy(),
-			Poolers:      full,
-			TombstoneIDs: tombSet,
+		return newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                time.Now(),
+			AvailabilityPolicy: DefaultAvailabilityPolicy(),
+			Poolers:            full,
+			TombstoneIDs:       tombSet,
 		}, &clustermetadatapb.RulePosition{
 			Decision: &clustermetadatapb.ShardRule{
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -167,10 +168,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// resolve cohort membership from the proposal here, so replicaA is
 		// already considered a member and must NOT be flagged as missing.
 		leader := leaderRider()
-		sa := newShardAnalysis(&ShardAnalysis{
-			ShardKey: shardKey,
-			Now:      time.Now(),
-			Policy:   DefaultAvailabilityPolicy(),
+		sa := newShardAnalysis(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Now:                time.Now(),
+			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 			Poolers: []*multiorchdatapb.PoolerHealthState{
 				leader,
 				healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_UNKNOWN),

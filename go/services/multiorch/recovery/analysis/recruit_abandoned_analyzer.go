@@ -21,8 +21,8 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // RecruitAbandonedAnalyzer detects a follower stranded by an abandoned recruit:
@@ -42,7 +42,7 @@ func (a *RecruitAbandonedAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewReconnectRecruitAbandonedAction()
 }
 
-func (a *RecruitAbandonedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *RecruitAbandonedAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
@@ -53,7 +53,7 @@ func (a *RecruitAbandonedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, 
 // stricter ValidateRevocation) so detection can't drift from enforcement.
 // Also consulted by ReplicaNotReplicatingAnalyzer to defer to this analyzer
 // instead of sending a SetPrimary the follower would just ignore.
-func revocationStrandsFollower(sa *ShardAnalysis, p *multiorchdatapb.PoolerHealthState) bool {
+func revocationStrandsFollower(sa *snapshot.Shard, p *multiorchdatapb.PoolerHealthState) bool {
 	if sa.HighestIntendedRule() == nil {
 		return false
 	}
@@ -66,7 +66,7 @@ func revocationStrandsFollower(sa *ShardAnalysis, p *multiorchdatapb.PoolerHealt
 // bound within which a live failover completes. Only then do we treat the
 // recruit as abandoned. A revocation with no coordinator_initiated_at (which a
 // valid one always carries) is treated as not-yet-aged, erring toward waiting.
-func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *ShardAnalysis, p *multiorchdatapb.PoolerHealthState) bool {
+func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *snapshot.Shard, p *multiorchdatapb.PoolerHealthState) bool {
 	initiatedAt := p.GetConsensusStatus().GetTermRevocation().GetCoordinatorInitiatedAt()
 	if initiatedAt == nil {
 		return false
@@ -78,7 +78,7 @@ func revocationAgedPastFailoverGrace(factory *RecoveryActionFactory, sa *ShardAn
 	return sa.Now.Sub(initiatedAt.AsTime()) >= grace
 }
 
-func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
+func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -87,7 +87,7 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorc
 	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
-	hs, ok := store.HealthWithin(pa, sa.Now, sa.Policy.ObservationFreshness)
+	hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness)
 	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}
@@ -100,8 +100,8 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *multiorc
 
 	// Only proceed if it looks safe to attempt a write on the leader right now —
 	// otherwise we can't distinguish an abandoned recruit from a live election
-	// still in flight (see store.LeaderWritesProgressing).
-	if !store.LeaderWritesProgressing(sa.IntendedLeader(), sa.HighestIntendedRule(), sa.Now, sa.Policy.LeaderChangeFreshness) {
+	// still in flight (see snapshot.LeaderWritesProgressing).
+	if !snapshot.LeaderWritesProgressing(sa.IntendedLeader(), sa.HighestIntendedRule(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) {
 		return nil, nil
 	}
 

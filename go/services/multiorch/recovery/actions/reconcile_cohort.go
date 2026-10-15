@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -150,7 +151,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 		return mterrors.Wrap(err, "failed to find leader named by consensus rule")
 	}
 
-	if !store.LeaderWritesProgressing(leader.Health(), rule, time.Now(), store.DefaultLeaderWriteFreshness) {
+	if !snapshot.LeaderWritesProgressing(leader.Health(), rule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}

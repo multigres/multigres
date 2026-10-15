@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -111,7 +112,7 @@ func TestRefreshRecentInParallel(t *testing.T) {
 	}
 	recent := func() *timestamppb.Timestamp { return timestamppb.New(time.Now().Add(-time.Second)) }
 	stale := func() *timestamppb.Timestamp {
-		return timestamppb.New(time.Now().Add(-2 * DefaultObservationFreshness))
+		return timestamppb.New(time.Now().Add(-2 * snapshot.DefaultObservationFreshness))
 	}
 
 	t.Run("refreshes a recently seen pooler and skips stale or never-seen ones", func(t *testing.T) {
