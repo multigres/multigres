@@ -307,8 +307,9 @@ func buildProposalCore(
 	// to change cohort or durability policy even when outgoingRule is
 	// undecided; the resulting write is an entirely ordinary rule change from
 	// a clean decided baseline, with its own independent safety.
-	outgoingRuleDecided := IsRuleDecided(highestPosition)
-	outgoingRule := PossiblyUndecidedRule(highestPosition)
+	highest := NewRuleTransition(highestPosition)
+	outgoingRuleDecided := highest.IsDecided()
+	outgoingRule := highest.PossiblyUndecidedRule()
 	if cmp := CompareRuleNumbers(outgoingRule.GetRuleNumber(), expectedOutgoingRule); cmp != 0 {
 		if mode == skipOutgoingQuorum {
 			// The externally-certified path has no coordinator "view" to
@@ -322,7 +323,7 @@ func buildProposalCore(
 		if cmp > 0 {
 			return nil, fmt.Errorf(
 				"recruit %s reports position %s ahead of expected outgoing rule %v; coordinator view is stale, re-discover",
-				topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expectedOutgoingRule,
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), highest, expectedOutgoingRule,
 			)
 		}
 		return nil, fmt.Errorf(
@@ -352,7 +353,7 @@ func buildProposalCore(
 		// sufficient recruitment, or that write can never succeed regardless
 		// of how the new proposal is built.
 		if !outgoingRuleDecided {
-			decisionRule := highestPosition.GetDecision()
+			decisionRule := highest.Decision()
 			decisionPolicy, err := NewPolicyFromProto(decisionRule.GetDurabilityPolicy())
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse durability policy from decision: %w", err)
