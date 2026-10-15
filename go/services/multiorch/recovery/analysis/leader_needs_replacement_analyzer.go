@@ -345,6 +345,11 @@ func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderI
 // resignation is the leader's own stated intent (or a durable shutdown tombstone),
 // so neither depends on a possibly stale view. Every other cause is a guess from
 // observed health, and the default for anything new is to verify it.
+//
+// TODO: a rule whose non-revoked members can no longer satisfy its durability policy is
+// just as conclusive, since revocations are durable. Add it once the analyzer checks that
+// from recorded revocations alone, ahead of the liveness branches, and reports it as its
+// own cause. Today LeaderUnreachableByCohort mixes revocations with observed disconnects.
 func causeIsConclusive(cause types.ProblemCode) bool {
 	return cause == types.ProblemLeaderUnspecified || cause == types.ProblemLeaderResigned
 }

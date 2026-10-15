@@ -353,14 +353,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// pooler's term check.
 	if timeout := problem.RecoveryAction.Metadata().RefreshBeforeRecheckTimeout; timeout > 0 && !problem.SkipPreRecheckRefresh {
 		poolers := store.FindPoolersInShard(re.poolerCache, problem.ShardKey)
-		refreshStart := time.Now()
-		refresh := store.RefreshRecentInParallel(ctx, re.rpcClient, poolers, timeout, re.logger)
-		span.SetAttributes(
-			attribute.Int64("pre_recheck_refresh.duration_ms", time.Since(refreshStart).Milliseconds()),
-			attribute.Int("pre_recheck_refresh.refreshed", refresh.Refreshed),
-			attribute.Int("pre_recheck_refresh.failed", refresh.Failed),
-			attribute.Int("pre_recheck_refresh.skipped", refresh.Skipped),
+		refreshCtx, refreshSpan := telemetry.Tracer().Start(ctx, "recovery/pre_recheck_refresh")
+		refresh := store.RefreshRecentInParallel(refreshCtx, re.rpcClient, poolers, timeout, re.logger)
+		refreshSpan.SetAttributes(
+			attribute.Int("poolers.refreshed", refresh.Refreshed),
+			attribute.Int("poolers.failed", refresh.Failed),
+			attribute.Int("poolers.skipped", refresh.Skipped),
 		)
+		refreshSpan.End()
 	}
 
 	// TODO: skip the recheck itself, not just the refresh above, when the cause is
