@@ -152,7 +152,6 @@ func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResp
 // applyStatusFields writes a StatusResponse's fields into h. status.GetStatus() must be
 // non-nil.
 func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp) {
-	h.LastCheckSuccessful = now
 	h.LastSeen = now
 	h.Status = proto.Clone(status.GetStatus()).(*multipoolermanagerdatapb.Status)
 	if av := status.GetAvailabilityStatus(); av != nil {

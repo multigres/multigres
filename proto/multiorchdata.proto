@@ -36,9 +36,8 @@ message PoolerHealthState {
   // serving_status, hostname, port_map.
   clustermetadata.Multipooler multipooler = 1;
 
-  // Timestamps for staleness detection
-  google.protobuf.Timestamp last_check_attempted = 4;
-  google.protobuf.Timestamp last_check_successful = 5;
+  // When multiorch last received a successful health snapshot from the pooler,
+  // for staleness detection.
   google.protobuf.Timestamp last_seen = 6;
 
   // Consensus status from ConsensusStatus RPC (for divergence detection)
@@ -59,9 +58,6 @@ message PoolerHealthState {
   // Whether a ManagerHealthStream stream is currently active for this pooler.
   bool stream_connected = 20;
 
-  // The time at which the current stream was established.
-  google.protobuf.Timestamp stream_connected_since = 21;
-
   // Full health status from the most recent successful Status RPC or
   // ManagerHealthStream snapshot. Nil until the first successful check.
   multipoolermanagerdata.Status status = 22;
@@ -69,8 +65,9 @@ message PoolerHealthState {
   // Monotonic counter of health snapshots received on the current or past streams.
   int64 stream_snapshots_received = 23;
 
-  // Field 24 (pooler_captured_at) was dropped: nothing read it.
-  // We may add it back later.
-  reserved 24;
-  reserved "pooler_captured_at";
+  // Fields 4 (last_check_attempted), 5 (last_check_successful), 21
+  // (stream_connected_since) and 24 (pooler_captured_at) were dropped: nothing
+  // read them. We may add any of them back later.
+  reserved 4, 5, 21, 24;
+  reserved "last_check_attempted", "last_check_successful", "stream_connected_since", "pooler_captured_at";
 }
