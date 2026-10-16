@@ -410,7 +410,7 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *snapshot.Shard, leade
 		Description:    description,
 		Priority:       types.PriorityNormal,
 		Scope:          types.ScopePooler,
-		DetectedAt:     time.Now(),
+		DetectedAt:     sa.Now,
 		RecoveryAction: a.factory.NewAlertOnlyAction(),
 	}}
 }
@@ -474,7 +474,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 		if intendedLeaderPostgresRunning(sa) {
 			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 			lastReady := intendedLeaderLastPostgresReadyTime(sa)
-			if !lastReady.IsZero() && time.Since(lastReady) <= threshold {
+			if !lastReady.IsZero() && sa.Now.Sub(lastReady) <= threshold {
 				return "", "", false
 			}
 		}
@@ -783,7 +783,7 @@ func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *snapshot.Shard, leader
 		Description:    description,
 		Priority:       priority,
 		Scope:          types.ScopeShard,
-		DetectedAt:     time.Now(),
+		DetectedAt:     sa.Now,
 		RecoveryAction: action,
 		// Only consulted for actions that ask for a refresh; false for every other code.
 		SkipPreRecheckRefresh: causeIsConclusive(code),

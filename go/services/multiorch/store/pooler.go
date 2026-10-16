@@ -89,19 +89,16 @@ func NewPooler(initial *multiorchdatapb.PoolerHealthState, hs *HealthStream) *Po
 	return p
 }
 
-// Health returns the pooler's current health state snapshot. Returns nil
-// if no state has been published yet.
+// Health returns the pooler's current health state, or nil if none has been
+// published yet. A published state never changes: Mutate always replaces the
+// whole proto, so a returned pointer is safe to read from any goroutine.
 //
-// IMPORTANT: callers MUST NOT mutate the returned proto. The snapshot is
-// shared with other readers and with future Mutate calls (which copy the
-// current pointer as their starting point). Mutating it would corrupt
-// state visible to other goroutines.
+// Callers MUST NOT mutate the returned proto: it is shared with other readers
+// and is the starting point for the next Mutate.
 //
-// (Why no clone-on-read: snapshots are immutable by construction —
-// Mutate always allocates a new proto and atomic-publishes it — so the
-// safety contract is "writers don't reach in," not "readers defensively
-// copy." Read paths are hot — analyzers call Health() in tight loops —
-// so cloning every read would be wasteful.)
+// Each call returns whatever is current, so two calls can differ. Code that
+// needs one consistent view across several reads (analysis, actions) should
+// take a snapshot once, with SnapshotShard, and read from that.
 func (p *Pooler) Health() *multiorchdatapb.PoolerHealthState {
 	return p.state.Load()
 }

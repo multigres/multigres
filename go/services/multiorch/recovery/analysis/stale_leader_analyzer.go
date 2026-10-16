@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -108,7 +107,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 				leaderPosition),
 			Priority:       types.PriorityHigh - types.Priority(i),
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewDemoteStaleLeaderAction(),
 		})
 	}

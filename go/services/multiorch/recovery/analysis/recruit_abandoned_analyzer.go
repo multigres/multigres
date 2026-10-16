@@ -134,7 +134,7 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *snapshot.Shard, pa *multior
 		Description:    fmt.Sprintf("Follower %s is stranded by an abandoned recruit (revocation outranks the committed rule)", poolerID(pa).Name),
 		Priority:       types.PriorityHigh,
 		Scope:          types.ScopePooler,
-		DetectedAt:     time.Now(),
+		DetectedAt:     sa.Now,
 		RecoveryAction: a.factory.NewReconnectRecruitAbandonedAction(),
 	}, nil
 }
