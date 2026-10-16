@@ -21,9 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
-	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -44,77 +42,46 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 type AppointLeaderAction struct {
 	config      *config.Config
 	consensus   *consensus.Coordinator
-	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
-	topoStore   topoclient.Store
 	logger      *slog.Logger
+	// refreshTimeout is the time budget for the live-RPC refresh before the
+	// engine's recheck (see RecoveryMetadata.RefreshBeforeRecheckTimeout).
+	refreshTimeout time.Duration
 }
 
 // NewAppointLeaderAction creates a new leader appointment action
 func NewAppointLeaderAction(
 	cfg *config.Config,
 	consensus *consensus.Coordinator,
-	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
-	topoStore topoclient.Store,
 	logger *slog.Logger,
+	refreshTimeout time.Duration,
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{
-		config:      cfg,
-		consensus:   consensus,
-		rpcClient:   rpcClient,
-		poolerStore: poolerStore,
-		topoStore:   topoStore,
-		logger:      logger,
+		config:         cfg,
+		consensus:      consensus,
+		poolerStore:    poolerStore,
+		logger:         logger,
+		refreshTimeout: refreshTimeout,
 	}
 }
 
-// Execute performs leader appointment by running the coordinator's consensus protocol
+// Execute performs leader appointment by running the coordinator's consensus protocol.
+//
+// It trusts rechecked as-is and does not re-poll or re-judge the leader itself.
+// Engine.attemptRecovery has already refreshed the shard's reachable poolers
+// with live RPCs (see RecoveryMetadata.RefreshBeforeRecheckTimeout) and re-run
+// the real analyzer on that fresh evidence, so a second, narrower judgment here
+// could only disagree with the analyzer and skip a failover it asked for.
 func (a *AppointLeaderAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
-	// Gather every pooler known for the shard, then recheck the problem.
 	shard := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	if len(shard.Poolers) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
-
-	// Check if a healthy consensus leader already exists (problem resolved). The
-	// leader is named by the highest known rule across all poolers — the global
-	// consensus view, never a node's local self-claim — and is verified still
-	// leading via a live status check. An error means no healthy leader exists, so
-	// appointment proceeds.
-	//
-	// TODO: Reconsider if trying to contact a dead leader here makes sense. If it's unreachable,
-	// this may just be wasting time.
-	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if leader, statusResp, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
-		// LeaderNeedsReplacement alone misses a leader that's reachable and
-		// self-reports fine but simply can't commit writes.
-		// TODO(https://github.com/multigres/multigres/pull/1481): stopgap using
-		// the default threshold directly -- replace once leaderFitnessCause is
-		// shared with this action and it has real policy-lookup access.
-		quorumCommitStale := consensus.QuorumCommitStale(
-			statusResp.GetStatus().GetPrimaryStatus().GetQuorumCommitTs(), time.Now(), consensus.DefaultQuorumCommitStaleAfter)
-		if quorumCommitStale || types.LeaderNeedsReplacement(leader.Health()) {
-			a.logger.InfoContext(ctx, "primary has requested replacement or is stuck, proceeding with election",
-				"primary", leader.Health().Multipooler.Id.Name,
-				"quorum_commit_stale", quorumCommitStale,
-				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
-		} else {
-			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
-				"primary", leader.Health().Multipooler.Id.Name,
-				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
-			return nil
-		}
-	}
-
-	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
-		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
-		"pooler_count", len(shard.Poolers))
 
 	// Use the coordinator's AppointLeader to handle the election.
 	// Use the problem code as the reason for the election.
@@ -149,6 +116,9 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true, // can retry if it fails
+		// A failover is disruptive enough to want live evidence, not just the
+		// streamed cache, in the recheck that decides whether to run it.
+		RefreshBeforeRecheckTimeout: a.refreshTimeout,
 	}
 }
 

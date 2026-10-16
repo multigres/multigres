@@ -6,6 +6,17 @@ Use the HTTP address of your multiadmin instance as the base URL.
 The web UI uses Connect; internal gRPC services and unannotated RPC paths are
 outside this contract.
 
+## Release downloads
+
+Tagged releases containing OpenAPI packaging attach `multiadmin.openapi.yaml`
+and include its SHA256 digest in `checksums.txt`. Use the release tag matching
+your deployed Multigres version; older releases may not include the asset.
+See [download and verification instructions](../../RELEASE.md#download-the-multiadmin-api-contract).
+
+The asset is the checked-in specification from that tag, validated before
+packaging. The filename remains stable across releases, and `info.version: v1`
+denotes the API version rather than the Multigres release version.
+
 ## Regeneration and validation
 
 Run from the repository root:

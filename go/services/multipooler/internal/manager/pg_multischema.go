@@ -23,6 +23,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
@@ -187,13 +188,7 @@ GRANT USAGE ON SCHEMA multigres TO PUBLIC`); err != nil {
 func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.heartbeat (
-		shard_id BYTEA PRIMARY KEY,
-		leader_id TEXT NOT NULL,
-		ts BIGINT NOT NULL,
-		quorum_commit_lsn pg_lsn,
-		quorum_commit_ts TIMESTAMPTZ
-	)`); err != nil {
+	if err := pm.adminExec(execCtx, heartbeat.CreateTableSQL); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
 	return nil

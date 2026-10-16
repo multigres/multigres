@@ -85,6 +85,14 @@ type AvailabilityPolicy struct {
 	// wrong -- a false positive here drives a real failover against a
 	// healthy leader.
 	QuorumCommitStaleAfter time.Duration
+
+	// PreRecheckRefreshTimeout bounds how long, overall, a failover waits for
+	// live Status RPCs to the shard's reachable poolers before it re-runs the
+	// analyzer to confirm the problem. It sits on the failover critical path, so
+	// keep it short: a pooler that does not answer in time is itself evidence, and
+	// the recheck then uses its cached state. Not yet measured against real Status
+	// latency.
+	PreRecheckRefreshTimeout time.Duration
 }
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
@@ -100,5 +108,6 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 		ConnectReplicasToNewLeaderGrace: 10 * time.Second,
 		ObservationFreshness:            store.DefaultObservationFreshness,
 		QuorumCommitStaleAfter:          consensus.DefaultQuorumCommitStaleAfter,
+		PreRecheckRefreshTimeout:        5 * time.Second,
 	}
 }
