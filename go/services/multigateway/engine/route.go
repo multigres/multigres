@@ -45,12 +45,6 @@ type Route struct {
 	// reconstruct the final SQL at execution time. Nil for non-cached plans.
 	NormalizedAST ast.Stmt
 
-	// ExecuteSQLPreparedStatement, if set, describes a SQL-level EXECUTE
-	// wrapper whose prepared-statement name must be resolved by the multipooler
-	// through pooler-level consolidation before Query runs. Used for wrapped
-	// EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE).
-	ExecuteSQLPreparedStatement *query.ExecuteSqlPreparedStatement
-
 	// KeepStructured opts this route out of opaque row passthrough, forcing the
 	// multipooler to return structured Rows even when passthrough is enabled.
 	// It is a static plan-build-time property (set at construction, no runtime
@@ -72,18 +66,6 @@ func NewRoute(tableGroup, shard, query string, astStmt ast.Stmt) *Route {
 		Shard:         shard,
 		Query:         query,
 		NormalizedAST: astStmt,
-	}
-}
-
-// NewRouteWithExecuteSQLPreparedStatement creates a Route carrying a SQL-level
-// EXECUTE wrapper to be materialized by the multipooler after pooler-level
-// prepared-statement consolidation. See Route.ExecuteSQLPreparedStatement.
-func NewRouteWithExecuteSQLPreparedStatement(tableGroup, shard, sql string, ps *query.ExecuteSqlPreparedStatement) *Route {
-	return &Route{
-		TableGroup:                  tableGroup,
-		Shard:                       shard,
-		Query:                       sql,
-		ExecuteSQLPreparedStatement: ps,
 	}
 }
 
@@ -117,7 +99,7 @@ func (r *Route) StreamExecute(
 		r.TableGroup,
 		r.Shard,
 		query,
-		r.ExecuteSQLPreparedStatement,
+		nil,
 		state,
 		info,
 		r.KeepStructured,

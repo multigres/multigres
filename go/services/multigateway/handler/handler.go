@@ -241,6 +241,18 @@ func (h *MultigatewayHandler) GetPreparedStatementInfo(connID uint32, name strin
 	return h.psc.GetPreparedStatementInfo(connID, name)
 }
 
+// SetResolvedParamTypes records the resolved parameter types from the eager
+// Describe at SQL PREPARE time, scoped to (connID, name).
+func (h *MultigatewayHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+	h.psc.SetResolvedParamTypes(connID, name, desc)
+}
+
+// ResolvedParamTypeOids returns the resolved parameter type OIDs for
+// (connID, name), falling back to the statement's declared parameter types.
+func (h *MultigatewayHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return h.psc.ResolvedParamTypeOids(connID, name)
+}
+
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
 var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
