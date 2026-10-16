@@ -39,6 +39,18 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// A transient failure, such as Postgres still restarting after a failover, must
+// be retried quickly: delaying the retry lets the pooler's monitor heal the node
+// first and delays delivering the leader via SetPrimary.
+func TestFixReplicationAction_RetryBackoffStartsShort(t *testing.T) {
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
+
+	backoff := action.Metadata().RetryBackoff
+	require.NotNil(t, backoff)
+	assert.LessOrEqual(t, backoff.BaseDelay, 2*time.Second)
+	assert.GreaterOrEqual(t, backoff.MaxDelay, time.Minute)
+}
+
 func TestFixReplicationAction_Metadata(t *testing.T) {
 	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
 
