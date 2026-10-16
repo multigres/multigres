@@ -66,10 +66,11 @@ func completionUnconfirmed() error {
 		"statement timed out before backend cleanup could be confirmed", ""))
 }
 
-// A legacy RPC deadline ends the transport without acknowledging backend
+// A dedicated RPC deadline ends the transport without acknowledging backend
 // cleanup. Do not report a recoverable timeout for that ambiguous outcome.
-func legacyTimeoutError(ctx context.Context, err error) error {
-	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+func dedicatedTimeoutError(ctx context.Context, err error) error {
+	// A remote deadline can arrive before the local context timer runs.
+	if err != nil && (errors.Is(ctx.Err(), context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded) {
 		return completionUnconfirmed()
 	}
 	return err
