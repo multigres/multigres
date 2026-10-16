@@ -1122,10 +1122,18 @@ func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerServi
 				}
 			}
 			for _, ch := range req.GetSubscribeChannels() {
-				if !subscribed[ch] {
-					listener.SubscribeCh(ch, notifCh)
-					subscribed[ch] = true
+				if subscribed[ch] {
+					continue
 				}
+				// The listener may have stopped since the Running check
+				// above. An unregistered notifCh is never closed, so
+				// acking here would leave this stream open, and the
+				// gateway subscribed to nothing, until the client went
+				// away. Refuse instead so the gateway reconnects.
+				if !listener.SubscribeCh(ch, notifCh) {
+					return status.Error(codes.Unavailable, "pubsub listener stopped: pooler is no longer the serving leader")
+				}
+				subscribed[ch] = true
 			}
 			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{Ready: true}); err != nil {
 				return err

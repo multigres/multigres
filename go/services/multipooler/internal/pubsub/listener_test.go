@@ -120,7 +120,7 @@ func TestListenerRequestsDoNotBlockWhenStopped(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			l.SubscribeCh("ch", sub)
+			assert.False(t, l.SubscribeCh("ch", sub), "a stopped listener must report the subscribe was not applied")
 			l.Unsubscribe("ch", sub)
 			l.UnsubscribeAll(sub)
 		}()
