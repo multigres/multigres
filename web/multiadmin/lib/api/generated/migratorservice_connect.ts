@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
+import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, ReseedReverseLinkRequest, ReseedReverseLinkResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -101,6 +101,22 @@ export const Migrator = {
       name: "DropMigration",
       I: DropMigrationRequest,
       O: DropMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ReseedReverseLink repairs a degraded EXPORT reverse link (the reverse
+     * subscription's slot is missing or unusable): drops the broken
+     * subscription (if any), recreates the slot fresh, and resubscribes with a
+     * full copy. Explicit, operator-triggered; only valid for an EXPORTING
+     * migration. A no-op (beyond clearing a stale degraded marker) if the link
+     * is already healthy.
+     *
+     * @generated from rpc migrator.Migrator.ReseedReverseLink
+     */
+    reseedReverseLink: {
+      name: "ReseedReverseLink",
+      I: ReseedReverseLinkRequest,
+      O: ReseedReverseLinkResponse,
       kind: MethodKind.Unary,
     },
     /**

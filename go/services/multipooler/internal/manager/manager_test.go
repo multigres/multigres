@@ -860,6 +860,63 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	resume(lockCtx)
 }
 
+// TestOpen_HonorsMigrationHoldOnRestart is the regression test for the MEDIUM
+// finding this guards against: openLocked used to publish its target serving
+// status (SERVING, for the common Open() path) directly, without consulting
+// the migration serving gate at all. A pooler restarting while an IMPORT
+// migration is in progress on this shard would therefore briefly publish
+// SERVING — bypassing the gate entirely — until the next ~5s postgres-monitor
+// tick observed the drift and corrected it via fixDrift. refreshMigrationHold
+// must run synchronously inside openLocked, and the published status must be
+// reconciled against it, the same way every other serving-status transition
+// during a migration already is (ReconcileMigrationHold,
+// releaseForMigrationExport).
+func TestOpen_HonorsMigrationHoldOnRestart(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-open-migration-hold",
+	}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:        serviceID,
+		Hostname:  "localhost",
+		PortMap:   map[string]int32{"grpc": 8080},
+		Type:      clustermetadatapb.PoolerType_PRIMARY,
+		PoolerDir: t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	// An active IMPORT migration on this shard: the hold query comes back held
+	// (count > 0), so Open must not publish SERVING unreconciled.
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern(`SELECT count\(\*\) FROM multigres\.migration`,
+		mock.MakeQueryResult([]string{"count"}, [][]any{{int64(1)}}))
+	pm.qsc = &mockPoolerController{queryService: mockQS}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-open-migration-hold")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.Open(lockCtx)
+
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.record.ServingStatus(),
+		"Open must hold serving (DRAINING) when an IMPORT migration is in progress on this shard, not publish SERVING unreconciled")
+}
+
 // TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
 // survives a Pause/resume cycle. The poller is bound to pm.ctx, which
 // closeLocked cancels and openLocked recreates; StartBackupHealth opts the

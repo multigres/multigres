@@ -137,6 +137,14 @@ type Credentials struct {
 	// after SCRAM succeeds, matching PG's "must be superuser or
 	// replication role to start walsender" error (SQLSTATE 42501).
 	IsReplicationRole bool
+
+	// CanCreateMigration mirrors whether this role could itself perform the
+	// logical-replication setup a migration drives: rolsuper, or (CREATE
+	// privilege on the connected database AND membership in the
+	// pg_create_subscription predefined role) — the same checks PostgreSQL
+	// itself enforces for CREATE PUBLICATION/CREATE SUBSCRIPTION. The gateway
+	// gates migration/connection DDL on this after SCRAM succeeds.
+	CanCreateMigration bool
 }
 
 // CredentialProvider supplies the per-role authentication data the gateway

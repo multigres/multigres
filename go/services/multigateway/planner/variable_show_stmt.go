@@ -48,6 +48,16 @@ func (p *Planner) planVariableShowStmt(
 		return engine.NewPlan(sql, engine.NewGatewayShowVersion(sql)), nil
 	}
 
+	// `SHOW CONNECTIONS` lists the stored connection objects. It parses as a
+	// plain SHOW of a (non-existent) GUC, so intercept it here and route to the
+	// migration DDL primitive (the bare plural has no dedicated grammar to
+	// avoid keyword collisions with ordinary identifiers). Migration status has
+	// no SHOW form of its own — see multigres.stat_migration and the planner's
+	// T_SelectStmt interception (planStatMigrationSelect) instead.
+	if name == "connections" {
+		return engine.NewPlan(sql, engine.NewMigrationDDL(sql, ast.NewShowConnectionsStmt(""), p.migration)), nil
+	}
+
 	if !isGatewayManagedVariable(name) {
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
 	}
