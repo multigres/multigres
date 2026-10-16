@@ -91,7 +91,7 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked
 
 	revocation := follower.Health().GetConsensusStatus().GetTermRevocation()
 
-	// Advance the rule only if the follower is still stranded — the highest known
+	// Advance the rule only if the follower is still stranded — the highest intended
 	// rule may already outrank the revocation (its decision is high enough, even
 	// mid-transition with an outstanding proposal, or a prior cycle / racing
 	// orchestrator already advanced it), in which case SetPrimary is safe to send

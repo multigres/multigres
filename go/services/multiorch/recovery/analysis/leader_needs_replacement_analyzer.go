@@ -533,7 +533,7 @@ type followerLeaderRelation int
 
 const (
 	// relationUnaware: we can't conclude anything. No fresh observation, the follower's
-	// highest-known rule doesn't name this leader, or (past the grace) it isn't even
+	// highest intended rule doesn't name this leader, or (past the grace) it isn't even
 	// configured to follow it.
 	relationUnaware followerLeaderRelation = iota
 	// relationAdapting: it learned of this leader only within the connect grace, so its
@@ -557,10 +557,10 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *snapshot.S
 	if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
 		return relationConnected
 	}
-	// Not streaming. Does it know it should be following THIS leader? Its highest-known
+	// Not streaming. Does it know it should be following THIS leader? Its highest intended
 	// rule may come from its replication primary, not only its own WAL position.
 	rule := commonconsensus.NewRuleTransition(
-		commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{pa.GetConsensusStatus()})).PossiblyUndecidedRule()
+		commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{pa.GetConsensusStatus()})).PossiblyUndecidedRule()
 	if !commonconsensus.RuleNamesLeader(rule, leaderID) {
 		return relationUnaware
 	}

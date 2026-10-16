@@ -71,12 +71,12 @@ type Shard struct {
 //   - intended: the above plus positions only advertised through a
 //     ReplicationPrimary, which no pooler's WAL need hold yet.
 //
-// This is the intended level, so it is not called a position: a follower can
-// learn of a newer leader via SetPrimary before that leader has promoted or
-// recorded the rule.
+// This is the intended level (commonconsensus.HighestIntendedRule), so it is not
+// called a position: a follower can learn of a newer leader via SetPrimary
+// before that leader has promoted or recorded the rule.
 //
-// TODO: rename commonconsensus.HighestKnownRule to HighestIntendedRule and the
-// ReplicationPrimary proto message to IntendedPrimary to match this vocabulary.
+// TODO: rename the ReplicationPrimary proto message to IntendedPrimary to match
+// this vocabulary.
 func (sa *Shard) HighestIntendedRule() commonconsensus.RuleTransition {
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(sa.Poolers))
 	for _, p := range sa.Poolers {
@@ -84,7 +84,7 @@ func (sa *Shard) HighestIntendedRule() commonconsensus.RuleTransition {
 			statuses = append(statuses, cs)
 		}
 	}
-	return commonconsensus.NewRuleTransition(commonconsensus.HighestKnownRule(statuses))
+	return commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule(statuses))
 }
 
 // PoolerHealth returns the health snapshot for id, or nil if the shard has none.

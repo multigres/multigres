@@ -214,7 +214,7 @@ func (a *ReconcileCohortAction) clearJoiningMemberArchive(ctx context.Context, l
 	}
 	// The leader's own rule store reflects the ADD synchronously (UpdateConsensusRule
 	// commits before returning), so its highest intended rule here is the post-ADD rule.
-	postAddRule := commonconsensus.NewRuleTransition(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()}))
+	postAddRule := commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()}))
 	if postAddRule.IsEmpty() {
 		a.logger.WarnContext(ctx, "reconcile cohort: leader reported no rule after ADD; relying on monitor backstop",
 			"target", target.Health().Multipooler.Id.Name)

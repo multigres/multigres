@@ -26,7 +26,7 @@ import (
 //
 // By convention a RuleTransition is built from an intended-level source: the
 // highest rule anyone has told us of, which includes proposals and positions
-// only advertised through a ReplicationPrimary (see HighestKnownRule). A raw
+// only advertised through a ReplicationPrimary (see HighestIntendedRule). A raw
 // *RulePosition taken from a pooler's own PoolerPosition is the recorded
 // (in-the-WAL) view; wrapping one is an explicit statement that it is being used
 // as an intended rule.

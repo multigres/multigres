@@ -120,7 +120,7 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 	}
 	return servingstate.RoutingState{
 		Role: servingstate.RoutingRoleReplica,
-		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
+		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
 }
 

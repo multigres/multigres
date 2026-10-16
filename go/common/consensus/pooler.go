@@ -25,12 +25,12 @@ type ConsensusRole int
 
 const (
 	// ConsensusRoleObserver means the pooler is not a cohort member of the
-	// highest known rule (or no rule is known yet).
+	// highest intended rule (or no rule is known yet).
 	ConsensusRoleObserver ConsensusRole = iota
 	// ConsensusRoleFollower means the pooler is a cohort member of the highest
 	// known rule but is not its leader.
 	ConsensusRoleFollower
-	// ConsensusRoleLeader means the highest known rule names the pooler as leader.
+	// ConsensusRoleLeader means the highest intended rule names the pooler as leader.
 	ConsensusRoleLeader
 )
 
@@ -49,7 +49,7 @@ func (r ConsensusRole) String() string {
 }
 
 // SelfConsensusRole reports the pooler's role in the highest rule it knows
-// (HighestKnownRule over this single status): leader if that rule names self,
+// (HighestIntendedRule over this single status): leader if that rule names self,
 // follower if self is one of that rule's cohort members, observer otherwise
 // (including when cs, its ID, or any known rule is absent).
 //
@@ -57,7 +57,7 @@ func (r ConsensusRole) String() string {
 // ConsensusRoleLeader; keep follower and observer distinct otherwise, since
 // treating a non-cohort observer as a follower is a bug.
 func SelfConsensusRole(cs *clustermetadatapb.ConsensusStatus) ConsensusRole {
-	rule := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}))
+	rule := PossiblyUndecidedRule(HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{cs}))
 	self := cs.GetId()
 	if self == nil {
 		return ConsensusRoleObserver

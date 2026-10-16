@@ -80,7 +80,7 @@ func NewTermRevocation(
 
 	// replaceDecision is the backoff's problem-identity baseline — see
 	// recruitAttempt below for why it must be a settled decision, not
-	// outgoingRule, and HighestDecidedRule's doc for why not HighestKnownRule.
+	// outgoingRule, and HighestDecidedRule's doc for why not HighestIntendedRule.
 	replaceDecision := HighestDecidedRule(statuses)
 
 	// The new revocation term must exceed every term discoverable within reach
@@ -96,7 +96,7 @@ func NewTermRevocation(
 	// compare-and-swap must start from the rule the recruited poolers hold in their
 	// WAL, which an advertised-only rule can't be matched against.
 	//
-	// TODO: also raise maxTerm to the highest intended rule's term (HighestKnownRule)
+	// TODO: also raise maxTerm to the highest intended rule's term (HighestIntendedRule)
 	// when it exceeds the recorded rule and earlier revocations. ValidateRevocation
 	// already rejects a reused term, so this would mainly save a wasted round.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
@@ -279,9 +279,9 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 	return true
 }
 
-// IsSelfRevoked reports whether a node's highest known rule — the max of its
+// IsSelfRevoked reports whether a node's highest intended rule — the max of its
 // own WAL position and the last rule delivered via SetPrimary/Promote — is
-// still revoked by the promise it accepted. Keying on the highest known rule
+// still revoked by the promise it accepted. Keying on the highest intended rule
 // rather than raw WAL position matters: an accepted-but-not-yet-replayed rule
 // already means the node isn't stranded, while a rejected SetPrimary never
 // updates it, so a genuinely stranded node still reads as revoked.

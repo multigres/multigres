@@ -128,7 +128,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	// }
 
 	// Identify the rewind target from cached consensus state: the leader named by
-	// the highest known rule across the shard (the global consensus view, never a
+	// the highest intended rule across the shard (the global consensus view, never a
 	// node's local self-claim). That leader may not have promoted yet; the stale
 	// leader is already unable to commit (see StaleLeaderAnalyzer), and the relayed
 	// rewind_ready below defers its pg_rewind until the leader is ready.
@@ -139,7 +139,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 			"no consensus leader known for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
 
-	// If the supposedly-stale node is itself the highest known consensus leader,
+	// If the supposedly-stale node is itself the highest intended consensus leader,
 	// it is not actually stale (e.g. a spurious or already-resolved detection):
 	// there is nothing newer to rewind it toward. Do nothing rather than send a
 	// self-targeted SetPrimary, which the pooler would ignore.

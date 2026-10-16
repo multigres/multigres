@@ -368,7 +368,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 }
 
 // selfLeaderConsensus builds a consensus status in which the pooler names itself
-// as the consensus leader (so commonconsensus.HighestKnownRule/IsLeader identify
+// as the consensus leader (so commonconsensus.HighestIntendedRule/IsLeader identify
 // it) under a real rule number, as a leader that just applied a rule change
 // would report.
 func selfLeaderConsensus(id *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
