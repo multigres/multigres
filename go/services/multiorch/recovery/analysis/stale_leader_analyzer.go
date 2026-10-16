@@ -60,6 +60,10 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// Any reachable pooler whose own consensus status says it believes itself the
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
+	//
+	// This is safe even when the named leader has not been promoted yet: a rule
+	// that outranks a leader's own exists only after a coordinator recruited enough
+	// of the outgoing cohort to revoke it, so such a leader can no longer commit.
 	leaderID := sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId()
 	if leaderID == nil {
 		return nil, nil

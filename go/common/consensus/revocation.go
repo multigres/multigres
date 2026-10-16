@@ -91,6 +91,14 @@ func NewTermRevocation(
 	// becomes a stranded straggler RecruitAbandonedAnalyzer already
 	// reconciles via a leader-led no-op rule bump, the same as any other
 	// abandoned-recruit case.
+
+	// outgoingRule comes from the most advanced recorded position: a rule change's
+	// compare-and-swap must start from the rule the recruited poolers hold in their
+	// WAL, which an advertised-only rule can't be matched against.
+	//
+	// TODO: also raise maxTerm to the highest intended rule's term (HighestKnownRule)
+	// when it exceeds the recorded rule and earlier revocations. ValidateRevocation
+	// already rejects a reused term, so this would mainly save a wasted round.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	if t := highestRevokedBelowTerm(statuses); t > maxTerm {
 		maxTerm = t

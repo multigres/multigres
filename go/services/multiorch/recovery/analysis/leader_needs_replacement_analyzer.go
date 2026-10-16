@@ -174,6 +174,13 @@ func intendedLeaderPostgresReady(sa *snapshot.Shard) bool {
 // freshness), postgres accepting connections, and not resigned. This is the Q3
 // gate — not latency-sensitive, so requiring freshness merely defers a
 // non-urgent change when our view of the leader is stale.
+//
+// It does not check that the leader has installed the intended rule or is a
+// primary at that term, so a leader still being appointed passes. Cohort changes
+// are re-gated by LeaderWritesProgressing when they execute.
+//
+// TODO: also require the leader's own recorded position to carry the intended
+// rule, so a leader that has not installed it yet doesn't count as serving.
 func intendedLeaderServing(sa *snapshot.Shard) bool {
 	return observationFresh(sa.IntendedLeaderHealth(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) &&
 		intendedLeaderPostgresReady(sa) &&
@@ -317,6 +324,10 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *snapshot.Sh
 // the reachable subset: a strict majority of the outgoing cohort reachable, with
 // the unreachable remainder unable to satisfy the durability policy. Thin
 // readable wrapper over CheckSufficientRecruitment's error return.
+//
+// TODO: this approximates the coordinator's pre-vote check (CheckProposalPossible,
+// run before Recruit) using the intended rule and a hand-written recruitable()
+// predicate. Share one check with the coordinator, anchored on the recorded rule.
 func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reachable []*clustermetadatapb.ID) bool {
 	return commonconsensus.CheckSufficientRecruitment(policy, cohort, reachable) == nil
 }
