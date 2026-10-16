@@ -54,11 +54,12 @@ type Writer struct {
 	runner *timer.PeriodicRunner
 
 	// lastProven is the (LSN, ts) pair captured pre-commit by the most recent
-	// successful write. Written only from writeHeartbeat's own goroutine (the
-	// PeriodicRunner never overlaps ticks), but read from other goroutines via
-	// LastProven() (e.g. an RPC handler reporting the leader's own view). Each
-	// write replaces the whole pointer rather than mutating fields in place,
-	// so a plain atomic pointer swap covers it -- no mutex needed.
+	// proven write. It is raised from two goroutines: the heartbeat tick, after a
+	// write that waited for quorum, and RecordProven, when the rule store acks a
+	// proposal. Both go through raiseProven, a compare-and-swap that replaces the
+	// whole pointer and never moves it backwards, so no mutex is needed. Other
+	// goroutines read it via LastProven() (e.g. an RPC handler reporting the
+	// leader's own view).
 	lastProven atomic.Pointer[provenWatermark]
 
 	writes      atomic.Int64
@@ -145,7 +146,10 @@ func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 
 	// Only the forced write changes the commit mode, so a configured
 	// synchronous_commit still governs normal ticks. set_config(..., true) is
-	// transaction-local and covers this statement's own commit.
+	// transaction-local and covers this statement's own commit. QueryAdminArgs
+	// doesn't support multi-statement queries, so this can't be BEGIN/SET LOCAL/
+	// .../COMMIT; one statement is also one round trip, which matters if postgres
+	// is ever remote.
 	prefix, from := "", ""
 	if !waitForQuorum {
 		prefix = "WITH async AS (SELECT set_config('synchronous_commit', 'off', true))"
