@@ -48,16 +48,10 @@ func newHeartbeatWriterForTest(ctx context.Context, t *testing.T) (*heartbeat.Wr
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	// Mirrors the manager's createHeartbeatTable.
-	_, err = conn.Query(ctx, `CREATE TABLE IF NOT EXISTS multigres.heartbeat (
-		shard_id BYTEA PRIMARY KEY,
-		leader_id TEXT NOT NULL,
-		ts BIGINT NOT NULL,
-		quorum_commit_lsn pg_lsn,
-		quorum_commit_ts TIMESTAMPTZ
-	)`)
+	// Start from a freshly created table, like resetRuleStoreTables does for the rule tables.
+	_, err = conn.Query(ctx, `DROP TABLE IF EXISTS multigres.heartbeat`)
 	require.NoError(t, err)
-	_, err = conn.Query(ctx, `DELETE FROM multigres.heartbeat`)
+	_, err = conn.Query(ctx, heartbeat.CreateTableSQL)
 	require.NoError(t, err)
 
 	writer := heartbeat.NewWriter(&connQueryService{conn: conn}, slog.New(slog.DiscardHandler), []byte("0"), "pooler-1", 1000)
