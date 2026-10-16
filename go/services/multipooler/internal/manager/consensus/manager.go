@@ -161,6 +161,10 @@ type Deps struct {
 	// StaticLeader makes this pooler its shard's leader without consensus (see
 	// ConsensusManager.staticLeader).
 	StaticLeader bool
+	// OnProposalAcked, if set, is called before a quorum-acked rule proposal is
+	// finalized as a decision, with the acked write's LSN and when it started. See
+	// ruleStore.onProposalAcked.
+	OnProposalAcked func(ctx context.Context, lsn pgutil.LSN, startedAt time.Time)
 }
 
 // NewConsensusManager builds a ConsensusManager and the components it owns — the
@@ -176,6 +180,7 @@ func NewConsensusManager(deps Deps) (*ConsensusManager, error) {
 		}
 	}
 	rules := NewRuleStore(deps.Logger, deps.QueryService, NewSyncStandbyManager(deps.Logger, deps.QueryService, deps.ID))
+	rules.onProposalAcked = deps.OnProposalAcked
 	cm := newConsensusManager(deps.ID, promises, rules, deps.Broadcaster)
 	cm.staticLeader = deps.StaticLeader
 	return cm, nil
