@@ -345,6 +345,29 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
+	// Verify a health-based guess against live data before re-running the analyzer:
+	// refresh the shard's reachable poolers via live RPCs, within the time budget
+	// the action chose, unless the analyzer says a refresh cannot change the verdict.
+	// This avoids acting on a wrong health guess. It is not needed to notice another
+	// orchestrator acting: a recruit based on an out-of-date term is rejected by the
+	// pooler's term check.
+	if timeout := problem.RecoveryAction.Metadata().RefreshBeforeRecheckTimeout; timeout > 0 && !problem.SkipPreRecheckRefresh {
+		poolers := store.FindPoolersInShard(re.poolerCache, problem.ShardKey)
+		refreshCtx, refreshSpan := telemetry.Tracer().Start(ctx, "recovery/pre_recheck_refresh")
+		refresh := store.RefreshRecentInParallel(refreshCtx, re.rpcClient, poolers, timeout, re.logger)
+		refreshSpan.SetAttributes(
+			attribute.Int("poolers.refreshed", refresh.Refreshed),
+			attribute.Int("poolers.failed", refresh.Failed),
+			attribute.Int("poolers.skipped", refresh.Skipped),
+		)
+		refreshSpan.End()
+	}
+
+	// TODO: skip the recheck itself, not just the refresh above, when the cause is
+	// conclusive (a durable fact such as a revoked or resigned leader). The recheck also
+	// notices that the rule moved on, for example another orchestrator already replaced
+	// the leader, so that needs the problem to carry the rule it is about first.
+	//
 	// Force re-poll to validate the problem still exists
 	rechecked, err := re.recheckProblem(ctx, problem)
 	if err != nil {
@@ -363,6 +386,18 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"entity_id", entityID,
 		)
 		return
+	}
+
+	// The refresh and recheck above can take seconds, during which another
+	// orchestrator may have acted; re-apply the failover gate to what was just
+	// re-detected. (Other actions' gate tracks first-seen state, so it isn't re-run.)
+	if rechecked.Code.IsFailoverProblem() {
+		if readyAt, ready := re.readyToExecute(rechecked.Problem); !ready {
+			span.SetAttributes(attribute.String("result", "gated_after_recheck"), attribute.String("ready_at", readyAt.Format(time.RFC3339)))
+			re.logger.DebugContext(ctx, "deferring recovery: gate closed during refresh and recheck",
+				"problem_code", problem.Code, "entity_id", entityID, "ready_at", readyAt)
+			return
+		}
 	}
 
 	// Execute recovery action
