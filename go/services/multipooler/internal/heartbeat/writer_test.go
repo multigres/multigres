@@ -148,10 +148,10 @@ func TestRaiseProvenNeverMovesBackwards(t *testing.T) {
 	assert.Equal(t, t0.Add(time.Second), ts)
 }
 
-// TestRecordProvenWritesWithoutWaitingAndKeepsTheRecordedProof: the forced write
-// carries the recorded proof and skips the synchronous-commit wait, and its own
-// RETURNING LSN (not quorum-acked) must not replace the proof.
-func TestRecordProvenWritesWithoutWaitingAndKeepsTheRecordedProof(t *testing.T) {
+// TestWriteProvenSkipsTheQuorumWaitAndKeepsTheProof: the forced write carries the
+// proven watermark and skips the synchronous-commit wait, and its own RETURNING
+// LSN (not quorum-acked) must not replace the proof.
+func TestWriteProvenSkipsTheQuorumWaitAndKeepsTheProof(t *testing.T) {
 	queryService := mock.NewQueryService()
 	tw := newTestWriter(t, queryService, nil)
 	at := time.Now()
@@ -162,7 +162,7 @@ func TestRecordProvenWritesWithoutWaitingAndKeepsTheRecordedProof(t *testing.T) 
 	))
 	proven, err := pgutil.ParseLSN("0/100")
 	require.NoError(t, err)
-	require.NoError(t, tw.RecordProven(t.Context(), proven, at))
+	require.NoError(t, tw.WriteProven(t.Context(), proven, at))
 
 	lsn, ts, have := tw.LastProven()
 	require.True(t, have)
@@ -171,7 +171,7 @@ func TestRecordProvenWritesWithoutWaitingAndKeepsTheRecordedProof(t *testing.T) 
 }
 
 // TestOnlyTheForcedWriteChangesTheCommitMode: a normal tick must leave the
-// configured synchronous_commit alone; only RecordProven turns it off.
+// configured synchronous_commit alone; only WriteProven turns it off.
 func TestOnlyTheForcedWriteChangesTheCommitMode(t *testing.T) {
 	queryService := mock.NewQueryService()
 	tw := newTestWriter(t, queryService, nil)
@@ -183,7 +183,7 @@ func TestOnlyTheForcedWriteChangesTheCommitMode(t *testing.T) {
 	require.NoError(t, tw.write(t.Context(), true))
 	proven, err := pgutil.ParseLSN("0/100")
 	require.NoError(t, err)
-	require.NoError(t, tw.RecordProven(t.Context(), proven, time.Now()))
+	require.NoError(t, tw.WriteProven(t.Context(), proven, time.Now()))
 
 	require.Len(t, queries, 2)
 	assert.NotContains(t, queries[0], "synchronous_commit", "normal tick")

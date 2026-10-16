@@ -36,7 +36,7 @@ func newHeartbeatProofManager(t *testing.T, queryService *mock.QueryService) *Mu
 	return pm
 }
 
-func TestRecordHeartbeatForAckedProposal(t *testing.T) {
+func TestWriteHeartbeatForAckedProposal(t *testing.T) {
 	startedAt := time.Now()
 	lsn, err := pgutil.ParseLSN("0/100")
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestRecordHeartbeatForAckedProposal(t *testing.T) {
 		), func(string) { writes++ })
 		pm := newHeartbeatProofManager(t, queryService)
 
-		pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
+		pm.writeHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
 
 		got, ts, have := pm.replTracker.HeartbeatWriter().LastProven()
 		require.True(t, have)
@@ -63,7 +63,7 @@ func TestRecordHeartbeatForAckedProposal(t *testing.T) {
 		queryService.AddQueryPatternWithError(heartbeatWritePattern, errors.New("boom"))
 		pm := newHeartbeatProofManager(t, queryService)
 
-		pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
+		pm.writeHeartbeatForAckedProposal(t.Context(), lsn, startedAt)
 
 		got, _, have := pm.replTracker.HeartbeatWriter().LastProven()
 		require.True(t, have)
@@ -73,6 +73,6 @@ func TestRecordHeartbeatForAckedProposal(t *testing.T) {
 	t.Run("no heartbeat tracker is a no-op", func(t *testing.T) {
 		pm := newGracefulShutdownTestManager(t, nil)
 		pm.replTracker = nil
-		assert.NotPanics(t, func() { pm.recordHeartbeatForAckedProposal(t.Context(), lsn, startedAt) })
+		assert.NotPanics(t, func() { pm.writeHeartbeatForAckedProposal(t.Context(), lsn, startedAt) })
 	})
 }

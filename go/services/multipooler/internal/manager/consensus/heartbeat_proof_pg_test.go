@@ -38,7 +38,7 @@ func newProofRecorder(t *testing.T, writer *heartbeat.Writer) (hook func(context
 	var got []string
 	return func(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
 		got = append(got, lsn.String())
-		require.NoError(t, writer.RecordProven(ctx, lsn, startedAt))
+		require.NoError(t, writer.WriteProven(ctx, lsn, startedAt))
 	}, &got
 }
 
@@ -72,10 +72,10 @@ func newHeartbeatWriterForTest(ctx context.Context, t *testing.T) (*heartbeat.Wr
 	return writer, query
 }
 
-// TestRuleStorePG_DecideRecordsProofInHeartbeat: deciding a rule records its
-// quorum-acked LSN in the heartbeat row, naming the new leader, and leaves the
+// TestRuleStorePG_DecideWritesProofToHeartbeat: deciding a rule writes its
+// quorum-acked LSN to the heartbeat row, naming the new leader, and leaves the
 // connection's synchronous_commit unchanged.
-func TestRuleStorePG_DecideRecordsProofInHeartbeat(t *testing.T) {
+func TestRuleStorePG_DecideWritesProofToHeartbeat(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
 	resetRuleStoreTables(ctx, t)

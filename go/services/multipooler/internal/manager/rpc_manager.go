@@ -668,15 +668,15 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	return status, nil
 }
 
-// recordHeartbeatForAckedProposal records a quorum-acked rule proposal as the heartbeat's
-// quorum-commit proof, so a newly promoted leader isn't judged on the previous leader's
-// stale watermark. Best effort: it never fails the rule write, but a failure is logged
+// writeHeartbeatForAckedProposal writes a heartbeat that records a quorum-acked rule
+// proposal as the quorum-commit proof, so a newly promoted leader isn't judged on the
+// previous leader's stale watermark. Best effort: it never fails the rule write, but a failure is logged
 // as a warning because the stale watermark can then trigger a needless failover.
-func (pm *MultipoolerManager) recordHeartbeatForAckedProposal(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
+func (pm *MultipoolerManager) writeHeartbeatForAckedProposal(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
 	if pm.replTracker == nil {
 		return
 	}
-	if err := pm.replTracker.HeartbeatWriter().RecordProven(ctx, lsn, startedAt); err != nil {
+	if err := pm.replTracker.HeartbeatWriter().WriteProven(ctx, lsn, startedAt); err != nil {
 		pm.logger.WarnContext(ctx, "failed to write the heartbeat for an acked rule proposal", "lsn", lsn.String(), "error", err)
 	}
 }

@@ -55,7 +55,7 @@ type Writer struct {
 
 	// lastProven is the (LSN, ts) pair captured pre-commit by the most recent
 	// proven write. It is raised from two goroutines: the heartbeat tick, after a
-	// write that waited for quorum, and RecordProven, when the rule store acks a
+	// write that waited for quorum, and WriteProven, when the rule store acks a
 	// proposal. Both go through raiseProven, a compare-and-swap that replaces the
 	// whole pointer and never moves it backwards, so no mutex is needed. Other
 	// goroutines read it via LastProven() (e.g. an RPC handler reporting the
@@ -193,8 +193,8 @@ func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 // reachable to relay the replicated row.
 //
 // Purely in-memory, so it goes empty right after a process restart. A new
-// leader's first proof is recorded when its rule is decided (see RecordProven),
-// not by a write of its own, so it doesn't have to wait for two ticks.
+// leader's first proof comes from WriteProven when its rule is decided, so it
+// doesn't have to wait for two ticks.
 func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	lastProven := w.lastProven.Load()
 	if lastProven == nil {
@@ -203,12 +203,12 @@ func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	return lastProven.lsn, lastProven.ts, true
 }
 
-// RecordProven records a write the caller has proved quorum-acked as the latest proven
-// watermark, then forces an immediate heartbeat write carrying it. startedAt is when that
-// write began, as with a normal tick. The forced write skips the synchronous-commit wait:
-// its WAL precedes the decision's commit, which does wait, so the proof replicates with it.
-// The watermark never moves backwards.
-func (w *Writer) RecordProven(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) error {
+// WriteProven raises the proven watermark to a write the caller has proved quorum-acked,
+// then writes a heartbeat carrying it immediately. startedAt is when that write began, as
+// with a normal tick. The forced write skips the synchronous-commit wait: its WAL precedes
+// the decision's commit, which does wait, so the proof replicates with it. The watermark
+// never moves backwards.
+func (w *Writer) WriteProven(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) error {
 	w.raiseProven(lsn, startedAt)
 	writeCtx, cancel := context.WithTimeout(ctx, w.interval)
 	defer cancel()
