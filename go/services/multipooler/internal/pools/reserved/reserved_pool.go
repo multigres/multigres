@@ -410,7 +410,13 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 	// was tainted above.
 	rc.pooled.Recycle()
 
-	if p.config.OnRelease != nil {
+	// Skip the serving-drain counter for logical-replication tunnels, mirroring
+	// the OnReserve skip at their creation (see NewLogicalReplicationConn): they
+	// are never counted, so the counter stays balanced across every release path
+	// (clean release, kill, close). A read-only streaming walsender must not gate
+	// a not-serving transition.
+	if p.config.OnRelease != nil &&
+		!(rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
 		p.config.OnRelease()
 	}
 
@@ -589,12 +595,25 @@ func (p *Pool) ForEachActive(fn func(connID int64, rc *Conn) bool) {
 	}
 }
 
-// KillAll kills all active reserved connections.
-// Used during graceful shutdown when the drain grace period has expired.
-func (p *Pool) KillAll(ctx context.Context) int {
+// KillAllForDrain force-closes active reserved connections when a not-serving
+// transition's drain grace period expires, returning the number closed.
+//
+// Logical-replication streaming tunnels are deliberately preserved: once
+// streaming, such a tunnel is a read-only WAL walsender (it cannot write to this
+// backend), so the serving gate — which exists to stop client WRITES to a
+// subscriber-mode target — has no reason to sever it. Killing it here is what
+// deadlocked migration DEACTIVATE: the drain cut the reverse stream and the
+// migration drain barrier then waited forever for it. These tunnels are also
+// excluded from the drain counter (see NewLogicalReplicationConn), so this
+// backstop only matters when another reserved connection forces the timeout.
+// Process shutdown closes every connection via Close(), not through this path.
+func (p *Pool) KillAllForDrain(ctx context.Context) int {
 	p.mu.Lock()
 	ids := make([]int64, 0, len(p.active))
-	for id := range p.active {
+	for id, rc := range p.active {
+		if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
+			continue
+		}
 		ids = append(ids, id)
 	}
 	p.mu.Unlock()
