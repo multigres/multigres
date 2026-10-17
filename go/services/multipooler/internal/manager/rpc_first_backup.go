@@ -105,6 +105,14 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to write bootstrap sentinel")
 	}
 
+	// A restore sentinel left by an interrupted restore would make pgctld refuse
+	// the start below. Bootstrap rebuilds the data directory from scratch, and the
+	// bootstrap sentinel written above now guards whatever is on disk, so the
+	// restore sentinel can go.
+	if err := pm.restoreSentinel().remove(); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to remove restore sentinel")
+	}
+
 	// Cleanup runs on every exit path. On success it tears down the local
 	// postgres so every pooler restores from the shared backup. On failure it
 	// removes whatever was partially created. If data-directory removal fails
