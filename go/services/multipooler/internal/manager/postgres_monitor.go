@@ -556,11 +556,23 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		}
 	}
 
-	// Check if backups are available (only if directory not initialized). A
-	// read failure here is unknown state, not "no backups" — surface it so the
-	// monitor skips this tick instead of bootstrapping a fresh stanza over a
-	// repository it cannot read (e.g. a cipher-key mismatch).
-	if !state.dirInitialized {
+	restoreSentinelPresent, err := pm.restoreSentinel().present()
+	if err != nil {
+		// An unreadable sentinel leaves the "was a restore interrupted?" question
+		// ambiguous, so skip the tick rather than risk starting postgres on a
+		// possibly partial restore.
+		return state, fmt.Errorf("check restore sentinel: %w", err)
+	}
+	state.restoreSentinelPresent = restoreSentinelPresent
+
+	// Check if backups are available: when the directory is not initialized, or
+	// when it holds an interrupted restore (restore sentinel present, postgres
+	// down), which takes the restore path too. A read failure here is unknown
+	// state, not "no backups" — surface it so the monitor skips this tick
+	// instead of bootstrapping a fresh stanza over a repository it cannot read
+	// (e.g. a cipher-key mismatch), or counting a restore that cannot reach the
+	// repository as a failed recovery attempt.
+	if !state.dirInitialized || (state.restoreSentinelPresent && !state.postgresRunning) {
 		available, err := pm.hasCompleteBackups(ctx)
 		if err != nil {
 			return state, fmt.Errorf("check for complete backups: %w", err)
@@ -584,15 +596,6 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
-
-	restoreSentinelPresent, err := pm.restoreSentinel().present()
-	if err != nil {
-		// Same reasoning again: an unreadable sentinel leaves the "was a restore
-		// interrupted?" question ambiguous, so skip the tick rather than risk
-		// starting postgres on a possibly partial restore.
-		return state, fmt.Errorf("check restore sentinel: %w", err)
-	}
-	state.restoreSentinelPresent = restoreSentinelPresent
 
 	return state, nil
 }
@@ -1715,33 +1718,38 @@ func latestCompleteBackup(backups []*multipoolermanagerdatapb.BackupMetadata) *m
 // Caller must hold the action lock.
 func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error {
 	// A restore sentinel means a prior restore was interrupted (e.g. the process
-	// was killed mid-restore), so any PGDATA is a partial restore. Remove it
-	// before the status re-check below: like hasDataDirectory(), that check
-	// treats PG_VERSION as "initialized" and would skip the restore. The sentinel
-	// itself stays until restoreFromBackupLocked completes a restore.
+	// was killed mid-restore), so any PGDATA is a partial restore that is removed
+	// below before restoring again. The sentinel itself stays until
+	// restoreFromBackupLocked completes a restore.
 	sentinelPresent, err := pm.restoreSentinel().present()
 	if err != nil {
 		return fmt.Errorf("failed to check restore sentinel: %w", err)
-	}
-	if sentinelPresent {
-		pm.logger.WarnContext(ctx, "MonitorPostgres: restore sentinel from an interrupted restore detected; removing partial data directory before retry") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		if err := pm.removeDataDirectory(); err != nil {
-			return fmt.Errorf("failed to remove partial data directory from interrupted restore: %w", err)
-		}
 	}
 
 	// Re-check status to ensure conditions haven't changed
 	// (e.g., another process may have initialized or started postgres while we waited for lock)
 	if pm.pgctldClient != nil {
 		statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
-		if err == nil {
-			// If directory is now initialized, skip restore
-			if statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-				return nil
+		switch {
+		case sentinelPresent:
+			// Like hasDataDirectory(), pgctld treats PG_VERSION as "initialized",
+			// and a partial restore can already contain it, so here "initialized"
+			// is no reason to skip the restore. Refuse only when pgctld reports
+			// postgres running or its status can't be read, so the data directory
+			// is not removed under a postgres that something outside pgctld
+			// started (pgctld itself refuses to while the sentinel is present).
+			if err != nil {
+				return fmt.Errorf("failed to check postgres status before removing partial data directory: %w", err)
 			}
+			if statusResp.Status == pgctldpb.ServerStatus_RUNNING {
+				return errors.New("postgres is running on the data directory of an interrupted restore; refusing to remove it")
+			}
+		case err == nil && statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED:
+			// If directory is now initialized, skip restore
+			pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return nil
 		}
-		// If status check fails, continue with restore attempt
+		// Without a sentinel, if status check fails, continue with restore attempt
 	}
 
 	// Get the latest complete backup. ListBackups returns backups
@@ -1754,6 +1762,16 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	latestBackup := latestCompleteBackup(backups)
 	if latestBackup == nil {
 		return errors.New("no complete backups available")
+	}
+
+	// Remove the partial data directory only now that there is a backup to
+	// restore from. If the backup repository is unreachable, the node keeps both
+	// its data directory and the sentinel, and the next attempt tries again.
+	if sentinelPresent {
+		pm.logger.WarnContext(ctx, "MonitorPostgres: restore sentinel from an interrupted restore detected; removing partial data directory before retry") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		if err := pm.removeDataDirectory(); err != nil {
+			return fmt.Errorf("failed to remove partial data directory from interrupted restore: %w", err)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup", //nolint:sloglint // message intentionally starts with an operation name or proper noun

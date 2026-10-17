@@ -16,9 +16,11 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,24 +36,52 @@ import (
 )
 
 // TestDiscoverPostgresState_RestoreSentinel verifies discoverPostgresState
-// surfaces the on-disk restore sentinel, the durable signal the monitor gates on.
+// surfaces the on-disk restore sentinel, the durable signal the monitor gates on,
+// and checks the backup repository for an interrupted restore just as it does
+// for a missing data directory.
 func TestDiscoverPostgresState_RestoreSentinel(t *testing.T) {
-	ctx := t.Context()
+	t.Run("no sentinel", func(t *testing.T) {
+		pm := NewTestMultipoolerManager(t)
+		pm.pgctldClient = &mockPgctldClient{
+			statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
+		}
 
-	pm := NewTestMultipoolerManager(t)
-	pm.pgctldClient = &mockPgctldClient{
-		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
-	}
+		state, err := pm.discoverPostgresState(t.Context())
+		require.NoError(t, err)
+		assert.False(t, state.restoreSentinelPresent)
+	})
 
-	state, err := pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
-	assert.False(t, state.restoreSentinelPresent, "no restore sentinel initially")
+	t.Run("sentinel with a backup to restore from", func(t *testing.T) {
+		pm, _, _ := newAutoRestoreTestManager(t, printCompleteBackupInfo, "")
 
-	require.NoError(t, pm.restoreSentinel().write())
+		state, err := pm.discoverPostgresState(t.Context())
+		require.NoError(t, err)
+		assert.True(t, state.dirInitialized, "the partial restore holds PG_VERSION")
+		assert.True(t, state.restoreSentinelPresent)
+		assert.True(t, state.backupsAvailable)
+	})
 
-	state, err = pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
-	assert.True(t, state.restoreSentinelPresent, "restore sentinel surfaced once written")
+	t.Run("sentinel with an unreachable repository skips the tick", func(t *testing.T) {
+		// A skipped tick takes no action, so a backup repository outage does not
+		// count toward quarantining the node as unrecoverable.
+		pm, _, _ := newAutoRestoreTestManager(t, `echo "ERROR: [104]: unable to reach repository"; exit 1`, "")
+
+		_, err := pm.discoverPostgresState(t.Context())
+		require.ErrorContains(t, err, "check for complete backups")
+	})
+
+	t.Run("sentinel with postgres running does not check backups", func(t *testing.T) {
+		// This manager's backup repository can't be read, so checking it would
+		// fail the tick and hold up remediation of a running postgres.
+		pm := newRunningStandbyManagerForTest(t, &fakeRuleStore{pos: makeRulePosition(1)})
+		require.NoError(t, pm.restoreSentinel().write())
+
+		state, err := pm.discoverPostgresState(t.Context())
+		require.NoError(t, err)
+		assert.True(t, state.postgresRunning)
+		assert.True(t, state.restoreSentinelPresent)
+		assert.False(t, state.backupsAvailable)
+	})
 }
 
 // TestDiscoverPostgresState_UnreadableRestoreSentinel verifies an unreadable
@@ -72,9 +102,9 @@ func TestDiscoverPostgresState_UnreadableRestoreSentinel(t *testing.T) {
 }
 
 // diskStatusPgctldClient reports STOPPED or NOT_INITIALIZED based on whether
-// PG_VERSION is on disk, like the real pgctld (IsDataDirInitialized), so a test
-// can tell whether a partial data directory was removed before the status
-// re-check in restoreAndStartPostgres.
+// PG_VERSION is on disk, like the real pgctld (IsDataDirInitialized), so the
+// status re-check in restoreAndStartPostgres sees a partial data directory as
+// initialized, as it would in production.
 type diskStatusPgctldClient struct {
 	mockPgctldClient
 }
@@ -99,32 +129,146 @@ func plantPartialRestore(t *testing.T, pm *MultipoolerManager) string {
 	return dataDir
 }
 
-// TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir is the core
-// of the fix: after a crash mid-restore, the partial PGDATA must be removed
-// before the pgctld status re-check. That check treats PG_VERSION as
-// "initialized", so removing it any later would make restoreAndStartPostgres
-// skip the restore and leave the monitor starting postgres on the partial
-// directory forever.
-func TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir(t *testing.T) {
-	pm := newSentinelTestManager(t)
+// completeBackupInfo is pgbackrest info output listing one complete backup of
+// the default shard, so ListBackups finds a backup to restore from.
+const completeBackupInfo = `[{"backup":[{"label":"20260101-000000F","error":false,"timestamp":{"start":1735689600,"stop":1735689660},"annotation":{"job_id":"test-job-id","multipooler_id":"test-multipooler","pooler_type":"REPLICA","table_group":"default","shard":"0-inf"}}]}]`
+
+// printCompleteBackupInfo is a mock pgbackrest info script that prints
+// completeBackupInfo.
+const printCompleteBackupInfo = "cat <<'JSONEOF'\n" + completeBackupInfo + "\nJSONEOF"
+
+// newAutoRestoreTestManager builds a standby manager for restoreAndStartPostgres
+// with the on-disk state an interrupted restore leaves behind: a partial PGDATA
+// and the restore sentinel. Its mock pgbackrest runs infoScript for info and
+// restoreScript for restore, with PGDATA and OBSERVED (a file for the scripts
+// to record what they saw) in their environment. It returns the manager, its
+// PGDATA path and the OBSERVED path.
+func newAutoRestoreTestManager(t *testing.T, infoScript, restoreScript string) (*MultipoolerManager, string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	observed := filepath.Join(tmpDir, "observed")
+	t.Setenv("OBSERVED", observed)
+
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	mockScript := "#!/bin/bash\ncase \"${@: -1}\" in\ninfo)\n" + infoScript + "\n;;\nrestore)\n" + restoreScript + "\n;;\nesac\nexit 0\n"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, filepath.Join(tmpDir, "backups"))
+	pm.backup.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+	pm.pgctldClient = &diskStatusPgctldClient{}
+
 	dataDir := plantPartialRestore(t, pm)
 	require.NoError(t, pm.restoreSentinel().write())
-	pm.pgctldClient = &diskStatusPgctldClient{}
-	// No config path set on the backup engine, so ListBackups fails right after
-	// the cleanup and the status re-check, without needing pgbackrest.
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	return pm, dataDir, observed
+}
+
+// TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir is the core
+// of the fix: after a crash mid-restore, the restore must go ahead even though
+// the partial PGDATA already contains PG_VERSION, which the pgctld status
+// re-check reads as "initialized", and the partial PGDATA must be gone before
+// pgbackrest restores into it.
+func TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir(t *testing.T) {
+	// The mock restore records whether the partial data was still there, then
+	// fails so the test stops before postgres would be started.
+	pm, dataDir, observed := newAutoRestoreTestManager(t, printCompleteBackupInfo, `
+[[ -e "$PGDATA/partial_marker" ]] && echo stale >> "$OBSERVED"
+echo ran >> "$OBSERVED"
+exit 1`)
 
 	withLock(t, pm, func(ctx context.Context) {
 		err := pm.restoreAndStartPostgres(ctx)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to list backups",
-			"the restore must proceed past the status re-check instead of being skipped")
+		assert.Contains(t, err.Error(), "pgbackrest restore failed",
+			"the restore must run instead of being skipped by the status re-check")
 	})
 
-	assert.NoDirExists(t, dataDir, "the partial data directory must be removed")
-	present, err := pm.restoreSentinel().present()
-	require.NoError(t, err)
-	assert.True(t, present, "the sentinel must stay until a restore completes")
+	data, err := os.ReadFile(observed)
+	require.NoError(t, err, "pgbackrest restore must have run")
+	assert.Equal(t, "ran\n", string(data), "the partial data directory must be removed before restoring into it")
+	assert.NoDirExists(t, dataDir, "the failed restore is cleaned up")
+}
+
+// TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirWithoutBackup verifies
+// the partial data directory is only removed once there is a backup to restore
+// from. If the repository can't be read or holds no complete backup, the node
+// keeps both its data directory and the sentinel, and the next attempt retries.
+func TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirWithoutBackup(t *testing.T) {
+	tests := []struct {
+		name       string
+		infoScript string
+		wantErr    string
+	}{
+		{
+			name:       "repository unreachable",
+			infoScript: `echo "ERROR: [104]: unable to reach repository"; exit 1`,
+			wantErr:    "failed to list backups",
+		},
+		{
+			name:       "no complete backup",
+			infoScript: strings.Replace(printCompleteBackupInfo, `"error":false`, `"error":true`, 1),
+			wantErr:    "no complete backups available",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, dataDir, observed := newAutoRestoreTestManager(t, tt.infoScript, `echo ran >> "$OBSERVED"`)
+
+			withLock(t, pm, func(ctx context.Context) {
+				err := pm.restoreAndStartPostgres(ctx)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			})
+
+			assert.FileExists(t, filepath.Join(dataDir, "partial_marker"),
+				"the data directory must be kept while there is nothing to restore from")
+			present, err := pm.restoreSentinel().present()
+			require.NoError(t, err)
+			assert.True(t, present, "the sentinel must stay until a restore completes")
+			assert.NoFileExists(t, observed, "pgbackrest restore must not run")
+		})
+	}
+}
+
+// TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirUnderRunningPostgres
+// verifies the partial data directory is never removed while postgres might be
+// running on it: not when pgctld reports it running, and not when its status
+// can't be read.
+func TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirUnderRunningPostgres(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  *mockPgctldClient
+		wantErr string
+	}{
+		{
+			name:    "postgres running",
+			client:  &mockPgctldClient{statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING}},
+			wantErr: "postgres is running on the data directory of an interrupted restore",
+		},
+		{
+			name:    "status unavailable",
+			client:  &mockPgctldClient{statusError: errors.New("pgctld unavailable")},
+			wantErr: "failed to check postgres status",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, dataDir, observed := newAutoRestoreTestManager(t, printCompleteBackupInfo, `echo ran >> "$OBSERVED"`)
+			pm.pgctldClient = tt.client
+
+			withLock(t, pm, func(ctx context.Context) {
+				err := pm.restoreAndStartPostgres(ctx)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			})
+
+			assert.FileExists(t, filepath.Join(dataDir, "partial_marker"), "the data directory must be kept")
+			assert.NoFileExists(t, observed, "pgbackrest restore must not run")
+		})
+	}
 }
 
 // TestRestoreAndStartPostgres_NoSentinelKeepsInitializedDataDir guards the
@@ -147,9 +291,7 @@ func TestRestoreAndStartPostgres_NoSentinelKeepsInitializedDataDir(t *testing.T)
 // directory that cannot be removed fails the attempt instead of restoring or
 // starting postgres on top of it.
 func TestRestoreAndStartPostgres_PartialDataDirRemovalFails(t *testing.T) {
-	pm := newSentinelTestManager(t)
-	dataDir := plantPartialRestore(t, pm)
-	require.NoError(t, pm.restoreSentinel().write())
+	pm, dataDir, observed := newAutoRestoreTestManager(t, printCompleteBackupInfo, `echo ran >> "$OBSERVED"`)
 	// removeDataDirectory refuses to delete $HOME, which makes the removal fail.
 	t.Setenv("HOME", dataDir)
 
@@ -160,6 +302,7 @@ func TestRestoreAndStartPostgres_PartialDataDirRemovalFails(t *testing.T) {
 	})
 
 	assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"), "the data directory removal was refused")
+	assert.NoFileExists(t, observed, "pgbackrest restore must not run on top of the partial data directory")
 }
 
 // TestRestoreAndStartPostgres_UnreadableRestoreSentinel verifies an unreadable

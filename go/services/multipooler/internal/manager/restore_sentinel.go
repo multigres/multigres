@@ -31,8 +31,9 @@ import (
 // runs and removes it as soon as the restore completes, or after the partial
 // data directory has been removed on failure. Its presence on a later monitor
 // tick is therefore the authoritative signal that a prior restore did not
-// complete. The monitor uses it to route to the restore path, which removes the
-// partial data directory and restores again instead of starting postgres on it.
+// complete. The monitor uses it to route to the restore path, which, once it has
+// found a backup to restore from, removes the partial data directory and
+// restores again instead of starting postgres on it.
 
 // restoreSentinel returns the restore sentinel. Like every sentinel it lives in
 // pooler_dir, so it is not removed along with a partial data directory; see
