@@ -427,7 +427,35 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
+	// Wire LISTEN/NOTIFY notification manager.
+	// Uses a lazy client getter that resolves the primary pooler connection
+	// from the load balancer at subscribe time (after pooler discovery), and
+	// the gateway's leader-serving hook to reopen streams after a failover.
+	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
+	if notifMetricsErr != nil {
+		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
+	}
+	notifMgr := poolergateway.NewGRPCNotificationManager(
+		func() multipoolerpb.MultipoolerServiceClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.ServiceClient()
+		},
+		logger,
+		notifMetrics,
+	)
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
+		OnLeaderServing:         notifMgr.OnLeaderServing,
 		DisableQueryStreamReuse: !mg.queryStreamReuse.Get(),
 		Ctx:                     mg.shutdownCtx,
 		Source:                  mg.ts,
@@ -554,31 +582,6 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	mg.pgHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
 	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
-	// Wire LISTEN/NOTIFY notification manager.
-	// Uses a lazy client getter that resolves the primary pooler connection
-	// from the load balancer at subscribe time (after pooler discovery).
-	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
-	if notifMetricsErr != nil {
-		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
-	}
-	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
-			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
-				ShardKey: &clustermetadatapb.ShardKey{
-					Database:   constants.DefaultPostgresDatabase,
-					TableGroup: constants.DefaultTableGroup,
-					Shard:      constants.DefaultShard,
-				},
-				Mode: querypb.Mode_MODE_WRITABLE,
-			})
-			if err != nil || conn == nil {
-				return nil
-			}
-			return conn.ServiceClient()
-		},
-		logger,
-		notifMetrics,
-	)
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
