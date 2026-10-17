@@ -506,6 +506,21 @@ func TestDetermineRemedialAction(t *testing.T) {
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
 		},
+		{
+			// Sentinel from a prior interrupted restore must override the
+			// dirInitialized=true signal (a partial restore can already contain
+			// PG_VERSION), so the partial directory is removed and the restore
+			// retried instead of a doomed start.
+			name: "restore_sentinel_present_forces_restore_path",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         true,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1702,6 +1717,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
 		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
+		{"restoreSentinelPresent", func() postgresState { s := base; s.restoreSentinelPresent = true; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {
