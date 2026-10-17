@@ -360,8 +360,11 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// PGDATA now holds a complete restore. Clear the sentinel before the steps
 	// below so a failure in one of them can't get the restored data discarded.
-	// If it can't be cleared, fail the restore: the next attempt redoes it from
-	// scratch, which is wasteful but safe.
+	// If it can't be cleared, fail the restore: with the sentinel still on disk
+	// the next attempt redoes it from scratch, which is wasteful but safe. If only
+	// the directory fsync failed after the unlink, the sentinel is gone and the
+	// next tick starts postgres on the restored data, as after a failure in one
+	// of the steps below.
 	if err := pm.restoreSentinel().remove(); err != nil {
 		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
 	}

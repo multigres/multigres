@@ -107,6 +107,10 @@ func TestSentinel_ErrorPaths(t *testing.T) {
 			})))
 			require.Error(t, tc.get(missingDir).write(), "write to a nonexistent pooler dir should error")
 
+			// remove fsyncs the pooler dir even when the sentinel is already gone,
+			// so with no pooler dir to fsync it errors.
+			require.Error(t, tc.get(missingDir).remove(), "remove should fsync the pooler dir even for a missing sentinel")
+
 			// remove surfaces a non-NotExist error: a non-empty directory at the
 			// sentinel path cannot be removed by os.Remove.
 			pm := newSentinelTestManager(t)
