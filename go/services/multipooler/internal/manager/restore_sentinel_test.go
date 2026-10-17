@@ -33,61 +33,6 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-func TestRestoreSentinel_RoundTrip(t *testing.T) {
-	pm := newSentinelTestManager(t)
-
-	present, err := pm.hasRestoreSentinel()
-	require.NoError(t, err)
-	assert.False(t, present, "no sentinel initially")
-
-	require.NoError(t, pm.writeRestoreSentinel())
-	present, err = pm.hasRestoreSentinel()
-	require.NoError(t, err)
-	assert.True(t, present, "sentinel present after write")
-
-	// Writing again is idempotent.
-	require.NoError(t, pm.writeRestoreSentinel())
-
-	require.NoError(t, pm.removeRestoreSentinel())
-	present, err = pm.hasRestoreSentinel()
-	require.NoError(t, err)
-	assert.False(t, present, "sentinel gone after remove")
-
-	// Removing a missing sentinel is not an error.
-	require.NoError(t, pm.removeRestoreSentinel())
-}
-
-// TestRestoreSentinel_ErrorPaths covers the sentinel helpers' error branches so a
-// failure to check/record/clear the marker is surfaced rather than silently
-// ignored.
-func TestRestoreSentinel_ErrorPaths(t *testing.T) {
-	// hasRestoreSentinel surfaces a non-NotExist stat error: a pooler dir that is
-	// a regular file makes the stat fail with ENOTDIR.
-	notADir := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o644))
-	fileDir := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
-		Type:      clustermetadatapb.PoolerType_REPLICA,
-		PoolerDir: notADir,
-	})))
-	_, err := fileDir.hasRestoreSentinel()
-	require.Error(t, err, "a stat failure other than not-exist should error")
-
-	// writeRestoreSentinel surfaces a write error when the pooler dir is missing.
-	missingDir := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
-		Type:      clustermetadatapb.PoolerType_REPLICA,
-		PoolerDir: filepath.Join(t.TempDir(), "no", "such", "dir"),
-	})))
-	require.Error(t, missingDir.writeRestoreSentinel(), "write to a nonexistent pooler dir should error")
-
-	// removeRestoreSentinel surfaces a non-NotExist error: a non-empty directory
-	// at the sentinel path cannot be removed by os.Remove.
-	pm := newSentinelTestManager(t)
-	sentinelPath := pm.restoreSentinelPath()
-	require.NoError(t, os.Mkdir(sentinelPath, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sentinelPath, "child"), []byte("x"), 0o644))
-	require.Error(t, pm.removeRestoreSentinel(), "removing a non-empty directory at the sentinel path should error")
-}
-
 // TestDiscoverPostgresState_RestoreSentinel verifies discoverPostgresState
 // surfaces the on-disk restore sentinel, the durable signal the monitor gates on.
 func TestDiscoverPostgresState_RestoreSentinel(t *testing.T) {
@@ -102,7 +47,7 @@ func TestDiscoverPostgresState_RestoreSentinel(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, state.restoreSentinelPresent, "no restore sentinel initially")
 
-	require.NoError(t, pm.writeRestoreSentinel())
+	require.NoError(t, pm.restoreSentinel().write())
 
 	state, err = pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
@@ -119,7 +64,7 @@ func TestDiscoverPostgresState_UnreadableRestoreSentinel(t *testing.T) {
 	}
 	// A self-referencing symlink makes the stat fail with ELOOP, which is not a
 	// not-exist error.
-	require.NoError(t, os.Symlink(pm.restoreSentinelPath(), pm.restoreSentinelPath()))
+	require.NoError(t, os.Symlink(pm.restoreSentinel().path, pm.restoreSentinel().path))
 
 	_, err := pm.discoverPostgresState(t.Context())
 	require.Error(t, err)
@@ -163,7 +108,7 @@ func plantPartialRestore(t *testing.T, pm *MultipoolerManager) string {
 func TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir(t *testing.T) {
 	pm := newSentinelTestManager(t)
 	dataDir := plantPartialRestore(t, pm)
-	require.NoError(t, pm.writeRestoreSentinel())
+	require.NoError(t, pm.restoreSentinel().write())
 	pm.pgctldClient = &diskStatusPgctldClient{}
 	// No config path set on the backup engine, so ListBackups fails right after
 	// the cleanup and the status re-check, without needing pgbackrest.
@@ -177,7 +122,7 @@ func TestRestoreAndStartPostgres_RestoreSentinelRemovesPartialDataDir(t *testing
 	})
 
 	assert.NoDirExists(t, dataDir, "the partial data directory must be removed")
-	present, err := pm.hasRestoreSentinel()
+	present, err := pm.restoreSentinel().present()
 	require.NoError(t, err)
 	assert.True(t, present, "the sentinel must stay until a restore completes")
 }
@@ -204,7 +149,7 @@ func TestRestoreAndStartPostgres_NoSentinelKeepsInitializedDataDir(t *testing.T)
 func TestRestoreAndStartPostgres_PartialDataDirRemovalFails(t *testing.T) {
 	pm := newSentinelTestManager(t)
 	dataDir := plantPartialRestore(t, pm)
-	require.NoError(t, pm.writeRestoreSentinel())
+	require.NoError(t, pm.restoreSentinel().write())
 	// removeDataDirectory refuses to delete $HOME, which makes the removal fail.
 	t.Setenv("HOME", dataDir)
 
@@ -336,7 +281,7 @@ mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"`)
 	})
 
 	assert.FileExists(t, observedFile, "the sentinel must be on disk while pgbackrest restore runs")
-	assert.NoFileExists(t, pm.restoreSentinelPath(), "the sentinel must be cleared once the restore succeeds")
+	assert.NoFileExists(t, pm.restoreSentinel().path, "the sentinel must be cleared once the restore succeeds")
 	assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"),
 		"a failure after a successful restore must not discard the restored data")
 }
@@ -356,7 +301,7 @@ func TestRestoreFromBackupLocked_SentinelRemovalFails(t *testing.T) {
 			assert.Contains(t, err.Error(), "pgbackrest restore failed")
 		})
 
-		assert.DirExists(t, pm.restoreSentinelPath(), "the sentinel could not be removed")
+		assert.DirExists(t, pm.restoreSentinel().path, "the sentinel could not be removed")
 	})
 
 	t.Run("after a successful restore the attempt fails so it is redone", func(t *testing.T) {

@@ -780,7 +780,7 @@ func TestBootstrapSentinelPlacement(t *testing.T) {
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 
-	require.NoError(t, pm.writeBootstrapSentinel())
+	require.NoError(t, pm.bootstrapSentinel().write())
 	assert.FileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile))
 	assert.NoFileExists(t, filepath.Join(dataDir, constants.BootstrapSentinelFile),
 		"sentinel must NOT live under PGDATA — it would be backed up")

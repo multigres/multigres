@@ -15,9 +15,6 @@
 package manager
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/multigres/multigres/go/common/constants"
 )
 
@@ -37,48 +34,9 @@ import (
 // complete. The monitor uses it to route to the restore path, which removes the
 // partial data directory and restores again instead of starting postgres on it.
 
-// restoreSentinelPath is the on-disk location of the restore sentinel. It lives
-// in pooler_dir (not PGDATA) so it is not captured by pgBackRest backups or
-// removed along with a partial data directory, and on the pooler's local volume
-// so it survives a pod restart on the same PVC.
-func (pm *MultipoolerManager) restoreSentinelPath() string {
-	return filepath.Join(pm.record.PoolerDir(), constants.RestoreSentinelFile)
-}
-
-// hasRestoreSentinel reports whether the sentinel file exists. A non-existent
-// file is (false, nil); any other stat failure (e.g. permissions) is surfaced as
-// an error so callers don't silently treat it as "not present".
-func (pm *MultipoolerManager) hasRestoreSentinel() (bool, error) {
-	_, err := os.Stat(pm.restoreSentinelPath())
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
-}
-
-// writeRestoreSentinel creates the sentinel and fsyncs both the file and its
-// parent directory so the marker is durable across an OS crash — the sentinel
-// is only useful if it reliably outlives the very interruption it guards
-// against.
-func (pm *MultipoolerManager) writeRestoreSentinel() error {
-	path := pm.restoreSentinelPath()
-	if err := os.WriteFile(path, []byte("pgbackrest restore in progress\n"), 0o644); err != nil {
-		return err
-	}
-	if err := fsyncPath(path); err != nil {
-		return err
-	}
-	// fsync the directory so the new directory entry itself is durable.
-	return fsyncPath(filepath.Dir(path))
-}
-
-// removeRestoreSentinel deletes the sentinel; a missing file is not an error.
-func (pm *MultipoolerManager) removeRestoreSentinel() error {
-	if err := os.Remove(pm.restoreSentinelPath()); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+// restoreSentinel returns the restore sentinel. Like every sentinel it lives in
+// pooler_dir, so it is not removed along with a partial data directory; see
+// sentinel.go.
+func (pm *MultipoolerManager) restoreSentinel() sentinel {
+	return pm.newSentinel(constants.RestoreSentinelFile, "pgbackrest restore in progress\n")
 }

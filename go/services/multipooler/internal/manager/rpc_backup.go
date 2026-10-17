@@ -338,7 +338,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	//
 	// Both are scoped to the restore itself: later steps run after a
 	// successful restore, so their failures shouldn't discard good data.
-	if err := pm.writeRestoreSentinel(); err != nil {
+	if err := pm.restoreSentinel().write(); err != nil {
 		return mterrors.Wrap(err, "failed to write restore sentinel")
 	}
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
@@ -352,7 +352,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			pm.logger.WarnContext(ctx, "failed to remove partial data directory after failed restore", "error", removeErr)
 			return err
 		}
-		if removeErr := pm.removeRestoreSentinel(); removeErr != nil {
+		if removeErr := pm.restoreSentinel().remove(); removeErr != nil {
 			pm.logger.WarnContext(ctx, "failed to remove restore sentinel after failed restore", "error", removeErr)
 		}
 		return err
@@ -362,7 +362,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// below so a failure in one of them can't get the restored data discarded.
 	// If it can't be cleared, fail the restore: the next attempt redoes it from
 	// scratch, which is wasteful but safe.
-	if err := pm.removeRestoreSentinel(); err != nil {
+	if err := pm.restoreSentinel().remove(); err != nil {
 		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
 	}
 

@@ -568,7 +568,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		state.backupsAvailable = available
 	}
 
-	sentinelPresent, err := pm.hasBootstrapSentinel()
+	sentinelPresent, err := pm.bootstrapSentinel().present()
 	if err != nil {
 		// We can't tell whether a stale sentinel needs handling. Surface as an
 		// error so the monitor skips this tick; the operator should investigate.
@@ -576,7 +576,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	}
 	state.bootstrapSentinelPresent = sentinelPresent
 
-	rewindSentinelPresent, err := pm.hasRewindSentinel()
+	rewindSentinelPresent, err := pm.rewindSentinel().present()
 	if err != nil {
 		// Same reasoning as the bootstrap sentinel: an unreadable sentinel leaves
 		// the "was a rewind interrupted?" question ambiguous, so skip the tick
@@ -585,7 +585,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
 
-	restoreSentinelPresent, err := pm.hasRestoreSentinel()
+	restoreSentinelPresent, err := pm.restoreSentinel().present()
 	if err != nil {
 		// Same reasoning again: an unreadable sentinel leaves the "was a restore
 		// interrupted?" question ambiguous, so skip the tick rather than risk
@@ -1719,7 +1719,7 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	// before the status re-check below: like hasDataDirectory(), that check
 	// treats PG_VERSION as "initialized" and would skip the restore. The sentinel
 	// itself stays until restoreFromBackupLocked completes a restore.
-	sentinelPresent, err := pm.hasRestoreSentinel()
+	sentinelPresent, err := pm.restoreSentinel().present()
 	if err != nil {
 		return fmt.Errorf("failed to check restore sentinel: %w", err)
 	}
