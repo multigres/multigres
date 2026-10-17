@@ -34,6 +34,12 @@ import (
 // complete. The monitor uses it to route to the restore path, which, once it has
 // found a backup to restore from, removes the partial data directory and
 // restores again instead of starting postgres on it.
+//
+// Because the restore path removes the data directory whenever the sentinel is
+// present, nothing may start postgres while it is: postgres serving that data
+// would make the sentinel stale, and a later restart would delete the data.
+// pgctld therefore refuses every start while the sentinel is on disk, and the
+// first-backup bootstrap, which starts postgres itself, clears it first.
 
 // restoreSentinel returns the restore sentinel. Like every sentinel it lives in
 // pooler_dir, so it is not removed along with a partial data directory; see

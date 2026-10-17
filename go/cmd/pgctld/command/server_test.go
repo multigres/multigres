@@ -132,6 +132,20 @@ func TestPgCtldServiceStart(t *testing.T) {
 				assert.Contains(t, resp.Message, "already running")
 			},
 		},
+		{
+			name: "start refused while a restore sentinel is present",
+			request: &pb.StartRequest{
+				Port: 5432,
+			},
+			setupDataDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+				return dataDir
+			},
+			setupBinaries: true,
+			expectError:   true,
+			errorContains: "restore sentinel",
+		},
 	}
 
 	for _, tt := range tests {
@@ -519,6 +533,31 @@ func TestPgCtldServiceRestart(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Contains(t, resp.Message, "restarted successfully")
+	})
+
+	t.Run("restart refused while a restore sentinel is present", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_restart_test")
+		defer cleanup()
+
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		testutil.CreatePIDFile(t, dataDir, 12345)
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, binDir)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		_, err = service.Restart(context.Background(), &pb.RestartRequest{
+			Mode:    "fast",
+			Timeout: durationpb.New(30 * time.Second),
+			Port:    5432,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "restore sentinel")
 	})
 }
 

@@ -162,9 +162,10 @@ const (
 	// the pod was killed mid-restore) and the data directory is a partial
 	// restore. A partial restore can already contain PG_VERSION, which would
 	// otherwise make it look initialized, so the monitor uses the sentinel to
-	// remove it and restore again instead of starting postgres on it. Lives in
-	// pooler_dir (not PGDATA) so it stays out of pgBackRest backups, and on the
-	// local volume so it survives a pod restart on the same PVC.
+	// remove it and restore again instead of starting postgres on it, and
+	// pgctld refuses to start postgres while it is present. Lives in pooler_dir
+	// (not PGDATA) so it stays out of pgBackRest backups, and on the local
+	// volume so it survives a pod restart on the same PVC.
 	RestoreSentinelFile = ".multigres-restore-in-progress"
 
 	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
