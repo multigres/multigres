@@ -72,12 +72,16 @@ func (s sentinel) write() error {
 	return fsyncPath(filepath.Dir(s.path))
 }
 
-// remove deletes the sentinel; a missing file is not an error.
+// remove deletes the sentinel; a missing file is not an error. Like write, it
+// fsyncs the parent directory so the removal is durable: an unlink lost to a
+// power failure would bring the sentinel back after its operation completed.
+// The fsync also runs when the file is already gone, since an earlier remove
+// may have unlinked it and then failed before its own fsync.
 func (s sentinel) remove() error {
 	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return nil
+	return fsyncPath(filepath.Dir(s.path))
 }
 
 // fsyncPath opens path (a file or directory) and fsyncs it.
