@@ -201,3 +201,20 @@ func TestMinigres_GatewayIgnoresOtherPoolers(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
 	assert.Equal(t, 1, one)
 }
+
+// TestMinigres_ServesWithoutEtcd checks that Minigres keeps serving when etcd
+// goes down, and that it starts and serves while etcd is down: the gateway
+// learns of its pooler in memory and registers in the background, and the
+// static leader starts from its copy of the database record.
+func TestMinigres_ServesWithoutEtcd(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	setup.StopEtcd(t)
+	setup.WaitForQueryServing(t)
+
+	setup.Minigres.TerminateGracefully(t.Logf, 10*time.Second)
+	require.NoError(t, setup.Minigres.Start(t.Context(), t), "minigres starts without etcd")
+	setup.WaitForQueryServing(t)
+}

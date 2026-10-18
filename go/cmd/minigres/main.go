@@ -94,11 +94,15 @@ func newMinigres() *minigres {
 	// Configuration files are refused until the halves have separate namespaces
 	// (MUL-1663).
 	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
-	// The multigateway uses only the multipooler in this process, reached
-	// through the in-memory server; other poolers in the topology are ignored.
-	// It is the only gateway in front of the only pooler, so what needs several
-	// of either is turned off.
-	localPooler := &poolergateway.LocalPooler{ID: m.poolerID, DialOptions: m.queryGrpcServer.DialOptions()}
+	// The multigateway uses only the multipooler in this process: it follows
+	// the pooler's record in memory instead of through the topology, and
+	// reaches it through the in-memory server. It is the only gateway in front
+	// of the only pooler, so what needs several of either is turned off.
+	localPooler := &poolergateway.LocalPooler{
+		ID:          m.poolerID,
+		DialOptions: m.queryGrpcServer.DialOptions(),
+		WatchRecord: m.pooler.WatchRecord,
+	}
 	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler)
 	return m
 }
