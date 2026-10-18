@@ -143,8 +143,12 @@ type Hooks[T any] struct {
 // HealthStream, etc.), then bind hooks that close over those.
 type Config[T any] struct {
 	// Source is the topology backing store. The cache subscribes to it on
-	// Start to receive upserts and deletions. Required.
+	// Start to receive upserts and deletions. Ignored when Feed is set.
 	Source topoclient.Store
+
+	// Feed, if non-nil, delivers the pooler events instead of the topology
+	// (see RecordFeed). The cache starts it on Start and stops it on Shutdown.
+	Feed Feed
 
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
@@ -283,6 +287,11 @@ type PoolerCache[T any] struct {
 	// config.Source is provided). Owned and shut down by this cache.
 	topoSource *topoWatch
 
+	// feedStop stops config.Feed; feedStopped is set by Shutdown, so a Start
+	// racing with Shutdown stops the feed it has just started. Under mu.
+	feedStop    func()
+	feedStopped bool
+
 	// cellLastActivity records the wall-clock time of the most recent watch
 	// event observed for each cell. Surfaced via CellStatuses for admin
 	// pages. Updated under mu.
@@ -328,8 +337,8 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		sweeper:          timer.NewPeriodicRunner(ctx, interval),
 		shutdownDone:     make(chan struct{}),
 	}
-	if config.Source != nil {
-		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger, topoWatchHandlers{
+	if config.Source != nil && config.Feed == nil {
+		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger, Handlers{
 			OnSnapshot:    c.reconcileCell,
 			OnUpsert:      c.applyUpsert,
 			OnDelete:      c.applyDelete,
@@ -363,6 +372,23 @@ func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
 	if c.topoSource != nil {
 		c.topoSource.Start()
 	}
+	if c.config.Feed != nil {
+		stop := c.config.Feed(Handlers{
+			OnSnapshot:    c.reconcileCell,
+			OnUpsert:      c.applyUpsert,
+			OnDelete:      c.applyDelete,
+			OnCellRemoved: c.onCellRemoved,
+		})
+		c.mu.Lock()
+		stopped := c.feedStopped
+		if !stopped {
+			c.feedStop = stop
+		}
+		c.mu.Unlock()
+		if stopped {
+			stop()
+		}
+	}
 }
 
 // Shutdown stops the background sweeper and disposes every remaining entry.
@@ -379,6 +405,13 @@ func (c *PoolerCache[T]) Shutdown() {
 		// Stop the watch first so no new events arrive while we tear down.
 		if c.topoSource != nil {
 			c.topoSource.Stop()
+		}
+		c.mu.Lock()
+		c.feedStopped = true
+		feedStop := c.feedStop
+		c.mu.Unlock()
+		if feedStop != nil {
+			feedStop()
 		}
 		c.sweeper.Stop()
 		c.mu.Lock()

@@ -32,12 +32,12 @@ type CellStatus struct {
 	Poolers      []*clustermetadatapb.Multipooler
 }
 
-// topoWatchHandlers receive topology events from a topoWatch. All callbacks
-// run synchronously on the per-cell watcher goroutines. For a given cell,
+// Handlers receive pooler events from a topoWatch or a Feed. For a topoWatch,
+// all callbacks run synchronously on the per-cell watcher goroutines. For a given cell,
 // callbacks observe events in the order the topology emitted them. Across
 // cells, callbacks may run concurrently — callers handle their own
 // serialization if needed.
-type topoWatchHandlers struct {
+type Handlers struct {
 	// OnSnapshot fires whenever a per-cell watcher starts or reconnects.
 	// poolers is the complete current state of the cell. The handler is
 	// responsible for reconciling: anything not in poolers that the handler
@@ -63,7 +63,7 @@ type topoWatchHandlers struct {
 type topoWatch struct {
 	store    topoclient.ConnProvider
 	logger   *slog.Logger
-	handlers topoWatchHandlers
+	handlers Handlers
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -75,7 +75,7 @@ type topoWatch struct {
 }
 
 // newTopoWatch creates a new topoWatch. Call Start to begin watching.
-func newTopoWatch(ctx context.Context, store topoclient.ConnProvider, logger *slog.Logger, handlers topoWatchHandlers) *topoWatch {
+func newTopoWatch(ctx context.Context, store topoclient.ConnProvider, logger *slog.Logger, handlers Handlers) *topoWatch {
 	wctx, cancel := context.WithCancel(ctx)
 	return &topoWatch{
 		store:       store,

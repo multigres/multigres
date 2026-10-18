@@ -72,3 +72,28 @@ func TestLocalPooler_ConnectsInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, resp.GetStatus())
 }
+
+// TestLocalPooler_WatchRecordFindsPoolerWithoutTopology discovers the local
+// pooler from its record feed with no topology store at all.
+func TestLocalPooler_WatchRecordFindsPoolerWithoutTopology(t *testing.T) {
+	pooler := unreachablePooler("zone1", "pooler-1")
+	stopped := false
+	local := &LocalPooler{
+		ID: func() *clustermetadatapb.ID { return pooler.Id },
+		WatchRecord: func(fn func(*clustermetadatapb.Multipooler)) func() {
+			fn(pooler)
+			return func() { stopped = true }
+		},
+	}
+
+	gw := NewPoolerGateway(PoolerGatewayOpts{
+		Ctx:         t.Context(),
+		Logger:      slog.New(slog.DiscardHandler),
+		DialOpt:     grpc.WithTransportCredentials(insecure.NewCredentials()),
+		LocalPooler: local,
+	})
+	assert.Equal(t, 1, gw.PoolerCount(), "the pooler is known without the topology")
+
+	require.NoError(t, gw.Close())
+	assert.True(t, stopped, "closing the gateway stops following the record")
+}

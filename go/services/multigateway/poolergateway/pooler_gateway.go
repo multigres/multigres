@@ -159,6 +159,10 @@ type LocalPooler struct {
 	// DialOptions connect to the pooler's query service in the same process,
 	// replacing the topology address and DialOpt.
 	DialOptions []grpc.DialOption
+	// WatchRecord, when set, follows the pooler's record in the same process:
+	// fn gets it right away and after every change, until stop. The gateway
+	// then learns of its pooler without the topology. Optional.
+	WatchRecord func(fn func(*clustermetadatapb.Multipooler)) (stop func())
 }
 
 // isLocal reports whether pooler is the local pooler.
@@ -171,11 +175,16 @@ func (l *LocalPooler) isLocal(pooler *clustermetadatapb.Multipooler) bool {
 // pooler cache and load balancer.
 func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	var filter func(*clustermetadatapb.Multipooler) bool
+	var feed poolerwatch.Feed
 	if opts.LocalPooler != nil {
 		filter = opts.LocalPooler.isLocal
+		if opts.LocalPooler.WatchRecord != nil {
+			feed = poolerwatch.RecordFeed(opts.LocalPooler.WatchRecord)
+		}
 	}
 	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
 		Source: opts.Source,
+		Feed:   feed,
 		Filter: filter,
 		// LastReachedTimestamp is a no-op under the gateway's current
 		// zero-grace config — entries are evicted at the NoNode moment —

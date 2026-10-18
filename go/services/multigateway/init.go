@@ -490,37 +490,19 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
 	}
 
-	// Register gateway in topo with a unique PID prefix for cross-gateway
-	// cancel routing. The prefix is claimed atomically before the record is
-	// written; the claim file, not the record, is what makes the prefix
-	// exclusively ours. Each process claims fresh — a restarted gateway has
-	// no live connections whose cancel routing could be worth preserving.
-	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
-	defer regCancel()
-	mg.tr, err = toporeg.RegisterSynchronous(
-		regCtx,
-		func(ctx context.Context) error {
-			if multigateway.PidPrefix == 0 {
-				prefix, err := mg.claimUnusedPrefix(ctx, multigateway.Id)
-				if err != nil {
-					return err
-				}
-				multigateway.PidPrefix = prefix
-			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
-				return err
-			}
-			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
-		},
-		// The prefix claim is deliberately NOT released here: lease expiry
-		// is its only release path, so a gateway can never delete a claim
-		// that has passed to another gateway (e.g. when a prefix-lost
-		// restart shuts this process down after a competitor legitimately
-		// claimed the prefix).
-		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
-		toporeg.WithReassert(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register gateway: %w", err)
+	if mg.singlePooler {
+		// The only gateway forwards no cancel requests, so it claims no PID
+		// prefix (connection IDs are used as-is) and its record is only for
+		// Multiadmin: register in the background, so startup and serving do
+		// not wait for the topology. A failure is logged and retried.
+		mg.tr = toporeg.Register(
+			func(ctx context.Context) error { return mg.ts.RegisterMultigateway(ctx, multigateway, true) },
+			func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+			func(string) {},
+			toporeg.WithReassert(),
+		)
+	} else if err := mg.registerWithPrefix(multigateway); err != nil {
+		return err
 	}
 	pidPrefix := multigateway.PidPrefix
 	logger.InfoContext(ctx, "registered gateway", "pid_prefix", pidPrefix)
@@ -828,6 +810,44 @@ func (mg *Multigateway) Shutdown() {
 	}
 
 	mg.tr.Unregister()
+}
+
+// registerWithPrefix registers the gateway in topo with a unique PID prefix
+// for cross-gateway cancel routing, blocking startup until it succeeds. The
+// prefix is claimed atomically before the record is written; the claim file,
+// not the record, is what makes the prefix exclusively ours. Each process
+// claims fresh — a restarted gateway has no live connections whose cancel
+// routing could be worth preserving.
+func (mg *Multigateway) registerWithPrefix(multigateway *clustermetadatapb.Multigateway) error {
+	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
+	defer regCancel()
+	var err error
+	mg.tr, err = toporeg.RegisterSynchronous(
+		regCtx,
+		func(ctx context.Context) error {
+			if multigateway.PidPrefix == 0 {
+				prefix, err := mg.claimUnusedPrefix(ctx, multigateway.Id)
+				if err != nil {
+					return err
+				}
+				multigateway.PidPrefix = prefix
+			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
+				return err
+			}
+			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
+		},
+		// The prefix claim is deliberately NOT released here: lease expiry
+		// is its only release path, so a gateway can never delete a claim
+		// that has passed to another gateway (e.g. when a prefix-lost
+		// restart shuts this process down after a competitor legitimately
+		// claimed the prefix).
+		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+		toporeg.WithReassert(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register gateway: %w", err)
+	}
+	return nil
 }
 
 // claimUnusedPrefix atomically claims a PID prefix for this gateway and
