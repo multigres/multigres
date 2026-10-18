@@ -1083,8 +1083,18 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
 		db, err := pm.topoClient.GetDatabase(ctx, database)
 		cancel()
-		if err != nil {
-			continue // Will retry with backoff
+		fromTopo := err == nil
+		if !fromTopo {
+			// A static leader starts from its copy of the record instead.
+			cached, cacheErr := pm.loadDatabaseCache()
+			if cacheErr != nil {
+				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)
+			}
+			if cached == nil {
+				continue // Will retry with backoff
+			}
+			pm.logger.Warn("database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
+			db = cached
 		}
 
 		// Validate and parse backup configuration
@@ -1175,6 +1185,10 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		if err != nil {
 			pm.setStateError(err)
 			return
+		}
+
+		if fromTopo {
+			pm.saveDatabaseCache(db)
 		}
 
 		pm.mu.Lock()
@@ -1913,4 +1927,11 @@ func (pm *MultipoolerManager) WaitUntilReady(ctx context.Context) error {
 			return fmt.Errorf("unexpected state after ready signal: %s", state)
 		}
 	}
+}
+
+// WatchPoolerRecord calls fn with the pooler's topology record as it is
+// published, right away and after every change, until the returned stop
+// function is called. See poolerRecord.Watch.
+func (pm *MultipoolerManager) WatchPoolerRecord(fn func(*clustermetadatapb.Multipooler)) (stop func()) {
+	return pm.record.Watch(fn)
 }

@@ -429,3 +429,30 @@ func TestPoolerRecord_DerivesTypeFromRoutingState(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_UNKNOWN, r.Type())
 	})
 }
+
+// --- Watch ---
+
+func TestPoolerRecord_Watch_DeliversPublishedViewOnEveryChange(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
+
+	var got []*clustermetadatapb.Multipooler
+	stop := r.Watch(func(m *clustermetadatapb.Multipooler) { got = append(got, m) })
+
+	require.Len(t, got, 1, "the current record is delivered right away")
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, got[0].ServingStatus)
+
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.RoutingState = primaryObs()
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+	require.Len(t, got, 2, "each change is delivered")
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, got[1].ServingStatus)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, got[1].Type, "watchers see the record as it is published")
+
+	stop()
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	}))
+	assert.Len(t, got, 2, "nothing is delivered after stop")
+}

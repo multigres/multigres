@@ -99,6 +99,12 @@ type poolerRecord struct {
 
 	registerOnce sync.Once
 	tr           *toporeg.TopoReg
+
+	// watchers get the published record on every change (Watch). watchMu is
+	// held during a new watcher's first delivery, so no change slips between.
+	watchMu       sync.Mutex
+	watchers      map[int]func(*clustermetadatapb.Multipooler)
+	nextWatcherID int
 }
 
 // newPoolerRecord returns a poolerRecord seeded with initial as the desired
@@ -220,6 +226,37 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 	next.LifecycleStatus = state.LifecycleStatus
 	next.RoutingState = state.RoutingState
 	r.desired.Store(next)
+	r.notifyWatchers()
+}
+
+// Watch calls fn with the record as it would be published to the topology,
+// right away and after every change, until stop. It does not need the
+// topology, so a component in the same process can follow the pooler while
+// etcd is unreachable. fn must not block or call back into r.
+func (r *poolerRecord) Watch(fn func(*clustermetadatapb.Multipooler)) (stop func()) {
+	r.watchMu.Lock()
+	defer r.watchMu.Unlock()
+	if r.watchers == nil {
+		r.watchers = make(map[int]func(*clustermetadatapb.Multipooler))
+	}
+	id := r.nextWatcherID
+	r.nextWatcherID++
+	r.watchers[id] = fn
+	fn(routingStateForPublish(r.desired.Load()))
+	return func() {
+		r.watchMu.Lock()
+		defer r.watchMu.Unlock()
+		delete(r.watchers, id)
+	}
+}
+
+// notifyWatchers calls every watcher with the record's published view.
+func (r *poolerRecord) notifyWatchers() {
+	r.watchMu.Lock()
+	defer r.watchMu.Unlock()
+	for _, fn := range r.watchers {
+		fn(routingStateForPublish(r.desired.Load()))
+	}
 }
 
 // typeForState derives the published PoolerType — a pure projection, never stored

@@ -603,6 +603,15 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// WatchRecord follows the multipooler's topology record without the topology:
+// fn gets it right away and after every change, until stop. Requires Init.
+func (mp *Multipooler) WatchRecord(fn func(*clustermetadatapb.Multipooler)) (stop func()) {
+	if mp.poolerManager == nil {
+		panic("multipooler: WatchRecord called before Init")
+	}
+	return mp.poolerManager.WatchPoolerRecord(fn)
+}
+
 // ServiceIdentity returns the identity the multipooler reports when it
 // initializes its own servenv. ServiceInstanceID is the configured service ID
 // and may be empty. A caller that owns a shared servenv (see WithServEnv) can
