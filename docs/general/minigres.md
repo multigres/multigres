@@ -150,9 +150,25 @@ topology.
 - **The external gRPC port carries the admin services.** The pooler manager and
   gateway manager services stay on the TCP port, for Multiadmin and the test
   harness. Calling the query service on that port returns `Unimplemented`.
-- **The gateway's `--multipooler-grpc-*` flags are not used for queries.** They
-  still configure cancel-request forwarding between gateways, which does not
-  apply to a single gateway and is planned to be turned off.
+
+## What is turned off
+
+The gateway is the only one in front of the only pooler, so the features that
+need several poolers or gateways are off. `cmd/minigres` constructs it with
+`singlePooler` set: their settings are never created, so neither a flag nor an
+`MT_*` environment variable can turn them on, and their flags are rejected as
+unknown.
+
+| Feature                                                                                                | Why it does not apply                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Replica reads (`--pg-replica-port`, `--low-replication-lag-ms`, `--high-replication-lag-tolerance-ms`) | There are no replicas                                                                                                                                                                                                                             |
+| Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
+| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway reaches its pooler in memory, and the settings otherwise secure only cancel forwarding                                                                                                                                                |
+| Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
+
+The gateway still claims a connection-ID prefix in etcd when it registers. The
+claim is only needed for cancel forwarding; it stays until the gateway no longer
+depends on etcd at startup.
 
 ## The static leader
 

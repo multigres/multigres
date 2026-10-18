@@ -47,6 +47,22 @@ func TestCreateMinigresCommand_RegistersAllFlags(t *testing.T) {
 	}
 }
 
+// TestCreateMinigresCommand_RejectsMultiPoolerFlags checks that the features
+// that need several poolers or gateways cannot be configured.
+func TestCreateMinigresCommand_RejectsMultiPoolerFlags(t *testing.T) {
+	for _, name := range []string{
+		"pg-replica-port", "low-replication-lag-ms", "high-replication-lag-tolerance-ms", // replica reads
+		"buffer-enabled",                                        // failover buffering
+		"multipooler-grpc-cert", "multipooler-grpc-require-tls", // remote poolers, cancel forwarding
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, fs := newTestMinigres(t)
+			assert.Nil(t, fs.Lookup(name))
+			assert.ErrorContains(t, fs.Parse([]string{"--" + name + "=1"}), "unknown flag")
+		})
+	}
+}
+
 func TestPoolerPgPortNotSetByGatewayPgPort(t *testing.T) {
 	m, fs := newTestMinigres(t)
 	require.NoError(t, fs.Parse([]string{"--pg-port=15432"}))

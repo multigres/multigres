@@ -96,8 +96,10 @@ func newMinigres() *minigres {
 	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
 	// The multigateway uses only the multipooler in this process, reached
 	// through the in-memory server; other poolers in the topology are ignored.
+	// It is the only gateway in front of the only pooler, so what needs several
+	// of either is turned off.
 	localPooler := &poolergateway.LocalPooler{ID: m.poolerID, DialOptions: m.queryGrpcServer.DialOptions()}
-	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler)
+	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler, true)
 	return m
 }
 
