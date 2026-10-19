@@ -47,9 +47,9 @@ func TestCreateMinigresCommand_RegistersAllFlags(t *testing.T) {
 	}
 }
 
-// TestCreateMinigresCommand_RejectsMultiPoolerFlags checks that the features
+// TestCreateMinigresCommand_RejectsSeveralPoolersFlags checks that the features
 // that need several poolers or gateways cannot be configured.
-func TestCreateMinigresCommand_RejectsMultiPoolerFlags(t *testing.T) {
+func TestCreateMinigresCommand_RejectsSeveralPoolersFlags(t *testing.T) {
 	for _, name := range []string{
 		"pg-replica-port", "low-replication-lag-ms", "high-replication-lag-tolerance-ms", // replica reads
 		"buffer-enabled",                                        // failover buffering

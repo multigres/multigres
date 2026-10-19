@@ -165,7 +165,8 @@ type Multigateway struct {
 	localPooler *poolergateway.LocalPooler
 
 	// singlePooler means the multigateway serves the only pooler of its
-	// database and is the only gateway its clients reach (minigres).
+	// database and is the only gateway its clients reach: it has a local
+	// pooler (minigres).
 	singlePooler bool
 }
 
@@ -181,10 +182,10 @@ type Multigateway struct {
 // process, under its service name when it shares the HTTP server).
 // localPooler is the pooler in the same process, the only one the multigateway
 // then uses (minigres); nil uses every pooler in the topology (Multigres).
-// singlePooler turns off what needs several poolers or gateways: replica
+// With a local pooler, what needs several poolers or gateways is off: replica
 // reads, failover buffering, the multipooler gRPC TLS settings and
-// cross-gateway cancel forwarding (minigres). Their flags are not registered.
-func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler, singlePooler bool) *Multigateway {
+// cross-gateway cancel forwarding. Their flags are not registered.
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
 	}
@@ -299,10 +300,10 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	mg.grpcServer = resources.GrpcServer
 	mg.statusPath = statusPath
 	mg.localPooler = localPooler
-	mg.singlePooler = singlePooler
+	mg.singlePooler = localPooler != nil
 	// Settings are not even created with a single pooler, so their environment
 	// variables cannot turn the features on.
-	if !singlePooler {
+	if !mg.singlePooler {
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)

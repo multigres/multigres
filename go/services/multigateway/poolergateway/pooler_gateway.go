@@ -150,7 +150,8 @@ type PoolerGatewayOpts struct {
 	LocalPooler *LocalPooler
 }
 
-// LocalPooler is the pooler running in the same process as the gateway.
+// LocalPooler is the pooler running in the same process as the gateway: the
+// only pooler of its database, with the gateway as the only one in front of it.
 type LocalPooler struct {
 	// ID returns the pooler's topology ID. It is read when poolers are
 	// discovered, after flags are parsed.

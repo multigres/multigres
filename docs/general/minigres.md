@@ -154,10 +154,10 @@ topology.
 ## What is turned off
 
 The gateway is the only one in front of the only pooler, so the features that
-need several poolers or gateways are off. `cmd/minigres` constructs it with
-`singlePooler` set: their settings are never created, so neither a flag nor an
-`MT_*` environment variable can turn them on, and their flags are rejected as
-unknown.
+need several poolers or gateways are off. They are off for any gateway given a
+local pooler (`poolergateway.LocalPooler`), which `cmd/minigres` does: their
+settings are never created, so neither a flag nor an `MT_*` environment variable
+can turn them on, and their flags are rejected as unknown.
 
 | Feature                                                                                                | Why it does not apply                                                                                                                                                                                                                             |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

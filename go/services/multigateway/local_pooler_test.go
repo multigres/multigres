@@ -23,48 +23,55 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-// multiPoolerFlags are the flags of the features that need several poolers or
+// severalPoolersFlags are the flags of the features that need several poolers or
 // gateways: replica reads, failover buffering and the multipooler gRPC TLS
 // settings, which also secure cancel forwarding.
-var multiPoolerFlags = []string{
+var severalPoolersFlags = []string{
 	"pg-replica-port", "low-replication-lag-ms", "high-replication-lag-tolerance-ms",
 	"buffer-enabled", "buffer-window",
 	"multipooler-grpc-cert", "multipooler-grpc-require-tls",
 }
 
+// newTestMultigateway builds a multigateway, with a local pooler (a single
+// pooler) or without one, and registers its flags.
 func newTestMultigateway(t *testing.T, singlePooler bool) (*Multigateway, *pflag.FlagSet) {
 	t.Helper()
+	var localPooler *poolergateway.LocalPooler
+	if singlePooler {
+		localPooler = &poolergateway.LocalPooler{}
+	}
 	reg := viperutil.NewRegistry()
 	grpcServer := servenv.NewGrpcServer(reg)
 	mg := NewMultigateway(reg, servenv.ProcessResources{
 		ServEnv:         servenv.NewServEnv(reg),
 		GrpcServer:      grpcServer,
 		QueryGrpcServer: grpcServer,
-	}, "/", nil, singlePooler)
+	}, "/", localPooler)
 	fs := pflag.NewFlagSet("multigateway", pflag.ContinueOnError)
 	mg.RegisterFlags(fs)
 	return mg, fs
 }
 
-func TestNewMultigateway_RegistersMultiPoolerFlags(t *testing.T) {
+func TestNewMultigateway_RegistersSeveralPoolersFlags(t *testing.T) {
 	_, fs := newTestMultigateway(t, false)
-	for _, name := range multiPoolerFlags {
+	for _, name := range severalPoolersFlags {
 		assert.NotNil(t, fs.Lookup(name), "flag %q should be registered", name)
 	}
 }
 
-func TestNewMultigateway_SinglePoolerOmitsMultiPoolerFlags(t *testing.T) {
+func TestNewMultigateway_LocalPoolerOmitsSeveralPoolersFlags(t *testing.T) {
 	_, fs := newTestMultigateway(t, true)
-	for _, name := range multiPoolerFlags {
+	for _, name := range severalPoolersFlags {
 		assert.Nil(t, fs.Lookup(name), "flag %q should not be registered", name)
 	}
 	assert.NotNil(t, fs.Lookup("pg-port"), "the gateway's other flags stay")
 }
 
-func TestNewMultigateway_SinglePoolerIgnoresEnvironment(t *testing.T) {
+func TestNewMultigateway_LocalPoolerIgnoresEnvironment(t *testing.T) {
 	t.Setenv("MT_PG_REPLICA_PORT", "15433")
 	t.Setenv("MT_LOW_REPLICATION_LAG_MS", "100")
 	t.Setenv("MT_BUFFER_ENABLED", "true")

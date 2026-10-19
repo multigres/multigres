@@ -99,7 +99,7 @@ func newMinigres() *minigres {
 	// It is the only gateway in front of the only pooler, so what needs several
 	// of either is turned off.
 	localPooler := &poolergateway.LocalPooler{ID: m.poolerID, DialOptions: m.queryGrpcServer.DialOptions()}
-	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler, true)
+	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler)
 	return m
 }
 

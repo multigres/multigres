@@ -31,7 +31,7 @@ func TestQueryStreamReuseFlag(t *testing.T) {
 		ServEnv:         servenv.NewServEnv(reg),
 		GrpcServer:      grpcServer,
 		QueryGrpcServer: grpcServer,
-	}, "/", nil, false)
+	}, "/", nil)
 	require.True(t, mg.queryStreamReuse.Default())
 	fs := pflag.NewFlagSet("query-stream-test", pflag.ContinueOnError)
 	mg.RegisterFlags(fs)
