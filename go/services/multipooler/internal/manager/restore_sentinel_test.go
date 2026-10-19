@@ -235,12 +235,14 @@ func TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirWithoutBackup(t *tes
 
 // TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirUnderRunningPostgres
 // verifies the partial data directory is never removed while postgres might be
-// running on it: not when pgctld reports it running, and not when its status
-// can't be read.
+// running on it: not when pgctld reports it running, not when its status can't
+// be read, and not when postmaster.pid shows a postmaster that pgctld reports as
+// STOPPED because it is still starting up.
 func TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirUnderRunningPostgres(t *testing.T) {
 	tests := []struct {
 		name    string
-		client  *mockPgctldClient
+		client  *mockPgctldClient       // nil keeps the STOPPED status of the partial restore
+		pidFile func(path string) error // plants postmaster.pid
 		wantErr string
 	}{
 		{
@@ -253,11 +255,28 @@ func TestRestoreAndStartPostgres_RestoreSentinelKeepsDataDirUnderRunningPostgres
 			client:  &mockPgctldClient{statusError: errors.New("pgctld unavailable")},
 			wantErr: "failed to check postgres status",
 		},
+		{
+			name:    "postmaster still starting up",
+			pidFile: func(path string) error { return os.WriteFile(path, []byte("12345\n"), 0o600) },
+			wantErr: "postmaster.pid exists in the data directory of an interrupted restore",
+		},
+		{
+			// A self-referencing symlink makes the stat fail with ELOOP, which
+			// must not be mistaken for "no postmaster.pid".
+			name:    "postmaster.pid unreadable",
+			pidFile: func(path string) error { return os.Symlink(path, path) },
+			wantErr: "failed to check for",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pm, dataDir, observed := newAutoRestoreTestManager(t, printCompleteBackupInfo, `echo ran >> "$OBSERVED"`)
-			pm.pgctldClient = tt.client
+			if tt.client != nil {
+				pm.pgctldClient = tt.client
+			}
+			if tt.pidFile != nil {
+				require.NoError(t, tt.pidFile(filepath.Join(dataDir, constants.PostmasterPIDFile)))
+			}
 
 			withLock(t, pm, func(ctx context.Context) {
 				err := pm.restoreAndStartPostgres(ctx)

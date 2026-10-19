@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -1734,10 +1736,11 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		case sentinelPresent:
 			// Like hasDataDirectory(), pgctld treats PG_VERSION as "initialized",
 			// and a partial restore can already contain it, so here "initialized"
-			// is no reason to skip the restore. Refuse only when pgctld reports
-			// postgres running or its status can't be read, so the data directory
-			// is not removed under a postgres that something outside pgctld
-			// started (pgctld itself refuses to while the sentinel is present).
+			// is no reason to skip the restore. Refuse when pgctld reports postgres
+			// running or its status can't be read, so the data directory is not
+			// removed under a postgres that something outside pgctld started
+			// (pgctld itself refuses to while the sentinel is present). The
+			// postmaster.pid check below covers one that is still starting up.
 			if err != nil {
 				return fmt.Errorf("failed to check postgres status before removing partial data directory: %w", err)
 			}
@@ -1750,6 +1753,21 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 			return nil
 		}
 		// Without a sentinel, if status check fails, continue with restore attempt
+	}
+
+	// pgctld also reports STOPPED for a postmaster that is still starting up, so
+	// the check above can't rule one out. pgBackRest never restores
+	// postmaster.pid, so finding it in the data directory of an interrupted
+	// restore means postgres was started on it.
+	if sentinelPresent {
+		pidFile := filepath.Join(postgresDataDir(), constants.PostmasterPIDFile)
+		_, statErr := os.Stat(pidFile)
+		switch {
+		case statErr == nil:
+			return fmt.Errorf("%s exists in the data directory of an interrupted restore; refusing to remove it", pidFile)
+		case !os.IsNotExist(statErr):
+			return fmt.Errorf("failed to check for %s: %w", pidFile, statErr)
+		}
 	}
 
 	// Get the latest complete backup. ListBackups returns backups
