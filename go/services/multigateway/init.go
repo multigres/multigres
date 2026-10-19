@@ -163,11 +163,13 @@ type Multigateway struct {
 	// localPooler, when set, is the only pooler the multigateway uses (see
 	// poolergateway.LocalPooler). nil in Multigres.
 	localPooler *poolergateway.LocalPooler
+}
 
-	// singlePooler means the multigateway serves the only pooler of its
-	// database and is the only gateway its clients reach: it has a local
-	// pooler (minigres).
-	singlePooler bool
+// singlePooler reports whether the multigateway serves the only pooler of its
+// database and is the only gateway its clients reach: it has a local pooler
+// (minigres).
+func (mg *Multigateway) singlePooler() bool {
+	return mg.localPooler != nil
 }
 
 // NewMultigateway creates a new Multigateway instance. reg is the settings
@@ -300,10 +302,9 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	mg.grpcServer = resources.GrpcServer
 	mg.statusPath = statusPath
 	mg.localPooler = localPooler
-	mg.singlePooler = localPooler != nil
 	// Settings are not even created with a single pooler, so their environment
 	// variables cannot turn the features on.
-	if !mg.singlePooler {
+	if !mg.singlePooler() {
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)
@@ -518,7 +519,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
 	}
 
-	if mg.singlePooler {
+	if mg.singlePooler() {
 		// The only gateway forwards no cancel requests, so it claims no PID
 		// prefix (connection IDs are used as-is) and its record is only for
 		// Multiadmin: register in the background, so startup and serving do
@@ -624,7 +625,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// type (primary vs replica) carried in the cancel request / gRPC forward.
 	// The only gateway has no other gateway to forward to; without a cancel
 	// handler the listener cancels its own connections.
-	if !mg.singlePooler {
+	if !mg.singlePooler() {
 		mg.cancelManager = NewCancelManager(
 			mg.pgListener.CancelLocalConnection,
 			replicaCancelFn,
