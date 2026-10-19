@@ -1087,8 +1087,14 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		db, err := pm.topoClient.GetDatabase(ctx, database)
 		cancel()
 		fromTopo := err == nil
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			// The topology answered that the database does not exist (for
+			// example, it was deleted): never serve it from a copy.
+			continue // Will retry with backoff
+		}
 		if !fromTopo {
-			// A static leader starts from its copy of the record instead.
+			// The topology is unreachable: a static leader starts from its
+			// copy of the record instead.
 			cached, cacheErr := pm.loadDatabaseCache()
 			if cacheErr != nil {
 				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)

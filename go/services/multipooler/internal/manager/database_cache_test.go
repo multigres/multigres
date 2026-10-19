@@ -75,6 +75,19 @@ func TestStaticLeader_StartsFromItsCopyOfTheDatabaseRecord(t *testing.T) {
 	assert.FileExists(t, filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf"))
 }
 
+func TestStaticLeader_DoesNotServeADeletedDatabaseFromItsCopy(t *testing.T) {
+	ts, factory := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	defer ts.Close()
+	addDatabaseToTopo(t, ts, "testdb")
+	poolerDir := filepath.Join(t.TempDir(), "pooler")
+	require.Equal(t, ManagerStateReady, loadDatabaseRecord(t, ts, poolerDir, true))
+	require.FileExists(t, filepath.Join(poolerDir, databaseCacheFile))
+
+	// The topology is reachable and answers that the database does not exist.
+	factory.AddOperationError(memorytopo.Get, databaseRecordPath, topoclient.NewError(topoclient.NoNode, databaseRecordPath))
+	assert.Equal(t, ManagerStateError, loadDatabaseRecord(t, ts, poolerDir, true), "times out instead of using the copy")
+}
+
 func TestCoordinatedPooler_NeedsTheTopologyForTheDatabaseRecord(t *testing.T) {
 	ts, factory := memorytopo.NewServerAndFactory(t.Context(), "zone1")
 	defer ts.Close()
