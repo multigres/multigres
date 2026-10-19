@@ -293,6 +293,55 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 // standby.signal path that is a NON-EMPTY directory triggers both: os.WriteFile
 // fails (the path is a directory) and os.Remove fails (directory not empty), and
 // neither error is IsNotExist.
+// TestPgCtldServiceStart_RestoreSentinelLeavesDataDirUntouched verifies Start
+// refuses during an incomplete restore before it changes anything in the data
+// directory: neither start mode may create or remove standby.signal, and crash
+// recovery must not run on the partial restore.
+func TestPgCtldServiceStart_RestoreSentinelLeavesDataDirUntouched(t *testing.T) {
+	cases := []struct {
+		name          string
+		asPrimary     bool
+		standbySignal bool
+	}{
+		{name: "standby start does not write standby.signal", asPrimary: false, standbySignal: false},
+		{name: "primary start does not remove standby.signal", asPrimary: true, standbySignal: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			// An interrupted restore: PG_VERSION is on disk and the sentinel is
+			// in the pooler dir.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("17\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+			signalPath := filepath.Join(dataDir, constants.StandbySignalFile)
+			if tc.standbySignal {
+				require.NoError(t, os.WriteFile(signalPath, nil, 0o644))
+			}
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			resp, err := service.Start(context.Background(), &pb.StartRequest{
+				AsPrimary:           tc.asPrimary,
+				AllowCrashRecovery:  true,
+				SuspectedDivergence: true,
+			})
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Contains(t, err.Error(), "restore sentinel")
+
+			_, statErr := os.Stat(signalPath)
+			assert.Equal(t, tc.standbySignal, statErr == nil, "standby.signal must be left as it was")
+		})
+	}
+}
+
 func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
 	cases := []struct {
 		name      string

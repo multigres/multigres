@@ -152,8 +152,9 @@ func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartRe
 	}
 
 	// Checked here so it covers every start path: the start command, the Start
-	// RPC, and restarts (including the demote and rewind restarts). It guards
-	// starting postgres; one that is already running is reported as such above.
+	// RPC (which also checks before touching the data directory), and restarts
+	// (including the demote and rewind restarts). It guards starting postgres;
+	// one that is already running is reported as such above.
 	if err := checkNoIncompleteRestore(config.PoolerDir); err != nil {
 		return nil, err
 	}
