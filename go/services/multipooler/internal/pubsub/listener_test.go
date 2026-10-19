@@ -18,17 +18,15 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// running reports whether the listener's background event loop is active. Start
-// sets cancel; Stop (which waits for the goroutine to exit) clears it.
-func running(l *Listener) bool { return l.cancel != nil }
 
 // newTestListener builds a Listener with no pool manager. The dedicated PG
 // connection is acquired lazily on the first subscribe, so a listener that is
@@ -86,7 +84,7 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 			l := newTestListener(t)
 			err := l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantRunning, running(l))
+			assert.Equal(t, tt.wantRunning, l.Running())
 		})
 	}
 }
@@ -98,10 +96,60 @@ func TestListenerOnStateChangeStopsOnDemotion(t *testing.T) {
 	l := newTestListener(t)
 
 	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
-	require.True(t, running(l), "listener should run while leader+writable+serving")
+	require.True(t, l.Running(), "listener should run while leader+writable+serving")
 
 	// Postgres falls back into recovery (demoted to standby) while still nominally
 	// the leader: the listener must stop.
 	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
-	assert.False(t, running(l), "listener must stop once postgres is no longer writable")
+	assert.False(t, l.Running(), "listener must stop once postgres is no longer writable")
+}
+
+// Requests against a stopped listener must return promptly. The requests
+// channel is buffered, so a send can succeed after the event loop has exited;
+// waiting on done alone then hangs forever, which kept NotificationStream
+// handlers alive on a demoted pooler. Many iterations so both select arms
+// get exercised.
+func TestListenerRequestsDoNotBlockWhenStopped(t *testing.T) {
+	l := newTestListener(t)
+	l.Start(t.Context())
+	l.Stop()
+	require.False(t, l.Running())
+
+	sub := make(chan *sqltypes.Notification, 1)
+	for range 100 {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			assert.False(t, l.SubscribeCh("ch", sub), "a stopped listener must report the subscribe was not applied")
+			l.Unsubscribe("ch", sub)
+			l.UnsubscribeAll(sub)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("request against a stopped listener blocked")
+		}
+	}
+}
+
+// A request that races Stop must not be replayed by the next Start. With one
+// queue shared across lifecycles, a subscribe enqueued after the event loop
+// exited was picked up by the next loop, which re-registered an already
+// closed subscriber channel and then panicked closing it again on Stop. Each
+// Start now owns a fresh queue; a request left in an old one is never read.
+func TestListenerStaleRequestNotReplayedAfterRestart(t *testing.T) {
+	l := newTestListener(t)
+	l.Start(t.Context())
+	l.Stop()
+
+	// Simulate the race: the request lands in the old lifecycle's queue after
+	// its loop is gone. Going through submit would just return on stopped.
+	sub := make(chan *sqltypes.Notification)
+	close(sub)
+	old := l.requests
+	old <- request{typ: reqSubscribe, channel: "ch", subCh: sub, done: make(chan struct{})}
+
+	l.Start(t.Context())
+	require.NotEqual(t, old, l.requests, "Start must begin with an empty queue")
+	l.Stop() // would panic (double close of sub) if the stale subscribe had been replayed
 }

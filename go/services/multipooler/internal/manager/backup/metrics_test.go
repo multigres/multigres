@@ -25,6 +25,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -361,7 +362,14 @@ func TestMetrics_HealthGauges_Populated(t *testing.T) {
 	tr := NewHealthTracker()
 	tr.applyRepoInfo(time.Now().Add(-time.Hour), 4)
 	tr.applyReadiness(true, ReadyReasonOK)
-	tr.applyArchiver(true, time.Now().Add(-30*time.Second), time.Now().Add(-45*time.Second), 2)
+	tr.applyArchiver(archiverState{
+		onPrimary:     true,
+		lastArchived:  time.Now().Add(-30 * time.Second),
+		oldestPending: time.Now().Add(-45 * time.Second),
+		pendingCount:  2,
+		lagSeconds:    45,
+		measuredAt:    time.Now(),
+	})
 	tr.BackupStarted() // sets inProgressStart
 	tr.SetLeaseHeld(true)
 	require.NoError(t, m.RegisterHealthCallback(tr))
@@ -380,10 +388,10 @@ func TestMetrics_HealthGauges_Populated(t *testing.T) {
 	}
 	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "age emitted when a backup exists")
 
-	// archive_lag_seconds is the backlog, derived from OldestPending (45s ago);
+	// archive_lag_seconds is the backlog as measured by the poller (45s);
 	// last_archive_age_seconds is wall-clock, derived from LastArchived (30s
 	// ago). Asserting values (not just presence) pins that each reads from the
-	// right timestamp — a swap would make both ~equal.
+	// right source — a swap would make both ~equal.
 	lastArchiveAge, ok := gaugeFloat64(t, reader, "pgbackrest.wal.last_archive_age_seconds")
 	if assert.True(t, ok, "wall-clock age emitted when last-archived is set") {
 		assert.InDelta(t, 30.0, lastArchiveAge, 10.0)
@@ -407,7 +415,11 @@ func TestMetrics_HealthGauges_CaughtUpPrimary(t *testing.T) {
 	tr := NewHealthTracker()
 	// On a primary, archived a while ago, but caught up now (no .ready files):
 	// OldestPending zero, PendingCount 0.
-	tr.applyArchiver(true, time.Now().Add(-3*time.Hour), time.Time{}, 0)
+	tr.applyArchiver(archiverState{
+		onPrimary:    true,
+		lastArchived: time.Now().Add(-3 * time.Hour),
+		measuredAt:   time.Now(),
+	})
 	require.NoError(t, m.RegisterHealthCallback(tr))
 
 	lag, ok := gaugeFloat64(t, reader, "pgbackrest.wal.archive_lag_seconds")
@@ -421,6 +433,56 @@ func TestMetrics_HealthGauges_CaughtUpPrimary(t *testing.T) {
 	if assert.True(t, ok, "wall-clock age still tracks recency") {
 		assert.Greater(t, age, 3600.0, "last archive was ~3h ago")
 	}
+}
+
+// TestMetrics_HealthGauges_BacklogReportedAsMeasured pins the distinction the
+// gauge exists on: the backlog is a queue depth, not an age. The reading below
+// carries an oldestPending timestamp hours old but was measured as a 5s
+// backlog, so the gauge must report 5. Deriving it from the timestamp — which
+// is what a drained queue looks like once its segment is archived — would
+// report hours instead.
+func TestMetrics_HealthGauges_BacklogReportedAsMeasured(t *testing.T) {
+	m, reader := setupMetrics(t)
+	tr := NewHealthTracker()
+	tr.applyArchiver(archiverState{
+		onPrimary:     true,
+		lastArchived:  time.Now().Add(-10 * time.Second),
+		oldestPending: time.Now().Add(-6 * time.Hour),
+		pendingCount:  1,
+		lagSeconds:    5,
+		measuredAt:    time.Now(),
+	})
+	require.NoError(t, m.RegisterHealthCallback(tr))
+
+	lag, ok := gaugeFloat64(t, reader, "pgbackrest.wal.archive_lag_seconds")
+	if assert.True(t, ok, "backlog emitted while the reading is fresh") {
+		assert.Equal(t, 5.0, lag, "must report the measured backlog, not now-oldestPending")
+	}
+}
+
+// TestMetrics_HealthGauges_StaleReadingNotEmitted covers what a failing
+// archiver query leaves behind: once the reading ages past ArchiverStaleAfter
+// the gauges that depend on it stop being emitted, so alerting sees a gap
+// rather than a stale value it cannot tell apart from a live one.
+func TestMetrics_HealthGauges_StaleReadingNotEmitted(t *testing.T) {
+	m, reader := setupMetrics(t)
+	tr := NewHealthTracker()
+	tr.applyArchiver(archiverState{
+		onPrimary:     true,
+		lastArchived:  time.Now().Add(-time.Minute),
+		oldestPending: time.Now().Add(-time.Minute),
+		pendingCount:  7,
+		lagSeconds:    60,
+		measuredAt:    time.Now().Add(-2 * constants.ArchiverStaleAfter),
+	})
+	require.NoError(t, m.RegisterHealthCallback(tr))
+
+	_, ok := gaugeFloat64(t, reader, "pgbackrest.wal.archive_lag_seconds")
+	assert.False(t, ok, "a stale reading must gap the backlog series")
+	_, ok = gaugeInt64(t, reader, "pgbackrest.wal.pending_segments")
+	assert.False(t, ok, "pending segments gaps with the reading it came from")
+	_, ok = gaugeFloat64(t, reader, "pgbackrest.wal.last_archive_age_seconds")
+	assert.False(t, ok, "wall-clock age depends on the same reading")
 }
 
 // TestMetrics_HealthGauges_Empty exercises the callback with a default tracker:

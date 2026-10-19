@@ -363,6 +363,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1)
 		problem := problems[0]
 		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problem.Code)
+		require.False(t, problem.SkipPreRecheckRefresh, "cohort cut-off is a guess from observed health, so it is verified")
 		require.Equal(t, types.ScopeShard, problem.Scope)
 		require.Equal(t, types.PriorityEmergency, problem.Priority)
 		require.Equal(t, leaderID, problem.PoolerID)
@@ -555,6 +556,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderQuorumWritesStalled, problems[0].Code)
+		require.False(t, problems[0].SkipPreRecheckRefresh, "a stalled watermark is a guess from observed health, so it is verified")
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
@@ -818,6 +820,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderUnspecified, problems[0].Code)
+		require.True(t, problems[0].SkipPreRecheckRefresh, "a rule that names no leader is a durable fact, so a refresh cannot change it")
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 	})
 
@@ -886,6 +889,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderUnhealthy, problems[0].Code)
+		require.False(t, problems[0].SkipPreRecheckRefresh, "an unhealthy leader is a guess from observed health, so it is verified")
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
@@ -991,6 +995,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+		require.True(t, problems[0].SkipPreRecheckRefresh, "a resignation is the leader's own stated intent, so a refresh cannot change it")
 		require.Equal(t, analyzer.Name(), problems[0].CheckName)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 		require.Equal(t, leaderID, problems[0].PoolerID)

@@ -138,9 +138,14 @@ type PoolerGatewayOpts struct {
 	// DialOpt configures transport credentials for pooler gRPC connections.
 	// Required.
 	DialOpt grpc.DialOption
-	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
-	// it when a new consensus leader reports SERVING. Optional.
+	// Buffer is the failover buffer. When non-nil, it is drained when a new
+	// consensus leader reports SERVING. Optional.
 	Buffer *buffer.Buffer
+	// OnLeaderServing is called, after the buffer drain, on every health
+	// update in which the elected leader attests PRIMARY and SERVING. The
+	// notification manager uses it to reopen streams after a leader change.
+	// Optional.
+	OnLeaderServing func(*clustermetadatapb.ShardKey)
 	// LowLag is the preferred replication-lag threshold for replicas.
 	LowLag time.Duration
 	// HighTolerance is the absolute maximum replication lag for replicas.
@@ -198,8 +203,15 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	})
 
 	var onLeaderServing func(*clustermetadatapb.ShardKey)
-	if opts.Buffer != nil {
-		onLeaderServing = opts.Buffer.StopBuffering
+	if opts.Buffer != nil || opts.OnLeaderServing != nil {
+		onLeaderServing = func(sk *clustermetadatapb.ShardKey) {
+			if opts.Buffer != nil {
+				opts.Buffer.StopBuffering(sk)
+			}
+			if opts.OnLeaderServing != nil {
+				opts.OnLeaderServing(sk)
+			}
+		}
 	}
 
 	lb := newLoadBalancer(loadBalancerOpts{

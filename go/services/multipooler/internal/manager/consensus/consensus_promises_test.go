@@ -116,6 +116,17 @@ func TestConsensusPromises_LoadWithCorruptFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to load consensus promises")
 }
 
+func TestConsensusPromises_LoadIgnoresUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	data := `{"recruitBlockedUntil": {"lsn": "0/1000"}, "fieldFromNewerBinary": {"x": 1}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, constants.ConsensusPromisesFile), []byte(data), 0o644))
+
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "0/1000", promises.GetRecruitBlockedUntil().GetLsn())
+}
+
 func TestConsensusPromises_SetRecruitBlockedUntilFilesystemReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	ctx := withTestActionLock(t)
