@@ -132,9 +132,9 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			continue
 		}
 
-		// Addition candidates: replicas not currently in the cohort that are
-		// healthy enough to be added.
-		if !a.isAdditionCandidate(sa, pa) {
+		// Addition candidates: the leader itself, or replicas healthy enough
+		// to be added.
+		if !a.isAdditionCandidate(sa, pa, undecidedRule.GetLeaderId()) {
 			continue
 		}
 		problems = append(problems, types.Problem{
@@ -219,8 +219,15 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 }
 
 // isAdditionCandidate reports whether a non-cohort pooler is healthy enough to
-// be added: it must be a non-leader REPLICA, initialized, actively streaming
-// from the leader, and not signaling INELIGIBLE.
+// be added: either the rule's leader, or a REPLICA that is initialized,
+// actively streaming from the leader, and not signaling INELIGIBLE.
+//
+// A failover keeps the outgoing cohort and may choose an eligible leader
+// outside it, such as a replacement that had not yet been admitted. Nothing
+// else adds the leader afterwards, and a leader outside its cohort does not
+// count toward recruitment, so the shard runs one member short for as long as
+// that leader leads. The replication checks below do not apply to a leader,
+// which is not replicating from anyone.
 //
 // The "actively streaming" requirement (walReceiverStreaming, not merely
 // primary_conninfo set + replay unpaused) is load-bearing for restore_command
@@ -240,15 +247,20 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // replication is healthy, and so on. The analyzer should largely just trust
 // the CohortEligibilityStatus signal rather than reconstruct that judgment
 // from individual health fields.
-//
-// The IsLeader gate is also conceptually unnecessary — there's no correctness
-// problem an acting primary adding itself to the cohort. This may be useful
-// in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *store.Pooler) bool {
-	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(
+	sa *ShardAnalysis,
+	pa *store.Pooler,
+	ruleLeader *clustermetadatapb.ID,
+) bool {
+	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
 		return false
 	}
-	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
+	if ruleLeader != nil && topoclient.ComponentIDString(poolerID(pa)) == topoclient.ComponentIDString(ruleLeader) {
+		return true
+	}
+	// Any other pooler that believes it leads is a stale leader, not a
+	// replica to admit.
+	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby

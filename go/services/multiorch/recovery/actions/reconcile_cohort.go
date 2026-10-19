@@ -184,7 +184,10 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	// the monitor's ~one-tick backstop would. Best-effort — the ADD (the action's
 	// contract) already succeeded, and the monitor backstop still covers a failure
 	// here — so a member-side hiccup does not fail cohort reconciliation.
-	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD && target != nil {
+	// The leader admitting itself is not joining as a follower, and SetPrimary
+	// would point it at itself.
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD && target != nil &&
+		topoclient.ComponentIDString(targetID) != topoclient.ComponentIDString(leader.Health().Multipooler.Id) {
 		a.clearJoiningMemberArchive(ctx, leader, target)
 	}
 

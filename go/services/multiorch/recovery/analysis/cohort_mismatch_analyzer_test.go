@@ -91,6 +91,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		})
 	}
 
+	// healthyShard's cohort is the leader plus standbys, as bootstrap builds it.
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*store.Pooler) *ShardAnalysis {
 		leader := leaderRider()
 		analyses := append([]*store.Pooler{leader}, replicas...)
@@ -100,7 +101,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 				Decision: &clustermetadatapb.ShardRule{
 					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 					LeaderId:      primaryID,
-					CohortMembers: standbys,
+					CohortMembers: append([]*clustermetadatapb.ID{primaryID}, standbys...),
 				},
 			},
 			Now:      time.Now(),
@@ -181,7 +182,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 				Proposal: &clustermetadatapb.ShardRule{
 					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 					LeaderId:      primaryID,
-					CohortMembers: []*clustermetadatapb.ID{replicaA},
+					CohortMembers: []*clustermetadatapb.ID{primaryID, replicaA},
 				},
 			},
 			Now:    time.Now(),
@@ -354,19 +355,43 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Contains(t, err.Error(), "factory not initialized")
 	})
 
-	t.Run("ignores leader as addition candidate", func(t *testing.T) {
-		// A leader's PoolerAnalysis happens to satisfy every other condition
-		// (initialized, replicating-ish), but it must never be added to the
-		// cohort as a "missing replica".
-		leaderShard := healthyShard(nil)
-		// Inject the leader as a non-cohort-member by mutating its state to
-		// look like an addition candidate apart from naming itself leader.
-		leaderShard.Analyses[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
-				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
-			}
+	t.Run("admits the leader when a failover left it outside the cohort", func(t *testing.T) {
+		// A failover keeps the outgoing cohort while choosing any eligible
+		// leader, so the leader can be absent from the rule it leads.
+		sa := healthyShard([]*clustermetadatapb.ID{replicaA},
+			healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
+		decision := sa.HighestPosition.Decision
+		decision.CohortMembers = []*clustermetadatapb.ID{replicaA}
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		assert.Equal(t, types.ProblemPoolerNotInCohort, problems[0].Code)
+		assert.Equal(t, primaryID.Name, problems[0].PoolerID.Name)
+	})
+
+	t.Run("does not admit an unrecruitable leader", func(t *testing.T) {
+		// RecruitBlockedUntil leaves the leader serving, so recruitable is the
+		// only gate that can refuse it. An INELIGIBLE signal would not test
+		// that: it makes the leader resigned, and Analyze returns before it
+		// considers any addition.
+		sa := healthyShard(nil)
+		sa.HighestPosition.Decision.CohortMembers = nil
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.ConsensusStatus.RecruitBlockedUntil = &clustermetadatapb.LsnPosition{Lsn: "0/2000000"}
 		})
-		problems, err := analyzer.Analyze(leaderShard)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("does not admit a stale self-proclaimed leader", func(t *testing.T) {
+		// Another pooler still naming itself leader after the rule moved on
+		// looks like a replica to every other check, but is not one.
+		stale := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		stale.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.ConsensusStatus = primaryConsensusStatus(replicaA, 1)
+		})
+		problems, err := analyzer.Analyze(healthyShard(nil, stale))
 		require.NoError(t, err)
 		assert.Empty(t, problems)
 	})

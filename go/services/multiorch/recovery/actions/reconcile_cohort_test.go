@@ -137,6 +137,41 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Equal(t, primaryID.Name, setReq.GetReplicationPrimary().GetPrimary().GetId().GetName())
 	})
 
+	t.Run("admitting the leader does not send it SetPrimary", func(t *testing.T) {
+		// The leader is not a follower joining the cohort; SetPrimary would
+		// point it at itself. Status is answered so the archive clear, were it
+		// reached, would get as far as sending SetPrimary.
+		fakeClient := &rpcclient.FakeClient{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: selfLeaderConsensus(primaryID),
+				}},
+			},
+			UpdateConsensusRuleResponses: map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+				"multipooler-cell1-primary": {},
+			},
+		}
+		ps, cleanup := setupStore(t, fakeClient)
+		defer cleanup()
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: primaryID,
+		}, HighestKnownRule: rule})
+
+		require.NoError(t, err)
+		req := fakeClient.LastUpdateConsensusRuleRequest
+		require.NotNil(t, req)
+		assert.Equal(t, multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD, req.Operation)
+		require.Len(t, req.StandbyIds, 1)
+		assert.Equal(t, primaryID.Name, req.StandbyIds[0].Name)
+		assert.NotContains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-primary)")
+		assert.Empty(t, fakeClient.SetPrimaryRequests)
+	})
+
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {
 		// Removal safety (durability-policy quorum survival) is enforced by
 		// CohortMismatchAnalyzer before this problem is ever produced — see
