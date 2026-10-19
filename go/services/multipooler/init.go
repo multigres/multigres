@@ -603,6 +603,15 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// Record returns a copy of the multipooler's topology record, without the
+// topology. Requires Init.
+func (mp *Multipooler) Record() *clustermetadatapb.Multipooler {
+	if mp.poolerManager == nil {
+		panic("multipooler: Record called before Init")
+	}
+	return mp.poolerManager.PoolerRecord()
+}
+
 // ServiceIdentity returns the identity the multipooler reports when it
 // initializes its own servenv. ServiceInstanceID is the configured service ID
 // and may be empty. A caller that owns a shared servenv (see WithServEnv) can
