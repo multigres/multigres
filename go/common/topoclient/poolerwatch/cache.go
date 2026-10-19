@@ -143,8 +143,13 @@ type Hooks[T any] struct {
 // HealthStream, etc.), then bind hooks that close over those.
 type Config[T any] struct {
 	// Source is the topology backing store. The cache subscribes to it on
-	// Start to receive upserts and deletions. Required.
+	// Start to receive upserts and deletions. Ignored when Poolers is set.
 	Source topoclient.Store
+
+	// Poolers, if set, are the poolers the cache tracks instead of watching
+	// the topology, for a pooler known without it (one in the same process).
+	// They are added on Start.
+	Poolers []*clustermetadatapb.Multipooler
 
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
@@ -328,7 +333,7 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		sweeper:          timer.NewPeriodicRunner(ctx, interval),
 		shutdownDone:     make(chan struct{}),
 	}
-	if config.Source != nil {
+	if config.Source != nil && config.Poolers == nil {
 		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger, topoWatchHandlers{
 			OnSnapshot:    c.reconcileCell,
 			OnUpsert:      c.applyUpsert,
@@ -362,6 +367,9 @@ func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
 	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
 	if c.topoSource != nil {
 		c.topoSource.Start()
+	}
+	for _, pooler := range c.config.Poolers {
+		c.applyUpsert(pooler)
 	}
 }
 
