@@ -14,7 +14,7 @@ The test performs the following steps:
 5. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
 6. **Run regression tests** (if enabled): Executes PostgreSQL regression tests through multigateway
 7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
-8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
+8. **Report results**: Generates a unified compatibility report; any failed, timed-out, or unexecuted test fails the Go test
 
 **Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the
 PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol

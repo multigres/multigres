@@ -98,10 +98,14 @@ jobs:
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
       - name: Run PostgreSQL compatibility tests
+        # The test fails on any failed, timed-out, or unexecuted test; pipefail
+        # propagates that exit code through tparse so the job goes red.
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: |
+          set -o pipefail
+          go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
