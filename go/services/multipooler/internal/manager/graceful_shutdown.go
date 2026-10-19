@@ -59,7 +59,11 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	// checkpoint if the failover process doesn't go smoothly and rewinds are
 	// needed.
 
-	lockCtx, err := pm.actionLock.Acquire(ctx, "GracefulShutdown")
+	// Urgent: this runs on SIGTERM bounded by --onterm-timeout, so it should
+	// preempt whatever currently holds the action lock (and take priority
+	// over queued ordinary work) rather than wait behind it — see
+	// actionlock.UrgentAcquire.
+	lockCtx, err := pm.actionLock.UrgentAcquire(ctx, "GracefulShutdown")
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to acquire action lock for graceful shutdown",
 			"error", err)
