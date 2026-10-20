@@ -35,7 +35,7 @@ import (
 // and writes the confirmed fields into p's cache via applyStatusResponse, the
 // same field-writing logic a streamed snapshot uses, so the two can't drift on
 // which fields a fresh observation updates. Callers re-derive whatever
-// shard-wide view they need (a fresh ShardAnalysis) after this returns.
+// shard-wide view they need (a fresh shard snapshot) after this returns.
 //
 // Returns an error, leaving the cache untouched, if the pooler is unreachable
 // or the RPC came back with no Status payload.

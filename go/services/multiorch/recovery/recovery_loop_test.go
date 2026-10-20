@@ -50,8 +50,8 @@ import (
 )
 
 // tSelfIsLeader / tWalReplayNotPaused mirror the analysis-package derivations
-// for the mock analyzers in this package's tests, which operate on riders
-// rather than the removed PoolerAnalysis digest. tSelfIsLeader reports whether
+// for the mock analyzers in this package's tests, which operate on pooler
+// health snapshots. tSelfIsLeader reports whether
 // the pooler's own consensus status names itself the leader.
 func tSelfIsLeader(p *multiorchdatapb.PoolerHealthState) bool {
 	return commonconsensus.SelfConsensusRole(p.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader

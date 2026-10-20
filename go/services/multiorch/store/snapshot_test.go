@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -106,4 +108,17 @@ func TestHealthOf(t *testing.T) {
 	got := healthOf(NewPooler(health, nil))
 	require.NotNil(t, got)
 	assert.Equal(t, "a", got.GetMultipooler().GetId().GetName())
+}
+
+func TestSnapshotShards_CarriesTombstones(t *testing.T) {
+	cache := NewTestCache(t)
+	key := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	seedPooler(t, cache, "live", key)
+	gone := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "gone"}
+	poolerwatch.SeedTombstoneForTest(t, cache, gone, time.Now())
+
+	shard, err := SnapshotShard(cache, key, SnapshotOptions{Now: time.Now()})
+	require.NoError(t, err)
+	assert.Equal(t, map[topoclient.ComponentID]struct{}{topoclient.ComponentIDString(gone): {}}, shard.TombstoneIDs)
+	assert.Len(t, shard.Poolers, 1, "a tombstoned pooler is not in the live set")
 }

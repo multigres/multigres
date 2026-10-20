@@ -32,8 +32,7 @@ import (
 // selfLeaderRider builds a rider naming id as leader at the given coordinator
 // term (so namesSelfAsLeader is true and LeaderTerm returns term). LastSeen is
 // always fresh — streamConnected exercises the connectivity flag specifically,
-// independent of observation freshness. Replaces the old PoolerAnalysis
-// literals in this test.
+// independent of observation freshness.
 func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.ShardKey, term int64, streamConnected bool) *multiorchdatapb.PoolerHealthState {
 	return &multiorchdatapb.PoolerHealthState{
 		Multipooler:     &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
@@ -44,7 +43,7 @@ func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.Shard
 }
 
 // primaryRuleStatus builds a ConsensusStatus that names id as the primary
-// with the given coordinator term — shorthand for wiring PoolerAnalysis so
+// with the given coordinator term — shorthand so
 // commonconsensus.LeaderTerm returns term.
 func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{

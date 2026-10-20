@@ -25,8 +25,8 @@ import (
 )
 
 // The helpers below derive analyzer-relevant judgments from a pooler's raw
-// health (Health()). They replaced the digested PoolerAnalysis fields so the
-// snapshot stays the single source of truth and there is no parallel cached copy.
+// health (Health()). They derive judgments on demand so the snapshot stays
+// the single source of truth and there is no parallel cached copy.
 
 // leaderEndpoint returns the leader's postgres host and port; host is "" when
 // there is no leader snapshot or it hasn't reported a hostname.

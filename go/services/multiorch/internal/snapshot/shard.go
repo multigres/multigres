@@ -28,8 +28,9 @@ import (
 )
 
 // Shard is a frozen view of one shard: every pooler's health as of a single
-// capture, plus the inputs a judgment about the shard needs. Nothing in it
-// changes after capture, so everything derived from it agrees.
+// capture, plus the inputs a judgment about the shard needs. Health snapshots
+// are shared with the cache, which only replaces them and never edits one in
+// place, so consumers must treat everything here as read-only.
 type Shard struct {
 	ShardKey *clustermetadatapb.ShardKey
 	// Poolers holds the health snapshot of every pooler in the shard, captured

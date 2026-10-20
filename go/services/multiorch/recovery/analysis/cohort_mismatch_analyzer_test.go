@@ -368,7 +368,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores leader as addition candidate", func(t *testing.T) {
-		// A leader's PoolerAnalysis happens to satisfy every other condition
+		// A leader's health happens to satisfy every other condition
 		// (initialized, replicating-ish), but it must never be added to the
 		// cohort as a "missing replica".
 		leaderShard := healthyShard(nil)
