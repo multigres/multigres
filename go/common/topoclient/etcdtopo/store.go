@@ -61,6 +61,7 @@ var (
 
 var (
 	_ topoclient.Conn           = (*etcdtopo)(nil)
+	_ topoclient.ConnRecovery   = (*etcdtopo)(nil)
 	_ topoclient.FactoryWithTLS = Factory{}
 )
 
@@ -112,6 +113,9 @@ type etcdtopo struct {
 
 	// eph tracks lease-backed ephemeral files; see ephemeral.go.
 	eph ephemeralState
+
+	// recovery backs Recoveries; see recovery.go.
+	recovery recoveryState
 }
 
 func init() {
