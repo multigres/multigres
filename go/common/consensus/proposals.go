@@ -65,28 +65,29 @@ type RecruitmentResult struct {
 	// leader from this set.
 	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 
-	// revoked is the proof EligibleLeaders rest on. validateProposal reads the
-	// revocation basis from it.
-	revoked revokedOutgoingRule
+	// outgoing is the typed outgoing rule that OutgoingRule exposes to builders:
+	// revoked, and finalizable by the recruits. EligibleLeaders rest on it, and
+	// validateProposal reads the revocation basis from it.
+	outgoing finalizableOutgoingRule
 }
 
-// newRecruitmentResult derives the eligible leaders from a revoked outgoing
-// rule. Production code builds a RecruitmentResult only with it, so its
-// recruits are backed by that proof.
+// newRecruitmentResult derives the eligible leaders from an outgoing rule that is
+// revoked and finalizable. Production code builds a RecruitmentResult only with
+// it, so its recruits are backed by that proof.
 func newRecruitmentResult(
 	revocation *clustermetadatapb.TermRevocation,
-	revoked revokedOutgoingRule,
+	outgoing finalizableOutgoingRule,
 ) (RecruitmentResult, error) {
-	eligible, err := revoked.eligibleLeaders()
+	eligible, err := outgoing.eligibleLeaders()
 	if err != nil {
 		return RecruitmentResult{}, err
 	}
 	return RecruitmentResult{
 		TermRevocation:      revocation,
-		OutgoingRule:        revoked.rule,
-		OutgoingRuleDecided: revoked.decided,
+		OutgoingRule:        outgoing.rule,
+		OutgoingRuleDecided: outgoing.decided,
 		EligibleLeaders:     eligible,
-		revoked:             revoked,
+		outgoing:            outgoing,
 	}, nil
 }
 
@@ -149,10 +150,11 @@ func newCertBasis(cert *clustermetadatapb.ExternallyCertifiedRevocation) (revoca
 // The highest recorded rule may itself be an undecided proposal (a cohort or
 // leader change interrupted mid-write) rather than a decision — see
 // RecruitmentResult.OutgoingRuleDecided. buildProposalCore trusts it as the
-// outgoing baseline either way, but also requires sufficient recruitment
-// against the decision's cohort: a competing coordinator that has not yet seen
-// the proposal recruits that cohort, so ours must overlap it (see
-// observedOutgoingRule.revokeByRecruitment).
+// outgoing baseline either way. Safety is judged against the decision's cohort,
+// the one every competing coordinator recruits (see
+// observedOutgoingRule.revokeByRecruitment). An undecided proposal must also be
+// finalizable by the recruits (see revokedOutgoingRule.checkRecruitsCanFinalizeProposal), and
+// the new proposal may then change only its leader (see validateProposal).
 func BuildSafeProposal(
 	revocation *clustermetadatapb.TermRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
@@ -324,7 +326,11 @@ func buildProposalCore(
 	if err != nil {
 		return nil, err
 	}
-	result, err := newRecruitmentResult(revocation, revoked)
+	finalizable, err := revoked.checkRecruitsCanFinalizeProposal(recruitedStatuses)
+	if err != nil {
+		return nil, err
+	}
+	result, err := newRecruitmentResult(revocation, finalizable)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +453,7 @@ func validateProposal(
 
 	// skip_outgoing_quorum may only be set by the externally-certified path:
 	// regular safe proposals always have a known outgoing cohort to drain.
-	cert := result.revoked.basis.cert
+	cert := result.outgoing.basis.cert
 	if proposal.GetSkipOutgoingQuorum() && cert == nil {
 		return errors.New("skip_outgoing_quorum is only valid for externally-certified proposals")
 	}
@@ -515,6 +521,19 @@ func validateProposal(
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
 	}
 
+	if !result.OutgoingRuleDecided && cert == nil {
+		// Promote decides the stuck proposal first, so a proposal built on it
+		// changes only the leader. Any cohort or policy change waits for a
+		// decided rule.
+		if !sameCohort(proposedRule.GetCohortMembers(), result.OutgoingRule.GetCohortMembers()) ||
+			!proto.Equal(proposedRule.GetDurabilityPolicy(), result.OutgoingRule.GetDurabilityPolicy()) {
+			return errors.New("proposed rule must keep the undecided outgoing rule's cohort and durability policy, changing only the leader")
+		}
+	}
+
+	// Promote's second write, the new rule, needs the recruits to satisfy the
+	// proposed policy. The first write, deciding an undecided outgoing proposal,
+	// was checked before the builder ran (see checkRecruitsCanFinalizeProposal).
 	if err := p.SatisfiedBy(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}

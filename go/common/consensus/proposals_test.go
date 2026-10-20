@@ -344,7 +344,7 @@ func TestBuildProposalCore(t *testing.T) {
 					makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
 				},
 				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), proposalCohort...)),
-				wantErr:       "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+				wantErr:       "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
 			}
 		}(),
 		func() tc {
@@ -805,7 +805,7 @@ func TestBuildProposalCore(t *testing.T) {
 					makeStatus(zone1.c, unknownRule, revocation(5, ruleNum(3, 0))),
 				},
 				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
-				wantErr:       "failed to parse durability policy from rule: unsupported quorum type: QUORUM_TYPE_UNKNOWN",
+				wantErr:       "failed to parse durability policy from decision: unsupported quorum type: QUORUM_TYPE_UNKNOWN",
 			}
 		}(),
 		func() tc {
@@ -1745,11 +1745,10 @@ func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t 
 	//
 	//   Coordinator 2 sees D and E (both with an undecided proposal beyond
 	//   their decision): the undecided proposal is trusted as outgoingRule
-	//   without a separate verification step (see buildProposalCore) — but
-	//   only once BOTH the decision's cohort AND the proposal's cohort have
-	//   sufficient recruitment, since finalizing it needs a synchronous ack
-	//   under their combined "Both" policy. Coordinator 2 recruited none of
-	//   the decision's cohort [A,B,C] (it only sees D and E), so it fails
+	//   without a separate verification step (see buildProposalCore), but
+	//   recruitment is judged against the DECISION's cohort, the one every
+	//   competing coordinator recruits. Coordinator 2 recruited none of the
+	//   decision's cohort [A,B,C] (it only sees D and E), so it fails
 	//   there — before validateProposal's cohort-change check (which would
 	//   also refuse coordinator 2's [D,E,F] -> [D,E] cohort change while the
 	//   base being superseded is undecided) is ever reached. No second
@@ -1815,8 +1814,125 @@ func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t 
 
 	require.NoError(t, err1)
 	assert.NotNil(t, proposal1)
-	require.ErrorContains(t, err2, "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
+	require.ErrorContains(t, err2, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	assert.Nil(t, proposal2)
+}
+
+// TestRecruitmentThroughUndecidedProposal pins how a coordinator-led failover
+// through an undecided outgoing proposal is judged, through the public API and
+// with a builder that, like the failover builder, keeps the outgoing rule's
+// cohort and policy.
+func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	id := func(ids ...*clustermetadatapb.ID) []*clustermetadatapb.ID { return ids }
+
+	keepOutgoing := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), r.OutgoingRule.GetCohortMembers()...))(r)
+	}
+	changeCohort := func(cohort ...*clustermetadatapb.ID) func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), cohort...))(r)
+		}
+	}
+	const cannotFinalize = "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3"
+
+	tests := []struct {
+		name     string
+		decision *clustermetadatapb.ShardRule
+		proposal *clustermetadatapb.ShardRule
+		recruits []*clustermetadatapb.ID
+		build    func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error)
+		wantErr  string // empty means a proposal is built
+	}{
+		{
+			// Safety rests on the decision's cohort, so a majority of it suffices
+			// even though the proposal's five-member cohort is mostly unrecruited.
+			name:     "a majority of the decision's cohort suffices when the proposal adds members",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b),
+			build:    keepOutgoing,
+		},
+		{
+			// While the proposal is undecided a write needs the decision's cohort
+			// too, so the unrecruited new members d and e cannot commit on their own.
+			name:     "the proposal's unrecruited new members do not block recruitment",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b, zone1.c),
+			build:    keepOutgoing,
+		},
+		{
+			// Deciding the proposal needs 3 acks under the "Both" policy (the
+			// larger N), but only 2 members are recruited.
+			name:     "a proposal that lowers N is decided under the stricter Both policy",
+			decision: makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c),
+			recruits: id(zone1.a, zone1.b),
+			build:    keepOutgoing,
+			wantErr:  cannotFinalize,
+		},
+		{
+			// The recruited new member d is in the proposal's cohort, but deciding
+			// the proposal needs 3 acks from the decision's cohort {a, b, c}, and c
+			// is not recruited.
+			name:     "a recruited new member cannot stand in for an unrecruited decision member",
+			decision: makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(3), zone1.a, zone1.b, zone1.c, zone1.d),
+			recruits: id(zone1.a, zone1.b, zone1.d),
+			build:    keepOutgoing,
+			wantErr:  cannotFinalize,
+		},
+		{
+			// The pooler cannot compute a "Both" policy for a cohort replacement,
+			// so the proposal could never be decided.
+			name:     "a proposal that replaces the cohort cannot be finalized",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b, zone1.c, zone1.d),
+			build:    keepOutgoing,
+			wantErr:  "outgoing proposal cannot be finalized: unsupported leader-led rule change: neither cohort is a subset of the other",
+		},
+		{
+			// Cohort and policy changes wait for a decided rule, so a proposal
+			// through an undecided one changes only the leader.
+			name:     "a proposal through an undecided rule keeps its cohort and policy",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c),
+			recruits: id(zone1.a, zone1.b, zone1.c),
+			build:    changeCohort(zone1.a, zone1.b),
+			wantErr:  "proposal validation: proposed rule must keep the undecided outgoing rule's cohort and durability policy, changing only the leader",
+		},
+		{
+			// Recruitment is judged on the decision's cohort, and none of it is
+			// recruited.
+			name:     "recruiting only the proposal's new members is not enough",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.d, zone1.e),
+			build:    keepOutgoing,
+			wantErr:  "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			position := &clustermetadatapb.RulePosition{Decision: tt.decision, Proposal: tt.proposal}
+			var statuses []*clustermetadatapb.ConsensusStatus
+			for _, r := range tt.recruits {
+				statuses = append(statuses, makeStatusWithProposal(r, position, rev, "0/1000000"))
+			}
+
+			proposal, err := BuildSafeProposal(rev, statuses, tt.build)
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.NotNil(t, proposal)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestSameCohort(t *testing.T) {

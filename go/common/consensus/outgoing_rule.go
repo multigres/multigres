@@ -103,42 +103,78 @@ func (o observedOutgoingRule) revoke(recruited []*clustermetadatapb.ConsensusSta
 	return revokedOutgoingRule{o}, nil
 }
 
-// revokeByRecruitment requires the outgoing rule's cohort to be sufficiently
-// recruited (see CheckSufficientRecruitment): its leftovers cannot commit under
-// the rule, so no durable write is invisible to the recruits, and a majority is
-// recruited, so a competing coordinator recruiting the same cohort must overlap
-// this one.
+// revokeByRecruitment requires the outgoing decision's cohort to be sufficiently
+// recruited (see CheckSufficientRecruitment). This is what makes the proposal
+// safe.
 //
-// When the outgoing rule is an undecided proposal, the decision's cohort gets
-// the same check: a competitor that has not yet seen the proposal finds the
-// decision and recruits that cohort instead.
+// That is the cohort every competing coordinator recruits for this term,
+// whichever rule it believes is outgoing, so a recruited majority forces
+// overlap with all of them. Its leftovers also cannot commit, so no write that
+// is durable under the outgoing rule is invisible to the recruits: while a
+// proposal is undecided, a write needs the "Both" policy of the decision and the
+// proposal, and the cohort of that policy lies within the decision's.
 func (o observedOutgoingRule) revokeByRecruitment(recruited []*clustermetadatapb.ConsensusStatus) error {
-	if err := checkCohortSufficientlyRecruited(o.rule, "rule", "outgoing cohort", recruited); err != nil {
-		return err
-	}
-	if o.decided {
-		return nil
-	}
-	return checkCohortSufficientlyRecruited(o.position.GetDecision(), "decision", "outgoing decision cohort", recruited)
-}
-
-// checkCohortSufficientlyRecruited requires rule's cohort to be sufficiently
-// recruited under rule's own durability policy. source and cohortLabel name the
-// rule and its cohort in errors.
-func checkCohortSufficientlyRecruited(
-	rule *clustermetadatapb.ShardRule,
-	source, cohortLabel string,
-	recruited []*clustermetadatapb.ConsensusStatus,
-) error {
-	policy, err := NewPolicyFromProto(rule.GetDurabilityPolicy())
+	decision := o.position.GetDecision()
+	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
-		return fmt.Errorf("failed to parse durability policy from %s: %w", source, err)
+		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	cohort := rule.GetCohortMembers()
+	cohort := decision.GetCohortMembers()
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruited))); err != nil {
-		return fmt.Errorf("insufficient %s recruitment: %w", cohortLabel, err)
+		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
 	return nil
+}
+
+// finalizableOutgoingRule is a revokedOutgoingRule that the recruits can also
+// finish: Promote can decide it, if it is an undecided proposal. It can only be
+// built by checkRecruitsCanFinalizeProposal, and a RecruitmentResult can only be
+// built from one, so no proposal is built on a stuck proposal that could never be
+// decided.
+type finalizableOutgoingRule struct {
+	revokedOutgoingRule
+}
+
+// checkRecruitsCanFinalizeProposal predicts that Promote can finish a
+// coordinator-led change through an undecided outgoing rule. This is about
+// liveness, not safety.
+//
+// Promote writes twice. It first decides the stuck proposal, under the "Both"
+// policy of the decision and the proposal: the recruited members of that
+// policy's cohort must be able to satisfy it, or the proposal could never be
+// decided. This check covers that write, which depends only on the outgoing rule
+// and the recruits. Promote then writes the new rule, which depends on the
+// proposal built next, so validateProposal checks that write. A transition the
+// pooler cannot compute a "Both" policy for could never be decided either, so it
+// is rejected here with a clear error. A malformed proposal fails closed.
+//
+// Nothing is required for a decided outgoing rule, or when a cert revokes the
+// rule: the pooler then decides the proposal under the incoming policy instead.
+func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal(recruited []*clustermetadatapb.ConsensusStatus) (finalizableOutgoingRule, error) {
+	if r.decided || r.basis.cert != nil {
+		return finalizableOutgoingRule{r}, nil
+	}
+	decision := r.position.GetDecision()
+	decisionPolicy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
+	if err != nil {
+		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from decision: %w", err)
+	}
+	proposalPolicy, err := NewPolicyFromProto(r.rule.GetDurabilityPolicy())
+	if err != nil {
+		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	transition, err := BuildPolicyTransition(
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: r.rule.GetCohortMembers()},
+	)
+	if err != nil {
+		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
+	}
+	reachable := statusesToIDs(filterCohortStatuses(transition.Both.Cohort, recruited))
+	if err := transition.Both.Policy.SatisfiedBy(reachable); err != nil {
+		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
+	}
+	return finalizableOutgoingRule{r}, nil
 }
 
 // eligibleLeaders returns the recruits that can lead: those recording the
