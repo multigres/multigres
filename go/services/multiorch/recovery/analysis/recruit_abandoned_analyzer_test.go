@@ -161,7 +161,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores when no serving leader is known", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
-		removePooler(sa, poolerID(sa.IntendedLeader()).GetName())
+		removePooler(sa, poolerID(sa.IntendedLeaderHealth()).GetName())
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)

@@ -50,15 +50,15 @@ func TestShard_NoRuleMeansNoLeader(t *testing.T) {
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{pooler("leader"), pooler("follower")}}
 	assert.Nil(t, s.HighestIntendedRule())
 	assert.Nil(t, s.IntendedLeaderID())
-	assert.Nil(t, s.IntendedLeader())
+	assert.Nil(t, s.IntendedLeaderHealth())
 }
 
 func TestShard_PoolerLooksUpByID(t *testing.T) {
 	follower := pooler("follower")
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{pooler("leader"), follower}}
-	assert.Same(t, follower, s.Pooler(podID("follower")))
-	assert.Nil(t, s.Pooler(podID("absent")))
-	assert.Nil(t, s.Pooler(nil))
+	assert.Same(t, follower, s.PoolerHealth(podID("follower")))
+	assert.Nil(t, s.PoolerHealth(podID("absent")))
+	assert.Nil(t, s.PoolerHealth(nil))
 }
 
 func TestShard_IntendedLeaderIsThePoolerTheRuleNames(t *testing.T) {
@@ -66,14 +66,14 @@ func TestShard_IntendedLeaderIsThePoolerTheRuleNames(t *testing.T) {
 	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNumber(1), LeaderId: podID("leader")}}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{withPosition(pooler("follower"), rule), leader}}
 	assert.Equal(t, "leader", s.IntendedLeaderID().GetName())
-	assert.Same(t, leader, s.IntendedLeader())
+	assert.Same(t, leader, s.IntendedLeaderHealth())
 }
 
 func TestShard_IntendedLeaderWithoutHealthIsNil(t *testing.T) {
 	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNumber(1), LeaderId: podID("absent")}}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{withPosition(pooler("follower"), rule)}}
 	require.NotNil(t, s.IntendedLeaderID())
-	assert.Nil(t, s.IntendedLeader())
+	assert.Nil(t, s.IntendedLeaderHealth())
 }
 
 func TestShard_OutstandingProposalNamesTheIntendedLeader(t *testing.T) {
@@ -84,7 +84,7 @@ func TestShard_OutstandingProposalNamesTheIntendedLeader(t *testing.T) {
 	}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{leader, withPosition(follower, rule)}}
 	assert.False(t, commonconsensus.IsRuleDecided(s.HighestIntendedRule()))
-	assert.Same(t, leader, s.IntendedLeader())
+	assert.Same(t, leader, s.IntendedLeaderHealth())
 }
 
 func TestShard_AdvertisedRuleCountsAsIntended(t *testing.T) {

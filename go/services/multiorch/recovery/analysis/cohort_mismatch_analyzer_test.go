@@ -82,7 +82,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	// leaderRider builds a fresh, currently-serving leader: recent snapshot,
 	// postgres ready, names itself leader. intendedLeaderServing(sa) reads this rider, so
-	// subtests that want an unusable leader mutate sa.IntendedLeader() (see below).
+	// subtests that want an unusable leader mutate sa.IntendedLeaderHealth() (see below).
 	leaderRider := func() *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
 			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
@@ -317,7 +317,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when leader is unreachable", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.LastSeen = nil
 		} // stale observation → not serving
 		problems, err := analyzer.Analyze(sa)
@@ -328,7 +328,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when leader postgres is not ready", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.Status.PostgresReady = false
 		}
 		problems, err := analyzer.Analyze(sa)
@@ -375,7 +375,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// Inject the leader as a non-cohort-member by mutating its state to
 		// look like an addition candidate apart from naming itself leader.
 		{
-			h := leaderShard.IntendedLeader()
+			h := leaderShard.IntendedLeaderHealth()
 			h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
 			}

@@ -137,17 +137,17 @@ func followerStreamingFromLeader(sa *snapshot.Shard, replica *multiorchdatapb.Po
 // stream interruption does not read as a dead leader while a genuinely stalled
 // stream does.
 func intendedLeaderObservedLive(sa *snapshot.Shard) bool {
-	if sa.IntendedLeader() == nil {
+	if sa.IntendedLeaderHealth() == nil {
 		return false
 	}
-	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderLivenessFreshness)
+	return observationFresh(sa.IntendedLeaderHealth(), sa.Now, sa.AvailabilityPolicy.LeaderLivenessFreshness)
 }
 
 // intendedLeaderHasResigned reports whether the leader has voluntarily signalled it
 // should be replaced — cohort-eligibility INELIGIBLE or a term-matched
 // REQUESTING_DEMOTION — read from its self-reported AvailabilityStatus.
 func intendedLeaderHasResigned(sa *snapshot.Shard) bool {
-	return sa.IntendedLeader() != nil && types.LeaderNeedsReplacement(sa.IntendedLeader())
+	return sa.IntendedLeaderHealth() != nil && types.LeaderNeedsReplacement(sa.IntendedLeaderHealth())
 }
 
 // intendedLeaderShutdownTombstoned reports whether the shard's leader has been observed in
@@ -155,7 +155,7 @@ func intendedLeaderHasResigned(sa *snapshot.Shard) bool {
 // shutdown (after the drain), so acting on it does not preempt the drain — and it is
 // durable, so it still fires when the ephemeral REQUESTING_DEMOTION health broadcast is
 // lost. A SHUTDOWN pooler is tombstoned and evicted from the live cache (absent from
-// sa.IntendedLeader()), so we match it by ID against the cache's tombstone set; the leaderID still
+// sa.IntendedLeaderHealth()), so we match it by ID against the cache's tombstone set; the leaderID still
 // comes from the shard rule, so we can act with no cached leader. STOPPING is
 // deliberately NOT consulted: it is observability-only and precedes the drain.
 func intendedLeaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetadatapb.ID) bool {
@@ -168,7 +168,7 @@ func intendedLeaderShutdownTombstoned(sa *snapshot.Shard, leaderID *clustermetad
 
 // intendedLeaderPostgresReady reports the leader's last-snapshot pg_isready result.
 func intendedLeaderPostgresReady(sa *snapshot.Shard) bool {
-	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresReady()
+	return sa.IntendedLeaderHealth() != nil && sa.IntendedLeaderHealth().GetStatus().GetPostgresReady()
 }
 
 // intendedLeaderServing reports whether the leader is a healthy, currently-serving
@@ -178,10 +178,10 @@ func intendedLeaderPostgresReady(sa *snapshot.Shard) bool {
 // gate — not latency-sensitive, so requiring freshness merely defers a
 // non-urgent change when our view of the leader is stale.
 func intendedLeaderServing(sa *snapshot.Shard) bool {
-	if sa.IntendedLeader() == nil {
+	if sa.IntendedLeaderHealth() == nil {
 		return false
 	}
-	return observationFresh(sa.IntendedLeader(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) &&
+	return observationFresh(sa.IntendedLeaderHealth(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) &&
 		intendedLeaderPostgresReady(sa) &&
 		!intendedLeaderHasResigned(sa)
 }
@@ -189,16 +189,16 @@ func intendedLeaderServing(sa *snapshot.Shard) bool {
 // intendedLeaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
 func intendedLeaderPostgresRunning(sa *snapshot.Shard) bool {
-	return sa.IntendedLeader() != nil && sa.IntendedLeader().GetStatus().GetPostgresRunning()
+	return sa.IntendedLeaderHealth() != nil && sa.IntendedLeaderHealth().GetStatus().GetPostgresRunning()
 }
 
 // intendedLeaderLastPostgresReadyTime returns when the leader's postgres last reported
 // ready per its snapshots, or the zero time if never observed ready.
 func intendedLeaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
-	if sa.IntendedLeader() == nil {
+	if sa.IntendedLeaderHealth() == nil {
 		return time.Time{}
 	}
-	if ts := sa.IntendedLeader().GetLastPostgresReadyTime(); ts != nil {
+	if ts := sa.IntendedLeaderHealth().GetLastPostgresReadyTime(); ts != nil {
 		return ts.AsTime()
 	}
 	return time.Time{}
@@ -207,8 +207,8 @@ func intendedLeaderLastPostgresReadyTime(sa *snapshot.Shard) time.Time {
 // intendedLeaderPromoting reports whether the leader's last snapshot shows pg_promote()
 // in progress (postgres in the PROMOTING state).
 func intendedLeaderPromoting(sa *snapshot.Shard) bool {
-	return sa.IntendedLeader() != nil &&
-		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+	return sa.IntendedLeaderHealth() != nil &&
+		sa.IntendedLeaderHealth().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
 
 // intendedLeaderInRecovery reports whether the leader's last snapshot shows its postgres
@@ -226,8 +226,8 @@ func intendedLeaderPromoting(sa *snapshot.Shard) bool {
 // "in recovery" here would instead fail over every primary restart. PROMOTING is
 // handled upstream by inPromotionGrace.
 func intendedLeaderInRecovery(sa *snapshot.Shard) bool {
-	return sa.IntendedLeader() != nil &&
-		sa.IntendedLeader().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
+	return sa.IntendedLeaderHealth() != nil &&
+		sa.IntendedLeaderHealth().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 }
 
 // inPromotionGrace reports whether failover should be briefly suppressed because
@@ -582,8 +582,8 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *snapshot.S
 // TODO: verify a report's heartbeat leader_id matches leaderID (fencing-gap misattribution risk).
 func freshestQuorumCommitTs(sa *snapshot.Shard) *timestamppb.Timestamp {
 	var freshest *timestamppb.Timestamp
-	if sa.IntendedLeader() != nil {
-		if ts := sa.IntendedLeader().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
+	if sa.IntendedLeaderHealth() != nil {
+		if ts := sa.IntendedLeaderHealth().GetStatus().GetPrimaryStatus().GetQuorumCommitTs(); ts != nil {
 			freshest = ts
 		}
 	}
@@ -612,7 +612,7 @@ func freshestQuorumCommitTs(sa *snapshot.Shard) *timestamppb.Timestamp {
 // advance from an unrelated primary can't stand in as evidence of this
 // leader's health.
 func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy) bool {
-	leader := sa.IntendedLeader()
+	leader := sa.IntendedLeaderHealth()
 	if leader == nil {
 		return false
 	}
@@ -624,7 +624,7 @@ func (a *LeaderNeedsReplacementAnalyzer) receiveLsnStillAdvancing(sa *snapshot.S
 		if topoclient.ComponentIDString(member) == leaderKey {
 			continue
 		}
-		pa := sa.Pooler(member)
+		pa := sa.PoolerHealth(member)
 		if pa == nil || !replicaConfiguredForLeader(pa, primaryHost, primaryPort) {
 			continue
 		}
@@ -670,7 +670,7 @@ func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *snapshot.Sha
 // any follower streams from it (you cannot stream from a dead primary), so it counts
 // toward the vouching quorum but never toward the cut-off set.
 func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) (vouching, cutOff []*clustermetadatapb.ID) {
-	leader := sa.IntendedLeader()
+	leader := sa.IntendedLeaderHealth()
 	if leader == nil {
 		// No leader identity to check followers against — no evidence either way.
 		return nil, nil
@@ -685,7 +685,7 @@ func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *snapshot
 			// evidence confirm (vouch) or revoke that. It vouches for itself below.
 			continue
 		}
-		pa := sa.Pooler(member)
+		pa := sa.PoolerHealth(member)
 		if pa == nil {
 			continue
 		}
@@ -728,7 +728,7 @@ func cohortSatisfying(sa *snapshot.Shard, cohort []*clustermetadatapb.ID, exclud
 		if exclude != nil && topoclient.ComponentIDString(m) == excludeKey {
 			continue
 		}
-		pa := sa.Pooler(m)
+		pa := sa.PoolerHealth(m)
 		if pa == nil {
 			continue
 		}

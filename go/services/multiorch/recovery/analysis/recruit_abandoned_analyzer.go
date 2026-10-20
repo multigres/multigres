@@ -94,14 +94,14 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *snapshot.Shard, pa *multior
 
 	// We need a known leader with an address to dial: the fix drives an
 	// UpdateConsensusRule on the leader and then a SetPrimary toward the follower.
-	if host, _ := leaderEndpoint(sa.IntendedLeader()); host == "" {
+	if host, _ := leaderEndpoint(sa.IntendedLeaderHealth()); host == "" {
 		return nil, nil
 	}
 
 	// Only proceed if it looks safe to attempt a write on the leader right now —
 	// otherwise we can't distinguish an abandoned recruit from a live election
 	// still in flight (see snapshot.LeaderWritesProgressing).
-	if !snapshot.LeaderWritesProgressing(sa.IntendedLeader(), sa.HighestIntendedRule(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) {
+	if !snapshot.LeaderWritesProgressing(sa.IntendedLeaderHealth(), sa.HighestIntendedRule(), sa.Now, sa.AvailabilityPolicy.LeaderChangeFreshness) {
 		return nil, nil
 	}
 

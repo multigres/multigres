@@ -95,3 +95,15 @@ func TestSnapshotShards_CarriesTheOptions(t *testing.T) {
 	assert.Equal(t, time.Minute, shards[0].AvailabilityPolicy.ObservationFreshness)
 	assert.Same(t, policy, shards[0].BootstrapDurabilityPolicy)
 }
+
+func TestHealthOf(t *testing.T) {
+	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "a"}
+
+	assert.Nil(t, healthOf(nil), "no rider")
+	assert.Nil(t, healthOf(NewPooler(&multiorchdatapb.PoolerHealthState{}, nil)), "rider with no identified pooler")
+
+	health := &multiorchdatapb.PoolerHealthState{Multipooler: &clustermetadatapb.Multipooler{Id: id}}
+	got := healthOf(NewPooler(health, nil))
+	require.NotNil(t, got)
+	assert.Equal(t, "a", got.GetMultipooler().GetId().GetName())
+}

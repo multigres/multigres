@@ -42,11 +42,11 @@ import (
 // the leader (and at least one such follower exists). It preserves the
 // per-follower streaming coverage these tests exercise.
 func allFollowersStreaming(sa *snapshot.Shard) bool {
-	if sa.IntendedLeader() == nil {
+	if sa.IntendedLeaderHealth() == nil {
 		return false
 	}
-	primaryHost := sa.IntendedLeader().GetMultipooler().GetHostname()
-	primaryPort := sa.IntendedLeader().GetMultipooler().GetPortMap()["postgres"]
+	primaryHost := sa.IntendedLeaderHealth().GetMultipooler().GetHostname()
+	primaryPort := sa.IntendedLeaderHealth().GetMultipooler().GetPortMap()["postgres"]
 	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
 	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
 	replicaCount, connectedCount := 0, 0

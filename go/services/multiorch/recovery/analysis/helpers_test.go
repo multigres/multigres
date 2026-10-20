@@ -25,16 +25,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// flattenPoolers collects the pooler snapshots across all shards.
-// Used in tests to assert on individual poolers without caring about shard grouping.
-func flattenPoolers(shards []*snapshot.Shard) []*multiorchdatapb.PoolerHealthState {
-	var analyses []*multiorchdatapb.PoolerHealthState
-	for _, sa := range shards {
-		analyses = append(analyses, sa.Poolers...)
-	}
-	return analyses
-}
-
 // findPoolerByName returns the rider with the given name from a shard snapshot,
 // or nil if not found.
 func findPoolerByName(sa *snapshot.Shard, name string) *multiorchdatapb.PoolerHealthState {
@@ -132,7 +122,7 @@ func replacePooler(sa *snapshot.Shard, id *clustermetadatapb.ID, state *multiorc
 // setFollowers replaces the shard's follower snapshots, keeping the published
 // rule and the leader.
 func setFollowers(sa *snapshot.Shard, followers ...*multiorchdatapb.PoolerHealthState) {
-	leader := sa.IntendedLeader()
+	leader := sa.IntendedLeaderHealth()
 	var next []*multiorchdatapb.PoolerHealthState
 	for _, p := range sa.Poolers {
 		if poolerID(p).GetName() == ruleCarrierName {
@@ -160,10 +150,23 @@ func (c *testCapture) opts() store.SnapshotOptions {
 	return store.SnapshotOptions{Now: c.now, AvailabilityPolicy: DefaultAvailabilityPolicy()}
 }
 
-func (c *testCapture) all() []*snapshot.Shard {
-	return store.SnapshotShards(c.cache, c.opts())
-}
-
 func (c *testCapture) shard(key *clustermetadatapb.ShardKey) (*snapshot.Shard, error) {
 	return store.SnapshotShard(c.cache, key, c.opts())
+}
+
+// primaryConsensusStatus builds a ConsensusStatus that names id as the leader
+// in its current rule with the given coordinator term. This is the minimal
+// fixture required for SelfConsensusRole to report ConsensusRoleLeader for a given pooler.
+func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+					LeaderId:   id,
+				},
+			},
+		},
+	}
 }

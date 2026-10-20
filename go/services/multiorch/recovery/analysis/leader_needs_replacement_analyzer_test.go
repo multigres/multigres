@@ -136,7 +136,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// is also marked initialized so it can participate in a recruitment quorum.
 	setLeaderLive := func(sa *snapshot.Shard, live bool) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			if live {
 				h.LastSeen = timestamppb.New(sa.Now)
 				h.Status.IsInitialized = true
@@ -191,25 +191,25 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// verdict fields (now derived inside LeaderNeedsReplacementAnalyzer).
 	setLeaderPGRunning := func(sa *snapshot.Shard, running bool) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.Status.PostgresRunning = running
 		}
 	}
 	setLeaderPGReady := func(sa *snapshot.Shard, ready bool) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.Status.PostgresReady = ready
 		}
 	}
 	setLeaderLastReady := func(sa *snapshot.Shard, at time.Time) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.LastPostgresReadyTime = timestamppb.New(at)
 		}
 	}
 	setLeaderPromoting := func(sa *snapshot.Shard) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 		}
 	}
@@ -219,7 +219,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// postgres never left recovery and cannot accept writes.
 	setLeaderPGStandby := func(sa *snapshot.Shard) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
 		}
 	}
@@ -229,7 +229,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// treats as a resignation.
 	setLeaderResigned := func(sa *snapshot.Shard) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
@@ -290,7 +290,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// (the first-hand signal, vs. setQuorumCommitTs's cohort-observed one).
 	setLeaderQuorumCommitTs := func(sa *snapshot.Shard, at time.Time) {
 		{
-			h := sa.IntendedLeader()
+			h := sa.IntendedLeaderHealth()
 			if h.Status.PrimaryStatus == nil {
 				h.Status.PrimaryStatus = &multipoolermanagerdatapb.PrimaryStatus{}
 			}
@@ -1037,7 +1037,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("shutdown tombstone drives failover when the leader is gone from cache", func(t *testing.T) {
-		// The leader has fully shut down: evicted from the live cache (sa.IntendedLeader() nil)
+		// The leader has fully shut down: evicted from the live cache (sa.IntendedLeaderHealth() nil)
 		// but recorded as a SHUTDOWN tombstone. With the ephemeral resignation broadcast
 		// lost, the durable tombstone still drives the failover — leaderID comes from the
 		// shard rule, so we act with no cached leader.

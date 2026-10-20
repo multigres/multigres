@@ -79,7 +79,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *snapshot.Shard, pa *mu
 	// leader's rule + address), leader reachability no longer matters here — an
 	// unreachable-but-known leader is still the official term leader worth telling
 	// replicas about, and only knowing where to point them matters.
-	if host, _ := leaderEndpoint(sa.IntendedLeader()); !intendedLeaderServing(sa) || host == "" {
+	if host, _ := leaderEndpoint(sa.IntendedLeaderHealth()); !intendedLeaderServing(sa) || host == "" {
 		return nil, nil
 	}
 
