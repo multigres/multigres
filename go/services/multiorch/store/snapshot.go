@@ -55,6 +55,9 @@ func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard 
 		if health == nil {
 			continue
 		}
+		// TODO: a pooler that keeps its ID but switches shards is not handled: between
+		// the cache entry and its rider's metadata updating, its old health can be
+		// filed under the new shard. Poolers normally get a new ID instead.
 		key := entry.Pooler.GetShardKey()
 		id := commontypes.FormatShardKey(key)
 		if byKey[id] == nil {
