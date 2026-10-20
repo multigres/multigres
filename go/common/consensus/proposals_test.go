@@ -227,7 +227,7 @@ func TestReplicationPrimaryFromProposal(t *testing.T) {
 func TestBuildProposalCore(t *testing.T) {
 	type tc struct {
 		name              string
-		mode              quorumMode
+		basis             revocationBasis
 		revocation        *clustermetadatapb.TermRevocation
 		recruitedStatuses []*clustermetadatapb.ConsensusStatus
 		buildProposal     func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error)
@@ -244,7 +244,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "all 3 recruited: success, pooler-a is first eligible leader",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -260,7 +260,7 @@ func TestBuildProposalCore(t *testing.T) {
 			cohort := zone1.all[:3]
 			return tc{
 				name:       "no current_position: filtered by filterByValidPosition",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					{Id: zone1.a, TermRevocation: revocation(5, ruleNum(3, 0))}, // no current_position → no LSN
@@ -275,7 +275,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "1 of 3 recruited: insufficient outgoing cohort",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -291,7 +291,7 @@ func TestBuildProposalCore(t *testing.T) {
 			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "undecided most-advanced position: insufficient outgoing cohort still rejected",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(4, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
@@ -307,7 +307,7 @@ func TestBuildProposalCore(t *testing.T) {
 			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "undecided most-advanced position: sufficient recruitment and unchanged cohort/policy succeeds",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(4, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
@@ -337,7 +337,7 @@ func TestBuildProposalCore(t *testing.T) {
 			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), proposalCohort...)
 			return tc{
 				name:       "undecided most-advanced position: proposal cohort sufficient but decision cohort insufficient still rejected",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(4, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
@@ -353,7 +353,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "callback proposes outsider: not among eligible leaders",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -377,7 +377,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "proposed cohort has unrecruited member but passes (outsider not recruited, a+b satisfy AT_LEAST_2)",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -401,7 +401,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "2 of 3 recruited, dead leader stays in proposed cohort",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.b, rule, revocation(5, ruleNum(3, 0))),
@@ -423,7 +423,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "proposed cohort has new members not recruited",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -448,7 +448,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "callback returns error",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -467,7 +467,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "callback returns nil proposal",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -488,7 +488,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "mixed rule numbers: higher rule is outgoing, lagging node excluded from eligibles",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -516,7 +516,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "proposed cohort too small for AT_LEAST_2",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -539,7 +539,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "extra non-cohort node does not inflate outgoing quorum count",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -555,7 +555,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "LSN tiebreaker: highest LSN is sole eligible leader",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/3000000"), // highest
@@ -582,7 +582,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "LSN tie at max: two nodes tied at highest LSN both eligible",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/3000000"),
@@ -611,7 +611,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "rule takes priority: node at old rule excluded despite higher LSN",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/5000000"),
@@ -638,7 +638,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "duplicate status: same pooler twice counts once toward quorum",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -656,7 +656,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "duplicate: rule number wins over LSN when deduplicating",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, makeRule(ruleNum(2, 0), atLeast(2), cohort...), revocation(5, ruleNum(3, 0)), "0/3000000"),
@@ -678,7 +678,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "all accepted nodes have empty LSN: invalid WAL position",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), ""),
@@ -695,7 +695,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "all accepted nodes have unparsable LSN: invalid WAL position",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "not-an-lsn"),
@@ -712,7 +712,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "node with invalid LSN excluded: remaining 2 satisfy AT_LEAST_2",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/3000000"),
@@ -729,7 +729,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "invalid LSN causes quorum failure: 1 valid of 3",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/3000000"),
@@ -746,7 +746,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "node with invalid LSN cannot be proposed as leader",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/3000000"),
@@ -771,7 +771,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(4, 0), atLeast(2), newCohort...)
 			return tc{
 				name:       "cohort expansion: only 2 of 5 new-cohort members respond",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(4, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.d, rule, revocation(5, ruleNum(4, 0)), "0/4000000"),
@@ -797,7 +797,7 @@ func TestBuildProposalCore(t *testing.T) {
 			}
 			return tc{
 				name:       "outgoing rule has unknown quorum type: failed to parse",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, unknownRule, revocation(5, ruleNum(3, 0))),
@@ -813,7 +813,7 @@ func TestBuildProposalCore(t *testing.T) {
 			cohort := zone1.all[:3]
 			return tc{
 				name:       "outgoing mode, no recorded rule among recruited nodes",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/2000000"),
@@ -829,7 +829,7 @@ func TestBuildProposalCore(t *testing.T) {
 			lowerRule := makeRule(ruleNum(2, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "outgoing mode, all recruits behind expected outgoing rule",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, lowerRule, revocation(5, ruleNum(3, 0))),
@@ -845,7 +845,7 @@ func TestBuildProposalCore(t *testing.T) {
 			higherRule := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "outgoing mode, recruit ahead of expected outgoing rule",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, higherRule, revocation(5, ruleNum(3, 0))),
@@ -860,7 +860,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: mismatched term revocation",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -883,7 +883,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: nil leader ID",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -906,7 +906,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: nil proposed rule",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -934,7 +934,7 @@ func TestBuildProposalCore(t *testing.T) {
 				// bug that gets this wrong must be caught here rather than
 				// installing an inconsistent transition.
 				name:       "validate proposal: decision doesn't match revocation outgoing rule",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -961,7 +961,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: nil durability policy",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -995,7 +995,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: proposed rule term above recruitment revocation term",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -1018,7 +1018,7 @@ func TestBuildProposalCore(t *testing.T) {
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "skip_outgoing_quorum on transition-quorum path is rejected",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: revocation(5, ruleNum(3, 0)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
@@ -1043,7 +1043,7 @@ func TestBuildProposalCore(t *testing.T) {
 			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: skip_outgoing_quorum is accepted on externally-certified proposal",
-				mode:       skipOutgoingQuorum,
+				basis:      revocationBasis{cert: &certBasis{}},
 				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
@@ -1068,7 +1068,7 @@ func TestBuildProposalCore(t *testing.T) {
 			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: initial rule shared by all, highest LSN leads",
-				mode:       skipOutgoingQuorum,
+				basis:      revocationBasis{cert: &certBasis{}},
 				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
@@ -1092,7 +1092,7 @@ func TestBuildProposalCore(t *testing.T) {
 			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: 1 of 3 recruited — cannot achieve durability",
-				mode:       skipOutgoingQuorum,
+				basis:      revocationBasis{cert: &certBasis{}},
 				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
@@ -1114,7 +1114,7 @@ func TestBuildProposalCore(t *testing.T) {
 			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: unknown quorum type in proposed rule",
-				mode:       skipOutgoingQuorum,
+				basis:      revocationBasis{cert: &certBasis{}},
 				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
@@ -1150,7 +1150,7 @@ func TestBuildProposalCore(t *testing.T) {
 			initialRule := makeRule(ruleNum(0, 1), atLeast(2), zone1.a, zone1.b)
 			return tc{
 				name:       "bootstrap: proposed cohort achievable but insufficient majority",
-				mode:       skipOutgoingQuorum,
+				basis:      revocationBasis{cert: &certBasis{}},
 				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
@@ -1179,7 +1179,7 @@ func TestBuildProposalCore(t *testing.T) {
 			atLeastNRule := makeRule(ruleNum(5, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "stuck rule change: coordinator re-proposes outgoing rule below revocation term",
-				mode:       requireOutgoingQuorum,
+				basis:      revocationBasis{},
 				revocation: rev,
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatus(poolerIDs.zone1.a, multiCellRule, rev),
@@ -1202,7 +1202,7 @@ func TestBuildProposalCore(t *testing.T) {
 		// through to the misleading "invalid or missing WAL position" branch.
 		{
 			name:              "empty recruited statuses",
-			mode:              requireOutgoingQuorum,
+			basis:             revocationBasis{},
 			revocation:        revocation(5, ruleNum(3, 0)),
 			recruitedStatuses: nil,
 			buildProposal:     proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), poolerIDs.zone1.all[:3]...)),
@@ -1216,7 +1216,7 @@ func TestBuildProposalCore(t *testing.T) {
 			require.NotNil(t, tt.revocation, "test case must set revocation explicitly")
 			rev := tt.revocation
 			var gotResult RecruitmentResult
-			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.mode, 0,
+			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.basis,
 				func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					gotResult = r
 					return bp(r)
@@ -1246,7 +1246,7 @@ func TestBuildProposalCore(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(zone1.a, rule, rev),
 		}
-		_, err := buildProposalCore(rev, statuses, requireOutgoingQuorum, 0,
+		_, err := buildProposalCore(rev, statuses, revocationBasis{},
 			func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) { return nil, nil })
 		require.ErrorContains(t, err, "revocation.outgoing_rule is required")
 	})
