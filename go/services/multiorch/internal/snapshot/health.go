@@ -23,7 +23,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// ObservationAge reports how long ago — on the orchestrator's clock — h's
+// observationAge reports how long ago — on the orchestrator's clock — h's
 // snapshot was recorded, measured against now. ok is false when no snapshot
 // time has ever been recorded (LastSeen unset), letting callers distinguish
 // "never observed" from "observed but stale".
@@ -31,7 +31,7 @@ import (
 // It deliberately uses LastSeen (the orchestrator-clock receipt time) rather
 // than the pooler-clock pooler_captured_at, so the subtraction against now
 // stays same-clock and is unaffected by skew between the hosts.
-func ObservationAge(h *multiorchdatapb.PoolerHealthState, now time.Time) (time.Duration, bool) {
+func observationAge(h *multiorchdatapb.PoolerHealthState, now time.Time) (time.Duration, bool) {
 	ls := h.GetLastSeen()
 	if ls == nil {
 		return 0, false
@@ -50,9 +50,9 @@ const DefaultObservationFreshness = 15 * time.Second
 // ok=false otherwise (including "never observed"). Prefer this over reading h
 // directly wherever a decision depends on how current the data is — it makes
 // the staleness tolerance an explicit, mandatory choice at the call site
-// instead of a separately-remembered ObservationAge check that's easy to omit.
+// instead of a separately-remembered observationAge check that's easy to omit.
 func HealthWithin(h *multiorchdatapb.PoolerHealthState, now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
-	age, ok := ObservationAge(h, now)
+	age, ok := observationAge(h, now)
 	if !ok || age > maxAge {
 		return nil, false
 	}
@@ -80,7 +80,7 @@ func LeaderWritesProgressing(leader *multiorchdatapb.PoolerHealthState, intended
 	if leader == nil {
 		return false
 	}
-	age, ok := ObservationAge(leader, now)
+	age, ok := observationAge(leader, now)
 	if !ok || age > freshness {
 		return false
 	}

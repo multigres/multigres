@@ -181,9 +181,6 @@ func analyzeAllPoolers(sa *snapshot.Shard, fn func(*snapshot.Shard, *multiorchda
 // connection flag or a snapshot counter, and a brief stream interruption does
 // not flip liveness until the observation genuinely ages out.
 func observationFresh(h *multiorchdatapb.PoolerHealthState, now time.Time, maxAge time.Duration) bool {
-	age, ok := snapshot.ObservationAge(h, now)
-	if !ok {
-		return false
-	}
-	return age <= maxAge
+	_, ok := snapshot.HealthWithin(h, now, maxAge)
+	return ok
 }
