@@ -89,6 +89,10 @@ type mockGateway struct {
 	copyAbortReturnState *querypb.ReservedState
 	copyAbortErr         error
 
+	// Describe tracking
+	describeOpts *querypb.ExecuteOptions
+	describeErr  error
+
 	// Callback control
 	callbackResult *sqltypes.Result
 
@@ -152,8 +156,9 @@ func (m *mockGateway) PortalStreamExecute(_ context.Context, _ *querypb.Target, 
 	return m.portalReturnState, nil
 }
 
-func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions) (*querypb.StatementDescription, error) {
-	return nil, nil
+func (m *mockGateway) Describe(_ context.Context, _ *querypb.Target, _ *querypb.PreparedStatement, _ *querypb.Portal, opts *querypb.ExecuteOptions) (*querypb.StatementDescription, error) {
+	m.describeOpts = opts
+	return nil, m.describeErr
 }
 
 func (m *mockGateway) Close() error { return nil }
@@ -965,6 +970,129 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 	require.Nil(t, state.GetMatchingShardState(target))
 	// Transaction status must be set to Failed
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+func TestScatterConn_Describe_ReservationLost(t *testing.T) {
+	// Describe's RPC returns no ReservedState: a dead reservation is reported only
+	// through the error. The gateway must apply the loss as StreamExecute does for a
+	// zero ReservedState: forget a reservation that held only a transaction and pass
+	// the error on, or end the session if it held session state.
+	fatal := mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", "")
+	terminated := mterrors.NewReservedConnectionTerminated(42)
+	tests := []struct {
+		name            string
+		err             error
+		reasons         uint32
+		txnStatus       protocol.TransactionStatus
+		wantCleared     bool
+		wantSessionLost bool
+		wantTxnStatus   protocol.TransactionStatus
+	}{
+		{
+			name:          "reserved connection terminated",
+			err:           terminated,
+			reasons:       protoutil.ReasonTransaction,
+			txnStatus:     protocol.TxnStatusInBlock,
+			wantCleared:   true,
+			wantTxnStatus: protocol.TxnStatusFailed,
+		},
+		{
+			name:          "terminated error wrapped like the gRPC client does",
+			err:           mterrors.Wrapf(terminated, "describe failed"),
+			reasons:       protoutil.ReasonTransaction,
+			txnStatus:     protocol.TxnStatusInBlock,
+			wantCleared:   true,
+			wantTxnStatus: protocol.TxnStatusFailed,
+		},
+		{
+			name:          "connection dead diagnostic",
+			err:           fatal,
+			reasons:       protoutil.ReasonTransaction,
+			txnStatus:     protocol.TxnStatusInBlock,
+			wantCleared:   true,
+			wantTxnStatus: protocol.TxnStatusFailed,
+		},
+		{
+			name:            "session state lost ends the session",
+			err:             terminated,
+			reasons:         protoutil.ReasonSessionAdvisoryLock,
+			txnStatus:       protocol.TxnStatusIdle,
+			wantCleared:     true,
+			wantSessionLost: true,
+			wantTxnStatus:   protocol.TxnStatusIdle,
+		},
+		{
+			name:          "ordinary pg error keeps the reservation",
+			err:           mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError, "syntax error", ""),
+			reasons:       protoutil.ReasonSessionAdvisoryLock,
+			txnStatus:     protocol.TxnStatusInBlock,
+			wantCleared:   false,
+			wantTxnStatus: protocol.TxnStatusInBlock,
+		},
+		{
+			name:          "real serialization failure keeps the reservation",
+			err:           mterrors.NewPgError("ERROR", mterrors.PgSSSerializationFailure, "could not serialize access", ""),
+			reasons:       protoutil.ReasonSessionAdvisoryLock,
+			txnStatus:     protocol.TxnStatusIdle,
+			wantCleared:   false,
+			wantTxnStatus: protocol.TxnStatusIdle,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := &mockGateway{describeErr: tt.err}
+			sc := NewScatterConn(gw, slog.Default())
+			state := handler.NewMultigatewayConnectionState()
+			conn := newTestConn()
+			conn.SetTxnStatus(tt.txnStatus)
+
+			target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+			state.SetReservedConnection(target, &querypb.ReservedState{
+				ReservedConnectionId: 42,
+				PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+				ReservationReasons:   tt.reasons,
+			})
+
+			_, err := sc.Describe(context.Background(), "tg1", "", conn, state, nil,
+				&preparedstatement.PreparedStatementInfo{PreparedStatement: &querypb.PreparedStatement{Name: "s1", Query: "SELECT 1"}})
+
+			require.Error(t, err)
+			require.Equal(t, uint64(42), gw.describeOpts.GetReservedConnectionId())
+			var diag *mterrors.PgDiagnostic
+			if tt.wantSessionLost {
+				require.ErrorAs(t, err, &diag)
+				require.Equal(t, mterrors.PgSSAdminShutdown, diag.Code)
+				require.Equal(t, "FATAL", diag.Severity)
+			} else {
+				require.ErrorIs(t, err, tt.err, "the client gets the original error")
+			}
+			if tt.wantCleared {
+				require.Nil(t, state.GetMatchingShardState(target))
+			} else {
+				ss := state.GetMatchingShardState(target)
+				require.NotNil(t, ss)
+				require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+			}
+			require.Equal(t, tt.wantTxnStatus, conn.TxnStatus())
+		})
+	}
+}
+
+func TestScatterConn_Describe_NoReservation_ErrorLeavesStateAlone(t *testing.T) {
+	// Without a reservation the terminated error can't refer to this session's
+	// state, so nothing is cleared (and nothing is created).
+	gw := &mockGateway{describeErr: mterrors.NewReservedConnectionTerminated(7)}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	_, err := sc.Describe(context.Background(), "tg1", "", conn, state, nil,
+		&preparedstatement.PreparedStatementInfo{PreparedStatement: &querypb.PreparedStatement{Name: "s1", Query: "SELECT 1"}})
+
+	require.Error(t, err)
+	require.Zero(t, gw.describeOpts.GetReservedConnectionId())
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
 }
 
 func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
