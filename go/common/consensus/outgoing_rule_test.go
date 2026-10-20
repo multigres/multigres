@@ -568,7 +568,10 @@ func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
 }
 
 func TestRevokedOutgoingRule_MinimumLeaderPosition_NoRecruitRecordsRule(t *testing.T) {
-	revoked := revokedOutgoingRule{observedOutgoingRule{transition: NewRuleTransition(&clustermetadatapb.RulePosition{})}}
+	revoked := revokedOutgoingRule{observedOutgoingRule{
+		transition: NewRuleTransition(&clustermetadatapb.RulePosition{}),
+		basis:      revocationBasis{cert: &certBasis{}},
+	}}
 
 	_, err := revoked.minimumLeaderPosition()
 
@@ -655,4 +658,47 @@ func TestBuildSafeProposal_UndecidedProposalNotFinalizable(t *testing.T) {
 		makeStatusWithProposal(zone1.b, position, nil, "0/1000000"),
 	}, build)
 	require.EqualError(t, err, wantErr)
+}
+
+// The failover bar and eligible leaders for a coordinator-led revocation are
+// drawn from the outgoing cohort.
+func TestRevokedOutgoingRule_BarSettersAreOutgoingCohortMembers(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 0))
+	cohort := []*clustermetadatapb.ID{zone1.b, zone1.c, zone1.d}
+	rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+	rule.LeaderId = zone1.a
+
+	t.Run("a rule with no leader takes its bar from the members", func(t *testing.T) {
+		noLeader := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+		noLeader.LeaderId = nil
+		revoked := mustProveRevoked(t, []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(zone1.b, noLeader, rev, "0/1000000"),
+			makeStatusWithLSN(zone1.c, noLeader, rev, "0/2000000"),
+			makeStatusWithLSN(zone1.e, noLeader, rev, "0/3000000"),
+		}, ruleNum(3, 0), revocationBasis{})
+
+		minimum, err := revoked.minimumLeaderPosition()
+		require.NoError(t, err)
+		assert.Equal(t, "0/2000000", minimum.GetLsn())
+		eligible, err := revoked.eligibleLeaders()
+		require.NoError(t, err)
+		require.Len(t, eligible, 1)
+		assert.Equal(t, zone1.c.GetName(), eligible[0].GetId().GetName())
+	})
+
+	t.Run("no member records the outgoing rule", func(t *testing.T) {
+		older := makeRule(ruleNum(2, 0), atLeast(2), cohort...)
+		revoked := revokedOutgoingRule{observedOutgoingRule{
+			recruited: []*clustermetadatapb.ConsensusStatus{
+				makeStatus(zone1.e, rule, rev),
+				makeStatus(zone1.b, older, rev),
+			},
+			transition: NewRuleTransition(&clustermetadatapb.RulePosition{Decision: rule}),
+		}}
+
+		_, err := revoked.minimumLeaderPosition()
+
+		require.ErrorContains(t, err, "is a member of the outgoing cohort")
+	})
 }

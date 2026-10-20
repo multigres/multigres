@@ -17,6 +17,7 @@ package consensus
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -251,6 +252,41 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 	return finalizableOutgoingRule{r}, nil
 }
 
+// barSetters are the recruits whose position sets the bar a leader must meet.
+//
+// A failover keeps the outgoing cohort, so only its members can lead: recruitment
+// and revocation count only cohort members, while the sync configuration counts
+// the primary toward N, so a leader outside the cohort could commit a write that
+// a passing recruitment does not hold. The bar is set by the recruits that record
+// the outgoing rule and are either cohort members or the rule's own leader. Any
+// other non-member's extra WAL was never counted toward a commit, so it must not
+// raise the bar a member has to meet. The outgoing leader's was: a rule already
+// led from outside its cohort committed with the leader's own write as one of N,
+// so a member behind that leader may lack a committed write, and failover fails
+// closed rather than elect it.
+//
+// Under a cert the incoming cohort is named by the proposal and validateProposal
+// requires its leader to be in it, so every recruit sets the bar.
+func (r observedOutgoingRule) barSetters() ([]*clustermetadatapb.ConsensusStatus, error) {
+	if r.basis.cert != nil {
+		return r.recruited, nil
+	}
+	rule := r.transition.PossiblyUndecidedRule()
+	cohort := rule.GetCohortMembers()
+	setters := cohort
+	if leader := rule.GetLeaderId(); leader != nil {
+		setters = append(slices.Clone(cohort), leader)
+	}
+	atOutgoing := filterCohortStatuses(setters, r.recruitsRecordingRule())
+	if len(filterCohortStatuses(cohort, atOutgoing)) == 0 {
+		return nil, fmt.Errorf(
+			"no recruit at the most advanced position %s is a member of the outgoing cohort %s",
+			r.transition, formatIDs(cohort),
+		)
+	}
+	return atOutgoing, nil
+}
+
 // minimumLeaderPosition is the lowest position a leader may have: one at or above
 // it holds every write a quorum under the outgoing rule could hold. Such a write
 // may never have been decided, so this is not a commit point. It is the most
@@ -264,8 +300,12 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 // TODO: relax it to the highest position the policy could have made quorum-held,
 // or to exactly the frozen LSN under a cert.
 func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerPosition, error) {
+	setters, err := r.barSetters()
+	if err != nil {
+		return nil, err
+	}
 	var minimum *clustermetadatapb.PoolerPosition
-	for _, cs := range r.recruited {
+	for _, cs := range setters {
 		if position := cs.GetCurrentPosition(); minimum == nil || ComparePoolerPosition(position, minimum) > 0 {
 			minimum = position
 		}
@@ -291,11 +331,22 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 	if err != nil {
 		return nil, err
 	}
+	candidates := r.recruited
+	if r.basis.cert == nil {
+		candidates = filterCohortStatuses(r.transition.PossiblyUndecidedRule().GetCohortMembers(), r.recruited)
+	}
 	var eligible []*clustermetadatapb.ConsensusStatus
-	for _, cs := range r.recruited {
+	for _, cs := range candidates {
 		if ComparePoolerPosition(cs.GetCurrentPosition(), minimum) >= 0 {
 			eligible = append(eligible, cs)
 		}
+	}
+	if len(eligible) == 0 && r.basis.cert == nil {
+		return nil, fmt.Errorf(
+			"outgoing leader %s, outside its cohort %s, is the only recruit at the most advanced LSN",
+			topoclient.ClusterIDString(r.transition.PossiblyUndecidedRule().GetLeaderId()),
+			formatIDs(r.transition.PossiblyUndecidedRule().GetCohortMembers()),
+		)
 	}
 	if len(eligible) == 0 {
 		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
