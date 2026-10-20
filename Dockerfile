@@ -75,6 +75,7 @@ COPY --from=builder /src/bin/multiadmin /multigres/bin/
 COPY --from=builder /src/bin/multigateway /multigres/bin/
 COPY --from=builder /src/bin/multiorch /multigres/bin/
 COPY --from=builder /src/bin/multipooler /multigres/bin/
+COPY --from=builder /src/bin/minigres /multigres/bin/
 
 # Since this container serves multiple binaries depending on the execution it's impossible to have a healthcheck that applies to all at this point.
 # The healthcheck below exists only to satisfy Super-linter CHECKOV and it's not a reliable healthcheck for production.

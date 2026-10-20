@@ -428,8 +428,9 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		}
 
 		if res == nil {
-			t.Logf("external/%s: no test results (%v)", ext.Name, err)
-			continue
+			// The harness produced nothing: record a failed test so the suite
+			// goes red instead of silently dropping the extension.
+			res = harnessFailure(err)
 		}
 
 		for _, tr := range res.Tests {
@@ -1535,6 +1536,22 @@ func findRepoRoot() string {
 			return ""
 		}
 		dir = parent
+	}
+}
+
+// harnessFailure is the result recorded for a module whose test harness
+// produced no results at all (crashed, or never started). Its single failed
+// test keeps the module in the report and fails the suite; the callers' merge
+// loops derive their counters from Tests, so those are what matter here.
+func harnessFailure(err error) *TestResults {
+	return &TestResults{
+		TotalTests:  1,
+		FailedTests: 1,
+		Tests: []IndividualTestResult{{
+			Name:       "harness",
+			Status:     "fail",
+			FailReason: fmt.Sprintf("no test results: %v", err),
+		}},
 	}
 }
 

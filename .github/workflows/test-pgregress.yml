@@ -83,13 +83,22 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Restore baseline results
-        id: baseline
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: /tmp/pgregress-baseline/results.json
-          key: pgregress-baseline-dummy
-          restore-keys: pgregress-baseline-
+      # The baseline is the previous scheduled run's results.json, published to
+      # the gh-pages branch next to the badge endpoints (see "Publish badge
+      # endpoints to GitHub Pages"). It used to live in the Actions cache, but
+      # the repo sits above the 10 GB cache limit, so a baseline that is read
+      # once every few days was evicted before the next run could compare
+      # against it, and regressions went unreported. A branch cannot be evicted.
+      - name: Fetch baseline results from GitHub Pages
+        env:
+          BASELINE_URL: https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/pgregress/results.json
+        run: |
+          mkdir -p /tmp/pgregress-baseline
+          if curl -fsSL --retry 3 -o /tmp/pgregress-baseline/results.json "$BASELINE_URL"; then
+            echo "Baseline fetched from $BASELINE_URL"
+          else
+            echo "::warning::No baseline at $BASELINE_URL; regression detection is skipped this run"
+          fi
 
       - name: Start port pool server
         run: |
@@ -98,10 +107,14 @@ jobs:
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
       - name: Run PostgreSQL compatibility tests
+        # The test fails on any failed, timed-out, or unexecuted test; pipefail
+        # propagates that exit code through tparse so the job goes red.
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: |
+          set -o pipefail
+          go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
@@ -116,7 +129,12 @@ jobs:
             # The Go test writes shields.io endpoint JSON into a sibling badges/
             # dir next to results.json (see WriteBadgeEndpoints). Publish this dir
             # to GitHub Pages so the README/blog badges show the live pass count.
-            echo "badges=$(dirname "$results_file")/badges" >> "$GITHUB_OUTPUT"
+            # results.json rides along so the next run can fetch it as its
+            # regression baseline.
+            badges_dir="$(dirname "$results_file")/badges"
+            mkdir -p "$badges_dir"
+            cp "$results_file" "$badges_dir/results.json"
+            echo "badges=$badges_dir" >> "$GITHUB_OUTPUT"
             echo "Found results at: $results_file"
           else
             echo "No results.json found"
@@ -152,11 +170,13 @@ jobs:
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
-      # Publish the shields.io endpoint JSON to the gh-pages branch so the
-      # README/blog badges render the live pass count (e.g. 160/222). Republishing
-      # the JSON updates every badge that points at it — no markdown edits needed.
-      # keep_files: true preserves anything else already on gh-pages. Only runs on
-      # scheduled/manual runs (not PR-label runs) using the built-in GITHUB_TOKEN.
+      # Publish the shields.io endpoint JSON (plus results.json, the next run's
+      # regression baseline) to the gh-pages branch so the README/blog badges
+      # render the live pass count (e.g. 160/222). Republishing the JSON updates
+      # every badge that points at it — no markdown edits needed. keep_files:
+      # true preserves anything else already on gh-pages. Only runs on
+      # scheduled/manual runs (not PR-label runs) using the built-in
+      # GITHUB_TOKEN, so PR runs never become the baseline.
       - name: Publish badge endpoints to GitHub Pages
         if: >-
           !cancelled() &&
@@ -309,21 +329,6 @@ jobs:
           curl -sf -X POST -H 'Content-type: application/json' \
             --data "$payload" \
             "$SLACK_WEBHOOK_URL"
-
-      - name: Prepare baseline for cache save
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
-        env:
-          RESULTS_PATH: ${{ steps.results.outputs.path }}
-        run: |
-          mkdir -p /tmp/pgregress-baseline
-          cp "$RESULTS_PATH" /tmp/pgregress-baseline/results.json
-
-      - name: Save current results as new baseline
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: /tmp/pgregress-baseline/results.json
-          key: pgregress-baseline-${{ github.run_id }}
 
       # Note: the Go test writes the pass/fail summary (including shields.io badge)
       # directly to GITHUB_STEP_SUMMARY via postgres_builder.go, and the live
