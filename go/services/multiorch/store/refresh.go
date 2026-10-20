@@ -68,7 +68,7 @@ type RefreshResult struct {
 // TODO: "looks reachable" is snapshot.DefaultObservationFreshness here, but the analyzer
 // decides whether the leader is observed live with the policy's own
 // LeaderLivenessFreshness. They are both 15s today without being linked; take
-// the threshold from the snapshot's AvailabilityPolicy now that it lives in a shared package.
+// the threshold from an AvailabilityPolicy passed in by the caller.
 func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.MultipoolerClient, poolers []*Pooler, timeout time.Duration, logger *slog.Logger) RefreshResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

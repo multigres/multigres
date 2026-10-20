@@ -122,3 +122,26 @@ func TestSnapshotShards_CarriesTombstones(t *testing.T) {
 	assert.Equal(t, map[topoclient.ComponentID]struct{}{topoclient.ComponentIDString(gone): {}}, shard.TombstoneIDs)
 	assert.Len(t, shard.Poolers, 1, "a tombstoned pooler is not in the live set")
 }
+
+func TestSnapshotShards_AgreesWithSnapshotShard(t *testing.T) {
+	cache := NewTestCache(t)
+	shard0 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shard1 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
+	for name, key := range map[string]*clustermetadatapb.ShardKey{"a": shard0, "b": shard0, "c": shard1} {
+		seedPooler(t, cache, name, key)
+	}
+	opts := SnapshotOptions{Now: time.Now()}
+
+	poolerNames := func(s *snapshot.Shard) []string {
+		var names []string
+		for _, p := range s.Poolers {
+			names = append(names, p.GetMultipooler().GetId().GetName())
+		}
+		return names
+	}
+	for _, all := range SnapshotShards(cache, opts) {
+		one, err := SnapshotShard(cache, all.ShardKey, opts)
+		require.NoError(t, err)
+		assert.Equal(t, poolerNames(all), poolerNames(one), "shard %s", all.ShardKey.GetShard())
+	}
+}

@@ -39,11 +39,10 @@ func observationAge(h *multiorchdatapb.PoolerHealthState, now time.Time) (time.D
 	return now.Sub(ls.AsTime()), true
 }
 
-// DefaultObservationFreshness is the default staleness tolerance for callers
-// that need a trustworthy health snapshot but have no more specific policy of
-// their own (e.g. actions, which can't import the analysis package's
-// AvailabilityPolicy). analysis.DefaultAvailabilityPolicy's ObservationFreshness
-// uses this same value, so the two packages share one source of truth.
+// DefaultObservationFreshness is the staleness tolerance for callers that need a
+// trustworthy health snapshot but are not handed an AvailabilityPolicy (e.g.
+// actions checking a live pooler). The default policy's ObservationFreshness uses
+// this same value, so there is one source of truth.
 const DefaultObservationFreshness = 15 * time.Second
 
 // HealthWithin returns h if it was recorded within maxAge of now, and

@@ -444,6 +444,21 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 			"the tombstone — not the merely-missing replicaB — is the chosen target")
 	})
 
+	t.Run("cohort member in both the snapshot and the tombstones is not removed", func(t *testing.T) {
+		// A capture can catch a pooler in both sets while it shuts down; being present
+		// in the snapshot means it is not missing, so it must not be proposed for REMOVE.
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB},
+			[]*clustermetadatapb.ID{replicaA},
+			healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(replicaB, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+		)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
 	t.Run("missing-no-tombstone REMOVE proceeds when safety check passes", func(t *testing.T) {
 		// 5-member cohort under N=2: removing one missing-but-not-tombstoned
 		// member and simulating leader failure still leaves 3 of 4 recruitable

@@ -1055,6 +1055,20 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
+	t.Run("shutdown tombstone wins when the leader is also still in the snapshot", func(t *testing.T) {
+		// A capture can catch a pooler in both Poolers and TombstoneIDs while it shuts down.
+		sa := deadLeaderShard(func(sa *snapshot.Shard) {
+			sa.TombstoneIDs = map[topoclient.ComponentID]struct{}{
+				topoclient.ComponentIDString(leaderID): {},
+			}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+	})
+
 	t.Run("analyzer name is correct", func(t *testing.T) {
 		require.Equal(t, types.CheckName("LeaderNeedsReplacement"), analyzer.Name())
 	})

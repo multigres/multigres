@@ -16,7 +16,6 @@ package store
 
 import (
 	"cmp"
-	"maps"
 	"slices"
 	"time"
 
@@ -69,7 +68,7 @@ func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard 
 	tombstones := tombstoneIDs(cache)
 	shards := make([]*snapshot.Shard, 0, len(byKey))
 	for _, e := range byKey {
-		shards = append(shards, newShard(e.key, e.poolers, maps.Clone(tombstones), opts))
+		shards = append(shards, newShard(e.key, e.poolers, tombstones, opts))
 	}
 	return shards
 }
