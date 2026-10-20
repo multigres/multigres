@@ -261,7 +261,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 	intendedLeaderID := intendedRule.GetLeaderId()
 	intendedCohort := intendedRule.GetCohortMembers()
 
-	// No rule at all yet, or a rule naming neither a leader nor a intendedCohort — the
+	// No rule at all yet, or a rule naming neither a leader nor a cohort — the
 	// initial, unbootstrapped state. ShardNeedsInitialization owns that, so do
 	// nothing here; there's no established policy to read yet either.
 	if intendedLeaderID == nil && len(intendedCohort) == 0 {
@@ -273,10 +273,10 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 		return nil, mterrors.Wrap(err, "leader-needs-replacement: durability policy unavailable")
 	}
 
-	// A non-empty intendedCohort with no designated leader needs one recruited.
+	// A non-empty cohort with no designated leader needs one recruited.
 	if intendedLeaderID == nil {
 		return a.emitFailover(sa, nil, policy, intendedCohort, types.ProblemLeaderUnspecified,
-			fmt.Sprintf("Shard %s has intendedCohort members but no designated leader", sa.ShardKey)), nil
+			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardKey)), nil
 	}
 
 	// Suppress failover briefly while the leader is mid-promotion (see
