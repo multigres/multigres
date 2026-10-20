@@ -25,8 +25,8 @@ import (
 )
 
 // An undecided outgoing rule whose cohort is disjoint from its decision's must
-// be recruited on both: the proposal's cohort freezes it, and the decision's
-// cohort excludes competitors that have not seen the proposal.
+// be recruited on both: a competitor that has seen the proposal recruits the
+// proposal's cohort, and one that has not recruits the decision's.
 func TestObservedOutgoingRule_Revoke_UndecidedDisjointCohorts(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	decision := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)

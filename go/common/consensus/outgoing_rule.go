@@ -103,56 +103,40 @@ func (o observedOutgoingRule) revoke(recruited []*clustermetadatapb.ConsensusSta
 	return revokedOutgoingRule{o}, nil
 }
 
-// revokeByRecruitment proves from the recruits two properties of a
-// coordinator-led rule change, each against the cohort that serves it:
+// revokeByRecruitment requires the outgoing rule's cohort to be sufficiently
+// recruited (see CheckSufficientRecruitment): its leftovers cannot commit under
+// the rule, so no durable write is invisible to the recruits, and a majority is
+// recruited, so a competing coordinator recruiting the same cohort must overlap
+// this one.
 //
-//   - freeze: no write can become durable under the outgoing rule that the
-//     recruits cannot see.
-//   - exclusion: no competing coordinator can win the same term. Competitors
-//     all recruit the outgoing cohort, so a majority of it forces overlap.
-//
-// For a decided outgoing rule one cohort serves both. For an undecided one the
-// outgoing rule's cohort freezes it, while a competitor that has not yet seen
-// the proposal finds the decision and recruits its cohort, so that cohort must
-// be checked for exclusion too.
+// When the outgoing rule is an undecided proposal, the decision's cohort gets
+// the same check: a competitor that has not yet seen the proposal finds the
+// decision and recruits that cohort instead.
 func (o observedOutgoingRule) revokeByRecruitment(recruited []*clustermetadatapb.ConsensusStatus) error {
-	if err := o.freeze(recruited); err != nil {
+	if err := checkCohortSufficientlyRecruited(o.rule, "rule", "outgoing cohort", recruited); err != nil {
 		return err
 	}
-	return o.excludeCompetingCoordinators(recruited)
-}
-
-// freeze checks the outgoing rule's own cohort: sufficiently recruited, so its
-// leftovers cannot commit under it. While the rule is an undecided proposal,
-// writes must satisfy the "Both" policy of the decision and the proposal, so
-// any durable write has an acker among these recruited members.
-func (o observedOutgoingRule) freeze(recruited []*clustermetadatapb.ConsensusStatus) error {
-	policy, err := NewPolicyFromProto(o.rule.GetDurabilityPolicy())
-	if err != nil {
-		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
-	}
-	cohort := o.rule.GetCohortMembers()
-	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruited))); err != nil {
-		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
-	}
-	return nil
-}
-
-// excludeCompetingCoordinators checks the decision's cohort when the outgoing
-// rule is an undecided proposal on top of it. When the outgoing rule is
-// decided, freeze's cohort already serves exclusion.
-func (o observedOutgoingRule) excludeCompetingCoordinators(recruited []*clustermetadatapb.ConsensusStatus) error {
 	if o.decided {
 		return nil
 	}
-	decision := o.position.GetDecision()
-	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
+	return checkCohortSufficientlyRecruited(o.position.GetDecision(), "decision", "outgoing decision cohort", recruited)
+}
+
+// checkCohortSufficientlyRecruited requires rule's cohort to be sufficiently
+// recruited under rule's own durability policy. source and cohortLabel name the
+// rule and its cohort in errors.
+func checkCohortSufficientlyRecruited(
+	rule *clustermetadatapb.ShardRule,
+	source, cohortLabel string,
+	recruited []*clustermetadatapb.ConsensusStatus,
+) error {
+	policy, err := NewPolicyFromProto(rule.GetDurabilityPolicy())
 	if err != nil {
-		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
+		return fmt.Errorf("failed to parse durability policy from %s: %w", source, err)
 	}
-	cohort := decision.GetCohortMembers()
+	cohort := rule.GetCohortMembers()
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruited))); err != nil {
-		return fmt.Errorf("insufficient outgoing decision cohort recruitment: %w", err)
+		return fmt.Errorf("insufficient %s recruitment: %w", cohortLabel, err)
 	}
 	return nil
 }
