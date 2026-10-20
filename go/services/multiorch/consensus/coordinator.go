@@ -206,10 +206,10 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	return c.newRuleChange(
 		"ShardInit",
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-			return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposalFn)
+			return commonconsensus.BuildExternallyCertifiedProposal(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposalFn)
+			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 	).Run(ctx, cohort, revocation)
 }

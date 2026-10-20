@@ -99,17 +99,38 @@ type revokedOutgoingRule struct {
 }
 
 // revoke establishes that the outgoing rule is revoked, by the evidence its
-// basis names: recruitment of the outgoing cohort, or an external cert.
+// basis names: recruitment of the outgoing decision's cohort, or an external cert
+// plus recruitment of the incoming cohort.
 func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
-	if o.basis.cert == nil {
-		if err := o.revokeByRecruitment(); err != nil {
-			return revokedOutgoingRule{}, err
-		}
+	var err error
+	if o.basis.cert != nil {
+		err = o.revokeByCert()
+	} else {
+		err = o.revokeByRecruitment()
 	}
-	// Revoking by cert needs no recruitment of the outgoing cohort: the cert
-	// promises nothing durable lies beyond its frozen LSN under the outgoing
-	// rule.
+	if err != nil {
+		return revokedOutgoingRule{}, err
+	}
 	return revokedOutgoingRule{o}, nil
+}
+
+// revokeByCert relies on the cert's two promises about the outgoing rule:
+// nothing durable lies beyond its frozen LSN, and its term is unique. The
+// outgoing cohort is not recruited, so the term can still be retried by the same
+// coordinator, for example repeated bootstrap attempts with different proposed
+// leaders. A majority of the incoming cohort forces any two such attempts to
+// overlap, so they cannot both succeed. This relies on retries proposing the same
+// cohort, which nothing enforces. The unrecruited-cannot-commit half also rejects
+// a stale cert: if an earlier attempt's rule became durable on this cohort, the
+// recruits must overlap its quorum, and holders of that rule refuse the new
+// revocation.
+func (o observedOutgoingRule) revokeByCert() error {
+	cert := o.basis.cert
+	recruitedIncoming := statusesToIDs(filterCohortStatuses(cert.incomingCohort, o.recruited))
+	if err := CheckSufficientRecruitment(cert.incomingPolicy, cert.incomingCohort, recruitedIncoming); err != nil {
+		return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
+	}
+	return nil
 }
 
 // revokeByRecruitment requires the outgoing decision's cohort to be sufficiently
