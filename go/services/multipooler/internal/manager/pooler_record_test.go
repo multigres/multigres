@@ -17,15 +17,19 @@ package manager
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 // fakeTopoStore is a minimal poolerTopoStore for testing.
@@ -37,6 +41,14 @@ type fakeTopoStore struct {
 	updateCalls  atomic.Int32
 	lastUpdateID atomic.Pointer[clustermetadatapb.ID]
 	lastUpdated  atomic.Pointer[clustermetadatapb.Multipooler]
+
+	// record is the in-memory topology entry: Register stores it, wipe clears it.
+	recordMu       sync.Mutex
+	record         *clustermetadatapb.Multipooler
+	createAttempts int
+	// beforeCreate runs inside CreateMultipooler ahead of the existence check,
+	// letting a test simulate a registration that lands in between.
+	beforeCreate func()
 }
 
 func (f *fakeTopoStore) RegisterMultipooler(_ context.Context, mp *clustermetadatapb.Multipooler, _ bool) error {
@@ -46,7 +58,59 @@ func (f *fakeTopoStore) RegisterMultipooler(_ context.Context, mp *clustermetada
 	}
 	f.calls.Add(1)
 	f.lastSeen.Store(mp)
+	f.setRecord(mp)
 	return nil
+}
+
+func (f *fakeTopoStore) GetMultipooler(ctx context.Context, _ *clustermetadatapb.ID) (*topoclient.MultipoolerInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.recordMu.Lock()
+	defer f.recordMu.Unlock()
+	if f.record == nil {
+		return nil, topoclient.NewError(topoclient.NoNode, "multipooler")
+	}
+	return &topoclient.MultipoolerInfo{Multipooler: proto.Clone(f.record).(*clustermetadatapb.Multipooler)}, nil
+}
+
+func (f *fakeTopoStore) CreateMultipooler(ctx context.Context, mp *clustermetadatapb.Multipooler) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.recordMu.Lock()
+	f.createAttempts++
+	hook := f.beforeCreate
+	f.recordMu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	f.recordMu.Lock()
+	defer f.recordMu.Unlock()
+	if f.record != nil {
+		return topoclient.NewError(topoclient.NodeExists, "multipooler")
+	}
+	f.record = proto.Clone(mp).(*clustermetadatapb.Multipooler)
+	return nil
+}
+
+func (f *fakeTopoStore) setRecord(mp *clustermetadatapb.Multipooler) {
+	f.recordMu.Lock()
+	defer f.recordMu.Unlock()
+	f.record = proto.Clone(mp).(*clustermetadatapb.Multipooler)
+}
+
+// wipe simulates the topology etcd losing the record.
+func (f *fakeTopoStore) wipe() {
+	f.recordMu.Lock()
+	defer f.recordMu.Unlock()
+	f.record = nil
+}
+
+func (f *fakeTopoStore) stored() *clustermetadatapb.Multipooler {
+	f.recordMu.Lock()
+	defer f.recordMu.Unlock()
+	return f.record
 }
 
 func (f *fakeTopoStore) UpdateMultipoolerFields(_ context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.Multipooler) error) (*clustermetadatapb.Multipooler, error) {
@@ -428,4 +492,143 @@ func TestPoolerRecord_DerivesTypeFromRoutingState(t *testing.T) {
 		}))
 		assert.Equal(t, clustermetadatapb.PoolerType_UNKNOWN, r.Type())
 	})
+}
+
+// --- Record restoration (MUL-1924) ---
+
+// startPublisher runs the publisher loop and returns a function that fires a
+// tick and returns once the loop has finished handling it. The tick channel is
+// unbuffered, so the second send only completes after the first tick is done.
+func startPublisher(t *testing.T, r *poolerRecord) (tick func()) {
+	t.Helper()
+	tickC := make(chan time.Time)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go r.publisherLoop(ctx, tickC)
+	return func() {
+		tickC <- time.Time{}
+		tickC <- time.Time{}
+	}
+}
+
+func publishedRecord(t *testing.T, ts *fakeTopoStore, r *poolerRecord) {
+	t.Helper()
+	r.publishIfNeeded(t.Context())
+	require.NotNil(t, ts.stored())
+}
+
+func TestPoolerRecord_Tick_RecreatesWipedRecord(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	tick := startPublisher(t, r)
+
+	ts.wipe()
+	tick()
+
+	got := ts.stored()
+	require.NotNil(t, got, "record not recreated after wipe")
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, got.Type)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, got.ServingStatus)
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, got.GetRoutingState().GetRole())
+}
+
+func TestPoolerRecord_Tick_LeavesExistingRecordUntouched(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	tick := startPublisher(t, r)
+
+	newer := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	newer.Hostname = "newer-registration"
+	ts.setRecord(newer)
+	tick()
+
+	assert.True(t, proto.Equal(newer, ts.stored()), "existing record was overwritten")
+	assert.Equal(t, int32(1), ts.calls.Load(), "tick must not re-register an existing record")
+}
+
+func TestPoolerRecord_Tick_ToleratesNodeExistsOnCreate(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	tick := startPublisher(t, r)
+
+	newer := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	newer.Hostname = "raced-registration"
+	ts.beforeCreate = func() { ts.setRecord(newer) }
+	ts.wipe()
+	tick()
+
+	assert.True(t, proto.Equal(newer, ts.stored()), "raced registration was overwritten")
+	assert.Equal(t, 1, ts.createAttempts)
+	assert.Equal(t, int32(1), ts.calls.Load())
+}
+
+func TestPoolerRecord_Tick_DoesNotRestoreWhenShuttingDown(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	tick := startPublisher(t, r)
+
+	r.applyMutation(func(s *MutablePoolerRecordState) {
+		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
+	})
+	r.publishIfNeeded(t.Context())
+	ts.wipe()
+	tick()
+
+	assert.Nil(t, ts.stored(), "shutting-down pooler resurrected a deleted record")
+	assert.Equal(t, 0, ts.createAttempts)
+}
+
+func TestPoolerRecord_Wakeup_DoesNotRestoreWipedRecord(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	ts.wipe()
+
+	r.publishIfNeeded(t.Context())
+
+	assert.Nil(t, ts.stored())
+	assert.Equal(t, 0, ts.createAttempts)
+}
+
+func TestPoolerRecord_NoRestoreAfterUnregister(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING))
+	r.Register(t.Context(), func(string) {})
+	require.Eventually(t, func() bool { return ts.calls.Load() >= 1 }, time.Second, time.Millisecond)
+
+	r.Unregister(t.Context(), nil)
+	ts.wipe()
+
+	// The publisher context is cancelled, so a restore attempt must fail
+	// without writing.
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	r.restoreIfMissing(cancelled)
+	assert.Nil(t, ts.stored())
+
+	testpoll.Never(t, func() bool { return ts.stored() != nil }, 50*time.Millisecond, 5*time.Millisecond)
+}
+
+// The newer-registration fence for this record lives in the operator and orch writers (MUL-1536); the pooler must not race them.
+func TestPoolerRecord_Tick_LeavesOperatorMarkedShutdownRecordUntouched(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING))
+	publishedRecord(t, ts, r)
+	tick := startPublisher(t, r)
+
+	marked := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
+	marked.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
+		Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		Reason: "dead pooler",
+	}
+	ts.setRecord(marked)
+	tick()
+
+	assert.True(t, proto.Equal(marked, ts.stored()), "operator-marked SHUTDOWN record was modified")
+	assert.Equal(t, 0, ts.createAttempts)
+	assert.Equal(t, int32(1), ts.calls.Load(), "tick must not re-register over a SHUTDOWN record")
 }
