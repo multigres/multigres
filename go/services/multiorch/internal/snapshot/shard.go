@@ -27,8 +27,8 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// Shard is a frozen view of one shard: every pooler's health as of a single
-// capture, plus the inputs a judgment about the shard needs. Health snapshots
+// Shard is a frozen view of one shard: every pooler's health, each read once
+// at capture, plus the inputs a judgment about the shard needs. Health snapshots
 // are shared with the cache, which only replaces them and never edits one in
 // place, so consumers must treat everything here as read-only.
 type Shard struct {

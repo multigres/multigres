@@ -15,9 +15,9 @@
 package store
 
 import (
+	"cmp"
 	"maps"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -41,7 +41,9 @@ type SnapshotOptions struct {
 }
 
 // SnapshotShards freezes every shard in the cache: each pooler's current health
-// is read once, so everything derived from a snapshot agrees.
+// is read once, so everything derived from a snapshot agrees. The pooler list and
+// the tombstones are read separately, so a pooler shutting down mid-capture can
+// appear in both.
 func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard {
 	type shardEntry struct {
 		key     *clustermetadatapb.ShardKey
@@ -115,9 +117,11 @@ func newShard(
 	// Stable order, so ties between equally-ranked rules resolve the same way
 	// every time.
 	slices.SortFunc(poolers, func(a, b *multiorchdatapb.PoolerHealthState) int {
-		return strings.Compare(
-			string(topoclient.ComponentIDString(a.GetMultipooler().GetId())),
-			string(topoclient.ComponentIDString(b.GetMultipooler().GetId())),
+		aID, bID := a.GetMultipooler().GetId(), b.GetMultipooler().GetId()
+		return cmp.Or(
+			cmp.Compare(aID.GetComponent(), bID.GetComponent()),
+			cmp.Compare(aID.GetCell(), bID.GetCell()),
+			cmp.Compare(aID.GetName(), bID.GetName()),
 		)
 	})
 	s := &snapshot.Shard{
