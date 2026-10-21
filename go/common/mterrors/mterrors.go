@@ -462,9 +462,12 @@ func IsConnectionError(err error) bool {
 // must be discarded. It is an eviction/cleanup predicate, not a retry
 // predicate. Use IsConnectionError for reconnect + retry gates.
 func IsConnectionDead(err error) bool {
-	if IsConnectionError(err) {
-		return true
-	}
+	return IsConnectionError(err) || IsFatal(err)
+}
+
+// IsFatal reports whether err carries a FATAL or PANIC PgDiagnostic, which
+// ends the session it was raised on.
+func IsFatal(err error) bool {
 	var diag *PgDiagnostic
 	return errors.As(err, &diag) && diag.IsFatal()
 }
