@@ -89,7 +89,6 @@ func NewReconcileCohortAction(
 // one just proven safe.
 func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
-	rule := rechecked.HighestIntendedRule
 	a.logger.InfoContext(ctx, "executing reconcile cohort action",
 		"shard_key", problem.ShardKey.String(),
 		"pooler", problem.PoolerID.Name,
@@ -106,7 +105,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
 	}
 
-	if rule.IsEmpty() {
+	if rechecked.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus rule known for shard %s", problem.ShardKey)
 	}
@@ -118,11 +117,11 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	// TODO: allow non-promotion rule changes to ride along with an
 	// outstanding proposal via propagation, instead of always waiting for
 	// decision.
-	if !rule.IsDecided() {
+	if !rechecked.HighestIntendedRule.IsDecided() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardKey)
 	}
-	decidedRule := rule.Decision()
+	decidedRule := rechecked.HighestIntendedRule.Decision()
 
 	// For ADD we need the pooler to be live in the cache (the cohort grows
 	// only if we have a healthy replica) and we use it afterward to clear the
@@ -151,7 +150,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 		return mterrors.Wrap(err, "failed to find leader named by consensus rule")
 	}
 
-	if !snapshot.LeaderWritesProgressing(leader.Health(), rule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
+	if !snapshot.LeaderWritesProgressing(leader.Health(), rechecked.HighestIntendedRule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}
@@ -166,7 +165,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{targetID},
-		ExpectedOutgoingRule: rule.Decision().GetRuleNumber(),
+		ExpectedOutgoingRule: decidedRule.GetRuleNumber(),
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {

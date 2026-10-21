@@ -90,8 +90,6 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// priority.
 	slices.SortFunc(staleLeaders, compareLeaderTimeline)
 
-	leaderPosition := sa.HighestIntendedRule().String()
-
 	// Assign descending priorities so the most-stale leader (sorted first)
 	// gets PriorityHigh, the next gets PriorityHigh-1, etc.
 	problems := make([]types.Problem, 0, len(staleLeaders))
@@ -105,7 +103,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 				poolerID(stale).Name,
 				commonconsensus.FormatRulePosition(stale.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
-				leaderPosition),
+				sa.HighestIntendedRule().String()),
 			Priority:       types.PriorityHigh - types.Priority(i),
 			Scope:          types.ScopePooler,
 			DetectedAt:     sa.Now,
