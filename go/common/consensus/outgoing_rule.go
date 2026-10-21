@@ -33,6 +33,9 @@ type observedOutgoingRule struct {
 	// on top of it. Trusting an undecided rule needs no separate verification:
 	// UpdateRule always finalizes it, exactly as it stands, before applying
 	// anything new.
+	//
+	// TODO: hold a RuleTransition once it exists, replacing the
+	// PossiblyUndecidedRule and IsRuleDecided calls on this position.
 	position *clustermetadatapb.RulePosition
 	// basis is how this rule is to be revoked; see revoke.
 	basis revocationBasis
