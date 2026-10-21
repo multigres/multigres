@@ -67,7 +67,10 @@ func newTestShard(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, lead
 			sa.Poolers = append(sa.Poolers, leader)
 		}
 		if rule == nil {
-			rule = &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: poolerID(leader)}}
+			rule = &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:   poolerID(leader),
+			}}
 		}
 	}
 	setRule(sa, rule)

@@ -40,7 +40,9 @@ func NewRuleTransition(pos *clustermetadatapb.RulePosition) RuleTransition {
 // IsEmpty reports whether no rule has been established: neither the decision nor
 // the proposal carries a real rule number. Rule numbers start above {0,0}, which
 // is the sentinel for "none yet" (see ruleNumberIsUnset), so a position holding
-// only that is empty, just as a nil one is.
+// only that is empty, just as a nil one is. The rule accessors still return
+// whatever such a placeholder holds (it can carry the initial cohort), so callers
+// that need an established rule check IsEmpty first.
 func (t RuleTransition) IsEmpty() bool {
 	return ruleNumberIsUnset(t.pos.GetDecision().GetRuleNumber()) &&
 		ruleNumberIsUnset(t.pos.GetProposal().GetRuleNumber())

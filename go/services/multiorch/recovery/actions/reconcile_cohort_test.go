@@ -248,6 +248,27 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, err.Error(), "no consensus rule known")
 	})
 
+	t.Run("returns error when the only rule is the 0.0 placeholder", func(t *testing.T) {
+		// A 0.0 rule is the placeholder for "no rule established", so the cohort
+		// change is refused before the leader is asked to change anything.
+		fakeClient := &rpcclient.FakeClient{}
+		ps := store.NewTestCache(t)
+		placeholder := commonconsensus.NewRuleTransition(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{LeaderId: primaryID},
+		})
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		}, HighestIntendedRule: placeholder})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no consensus rule known")
+		assert.Empty(t, fakeClient.CallLog)
+	})
+
 	t.Run("rejects when the leader does not look able to commit writes", func(t *testing.T) {
 		// A stale health observation fails LeaderWritesProgressing before any
 		// RPC is attempted — distinct from the CAS rejection case below, which

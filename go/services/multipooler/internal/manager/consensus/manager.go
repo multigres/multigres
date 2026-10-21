@@ -666,7 +666,7 @@ func (cm *ConsensusManager) ResetRewindBackoff() {
 
 // IsPotentialCohortMember reports whether selfID is named in the cohort of
 // either the decided rule or an outstanding (not yet decided) proposal at the
-// highest known position.
+// highest intended rule.
 //
 // Checking only whichever of decision/proposal PossiblyUndecidedRule would
 // pick is not safe here: while a newer proposal is still undecided, the

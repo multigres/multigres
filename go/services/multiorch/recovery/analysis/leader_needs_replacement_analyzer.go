@@ -448,7 +448,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// non-ready states are handled by the anti-flap timeout — see intendedLeaderInRecovery.)
 	//
 	// TODO: this is a tactical guard. We are not yet verifying that the leader is
-	// non-revoked on the highest-known coordinator term, so this protects against a
+	// non-revoked on the highest intended coordinator term, so this protects against a
 	// Promote() RPC that was never received. The durable fix is on the pooler side: a
 	// pooler that knows it should be acting as leader would detect in its postgres
 	// monitor that it is in recovery mode and publish that it needs to resign
