@@ -25,7 +25,7 @@ permissions: {}
 jobs:
   test-integration:
     name: Run full integration test suite
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     environment:
       name: ci
       deployment: false
