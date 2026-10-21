@@ -341,7 +341,7 @@ func buildProposalCore(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 		}
-		cohort := outgoingRule.GetCohortMembers()
+		cohort := recruitmentCohort(outgoingRule)
 		if err := CheckSufficientRecruitment(outgoingPolicy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
@@ -358,7 +358,7 @@ func buildProposalCore(
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse durability policy from decision: %w", err)
 			}
-			decisionCohort := decisionRule.GetCohortMembers()
+			decisionCohort := recruitmentCohort(decisionRule)
 			if err := CheckSufficientRecruitment(decisionPolicy, decisionCohort, statusesToIDs(filterCohortStatuses(decisionCohort, recruitedStatuses))); err != nil {
 				return nil, fmt.Errorf("insufficient outgoing decision cohort recruitment: %w", err)
 			}
@@ -433,6 +433,26 @@ func buildProposalCore(
 	}
 
 	return proposal, nil
+}
+
+// recruitmentCohort returns the poolers whose writes rule's commits count: its
+// cohort, plus its leader when the rule was led from outside the cohort. The
+// sync configuration counts the primary's own write toward N, so such a
+// leader can hold a committed write that no cohort quorum acknowledged.
+// Revocation has to treat it as a member, or a recruitment excluding the
+// leader and the standby that acknowledged with it passes and elects a pooler
+// without the write. validateProposal keeps new rules from being led from
+// outside their cohort; this covers rules committed before it did.
+func recruitmentCohort(rule *clustermetadatapb.ShardRule) []*clustermetadatapb.ID {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if leader == nil {
+		return cohort
+	}
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return cohort
+	}
+	return append(slices.Clone(cohort), leader)
 }
 
 // discoverMostAdvancedRulePositions returns every recruit tied at the

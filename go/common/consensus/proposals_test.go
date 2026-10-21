@@ -1490,17 +1490,14 @@ func TestBuildSafeProposal_DeadLeaderRemainsInCohort(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestBuildSafeProposal_LeaderOutsideCohortLosesAckedWrite pins a durability
-// hole in rules whose leader is not a cohort member. The primary's sync
-// configuration counts its own write toward N, so under AT_LEAST_N(2) a write
-// acknowledged by the leader and any one standby is committed. Recruitment
-// counts only cohort members, so a quorum that excludes both the leader and
-// that standby still passes, and elects a leader without the write.
-//
-// This asserts the unsafe outcome so the hole stays visible. Counting a rule's
-// leader as a cohort member in recruitment (MUL-1926) must turn this into a
-// recruitment error, and this test inverted with it.
-func TestBuildSafeProposal_LeaderOutsideCohortLosesAckedWrite(t *testing.T) {
+// TestBuildSafeProposal_LeaderOutsideCohortKeepsAckedWrite covers a rule led
+// from outside its cohort, which validateProposal now refuses but earlier
+// rules may still be. The primary's sync configuration counts its own write
+// toward N, so under AT_LEAST_N(2) a write acknowledged by the leader and one
+// standby is committed. Recruitment counts that leader as a member, so a
+// quorum excluding both it and that standby is refused, and once the standby
+// is recruited its WAL sets the bar.
+func TestBuildSafeProposal_LeaderOutsideCohortKeepsAckedWrite(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	leader := zone1.a
 	cohort := []*clustermetadatapb.ID{zone1.b, zone1.c, zone1.d}
@@ -1515,30 +1512,25 @@ func TestBuildSafeProposal_LeaderOutsideCohortLosesAckedWrite(t *testing.T) {
 		"one standby ack commits a write: the leader's own write is the other")
 	require.ElementsMatch(t, cohort, sync.SyncStandbyIDs)
 
-	// The leader and d acknowledged 0/2000000. The leader is dead and d is
-	// unreachable; b and c never received the write.
-	statuses := []*clustermetadatapb.ConsensusStatus{
-		makeStatusWithLSN(zone1.b, rule, revocation(5, ruleNum(3, 0)), "0/1000000"),
-		makeStatusWithLSN(zone1.c, rule, revocation(5, ruleNum(3, 0)), "0/1000000"),
-	}
+	// The leader and d acknowledged 0/2000000, and the leader is dead. b and c
+	// never received the write.
+	b := makeStatusWithLSN(zone1.b, rule, revocation(5, ruleNum(3, 0)), "0/1000000")
+	c := makeStatusWithLSN(zone1.c, rule, revocation(5, ruleNum(3, 0)), "0/1000000")
+	d := makeStatusWithLSN(zone1.d, rule, revocation(5, ruleNum(3, 0)), "0/2000000")
 	proposedRule := makeRule(ruleNum(5, 0), atLeast(2), cohort...)
 
-	proposal, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, proposeFirstEligible(proposedRule))
+	t.Run("recruiting neither the leader nor d is refused", func(t *testing.T) {
+		_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)),
+			[]*clustermetadatapb.ConsensusStatus{b, c}, proposeFirstEligible(proposedRule))
+		require.ErrorContains(t, err, "insufficient outgoing cohort recruitment")
+	})
 
-	require.NoError(t, err, "recruitment passes without the leader or d")
-	elected := proposal.GetProposalLeader().GetId()
-	require.Contains(t, []string{zone1.b.Name, zone1.c.Name}, elected.GetName(),
-		"the new leader is at 0/1000000, behind the acknowledged write")
-
-	// Control: the same recruitment with the leader in the cohort is refused,
-	// because the unrecruited leader and d could still hold a committed write.
-	inCohort := makeRule(ruleNum(3, 0), atLeast(2), leader, zone1.b, zone1.c, zone1.d)
-	statuses = []*clustermetadatapb.ConsensusStatus{
-		makeStatusWithLSN(zone1.b, inCohort, revocation(5, ruleNum(3, 0)), "0/1000000"),
-		makeStatusWithLSN(zone1.c, inCohort, revocation(5, ruleNum(3, 0)), "0/1000000"),
-	}
-	_, err = BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, proposeFirstEligible(proposedRule))
-	require.ErrorContains(t, err, "insufficient outgoing cohort recruitment")
+	t.Run("recruiting d elects the pooler holding the write", func(t *testing.T) {
+		proposal, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)),
+			[]*clustermetadatapb.ConsensusStatus{b, c, d}, proposeFirstEligible(proposedRule))
+		require.NoError(t, err)
+		assert.Equal(t, zone1.d.Name, proposal.GetProposalLeader().GetId().GetName())
+	})
 }
 
 // TestBuildSafeProposal_LeaderComesFromOutgoingCohort covers the failover
