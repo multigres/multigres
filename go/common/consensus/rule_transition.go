@@ -19,17 +19,13 @@ import (
 )
 
 // RuleTransition is a RulePosition read as a transition: a settled decision and,
-// while a rule change is in flight, the proposal that will replace it. Its
-// methods make the caller say which half it means, instead of reaching into the
-// proto — Decision() and PossiblyUndecidedRule() answer different questions,
-// and mixing them up is how a leader gets named before it has been installed.
+// while a rule change is in flight, the proposal that will replace it. Its methods
+// make the caller say which half it means instead of reaching into the proto;
+// mixing up Decision() and PossiblyUndecidedRule() is how a leader gets named
+// before it has been installed.
 //
-// By convention a RuleTransition is built from an intended-level source: the
-// highest rule anyone has told us of, which includes proposals and positions
-// only advertised through a ReplicationPrimary (see HighestIntendedRule). A raw
-// *RulePosition taken from a pooler's own PoolerPosition is the recorded
-// (in-the-WAL) view; wrapping one is an explicit statement that it is being used
-// as an intended rule.
+// Build one from an intended-level source such as HighestIntendedRule. Wrapping a
+// pooler's own recorded position states that it is being used as an intended rule.
 //
 // The zero value is an empty transition; every method is nil-safe.
 type RuleTransition struct {

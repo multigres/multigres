@@ -101,8 +101,8 @@ type ConsensusManager struct {
 
 	// mu guards replicationPrimary and leaderObservedAt only.
 	mu sync.Mutex
-	// replicationPrimary is held in memory only — see HighestIntendedRule's proto
-	// comment. Populated by RPCs that inform this pooler about the cluster state
+	// replicationPrimary is held in memory only (see the ReplicationPrimary proto
+	// comment). Populated by RPCs that inform this pooler about the cluster state
 	// (SetPrimary today; Promote via the same RecordTermPrimary entry point).
 	// Restarts reset it to nil; coordinators re-inform the pooler. Guarded by mu.
 	replicationPrimary *clustermetadatapb.ReplicationPrimary
@@ -353,7 +353,7 @@ func (cm *ConsensusManager) InconsistentConsensusStatus(ctx context.Context) (*c
 // position plus the recorded replication primary. Any input may be nil; the
 // corresponding field is left unset. Never performs I/O.
 //
-// The published HighestIntendedRule reflects best knowledge from any source: the
+// The published ReplicationPrimary reflects best knowledge from any source: the
 // rule is the max of the observed position's rule and the rule from the most
 // recent SetPrimary/Promote RPC, and the primary is the contact info from that
 // RPC (ObservePosition cannot carry it).
@@ -374,7 +374,7 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 	return status
 }
 
-// statusReplicationPrimary returns the HighestIntendedRule to publish given the most
+// statusReplicationPrimary returns the ReplicationPrimary to publish given the most
 // recent observed position and the most recent rule+primary heard via RPC.
 func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
 	// ruleStorePosition is read fresh from the rule store (the current_rule row

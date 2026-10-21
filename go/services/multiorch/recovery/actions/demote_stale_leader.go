@@ -129,9 +129,9 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 
 	// Identify the rewind target from cached consensus state: the leader named by
 	// the highest intended rule across the shard (the global consensus view, never a
-	// node's local self-claim). That leader may not have promoted yet; the stale
-	// leader is already unable to commit (see StaleLeaderAnalyzer), and the relayed
-	// rewind_ready below defers its pg_rewind until the leader is ready.
+	// node's local self-claim). It may not have promoted yet; that is safe because the
+	// stale leader can no longer commit (see StaleLeaderAnalyzer), and the relayed
+	// rewind_ready defers pg_rewind until the leader is ready.
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	correctLeader, correctRule := members.Leader, members.HighestIntendedRule
 	if correctLeader == nil || correctRule.IsEmpty() {
