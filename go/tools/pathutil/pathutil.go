@@ -102,9 +102,7 @@ func PrependBinToPath() error {
 	// directory the caller owns; the test binary's own profile is unaffected
 	// because it is written via the -test.gocoverdir flag, not the env var.
 	if dir := os.Getenv("MULTIGRES_SUBPROCESS_GOCOVERDIR"); dir != "" {
-		if err := os.Setenv("GOCOVERDIR", dir); err != nil {
-			return fmt.Errorf("failed to set GOCOVERDIR: %w", err)
-		}
+		_ = os.Setenv("GOCOVERDIR", dir)
 	}
 
 	// Check if coverage collection is requested via GOCOVERDIR
