@@ -166,7 +166,7 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x94\x05\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xa3\x04\n" +
 	"\x11PoolerHealthState\x12>\n" +
 	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x127\n" +
 	"\tlast_seen\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12K\n" +
@@ -175,7 +175,7 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\x13availability_status\x18\x11 \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\x12)\n" +
 	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x126\n" +
 	"\x06status\x18\x16 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12:\n" +
-	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceivedJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x15\x10\x16J\x04\b\x18\x10\x19R\x14last_check_attemptedR\x15last_check_successfulR\x16stream_connected_sinceR\x12pooler_captured_atB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceivedB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once

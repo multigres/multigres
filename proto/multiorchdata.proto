@@ -64,10 +64,4 @@ message PoolerHealthState {
 
   // Monotonic counter of health snapshots received on the current or past streams.
   int64 stream_snapshots_received = 23;
-
-  // Fields 4 (last_check_attempted), 5 (last_check_successful), 21
-  // (stream_connected_since) and 24 (pooler_captured_at) were dropped: nothing
-  // read them. We may add any of them back later.
-  reserved 4, 5, 21, 24;
-  reserved "last_check_attempted", "last_check_successful", "stream_connected_since", "pooler_captured_at";
 }
