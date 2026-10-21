@@ -98,5 +98,5 @@ func (sa *Shard) PoolerHealth(id *clustermetadatapb.ID) *multiorchdatapb.PoolerH
 // on reachability. Being named does not make it established or serving: judge that
 // from the returned health.
 func (sa *Shard) IntendedLeaderHealth() *multiorchdatapb.PoolerHealthState {
-	return sa.PoolerHealth(sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
+	return sa.PoolerHealth(sa.HighestIntendedRule().IntendedLeaderID())
 }

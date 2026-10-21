@@ -48,7 +48,7 @@ func ruleNumber(term int64) *clustermetadatapb.RuleNumber {
 func TestShard_NoRuleMeansNoLeader(t *testing.T) {
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{pooler("leader"), pooler("follower")}}
 	assert.True(t, s.HighestIntendedRule().IsEmpty())
-	assert.Nil(t, s.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
+	assert.Nil(t, s.HighestIntendedRule().IntendedLeaderID())
 	assert.Nil(t, s.IntendedLeaderHealth())
 }
 
@@ -64,14 +64,14 @@ func TestShard_IntendedLeaderIsThePoolerTheRuleNames(t *testing.T) {
 	leader := pooler("leader")
 	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNumber(1), LeaderId: podID("leader")}}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{withPosition(pooler("follower"), rule), leader}}
-	assert.Equal(t, "leader", s.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().GetName())
+	assert.Equal(t, "leader", s.HighestIntendedRule().IntendedLeaderID().GetName())
 	assert.Same(t, leader, s.IntendedLeaderHealth())
 }
 
 func TestShard_IntendedLeaderWithoutHealthIsNil(t *testing.T) {
 	rule := &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNumber(1), LeaderId: podID("absent")}}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{withPosition(pooler("follower"), rule)}}
-	require.NotNil(t, s.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
+	require.NotNil(t, s.HighestIntendedRule().IntendedLeaderID())
 	assert.Nil(t, s.IntendedLeaderHealth())
 }
 
@@ -93,5 +93,5 @@ func TestShard_AdvertisedRuleCountsAsIntended(t *testing.T) {
 	follower := withPosition(pooler("follower"), decided)
 	follower.ConsensusStatus.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{Position: advertised}
 	s := &Shard{Poolers: []*multiorchdatapb.PoolerHealthState{follower}}
-	assert.Equal(t, "new", s.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().GetName())
+	assert.Equal(t, "new", s.HighestIntendedRule().IntendedLeaderID().GetName())
 }

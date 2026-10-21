@@ -75,6 +75,12 @@ func (t RuleTransition) PossiblyUndecidedRule() *clustermetadatapb.ShardRule {
 	return PossiblyUndecidedRule(t.pos)
 }
 
+// IntendedLeaderID is the leader the shard is heading to: the one the proposal
+// names if one is outstanding, otherwise the decision's. Nil if there is no rule.
+func (t RuleTransition) IntendedLeaderID() *clustermetadatapb.ID {
+	return t.PossiblyUndecidedRule().GetLeaderId()
+}
+
 // Compare returns negative, zero or positive as t is behind, equal to, or ahead
 // of other. See CompareRulePosition for the ordering.
 func (t RuleTransition) Compare(other RuleTransition) int {

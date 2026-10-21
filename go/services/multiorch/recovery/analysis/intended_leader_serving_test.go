@@ -80,7 +80,7 @@ func TestIntendedLeaderServing_PostgresDown(t *testing.T) {
 	require.NotNil(t, analysis)
 
 	// HighestTermDiscoveredPrimaryID should be set even when postgres is down
-	assert.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
+	assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID())
 	// But PrimaryReachable should be false because postgres is down
 	assert.False(t, intendedLeaderServing(sa), "primary should NOT be serving when postgres is down")
 }
@@ -153,8 +153,8 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		gen := newTestCapture(ps)
 		sa, err := gen.shard(shardKey)
 		require.NoError(t, err)
-		assert.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
-		assert.Equal(t, "primary", sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().Name)
+		assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "demoted primary should still be tracked (primary term > 0)")
+		assert.Equal(t, "primary", sa.HighestIntendedRule().IntendedLeaderID().Name)
 		assert.False(t, intendedLeaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 
@@ -198,8 +198,8 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		gen := newTestCapture(ps)
 		sa, err := gen.shard(shardKey)
 		require.NoError(t, err)
-		assert.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
-		assert.Equal(t, "former-primary", sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().Name)
+		assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "stale-topology former primary should be found via ConsensusStatus")
+		assert.Equal(t, "former-primary", sa.HighestIntendedRule().IntendedLeaderID().Name)
 		assert.False(t, intendedLeaderServing(sa), "demoted primary reporting REPLICA should not be serving")
 	})
 }
@@ -249,8 +249,8 @@ func TestIntendedLeaderServing_LeaderAbsentFromStore(t *testing.T) {
 	sa, err := gen.shard(shardKey)
 	require.NoError(t, err)
 
-	require.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId(), "consensus must still identify the leader")
-	assert.Equal(t, "absent-leader", sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().Name)
+	require.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "consensus must still identify the leader")
+	assert.Equal(t, "absent-leader", sa.HighestIntendedRule().IntendedLeaderID().Name)
 	assert.Nil(t, sa.IntendedLeaderHealth(), "no health state exists for the named leader")
 	assert.False(t, intendedLeaderServing(sa), "a leader with no health cannot be serving")
 }
@@ -347,8 +347,8 @@ func TestIntendedLeaderServing_HighestRuleLeader(t *testing.T) {
 	// The shard-level topology primary must point to the new (correct) primary, not the stale one.
 	// If it pointed to the stale primary (postgres dead), PrimaryReachable would be false
 	// and LeaderIsDeadAnalyzer would falsely trigger a new election.
-	require.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
-	assert.Equal(t, "new-primary", sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().Name,
+	require.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID())
+	assert.Equal(t, "new-primary", sa.HighestIntendedRule().IntendedLeaderID().Name,
 		"should pick primary with highest PrimaryTerm")
 	assert.True(t, intendedLeaderServing(sa),
 		"primary must appear reachable when new primary has postgres running")

@@ -64,7 +64,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// yet. A newer rule, even one only proposed, exists only after its coordinator
 	// recruited (and so revoked) enough of the previous cohort that earlier leaders
 	// can no longer commit.
-	leaderID := sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId()
+	leaderID := sa.HighestIntendedRule().IntendedLeaderID()
 	if leaderID == nil {
 		return nil, nil
 	}

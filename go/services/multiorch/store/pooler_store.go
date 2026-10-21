@@ -111,7 +111,7 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 	}
 
 	rule := commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule(statuses))
-	leaderID := rule.PossiblyUndecidedRule().GetLeaderId()
+	leaderID := rule.IntendedLeaderID()
 
 	var leader *Pooler
 	if leaderID != nil {

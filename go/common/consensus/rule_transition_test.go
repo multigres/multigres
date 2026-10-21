@@ -38,6 +38,7 @@ func TestRuleTransition_ZeroValueIsEmpty(t *testing.T) {
 	assert.Nil(t, zero.Decision())
 	assert.Nil(t, zero.Proposal())
 	assert.Nil(t, zero.PossiblyUndecidedRule())
+	assert.Nil(t, zero.IntendedLeaderID())
 	assert.Equal(t, "none", zero.String())
 }
 
@@ -72,6 +73,7 @@ func TestRuleTransition_Decided(t *testing.T) {
 	assert.Same(t, pos.Decision, tr.Decision())
 	assert.Nil(t, tr.Proposal())
 	assert.Same(t, pos.Decision, tr.PossiblyUndecidedRule())
+	assert.Equal(t, "a", tr.IntendedLeaderID().GetName())
 	assert.Equal(t, "5.0", tr.String())
 }
 
@@ -83,7 +85,7 @@ func TestRuleTransition_UndecidedNamesTheProposal(t *testing.T) {
 	assert.Same(t, pos.Decision, tr.Decision())
 	assert.Same(t, pos.Proposal, tr.Proposal())
 	assert.Same(t, pos.Proposal, tr.PossiblyUndecidedRule())
-	assert.Equal(t, "new", tr.PossiblyUndecidedRule().GetLeaderId().GetName())
+	assert.Equal(t, "new", tr.IntendedLeaderID().GetName())
 	assert.Equal(t, "old", tr.Decision().GetLeaderId().GetName())
 	assert.Equal(t, "5.0 proposal=6.0", tr.String())
 }

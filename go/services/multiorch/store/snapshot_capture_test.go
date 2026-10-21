@@ -329,7 +329,7 @@ func TestSnapshotShards_Replica(t *testing.T) {
 	assert.Equal(t, 1, leaders)
 
 	// Primary health is now a shard-level field
-	assert.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId(), "should have topology primary ID populated")
+	assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "should have topology primary ID populated")
 }
 
 func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
@@ -457,7 +457,7 @@ func TestSnapshotShard_NoLeaderInShard(t *testing.T) {
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil.
-	assert.Nil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
+	assert.Nil(t, sa.HighestIntendedRule().IntendedLeaderID())
 }
 
 // TestSnapshotShard_StaleLeaderSupersededViaFollowerRule is a regression
@@ -505,8 +505,8 @@ func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
 	sa, err := gen.shard(shardKey)
 	require.NoError(t, err)
 
-	require.NotNil(t, sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId())
-	assert.Equal(t, "new-leader", sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().Name,
+	require.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID())
+	assert.Equal(t, "new-leader", sa.HighestIntendedRule().IntendedLeaderID().Name,
 		"the leader named by the follower's higher-term rule must win over the stale self-claiming leader")
 	assert.Equal(t, int64(6), sa.HighestIntendedRule().PossiblyUndecidedRule().GetRuleNumber().GetCoordinatorTerm())
 	assert.Nil(t, sa.IntendedLeaderHealth(), "the new leader has no health state yet, so Leader is nil")
@@ -519,7 +519,7 @@ func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
 	// analysis. Leadership is the highest known consensus rule, regardless of
 	// reachability.
 	leaderOf := func(sa *snapshot.Shard) (string, int64) {
-		return sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId().GetName(), sa.HighestIntendedRule().PossiblyUndecidedRule().GetRuleNumber().GetCoordinatorTerm()
+		return sa.HighestIntendedRule().IntendedLeaderID().GetName(), sa.HighestIntendedRule().PossiblyUndecidedRule().GetRuleNumber().GetCoordinatorTerm()
 	}
 
 	t.Run("highest-rule primary wins among two", func(t *testing.T) {
