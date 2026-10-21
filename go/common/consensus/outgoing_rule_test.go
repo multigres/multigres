@@ -735,3 +735,98 @@ func TestRecruitmentCohort(t *testing.T) {
 		assert.Equal(t, zone1.b, backing[0], "the result does not share the rule's cohort storage")
 	})
 }
+
+// An out-of-cohort leader holds a committed write the recruits may lack only
+// while it, with the cohort members that are not recruited, could satisfy the
+// rule's policy.
+func TestObservedOutgoingRule_LeaderMayHoldCommit(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 0))
+	cohort := []*clustermetadatapb.ID{zone1.b, zone1.c, zone1.d}
+
+	observe := func(rule *clustermetadatapb.ShardRule, recruited ...*clustermetadatapb.ID) observedOutgoingRule {
+		var statuses []*clustermetadatapb.ConsensusStatus
+		for _, id := range recruited {
+			statuses = append(statuses, makeStatus(id, rule, rev))
+		}
+		return observedOutgoingRule{
+			recruited:  statuses,
+			transition: NewRuleTransition(&clustermetadatapb.RulePosition{Decision: rule}),
+		}
+	}
+	outside := func(policy *clustermetadatapb.DurabilityPolicy) *clustermetadatapb.ShardRule {
+		rule := makeRule(ruleNum(3, 0), policy, cohort...)
+		rule.LeaderId = zone1.a
+		return rule
+	}
+
+	t.Run("a leader inside its cohort is a member, not an extra writer", func(t *testing.T) {
+		rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+
+		may, err := observe(rule, zone1.b).leaderMayHoldCommit(rule)
+
+		require.NoError(t, err)
+		assert.False(t, may)
+	})
+
+	t.Run("an unrecruited member could have acknowledged with the leader", func(t *testing.T) {
+		rule := outside(atLeast(2))
+
+		may, err := observe(rule, zone1.b, zone1.c).leaderMayHoldCommit(rule)
+
+		require.NoError(t, err)
+		assert.True(t, may)
+	})
+
+	t.Run("every member that could have acknowledged is recruited", func(t *testing.T) {
+		rule := outside(atLeast(2))
+
+		may, err := observe(rule, zone1.b, zone1.c, zone1.d).leaderMayHoldCommit(rule)
+
+		require.NoError(t, err)
+		assert.False(t, may)
+	})
+
+	t.Run("an unparseable policy is an error", func(t *testing.T) {
+		rule := outside(nil)
+
+		_, err := observe(rule, zone1.b).leaderMayHoldCommit(rule)
+
+		require.ErrorContains(t, err, "failed to parse durability policy from rule")
+	})
+}
+
+// A leader outside the outgoing cohort sets the failover bar only while it may
+// hold a commit.
+func TestRevokedOutgoingRule_OutOfCohortLeaderBar(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 0))
+	cohort := []*clustermetadatapb.ID{zone1.b, zone1.c, zone1.d}
+	rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+	rule.LeaderId = zone1.a
+
+	t.Run("a leader that may hold a commit sets the bar and no member meets it", func(t *testing.T) {
+		revoked := mustProveRevoked(t, []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithLSN(zone1.a, rule, rev, "0/3000000"),
+			makeStatusWithLSN(zone1.b, rule, rev, "0/1000000"),
+			makeStatusWithLSN(zone1.c, rule, rev, "0/1000000"),
+		}, ruleNum(3, 0), revocationBasis{})
+
+		_, err := revoked.eligibleLeaders()
+
+		require.ErrorContains(t, err, "is the only recruit at the most advanced LSN")
+	})
+
+	t.Run("an unparseable policy fails the bar", func(t *testing.T) {
+		bad := makeRule(ruleNum(3, 0), nil, cohort...)
+		bad.LeaderId = zone1.a
+		revoked := revokedOutgoingRule{observedOutgoingRule{
+			recruited:  []*clustermetadatapb.ConsensusStatus{makeStatus(zone1.b, bad, rev)},
+			transition: NewRuleTransition(&clustermetadatapb.RulePosition{Decision: bad}),
+		}}
+
+		_, err := revoked.minimumLeaderPosition()
+
+		require.ErrorContains(t, err, "failed to parse durability policy from rule")
+	})
+}

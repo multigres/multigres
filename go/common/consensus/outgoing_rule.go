@@ -258,12 +258,15 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 // and revocation count only cohort members, while the sync configuration counts
 // the primary toward N, so a leader outside the cohort could commit a write that
 // a passing recruitment does not hold. The bar is set by the recruits that record
-// the outgoing rule and are either cohort members or the rule's own leader. Any
-// other non-member's extra WAL was never counted toward a commit, so it must not
-// raise the bar a member has to meet. The outgoing leader's was: a rule already
-// led from outside its cohort committed with the leader's own write as one of N,
-// so a member behind that leader may lack a committed write, and failover fails
-// closed rather than elect it.
+// the outgoing rule and are cohort members, and by the rule's own leader when its
+// extra WAL could be committed. Any other non-member's WAL was never counted
+// toward a commit, so it must not raise the bar a member has to meet. A rule
+// already led from outside its cohort committed with the leader's own write as
+// one of N, so its leader's WAL can be committed with the acknowledgment of a
+// member that is not recruited, and a member behind it may lack that write:
+// failover then fails closed rather than elect it. Once every member that could
+// have acknowledged with the leader is recruited and none holds the write, it was
+// never committed, and failing closed would only wait forever for nothing.
 //
 // Under a cert the incoming cohort is named by the proposal and validateProposal
 // requires its leader to be in it, so every recruit sets the bar.
@@ -275,7 +278,13 @@ func (r observedOutgoingRule) barSetters() ([]*clustermetadatapb.ConsensusStatus
 	cohort := rule.GetCohortMembers()
 	setters := cohort
 	if leader := rule.GetLeaderId(); leader != nil {
-		setters = append(slices.Clone(cohort), leader)
+		mayHoldCommit, err := r.leaderMayHoldCommit(rule)
+		if err != nil {
+			return nil, err
+		}
+		if mayHoldCommit {
+			setters = append(slices.Clone(cohort), leader)
+		}
 	}
 	atOutgoing := filterCohortStatuses(setters, r.recruitsRecordingRule())
 	if len(filterCohortStatuses(cohort, atOutgoing)) == 0 {
@@ -374,4 +383,23 @@ func recruitmentCohort(rule *clustermetadatapb.ShardRule) []*clustermetadatapb.I
 		return cohort
 	}
 	return append(slices.Clone(cohort), leader)
+}
+
+// leaderMayHoldCommit reports whether rule's leader, if outside its cohort, could
+// hold a committed write that no recruited member has: whether the leader together
+// with the unrecruited cohort members could satisfy the rule's durability policy.
+// A leader inside its cohort is a member and sets the bar as one, so this returns
+// false for it.
+func (r observedOutgoingRule) leaderMayHoldCommit(rule *clustermetadatapb.ShardRule) (bool, error) {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return false, nil
+	}
+	policy, err := NewPolicyFromProto(rule.GetDurabilityPolicy())
+	if err != nil {
+		return false, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	unrecruited := unrecruitedOf(cohort, statusesToIDs(filterCohortStatuses(cohort, r.recruited)))
+	return policy.SatisfiedBy(append(unrecruited, leader)) == nil, nil
 }
