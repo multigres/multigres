@@ -161,7 +161,9 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// setRuleCreatedNow marks the leadership rule as freshly created, so the
 	// promotion grace window is in effect.
 	setRuleCreatedNow := func(sa *snapshot.Shard) {
-		sa.HighestIntendedRule().Position().Decision.CreationTime = timestamppb.New(sa.Now)
+		editRule(sa, func(rule *clustermetadatapb.RulePosition) {
+			rule.Decision.CreationTime = timestamppb.New(sa.Now)
+		})
 	}
 
 	// setRuleUndecided models a genuine leadership transition still in
@@ -176,14 +178,15 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// quorum-gated, so it can't complete while a required standby is still
 	// catching up).
 	setRuleUndecided := func(sa *snapshot.Shard) {
-		decision := sa.HighestIntendedRule().Position().Decision
-		proposal := proto.Clone(decision).(*clustermetadatapb.ShardRule) // still names leaderID here
-		proposal.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
-		proposal.CreationTime = timestamppb.New(sa.Now)
-		sa.HighestIntendedRule().Position().Proposal = proposal
+		editRule(sa, func(rule *clustermetadatapb.RulePosition) {
+			proposal := proto.Clone(rule.Decision).(*clustermetadatapb.ShardRule) // still names leaderID here
+			proposal.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+			proposal.CreationTime = timestamppb.New(sa.Now)
+			rule.Proposal = proposal
 
-		decision.LeaderId = priorLeaderID
-		decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}
+			rule.Decision.LeaderId = priorLeaderID
+			rule.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}
+		})
 	}
 
 	// setLeaderPGRunning / setLeaderLastReady / setLeaderPromoting drive the
@@ -816,7 +819,9 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// no ShardAtRisk fires (it would otherwise fire forever for any minimum-size
 		// cohort, e.g. the spurious-failover-recovery e2e scenario).
 		sa := deadLeaderShard(func(sa *snapshot.Shard) {
-			sa.HighestIntendedRule().Position().Decision.CohortMembers = []*clustermetadatapb.ID{leaderID, follower1ID}
+			editRule(sa, func(rule *clustermetadatapb.RulePosition) {
+				rule.Decision.CohortMembers = []*clustermetadatapb.ID{leaderID, follower1ID}
+			})
 			dropFollower(sa, follower2ID)
 			setLeaderLive(sa, true)
 			setLeaderPGReady(sa, true)
@@ -831,7 +836,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// A rule with cohort members but no designated leader needs one recruited.
 		// Both followers are reachable, so recruitment is feasible and actionable.
 		sa := deadLeaderShard(func(sa *snapshot.Shard) {
-			sa.HighestIntendedRule().Position().Decision.LeaderId = nil
+			editRule(sa, func(rule *clustermetadatapb.RulePosition) { rule.Decision.LeaderId = nil })
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -846,8 +851,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// An empty cohort with no leader is the initial, unbootstrapped rule —
 		// ShardNeedsInitialization owns that, so this analyzer does nothing.
 		sa := deadLeaderShard(func(sa *snapshot.Shard) {
-			sa.HighestIntendedRule().Position().Decision.LeaderId = nil
-			sa.HighestIntendedRule().Position().Decision.CohortMembers = nil
+			editRule(sa, func(rule *clustermetadatapb.RulePosition) {
+				rule.Decision.LeaderId = nil
+				rule.Decision.CohortMembers = nil
+			})
 		})
 
 		problems, err := analyzer.Analyze(sa)

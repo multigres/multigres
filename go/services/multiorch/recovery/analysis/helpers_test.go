@@ -18,6 +18,8 @@ import (
 	"slices"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
@@ -70,6 +72,13 @@ func newTestShard(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, lead
 	}
 	setRule(sa, rule)
 	return sa
+}
+
+// editRule applies fn to a copy of the shard's published rule and republishes it.
+func editRule(sa *snapshot.Shard, fn func(*clustermetadatapb.RulePosition)) {
+	rule := proto.Clone(sa.HighestIntendedRule().Position()).(*clustermetadatapb.RulePosition)
+	fn(rule)
+	setRule(sa, rule)
 }
 
 // setRule replaces the shard's published rule; nil clears it.
