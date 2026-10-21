@@ -180,16 +180,20 @@ func (l *LocalPooler) isLocal(pooler *clustermetadatapb.Multipooler) bool {
 // NewPoolerGateway constructs a PoolerGateway along with its underlying
 // pooler cache and load balancer.
 func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
+	// The gateway finds poolers in the topology, unless it is given its local
+	// pooler's record: then it uses that pooler and does not watch the topology.
 	var filter func(*clustermetadatapb.Multipooler) bool
+	source := opts.Source
 	var poolers []*clustermetadatapb.Multipooler
 	if opts.LocalPooler != nil {
 		filter = opts.LocalPooler.isLocal
 		if opts.LocalPooler.Record != nil {
+			source = nil
 			poolers = []*clustermetadatapb.Multipooler{opts.LocalPooler.Record()}
 		}
 	}
 	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
-		Source:  opts.Source,
+		Source:  source,
 		Poolers: poolers,
 		Filter:  filter,
 		// LastReachedTimestamp is a no-op under the gateway's current

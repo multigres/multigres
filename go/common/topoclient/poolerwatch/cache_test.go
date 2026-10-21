@@ -865,3 +865,15 @@ func TestCache_PoolersKnownUpFront(t *testing.T) {
 	c.Shutdown()
 	assert.Len(t, rec.snapshot(), 2, "Shutdown disposes of the pooler")
 }
+
+func TestCache_SourceAndPoolersAreMutuallyExclusive(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	defer ts.Close()
+	assert.PanicsWithValue(t, "poolerwatch: Config.Source and Config.Poolers are mutually exclusive", func() {
+		New(t.Context(), Config[*testRider]{
+			Source:  ts,
+			Poolers: []*clustermetadatapb.Multipooler{pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)},
+			Logger:  silentLogger(),
+		})
+	})
+}
