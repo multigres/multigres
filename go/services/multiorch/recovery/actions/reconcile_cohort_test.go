@@ -41,7 +41,6 @@ func TestReconcileCohortAction_Metadata(t *testing.T) {
 	assert.Equal(t, "ReconcileCohort", md.Name)
 	assert.True(t, md.Retryable)
 	assert.True(t, action.RequiresHealthyLeader())
-	assert.Nil(t, action.GracePeriod())
 }
 
 func TestReconcileCohortAction_Execute(t *testing.T) {

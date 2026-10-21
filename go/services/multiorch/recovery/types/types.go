@@ -225,12 +225,6 @@ func (p Problem) EntityID() string {
 	return string(commontypes.FormatShardKey(p.ShardKey))
 }
 
-// GracePeriodConfig holds grace period settings for recovery actions.
-type GracePeriodConfig struct {
-	BaseDelay time.Duration
-	MaxJitter time.Duration
-}
-
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
 // pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
@@ -260,10 +254,6 @@ type RecoveryAction interface {
 	// This provides an extra guardrail to avoid accidental operations on replicas
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
-
-	// GracePeriod returns the grace period configuration for this action.
-	// Returns nil if no grace period is needed (action executes immediately).
-	GracePeriod() *GracePeriodConfig
 }
 
 // RecoveryMetadata describes the recovery action.
