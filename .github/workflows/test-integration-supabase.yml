@@ -50,6 +50,14 @@ jobs:
       - name: Build integration test runner image
         run: .github/scripts/build-supabase-postgres-test-image.sh
 
+      # The test container runs as the image's postgres user, which does not
+      # own the bind-mounted checkout or Go cache (both owned by the runner
+      # user), so make them writable for it.
+      - name: Make workspace writable for the container user
+        run: |
+          mkdir -p /tmp/go-cache
+          chmod -R a+rwX "${GITHUB_WORKSPACE}" /tmp/go-cache
+
       - name: Run integration tests
         id: integration-tests
         # continue-on-error lets the Trunk upload step below gate the job
