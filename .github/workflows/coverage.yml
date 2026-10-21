@@ -19,14 +19,72 @@ on:
     branches: [main]
 permissions: {}
 jobs:
+  verify-coverage-split:
+    name: Verify coverage package split
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      # coverage-direct below splits Multigres's ./... into unit/multiorch/rest
+      # groups by grep-excluding go/test/endtoend/ (unit) and
+      # go/test/endtoend/multiorch (rest), rather than an enumerated list, so
+      # every current and future package lands in exactly one group
+      # automatically. This checks that the three grep patterns actually
+      # partition `go list ./...` exactly, with no gap and no overlap,
+      # catching a regex mistake rather than a forgotten list update.
+      - name: Verify unit/multiorch/rest partition covers go list ./... exactly
+        shell: bash
+        run: |
+          set -o pipefail
+          all_sorted=$(go list ./... | sort -u)
+          all_count=$(echo "$all_sorted" | wc -l)
+          raw=$(
+            go list ./... | grep -v '/go/test/endtoend\(/\|$\)'
+            go list ./go/test/endtoend/multiorch/...
+            go list ./go/test/endtoend/... | grep -v '/go/test/endtoend/multiorch\(/\|$\)'
+          )
+          raw_count=$(echo "$raw" | wc -l)
+          dedup_sorted=$(echo "$raw" | sort -u)
+
+          # A gap would make dedup_sorted != all_sorted (something in
+          # go list ./... missing from the union). An overlap (the same
+          # package landing in two groups, as happened with the bare
+          # go/test/endtoend package before this check existed) wouldn't
+          # show up in that comparison, since sort -u absorbs the duplicate,
+          # so check raw_count against all_count too: if a package is
+          # double-counted, raw_count will exceed all_count even though the
+          # deduped sets match.
+          if [ "$dedup_sorted" != "$all_sorted" ]; then
+            echo "::error::coverage.yml's unit/multiorch/rest package split has a gap: some package in 'go list ./...' isn't covered by any group. Check the grep patterns in coverage.yml."
+            diff <(echo "$all_sorted") <(echo "$dedup_sorted")
+            exit 1
+          fi
+          if [ "$raw_count" -ne "$all_count" ]; then
+            echo "::error::coverage.yml's unit/multiorch/rest package split has an overlap: $raw_count package entries across the three groups but only $all_count unique packages. Some package is landing in more than one group (will run twice and skew timing). Check the grep patterns in coverage.yml."
+            echo "$raw" | sort | uniq -d
+            exit 1
+          fi
+          echo "Partition OK: $all_count packages covered exactly once across unit/multiorch/rest."
+
   coverage-direct:
-    # Runs against Multigres and, under the topology switch, against a single
-    # Minigres process; the Multigres entry keeps the original check name.
-    name: ${{ matrix.topology == 'minigres' && 'Direct test coverage (Minigres)' || 'Direct test coverage' }}
+    # Multigres only; coverage-direct-minigres below covers Minigres, which
+    # is small enough that it doesn't need splitting. unit/multiorch/rest
+    # exist so that the slowest end-to-end package (multiorch, ~21 min
+    # uninstrumented) doesn't set the ceiling for every other package; see
+    # verify-coverage-split for why the split is grep-based, not enumerated.
+    name: Direct test coverage (${{ matrix.group }})
+    needs: verify-coverage-split
     strategy:
       fail-fast: false
       matrix:
-        topology: [multigres, minigres]
+        group: [unit, multiorch, rest]
     runs-on: ubuntu-24.04
     permissions:
       checks: write
@@ -56,17 +114,31 @@ jobs:
       # which preserves coverage correctness at the cost of one extra full
       # pass on a flake. test-short / test-race / test-integration handle
       # per-package retries and feed the flake aggregator; coverage just
-      # needs to converge on a clean profile without manual restarts.
+      # needs to converge on a clean profile without manual restarts. Each
+      # group below writes its own -coverprofile, so a retry in one group
+      # never touches another group's coverage.
       - name: Run tests with direct coverage
         shell: bash
         env:
-          # Minigres runs the packages that run against it in
-          # test-integration.yml; Multigres runs everything.
-          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
-          TEST_PACKAGES: ${{ matrix.topology == 'minigres' && './go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/' || './...' }}
+          MULTIGRES_E2E_TOPOLOGY: multigres
+          GROUP: ${{ matrix.group }}
         run: |
           set -o pipefail
-          read -ra packages <<<"$TEST_PACKAGES"
+          case "$GROUP" in
+            unit)
+              mapfile -t packages < <(go list ./... | grep -v '/go/test/endtoend\(/\|$\)')
+              ;;
+            multiorch)
+              mapfile -t packages < <(go list ./go/test/endtoend/multiorch/...)
+              ;;
+            rest)
+              mapfile -t packages < <(go list ./go/test/endtoend/... | grep -v '/go/test/endtoend/multiorch\(/\|$\)')
+              ;;
+            *)
+              echo "::error::unknown coverage group '$GROUP'"
+              exit 1
+              ;;
+          esac
           attempt=1
           max_attempts=3
           while [ $attempt -le $max_attempts ]; do
@@ -100,14 +172,88 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: coverage-direct${{ matrix.topology == 'minigres' && '-minigres' || '' }}
+          name: coverage-direct-${{ matrix.group }}
           path: coverage-direct.txt
           retention-days: 7
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
-          name: Direct Coverage Tests${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
+          name: Direct Coverage Tests (${{ matrix.group }})
+          path: coverage-direct-test-results.jsonl
+          reporter: golang-json
+
+  coverage-direct-minigres:
+    # Minigres runs only the packages that run against it in
+    # test-integration.yml; it's already small enough not to need splitting.
+    name: Direct test coverage (Minigres)
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+      - name: Build
+        run: make build
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
+      # See coverage-direct above for why whole-suite retry is required.
+      - name: Run tests with direct coverage
+        shell: bash
+        env:
+          MULTIGRES_E2E_TOPOLOGY: minigres
+          TEST_PACKAGES: "./go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/"
+        run: |
+          set -o pipefail
+          read -ra packages <<<"$TEST_PACKAGES"
+          attempt=1
+          max_attempts=3
+          while [ $attempt -le $max_attempts ]; do
+            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression \
+                -cover -covermode=atomic \
+                -coverprofile=coverage-direct.txt \
+                -coverpkg=./... "${packages[@]}" \
+                | tee coverage-direct-test-results.jsonl \
+                | go tool tparse -follow ; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::coverage tests failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::coverage attempt $attempt failed; retrying"
+            attempt=$((attempt + 1))
+          done
+
+      - name: Stop port pool server
+        run: kill "$PORT_POOL_PID" || true
+      - name: Write timing summary
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/testtiming/summary coverage-direct-test-results.jsonl
+      - name: Upload direct coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: coverage-direct-minigres
+          path: coverage-direct.txt
+          retention-days: 7
+      - name: Test Report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Direct Coverage Tests (Minigres)
           path: coverage-direct-test-results.jsonl
           reporter: golang-json
   coverage-subprocess:
@@ -202,7 +348,7 @@ jobs:
   merge-and-upload:
     name: Merge coverage and upload
     runs-on: ubuntu-24.04
-    needs: [coverage-direct, coverage-subprocess]
+    needs: [coverage-direct, coverage-direct-minigres, coverage-subprocess]
     if: always()
     environment:
       name: ci
@@ -254,7 +400,13 @@ jobs:
   coveralls-finish:
     name: Finish Coveralls upload
     runs-on: ubuntu-24.04
-    needs: [coverage-direct, coverage-subprocess, merge-and-upload]
+    needs:
+      [
+        coverage-direct,
+        coverage-direct-minigres,
+        coverage-subprocess,
+        merge-and-upload,
+      ]
     permissions:
       pull-requests: write
     steps:
