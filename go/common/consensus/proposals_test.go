@@ -1608,6 +1608,26 @@ func TestBuildSafeProposal_LeaderComesFromOutgoingCohort(t *testing.T) {
 		require.ErrorContains(t, err, "is the only recruit at the most advanced LSN")
 	})
 
+	t.Run("outgoing leader ahead of every member, all members recruited", func(t *testing.T) {
+		// No member holds 0/2000000 and none is missing, so no member
+		// acknowledged it and e's write was never committed. Waiting for e
+		// would wait forever; a member is elected and e is rewound.
+		statuses := append(outsideLedStatuses("0/2000000"),
+			makeStatusWithLSN(zone1.a, outsideLed, revocation(5, ruleNum(3, 0)), "0/1000000"))
+		var eligible []string
+		build := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			for _, cs := range r.EligibleLeaders {
+				eligible = append(eligible, cs.GetId().GetName())
+			}
+			return proposeFirstEligible(proposedRule)(r)
+		}
+
+		_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, build)
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{zone1.a.Name, zone1.b.Name, zone1.c.Name}, eligible)
+	})
+
 	t.Run("only a non-member holds the most advanced position", func(t *testing.T) {
 		// A REMOVE of d is stuck: only d holds the undecided proposal, so d is
 		// the only recruit at the top position and is not in the cohort that

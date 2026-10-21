@@ -370,12 +370,16 @@ func buildProposalCore(
 	// sync configuration counts the primary toward N, so a leader outside the
 	// cohort can commit a write that a passing recruitment does not hold.
 	//
-	// The LSN bar is set by the cohort members and the outgoing rule's leader.
-	// Any other non-member's extra WAL was never counted toward a commit, so it
-	// must not raise the bar a member has to meet. The outgoing leader's was: a
-	// rule already led from outside its cohort committed with the leader's own
-	// write as one of N, so a member behind that leader may lack a committed
-	// write, and failover fails closed rather than elect it.
+	// The LSN bar is set by the cohort members, and by the outgoing rule's
+	// leader when its extra WAL could be committed. Any other non-member's WAL
+	// was never counted toward a commit, so it must not raise the bar a member
+	// has to meet. A rule already led from outside its cohort committed with
+	// the leader's own write as one of N, so its leader's WAL can be committed
+	// with the acknowledgment of a member that is not recruited, and a member
+	// behind it may lack that write: failover then fails closed rather than
+	// elect it. Once every member that could have acknowledged with the leader
+	// is recruited and none holds the write, it was never committed, and
+	// failing closed would only wait forever for nothing.
 	//
 	// The externally-certified path names its own incoming cohort, and
 	// validateProposal requires its leader to be in it.
@@ -384,7 +388,13 @@ func buildProposalCore(
 		cohort := outgoingRule.GetCohortMembers()
 		barSetters := cohort
 		if leader := outgoingRule.GetLeaderId(); leader != nil {
-			barSetters = append(slices.Clone(cohort), leader)
+			mayHoldCommit, err := leaderMayHoldCommit(outgoingRule, recruitedStatuses)
+			if err != nil {
+				return nil, err
+			}
+			if mayHoldCommit {
+				barSetters = append(slices.Clone(cohort), leader)
+			}
 		}
 		atTop := filterCohortStatuses(barSetters, mostAdvanced)
 		if len(filterCohortStatuses(cohort, atTop)) == 0 {
@@ -433,6 +443,25 @@ func buildProposalCore(
 	}
 
 	return proposal, nil
+}
+
+// leaderMayHoldCommit reports whether rule's leader, if outside its cohort,
+// could hold a committed write that no recruited member has: whether the
+// leader together with the unrecruited cohort members could satisfy the
+// rule's durability policy. A leader inside its cohort is a member and sets
+// the bar as one, so this returns false for it.
+func leaderMayHoldCommit(rule *clustermetadatapb.ShardRule, recruited []*clustermetadatapb.ConsensusStatus) (bool, error) {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return false, nil
+	}
+	policy, err := NewPolicyFromProto(rule.GetDurabilityPolicy())
+	if err != nil {
+		return false, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	unrecruited := unrecruitedOf(cohort, statusesToIDs(filterCohortStatuses(cohort, recruited)))
+	return policy.SatisfiedBy(append(unrecruited, leader)) == nil, nil
 }
 
 // recruitmentCohort returns the poolers whose writes rule's commits count: its
