@@ -78,13 +78,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		// Short grace period: this test hard-kills the primary, so there is no
-		// transient blip for the grace to guard against — it only delays a failover
-		// that must happen. A short window exercises the fast-failover path the HA
-		// design targets without changing anything the test asserts (correctness comes
-		// from consensus gating, not the wait). Jitter is kept to still de-sync the
-		// three orchestrators.
-		shardsetup.WithLeaderFailoverGracePeriod("2s", "2s"),
 	)
 	defer cleanup()
 
@@ -171,8 +164,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
-		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
-		// several seconds for failover execution (Recruit + Promote).
+		// plus several seconds for failover execution (Recruit + Promote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
@@ -184,9 +176,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err)
 		primaryManagerClient.Close()
 
-		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
-		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
-		// before the next iteration begins — otherwise the grace period would carry over.
+		// Wait for multiorch to fully resolve StalePrimary for the killed node
+		// (pg_rewind + rejoin) before the next iteration begins.
 		// 45s budget: stale-primary demotion (via SetPrimary) is synchronous and
 		// includes a 5s drain + up to ~15s pg_rewind + ~5s postgres restart on slow CI.
 		setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
@@ -488,7 +479,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Verify the leader appointments themselves were fast. The coordinator stamps
 	// each successful promotion with recruit_ms (Run start → leader selected) and
 	// promote_ms (leader selected → commit), measuring the appointment itself —
-	// independent of the (much larger) detection + grace-period cost that precedes
+	// independent of the (much larger) failure-detection cost that precedes
 	// it. Tracking the two phases separately matters because they can slow down
 	// for different reasons: a laggy node during recruit vs. a slow postgres
 	// promotion during promote. Any of the multiorchs may have been coordinator
@@ -507,7 +498,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Per-phase regression guards, separate because the phases have very
 		// different baselines and failure modes. Both exclude the failure-
-		// detection grace period that dominates the test's overall 30s budget.
+		// detection delay that dominates the test's overall 30s budget.
 		//
 		// Recruit needs a few round trips + WAL replay stabilizing.
 		// Promote needs pg_promote() to succeed and the rule entry to replicate.

@@ -103,11 +103,10 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		}, highestPosition, leaderHealth())
 	}
 
-	// noGraceFactory treats a revocation as abandoned immediately (grace 0).
-	noGraceFactory := NewRecoveryActionFactory(config.NewTestConfig(), store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
+	factory := NewRecoveryActionFactory(config.NewTestConfig(), store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
 
 	t.Run("detects a stranded over-recruited follower", func(t *testing.T) {
-		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
 		problems, err := analyzer.Analyze(newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true)))
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
@@ -132,19 +131,16 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores follower that already caught up to the revoked term", func(t *testing.T) {
-		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
 		// Own rule reached term 2: no longer self-revoked.
 		problems, err := analyzer.Analyze(newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(2, 0), true)))
 		require.NoError(t, err)
 		require.Empty(t, problems)
 	})
 
-	t.Run("ignores follower within the failover grace window", func(t *testing.T) {
-		graceFactory := NewRecoveryActionFactory(
-			config.NewTestConfig(config.WithLeaderFailoverGracePeriodBase(10*time.Second)),
-			store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
-		analyzer := &RecruitAbandonedAnalyzer{factory: graceFactory}
-		// Revocation issued just now, well inside the 10s grace: a legit failover
+	t.Run("ignores follower within the recruit-abandoned threshold", func(t *testing.T) {
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
+		// Revocation issued just now, inside RecruitAbandonedAfter: a legit failover
 		// may still be completing.
 		problems, err := analyzer.Analyze(newSA(strandedFollower(now, ruleLedBy(1, 0), true)))
 		require.NoError(t, err)
@@ -152,7 +148,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores uninitialized follower", func(t *testing.T) {
-		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
 		problems, err := analyzer.Analyze(newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), false)))
 		require.NoError(t, err)
 		require.Empty(t, problems)
@@ -161,7 +157,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores when the highest known position has an undecided proposal", func(t *testing.T) {
 		// A coordinator (possibly a different orchestrator) is actively working
 		// on this term right now; don't race it.
-		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
 		setRule(sa, &clustermetadatapb.RulePosition{
 			Decision: ruleLedBy(1, 0).Decision,
@@ -173,7 +169,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("ignores when no serving leader is known", func(t *testing.T) {
-		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		analyzer := &RecruitAbandonedAnalyzer{factory: factory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
 		removePooler(sa, poolerID(sa.IntendedLeaderHealth()).GetName())
 		problems, err := analyzer.Analyze(sa)
@@ -192,7 +188,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	// ReplicaNotReplicating must defer it to this analyzer rather than firing a
 	// SetPrimary the follower would ignore.
 	t.Run("ReplicaNotReplicating skips a stranded follower", func(t *testing.T) {
-		rnr := &ReplicaNotReplicatingAnalyzer{factory: noGraceFactory}
+		rnr := &ReplicaNotReplicatingAnalyzer{factory: factory}
 		problems, err := rnr.Analyze(newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true)))
 		require.NoError(t, err)
 		require.Empty(t, problems)

@@ -68,9 +68,6 @@ func TestFailoverWithSaturatedUserPools(t *testing.T) {
 		shardsetup.WithMultigatewayReplicaPort(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		// Short grace period: this test hard-kills the primary, so the grace
-		// window only delays the failover the test is waiting for.
-		shardsetup.WithLeaderFailoverGracePeriod("2s", "2s"),
 		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=4"),
 	)
 	defer cleanup()

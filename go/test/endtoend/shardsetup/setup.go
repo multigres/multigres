@@ -60,37 +60,35 @@ import (
 
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
-	MultipoolerCount                   int
-	MultiorchCount                     int
-	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
-	EnableMultiadmin                   bool // Enable multiadmin (opt-in, default: false)
-	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
-	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
-	MultipoolerPGTLSDirect             bool // With EnableMultipoolerPGTLS: dial postgres with sslnegotiation=direct (PG 17 TLS-first)
-	Database                           string
-	TableGroup                         string
-	Shard                              string
-	CellName                           string
-	DurabilityPolicy                   string   // Durability policy (e.g., "AT_LEAST_2")
-	SkipInitialization                 bool     // Start processes but don't initialize postgres (for bootstrap tests)
-	DeferMultipoolerStart              bool     // Start pgctld only; test starts multipooler itself
-	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (default: "0s" for tests)
-	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
-	RequireFailureSafeInitialCohort    bool     // Reject bootstrapping a cohort that can't survive losing any member (default: false — tests allow it for speed/small pooler counts)
-	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
-	S3BackupRegion                     string   // S3 region
-	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
-	RequireBackupEncryption            bool     // Generate a cipher key file and require initial-repo encryption
-	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
-	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
-	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
-	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
-	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
-	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
-	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
-	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
-	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
-	PgInitdbExtraConfFiles             []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
+	MultipoolerCount                int
+	MultiorchCount                  int
+	EnableMultigateway              bool // Enable multigateway (opt-in, default: false)
+	EnableMultiadmin                bool // Enable multiadmin (opt-in, default: false)
+	EnableMultigatewayTLS           bool // Enable TLS for multigateway PostgreSQL listener
+	EnableMultipoolerPGTLS          bool // Provision postgres with TLS and point multipooler at it via verify-full
+	MultipoolerPGTLSDirect          bool // With EnableMultipoolerPGTLS: dial postgres with sslnegotiation=direct (PG 17 TLS-first)
+	Database                        string
+	TableGroup                      string
+	Shard                           string
+	CellName                        string
+	DurabilityPolicy                string   // Durability policy (e.g., "AT_LEAST_2")
+	SkipInitialization              bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	DeferMultipoolerStart           bool     // Start pgctld only; test starts multipooler itself
+	RequireFailureSafeInitialCohort bool     // Reject bootstrapping a cohort that can't survive losing any member (default: false — tests allow it for speed/small pooler counts)
+	S3BackupBucket                  string   // S3 bucket name (empty = use filesystem)
+	S3BackupRegion                  string   // S3 region
+	S3BackupEndpoint                string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	RequireBackupEncryption         bool     // Generate a cipher key file and require initial-repo encryption
+	EnableMultigatewayReplicaPort   bool     // Enable replica-reads port on multigateway
+	MultigatewayExtraArgs           []string // Extra CLI flags for multigateway (e.g., buffer config)
+	MultipoolerExtraArgs            []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
+	OTelCollectorEndpoint           string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
+	EnableMetricsExport             bool     // Enable Prometheus metrics export on all services
+	LogLevel                        string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
+	InitdbSQLFiles                  []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	InitdbSQLDirs                   []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
+	PgInitdbArgs                    string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
+	PgInitdbExtraConfFiles          []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -247,16 +245,6 @@ func WithMultipoolerPGTLSDirect() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultipoolerPGTLS = true
 		c.MultipoolerPGTLSDirect = true
-	}
-}
-
-// WithLeaderFailoverGracePeriod sets the grace period configuration for leader failover.
-// Default is "0s" for both base and maxJitter to make tests run fast.
-// Use this to test grace period behavior explicitly.
-func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
-	return func(c *SetupConfig) {
-		c.LeaderFailoverGracePeriodBase = base
-		c.LeaderFailoverGracePeriodMaxJitter = maxJitter
 	}
 }
 
