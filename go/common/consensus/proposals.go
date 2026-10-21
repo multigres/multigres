@@ -84,8 +84,8 @@ func newRecruitmentResult(
 	}
 	return RecruitmentResult{
 		TermRevocation:      revocation,
-		OutgoingRule:        outgoing.rule,
-		OutgoingRuleDecided: outgoing.decided,
+		OutgoingRule:        PossiblyUndecidedRule(outgoing.position),
+		OutgoingRuleDecided: IsRuleDecided(outgoing.position),
 		EligibleLeaders:     eligible,
 		outgoing:            outgoing,
 	}, nil
@@ -322,11 +322,11 @@ func buildProposalCore(
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := outgoing.revoke(recruitedStatuses)
+	revoked, err := outgoing.revoke()
 	if err != nil {
 		return nil, err
 	}
-	finalizable, err := revoked.checkRecruitsCanFinalizeProposal(recruitedStatuses)
+	finalizable, err := revoked.checkRecruitsCanFinalizeProposal()
 	if err != nil {
 		return nil, err
 	}

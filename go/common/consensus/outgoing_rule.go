@@ -26,17 +26,28 @@ import (
 // transitions from: the highest rule position any recruit records, confirmed to
 // be the rule the revocation expects.
 type observedOutgoingRule struct {
+	// recruited are the recruits the outgoing rule was found among.
+	recruited []*clustermetadatapb.ConsensusStatus
+	// position is the highest rule position the recruits record. The outgoing rule
+	// is PossiblyUndecidedRule(position): the decision, or the undecided proposal
+	// on top of it. Trusting an undecided rule needs no separate verification:
+	// UpdateRule always finalizes it, exactly as it stands, before applying
+	// anything new.
 	position *clustermetadatapb.RulePosition
-	// rule is the decision, or the undecided proposal on top of it. Trusting an
-	// undecided rule needs no separate verification: UpdateRule always finalizes
-	// it, exactly as it stands, before applying anything new.
-	rule    *clustermetadatapb.ShardRule
-	decided bool
-	// recruitsRecordingRule are all recruits that record position, whether or
-	// not they are members of rule's cohort.
-	recruitsRecordingRule []*clustermetadatapb.ConsensusStatus
 	// basis is how this rule is to be revoked; see revoke.
 	basis revocationBasis
+}
+
+// recruitsRecordingRule are all recruits that record the outgoing position,
+// whether or not they are members of the rule's cohort.
+func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
+	var recording []*clustermetadatapb.ConsensusStatus
+	for _, cs := range o.recruited {
+		if CompareRulePosition(cs.GetCurrentPosition().GetPosition(), o.position) == 0 {
+			recording = append(recording, cs)
+		}
+	}
+	return recording
 }
 
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
@@ -50,14 +61,9 @@ func discoverOutgoingRule(
 	if err != nil {
 		return observedOutgoingRule{}, err
 	}
-	observed := observedOutgoingRule{
-		position:              position,
-		rule:                  PossiblyUndecidedRule(position),
-		decided:               IsRuleDecided(position),
-		recruitsRecordingRule: recruitsRecordingRule,
-		basis:                 basis,
-	}
-	cmp := CompareRuleNumbers(observed.rule.GetRuleNumber(), expected)
+	observed := observedOutgoingRule{recruited: recruited, position: position, basis: basis}
+	outgoing := PossiblyUndecidedRule(position)
+	cmp := CompareRuleNumbers(outgoing.GetRuleNumber(), expected)
 	if cmp == 0 {
 		return observed, nil
 	}
@@ -67,7 +73,7 @@ func discoverOutgoingRule(
 		// actually observed now.
 		return observedOutgoingRule{}, fmt.Errorf(
 			"recruit %s reports rule %v, expected outgoing rule %v; cert no longer matches observed state",
-			topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), observed.rule.GetRuleNumber(), expected,
+			topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), outgoing.GetRuleNumber(), expected,
 		)
 	}
 	if cmp > 0 {
@@ -91,9 +97,9 @@ type revokedOutgoingRule struct {
 
 // revoke establishes that the outgoing rule is revoked, by the evidence its
 // basis names: recruitment of the outgoing cohort, or an external cert.
-func (o observedOutgoingRule) revoke(recruited []*clustermetadatapb.ConsensusStatus) (revokedOutgoingRule, error) {
+func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
 	if o.basis.cert == nil {
-		if err := o.revokeByRecruitment(recruited); err != nil {
+		if err := o.revokeByRecruitment(); err != nil {
 			return revokedOutgoingRule{}, err
 		}
 	}
@@ -113,14 +119,14 @@ func (o observedOutgoingRule) revoke(recruited []*clustermetadatapb.ConsensusSta
 // is durable under the outgoing rule is invisible to the recruits: while a
 // proposal is undecided, a write needs the "Both" policy of the decision and the
 // proposal, and the cohort of that policy lies within the decision's.
-func (o observedOutgoingRule) revokeByRecruitment(recruited []*clustermetadatapb.ConsensusStatus) error {
+func (o observedOutgoingRule) revokeByRecruitment() error {
 	decision := o.position.GetDecision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
 		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
 	cohort := decision.GetCohortMembers()
-	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruited))); err != nil {
+	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, o.recruited))); err != nil {
 		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
 	return nil
@@ -150,8 +156,8 @@ type finalizableOutgoingRule struct {
 //
 // Nothing is required for a decided outgoing rule, or when a cert revokes the
 // rule: the pooler then decides the proposal under the incoming policy instead.
-func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal(recruited []*clustermetadatapb.ConsensusStatus) (finalizableOutgoingRule, error) {
-	if r.decided || r.basis.cert != nil {
+func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutgoingRule, error) {
+	if IsRuleDecided(r.position) || r.basis.cert != nil {
 		return finalizableOutgoingRule{r}, nil
 	}
 	decision := r.position.GetDecision()
@@ -159,18 +165,19 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal(recruited []*clust
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	proposalPolicy, err := NewPolicyFromProto(r.rule.GetDurabilityPolicy())
+	proposal := PossiblyUndecidedRule(r.position)
+	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
 		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
-		PolicyWithCohort{Policy: proposalPolicy, Cohort: r.rule.GetCohortMembers()},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
 	)
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
 	}
-	reachable := statusesToIDs(filterCohortStatuses(transition.Both.Cohort, recruited))
+	reachable := statusesToIDs(filterCohortStatuses(transition.Both.Cohort, r.recruited))
 	if err := transition.Both.Policy.SatisfiedBy(reachable); err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
 	}
@@ -185,5 +192,5 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 	if r.basis.cert != nil {
 		minLSN = r.basis.cert.frozenLSN
 	}
-	return narrowByLSN(r.recruitsRecordingRule, minLSN)
+	return narrowByLSN(r.recruitsRecordingRule(), minLSN)
 }

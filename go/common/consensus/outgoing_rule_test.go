@@ -44,7 +44,7 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 	revoke := func(recruited []*clustermetadatapb.ConsensusStatus) error {
 		observed, err := discoverOutgoingRule(recruited, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
-		_, err = observed.revoke(recruited)
+		_, err = observed.revoke()
 		return err
 	}
 
@@ -75,7 +75,7 @@ func TestRevokedOutgoingRule_CheckRecruitsCanFinalizeProposal(t *testing.T) {
 		}
 		observed, err := discoverOutgoingRule(recruited, expected, basis)
 		require.NoError(t, err)
-		_, err = revokedOutgoingRule{observed}.checkRecruitsCanFinalizeProposal(recruited)
+		_, err = revokedOutgoingRule{observed}.checkRecruitsCanFinalizeProposal()
 		return err
 	}
 	decision := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
@@ -202,7 +202,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke(statuses)
+		_, err = observed.revoke()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -219,7 +219,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke(statuses)
+		_, err = observed.revoke()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -238,7 +238,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 	t.Run("a recruit at or above the frozen LSN can lead", func(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}})
 		require.NoError(t, err)
-		revoked, err := observed.revoke(statuses)
+		revoked, err := observed.revoke()
 		require.NoError(t, err)
 
 		leaders, err := revoked.eligibleLeaders()
@@ -251,7 +251,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 	t.Run("none at or above the frozen LSN", func(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x3000000}})
 		require.NoError(t, err)
-		revoked, err := observed.revoke(statuses)
+		revoked, err := observed.revoke()
 		require.NoError(t, err)
 
 		_, err = revoked.eligibleLeaders()
@@ -263,7 +263,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke(statuses)
+		_, err = observed.revoke()
 
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2")
 	})
