@@ -60,9 +60,10 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
 	//
-	// This is safe even when the named leader has not been promoted yet: a rule
-	// that outranks a leader's own exists only after a coordinator recruited enough
-	// of the outgoing cohort to revoke it, so such a leader can no longer commit.
+	// Demoting the others is safe even if the named leader has not been promoted
+	// yet. A newer rule, even one only proposed, exists only after its coordinator
+	// recruited (and so revoked) enough of the previous cohort that earlier leaders
+	// can no longer commit.
 	leaderID := sa.HighestIntendedRule().PossiblyUndecidedRule().GetLeaderId()
 	if leaderID == nil {
 		return nil, nil
