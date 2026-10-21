@@ -702,3 +702,36 @@ func TestRevokedOutgoingRule_BarSettersAreOutgoingCohortMembers(t *testing.T) {
 		require.ErrorContains(t, err, "is a member of the outgoing cohort")
 	})
 }
+
+// A rule's leader counts toward recruitment only when it is outside the cohort,
+// and the rule's own cohort slice is never extended in place.
+func TestRecruitmentCohort(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	cohort := []*clustermetadatapb.ID{zone1.b, zone1.c}
+
+	t.Run("a rule with no leader recruits its cohort", func(t *testing.T) {
+		rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+		rule.LeaderId = nil
+
+		assert.Equal(t, cohort, recruitmentCohort(rule))
+	})
+
+	t.Run("a leader inside the cohort adds nothing", func(t *testing.T) {
+		rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+
+		assert.Equal(t, cohort, recruitmentCohort(rule))
+	})
+
+	t.Run("a leader outside the cohort is counted as a member", func(t *testing.T) {
+		backing := make([]*clustermetadatapb.ID, 2, 3)
+		copy(backing, cohort)
+		rule := makeRule(ruleNum(3, 0), atLeast(2), backing...)
+		rule.LeaderId = zone1.a
+
+		got := recruitmentCohort(rule)
+
+		assert.Equal(t, []*clustermetadatapb.ID{zone1.b, zone1.c, zone1.a}, got)
+		got[0] = zone1.f
+		assert.Equal(t, zone1.b, backing[0], "the result does not share the rule's cohort storage")
+	})
+}

@@ -149,7 +149,7 @@ func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	cohort := decision.GetCohortMembers()
+	cohort := recruitmentCohort(decision)
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, o.recruited))); err != nil {
 		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
@@ -170,8 +170,8 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
-		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
-		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: recruitmentCohort(decision)},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: recruitmentCohort(proposal)},
 	)
 	if err != nil {
 		// Promote can never decide such a proposal, so nothing can commit under it.
@@ -182,7 +182,7 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 	if !o.proposalMayBeDecided(transition.Both) {
 		return nil
 	}
-	cohort := proposal.GetCohortMembers()
+	cohort := recruitmentCohort(proposal)
 	recruited := statusesToIDs(filterCohortStatuses(cohort, o.recruited))
 	if err := checkUnrecruitedCannotCommit(proposalPolicy, cohort, recruited); err != nil {
 		return fmt.Errorf("insufficient undecided proposal cohort recruitment: %w", err)
@@ -239,8 +239,8 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
-		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
-		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: recruitmentCohort(decision)},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: recruitmentCohort(proposal)},
 	)
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
@@ -354,4 +354,24 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
 	}
 	return eligible, nil
+}
+
+// recruitmentCohort returns the poolers whose writes rule's commits count: its
+// cohort, plus its leader when the rule was led from outside the cohort. The
+// sync configuration counts the primary's own write toward N, so such a leader
+// can hold a committed write that no cohort quorum acknowledged. Revocation has
+// to treat it as a member, or a recruitment excluding the leader and the
+// standby that acknowledged with it passes and elects a pooler without the
+// write. validateProposal keeps new rules from being led from outside their
+// cohort; this covers rules committed before it did.
+func recruitmentCohort(rule *clustermetadatapb.ShardRule) []*clustermetadatapb.ID {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if leader == nil {
+		return cohort
+	}
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return cohort
+	}
+	return append(slices.Clone(cohort), leader)
 }
