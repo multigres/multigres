@@ -132,6 +132,20 @@ func TestPgCtldServiceStart(t *testing.T) {
 				assert.Contains(t, resp.Message, "already running")
 			},
 		},
+		{
+			name: "start refused while a restore sentinel is present",
+			request: &pb.StartRequest{
+				Port: 5432,
+			},
+			setupDataDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+				return dataDir
+			},
+			setupBinaries: true,
+			expectError:   true,
+			errorContains: "restore sentinel",
+		},
 	}
 
 	for _, tt := range tests {
@@ -279,6 +293,55 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 // standby.signal path that is a NON-EMPTY directory triggers both: os.WriteFile
 // fails (the path is a directory) and os.Remove fails (directory not empty), and
 // neither error is IsNotExist.
+// TestPgCtldServiceStart_RestoreSentinelLeavesDataDirUntouched verifies Start
+// refuses during an incomplete restore before it changes anything in the data
+// directory: neither start mode may create or remove standby.signal, and crash
+// recovery must not run on the partial restore.
+func TestPgCtldServiceStart_RestoreSentinelLeavesDataDirUntouched(t *testing.T) {
+	cases := []struct {
+		name          string
+		asPrimary     bool
+		standbySignal bool
+	}{
+		{name: "standby start does not write standby.signal", asPrimary: false, standbySignal: false},
+		{name: "primary start does not remove standby.signal", asPrimary: true, standbySignal: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			// An interrupted restore: PG_VERSION is on disk and the sentinel is
+			// in the pooler dir.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("17\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+			signalPath := filepath.Join(dataDir, constants.StandbySignalFile)
+			if tc.standbySignal {
+				require.NoError(t, os.WriteFile(signalPath, nil, 0o644))
+			}
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			resp, err := service.Start(context.Background(), &pb.StartRequest{
+				AsPrimary:           tc.asPrimary,
+				AllowCrashRecovery:  true,
+				SuspectedDivergence: true,
+			})
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Contains(t, err.Error(), "restore sentinel")
+
+			_, statErr := os.Stat(signalPath)
+			assert.Equal(t, tc.standbySignal, statErr == nil, "standby.signal must be left as it was")
+		})
+	}
+}
+
 func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -519,6 +582,31 @@ func TestPgCtldServiceRestart(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Contains(t, resp.Message, "restarted successfully")
+	})
+
+	t.Run("restart refused while a restore sentinel is present", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_restart_test")
+		defer cleanup()
+
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		testutil.CreatePIDFile(t, dataDir, 12345)
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, binDir)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		_, err = service.Restart(context.Background(), &pb.RestartRequest{
+			Mode:    "fast",
+			Timeout: durationpb.New(30 * time.Second),
+			Port:    5432,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "restore sentinel")
 	})
 }
 

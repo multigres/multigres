@@ -42,7 +42,7 @@ import (
 //     PG_VERSION so hasDataDirectory() would otherwise refuse the flow. The
 //     sentinel triggers cleanup first.
 //   - "data dir absent": simulates a crash BEFORE initdb ran, or between the
-//     success-path removeDataDirectory and removeBootstrapSentinel. The
+//     success-path removeDataDirectory and the sentinel removal. The
 //     sentinel is present but pg_data does not exist.
 //
 // The sentinel lives in pooler_dir rather than PGDATA so pgBackRest never

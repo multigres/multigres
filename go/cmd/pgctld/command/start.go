@@ -151,6 +151,14 @@ func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartRe
 		return result, nil
 	}
 
+	// Checked here so it covers every start path: the start command, the Start
+	// RPC (which also checks before touching the data directory), and restarts
+	// (including the demote and rewind restarts). It guards starting postgres;
+	// one that is already running is reported as such above.
+	if err := checkNoIncompleteRestore(config.PoolerDir); err != nil {
+		return nil, err
+	}
+
 	result := &StartResult{}
 
 	// Ensure Unix socket directory exists before starting PostgreSQL
@@ -188,6 +196,26 @@ func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartRe
 	result.Message = "PostgreSQL server started successfully"
 	logger.Info("Postgres server started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
+}
+
+// checkNoIncompleteRestore refuses to start postgres while multipooler's
+// restore sentinel is in poolerDir. multipooler writes it before a pgBackRest
+// restore and removes it only once the restore has completed, so while it is
+// there the data directory may be a partial restore. Starting postgres on such
+// a directory would let it serve, while the sentinel still tells multipooler
+// to delete the directory and restore again at its next restart. An unreadable
+// sentinel is also refused, so a partial restore is never started by mistake.
+func checkNoIncompleteRestore(poolerDir string) error {
+	path := filepath.Join(poolerDir, constants.RestoreSentinelFile)
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return fmt.Errorf("refusing to start PostgreSQL: restore sentinel %s is present, so the data directory may be a partial restore", path)
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return fmt.Errorf("failed to check restore sentinel %s: %w", path, err)
+	}
 }
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
