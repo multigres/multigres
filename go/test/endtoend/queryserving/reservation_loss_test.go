@@ -119,6 +119,48 @@ func TestReservationLoss(t *testing.T) {
 	}
 }
 
+// TestReservationLoss_CopyFromStdin loses a temp-table reservation in the middle
+// of COPY FROM STDIN. Whichever COPY step observes the loss (sending data,
+// finishing, or the abort that follows a failed send), the session must end.
+func TestReservationLoss_CopyFromStdin(t *testing.T) {
+	skipIfNoRealPostgres(t)
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+
+	a := openReservationLossConn(t, ctx, setup, pgx.QueryExecModeSimpleProtocol)
+	utils.RequirePgxExec(t, ctx, a, "CREATE TEMP TABLE rl_copy (id int, pad text)")
+	pid := pgxBackendPID(t, ctx, a)
+
+	// Terminate the backend once the COPY is under way, then keep sending
+	// enough rows that the data reaches the dead connection.
+	src := &terminatingCopySource{rows: 200000, terminate: func() { terminateBackend(t, ctx, setup, pid) }}
+	_, err := a.CopyFrom(ctx, pgx.Identifier{"rl_copy"}, []string{"id", "pad"}, src)
+
+	requireSessionEnded(t, ctx, a, err, "temp_table")
+}
+
+// terminatingCopySource is a pgx.CopyFromSource that calls terminate before
+// producing its first row.
+type terminatingCopySource struct {
+	rows      int
+	n         int
+	terminate func()
+}
+
+func (s *terminatingCopySource) Next() bool {
+	if s.n == 0 {
+		s.terminate()
+	}
+	s.n++
+	return s.n <= s.rows
+}
+
+func (s *terminatingCopySource) Values() ([]any, error) {
+	return []any{s.n, "padding padding padding padding padding padding"}, nil
+}
+
+func (s *terminatingCopySource) Err() error { return nil }
+
 func openReservationLossConn(t *testing.T, ctx context.Context, setup shardsetup.Cluster, mode pgx.QueryExecMode) *pgx.Conn {
 	t.Helper()
 	cfg, err := pgx.ParseConfig(shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
@@ -141,7 +183,11 @@ func tryAdvisoryLock(t *testing.T, ctx context.Context, conn *pgx.Conn, key int)
 // from another session, and waits for its socket to close.
 func terminateReservedBackend(t *testing.T, ctx context.Context, setup shardsetup.Cluster, conn *pgx.Conn) {
 	t.Helper()
-	pid := pgxBackendPID(t, ctx, conn)
+	terminateBackend(t, ctx, setup, pgxBackendPID(t, ctx, conn))
+}
+
+func terminateBackend(t *testing.T, ctx context.Context, setup shardsetup.Cluster, pid int) {
+	t.Helper()
 	killer := openReservationLossConn(t, ctx, setup, pgx.QueryExecModeSimpleProtocol)
 	var terminated bool
 	require.NoError(t, killer.QueryRow(ctx, "SELECT pg_terminate_backend($1)", pid).Scan(&terminated))

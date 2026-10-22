@@ -276,15 +276,28 @@ func TestScatterConn_ReleaseAllReservedConnections_ReservationLost(t *testing.T)
 	})
 }
 
+// The abort is best effort: the multipooler reports a connection it could not
+// abort on as a zero reserved state, usually without an error. Session state
+// tracked on it is lost either way.
 func TestScatterConn_CopyAbort_ReservationLost(t *testing.T) {
-	gw := &mockGateway{copyAbortErr: mterrors.NewReservedConnectionTerminated(42)}
-	sc := NewScatterConn(gw, slog.Default())
-	conn, state := newLossSession(protoutil.ReasonCopy | protoutil.ReasonTempTable)
+	for _, tt := range []struct {
+		name string
+		err  error
+	}{
+		{"with error", mterrors.NewReservedConnectionTerminated(42)},
+		{"without error", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := &mockGateway{copyAbortErr: tt.err}
+			sc := NewScatterConn(gw, slog.Default())
+			conn, state := newLossSession(protoutil.ReasonCopy | protoutil.ReasonTempTable)
 
-	err := sc.CopyAbort(context.Background(), conn, "tg1", "", state)
+			err := sc.CopyAbort(context.Background(), conn, "tg1", "", state)
 
-	requireSessionEnded(t, err, "temp_table")
-	require.Nil(t, state.GetMatchingShardState(lossTarget))
+			requireSessionEnded(t, err, "temp_table")
+			require.Nil(t, state.GetMatchingShardState(lossTarget))
+		})
+	}
 }
 
 func TestScatterConn_CopyFinalize_ReservationLost(t *testing.T) {

@@ -179,14 +179,25 @@ func (sc *ScatterConn) applyReservedStateOnError(
 	err error,
 ) error {
 	var lost uint32
-	if ss := state.GetMatchingShardState(target); err != nil && ss != nil && rs.GetReservedConnectionId() == 0 {
-		lost = lostSessionState(ss.ReservedState.GetReservationReasons(), state)
+	if err != nil {
+		lost = droppedSessionState(state, target, rs)
 	}
 	sc.applyReservedState(conn, state, target, rs)
 	if lost != 0 {
 		return sc.sessionStateLostError(ctx, conn, lost, err)
 	}
 	return err
+}
+
+// droppedSessionState returns the session state the gateway tracks on target's
+// reservation (see lostSessionState) when rs no longer holds that reservation,
+// 0 otherwise. Call it before applying rs, which clears the tracked reasons.
+func droppedSessionState(state *handler.MultigatewayConnectionState, target *querypb.Target, rs *querypb.ReservedState) uint32 {
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || rs.GetReservedConnectionId() != 0 {
+		return 0
+	}
+	return lostSessionState(ss.ReservedState.GetReservationReasons(), state)
 }
 
 // reservationReasonsForExecInfo ORs together the reservation reason bits
@@ -1491,10 +1502,17 @@ func (sc *ScatterConn) CopyAbort(
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	// Update shard state with authoritative state from multipooler. The abort
-	// itself is best effort, but a lost session state must reach the caller.
-	if err := sc.applyReservedStateOnError(ctx, conn, state, target, reservedState, err); mterrors.IsFatal(err) {
-		return err
+	// The abort is best effort: the multipooler reports a broken or missing
+	// connection as a zero ReservedState with no error. A clean abort only
+	// releases the reservation when COPY was its last reason, so a zero state
+	// with session state still tracked means that state was lost, error or not.
+	lost := droppedSessionState(state, target, reservedState)
+
+	// Update shard state with authoritative state from multipooler
+	sc.applyReservedState(conn, state, target, reservedState)
+
+	if lost != 0 {
+		return sc.sessionStateLostError(ctx, conn, lost, err)
 	}
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
