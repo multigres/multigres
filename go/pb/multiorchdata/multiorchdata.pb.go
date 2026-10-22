@@ -75,14 +75,8 @@ type PoolerHealthState struct {
 	Status *multipoolermanagerdata.Status `protobuf:"bytes,22,opt,name=status,proto3" json:"status,omitempty"`
 	// Monotonic counter of health snapshots received on the current or past streams.
 	StreamSnapshotsReceived int64 `protobuf:"varint,23,opt,name=stream_snapshots_received,json=streamSnapshotsReceived,proto3" json:"stream_snapshots_received,omitempty"`
-	// When the pooler reported it captured the most recent snapshot, on the
-	// pooler's own clock (copied verbatim from ManagerHealthSnapshot.captured_at).
-	// Distinct from last_seen/last_check_successful, which are stamped with the
-	// orchestrator's clock on receipt. Comparing this against an orchestrator
-	// timestamp must account for clock skew between the hosts.
-	PoolerCapturedAt *timestamppb.Timestamp `protobuf:"bytes,24,opt,name=pooler_captured_at,json=poolerCapturedAt,proto3" json:"pooler_captured_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *PoolerHealthState) Reset() {
@@ -192,18 +186,11 @@ func (x *PoolerHealthState) GetStreamSnapshotsReceived() int64 {
 	return 0
 }
 
-func (x *PoolerHealthState) GetPoolerCapturedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.PoolerCapturedAt
-	}
-	return nil
-}
-
 var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xdd\x06\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xad\x06\n" +
 	"\x11PoolerHealthState\x12>\n" +
 	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x12L\n" +
 	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
@@ -215,8 +202,7 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x12P\n" +
 	"\x16stream_connected_since\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x14streamConnectedSince\x126\n" +
 	"\x06status\x18\x16 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12:\n" +
-	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceived\x12H\n" +
-	"\x12pooler_captured_at\x18\x18 \x01(\v2\x1a.google.protobuf.TimestampR\x10poolerCapturedAtB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceivedJ\x04\b\x18\x10\x19R\x12pooler_captured_atB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once
@@ -240,21 +226,20 @@ var file_multiorchdata_proto_goTypes = []any{
 	(*multipoolermanagerdata.Status)(nil),      // 5: multipoolermanagerdata.Status
 }
 var file_multiorchdata_proto_depIdxs = []int32{
-	1,  // 0: multiorchdata.PoolerHealthState.multipooler:type_name -> clustermetadata.Multipooler
-	2,  // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
-	2,  // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
-	2,  // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
-	3,  // 4: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	2,  // 5: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
-	4,  // 6: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	2,  // 7: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
-	5,  // 8: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
-	2,  // 9: multiorchdata.PoolerHealthState.pooler_captured_at:type_name -> google.protobuf.Timestamp
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	1, // 0: multiorchdata.PoolerHealthState.multipooler:type_name -> clustermetadata.Multipooler
+	2, // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
+	2, // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
+	2, // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
+	3, // 4: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	2, // 5: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
+	4, // 6: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	2, // 7: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
+	5, // 8: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }

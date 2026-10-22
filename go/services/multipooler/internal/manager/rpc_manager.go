@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // rewindOperationTimeout bounds the detached stop -> pg_rewind ->
@@ -666,6 +668,19 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	return status, nil
 }
 
+// writeHeartbeatForAckedProposal writes a heartbeat that records a quorum-acked rule
+// proposal as the quorum-commit proof, so a newly promoted leader isn't judged on the
+// previous leader's stale watermark. Best effort: it never fails the rule write, but a failure is logged
+// as a warning because the stale watermark can then trigger a needless failover.
+func (pm *MultipoolerManager) writeHeartbeatForAckedProposal(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
+	if pm.replTracker == nil {
+		return
+	}
+	if err := pm.replTracker.HeartbeatWriter().WriteProven(ctx, lsn, startedAt); err != nil {
+		pm.logger.WarnContext(ctx, "failed to write the heartbeat for an acked rule proposal", "lsn", lsn.String(), "error", err)
+	}
+}
+
 // PrimaryStatus gets the status of the leader server
 func (pm *MultipoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
 	if err := pm.checkReady(); err != nil {
@@ -1100,7 +1115,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// Postgres is stopped here, so this edits the file directly rather than
 		// using ALTER SYSTEM.
 		if err := pm.dropRestoreCommandFromAutoConf(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
+			return false, mterrors.Wrap(err, "remove restore_command after pg_rewind")
 		}
 	}
 
@@ -1192,10 +1207,9 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
-	// The rewind (if any) completed and postgres is verified back up as a standby,
-	// so the data directory is no longer mid-rewind: clear the sentinel. Only
-	// meaningful when a rewind actually ran (runPgRewind writes it on the mutating
-	// path); Remove is idempotent otherwise. A failure here is not fatal — the node
+	// The rewind recovery completed and postgres is verified back up as a standby,
+	// so archive restore is disabled and the data directory is no longer
+	// mid-rewind: clear the sentinel. A failure here is not fatal — the node
 	// is healthy — but leaves a stale sentinel that the monitor's healthy path would
 	// otherwise re-arm into a benign no-op re-rewind, so surface it as a warning.
 	if err := pm.removeRewindSentinel(); err != nil {
@@ -1207,13 +1221,30 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 
 // runPgRewind runs pg_rewind to sync with source.
 // Returns true if rewind was performed, false if not needed.
-func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (bool, error) {
+func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (performed bool, err error) {
 	if pm.pgctldClient == nil {
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
+	// Persist the restart guard before installing restore_command. From this point
+	// until restartAsStandbyLocked verifies a streaming standby, a crash must not
+	// allow the monitor to start postgres without first clearing archive recovery.
+	if err := pm.writeRewindSentinel(); err != nil {
+		return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
+	}
+
 	// Get application name for replication connection
 	pid := pm.servicePoolerID
+
+	rewindExtraArgs := pm.prepareRewindRestoreSource(ctx)
+	if rewindExtraArgs != nil {
+		// Always remove the temporary restore_command, even if the rewind fails.
+		defer func() {
+			if cleanupErr := pm.dropRestoreCommandFromAutoConf(context.WithoutCancel(ctx)); cleanupErr != nil {
+				err = errors.Join(err, mterrors.Wrap(cleanupErr, "remove temporary restore_command after pg_rewind"))
+			}
+		}()
+	}
 
 	pm.logger.InfoContext(ctx, "running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
@@ -1224,6 +1255,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		SourcePort:      sourcePort,
 		DryRun:          true,
 		ApplicationName: pid.AppName(),
+		ExtraArgs:       rewindExtraArgs,
 	}
 	dryRunStart := time.Now()
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
@@ -1240,24 +1272,12 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
 
-		// Mark the data directory as being rewound before the mutating pg_rewind
-		// runs. pg_rewind is not transactional: an interruption here leaves a
-		// half-rewound, unstartable directory. The sentinel is the durable signal
-		// that lets the monitor detect that on the next tick (or after a pod
-		// restart) and repair-or-quarantine instead of starting postgres on it.
-		// restartAsStandbyLocked removes it once postgres is verified back as a
-		// standby. Fail-safe: if we cannot record the marker, do not mutate the
-		// directory.
-		if err := pm.writeRewindSentinel(); err != nil {
-			return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
-		}
-
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
 			ApplicationName: pid.AppName(),
-			ExtraArgs:       []string{"-R"},
+			ExtraArgs:       append([]string{"-R"}, rewindExtraArgs...),
 		}
 		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
@@ -1276,6 +1296,36 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	pm.logger.InfoContext(ctx, "no divergence, skipping rewind")
 	return false, nil
+}
+
+// prepareRewindRestoreSource temporarily sets restore_command in
+// postgresql.auto.conf and returns the pg_rewind args that use it, so pg_rewind
+// can fetch WAL already recycled from local pg_wal.
+//
+// This keeps the "cohort members never replay from the archive" invariant (see
+// resetRestoreCommand): pg_rewind only reads WAL to find the last common
+// checkpoint, and the caller removes the setting once the rewind ends.
+//
+// Returns nil, meaning rewind without -c, if no backup config is available or
+// the setting cannot be written.
+func (pm *MultipoolerManager) prepareRewindRestoreSource(ctx context.Context) []string {
+	pm.mu.Lock()
+	poolerDir := pm.record.PoolerDir()
+	pm.mu.Unlock()
+
+	if pm.backup == nil {
+		return nil
+	}
+	restoreCommand, err := pm.backup.RestoreCommand(poolerDir)
+	if err != nil {
+		pm.logger.InfoContext(ctx, "no backup config; running pg_rewind without --restore-target-wal", "reason", err.Error())
+		return nil
+	}
+	if err := pm.setAutoConfSetting(ctx, "restore_command", restoreCommand); err != nil {
+		pm.logger.WarnContext(ctx, "failed to set restore_command for pg_rewind; running without --restore-target-wal", "error", err)
+		return nil
+	}
+	return []string{"--restore-target-wal"}
 }
 
 // fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf

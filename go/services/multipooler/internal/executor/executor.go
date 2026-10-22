@@ -2165,9 +2165,21 @@ func int32ToInt16Slice(in []int32) []int16 {
 // wrapQueryError wraps query execution errors with context.
 // PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
 // the display boundary (writeError) extracts the underlying diagnostic via errors.As.
+//
+// A lost backend socket (EOF, ECONNRESET, ...) carries no diagnostic, so the
+// gateway would report it as XX000 internal_error, which clients treat as not
+// retryable. Such errors get a 08006 connection_failure diagnostic instead.
+// The statement may have run before the socket broke, so the client must not
+// assume it did not. Severity stays ERROR: the gateway session survives and
+// the next statement gets a fresh backend.
 func wrapQueryError(err error) error {
 	if err == nil {
 		return nil
+	}
+	var diag *mterrors.PgDiagnostic
+	if !errors.As(err, &diag) && mterrors.IsConnectionError(err) {
+		err = mterrors.NewPgError("ERROR", mterrors.PgSSConnectionFailure,
+			"connection to server lost", err.Error())
 	}
 	return mterrors.Wrapf(err, "query execution failed")
 }

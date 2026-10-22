@@ -22,14 +22,14 @@ import (
 )
 
 // rewind_sentinel.go implements a durable, on-disk marker for an in-progress
-// pg_rewind, mirroring the bootstrap sentinel (see rpc_first_backup.go). pg_rewind
-// mutates the target data directory in place and is not transactional: if it is
-// interrupted (typically the pod is killed mid-rewind, exceeding the shutdown
-// grace period), the directory is left partially rewound — unstartable and, per
-// PostgreSQL guidance, generally unrecoverable.
+// rewind recovery, mirroring the bootstrap sentinel (see rpc_first_backup.go).
+// The recovery temporarily enables archive restore and pg_rewind mutates the
+// target data directory in place, so an interruption can leave either unsafe
+// archive recovery enabled or a partially rewound directory.
 //
-// restartAsStandbyLocked writes the sentinel just before the mutating pg_rewind
-// runs and removes it only after postgres is verified back up as a standby. Its
+// runPgRewind writes the sentinel before enabling archive restore and
+// restartAsStandbyLocked removes it only after postgres is verified back up as a
+// standby. Its
 // presence on a later monitor tick is therefore the authoritative signal that a
 // prior rewind did not complete — the one durable signal that survives a process
 // restart (the in-memory suspectedDivergence flag does not). The monitor uses it

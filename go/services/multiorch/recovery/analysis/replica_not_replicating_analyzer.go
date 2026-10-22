@@ -20,8 +20,9 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
@@ -38,23 +39,23 @@ func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewFixReplicationAction()
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Pooler) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	// Only analyze replicas
-	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
 
 	// Skip if we don't have a recent enough observation to trust it, or if the
 	// replica is not initialized (ShardNeedsInitialization handles that).
-	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.FollowerStreamFreshness)
+	hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.FollowerStreamFreshness)
 	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}
@@ -78,7 +79,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 	// leader's rule + address), leader reachability no longer matters here — an
 	// unreachable-but-known leader is still the official term leader worth telling
 	// replicas about, and only knowing where to point them matters.
-	if !leaderServing(sa) || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
+	if host, _ := leaderEndpoint(sa.IntendedLeaderHealth()); !intendedLeaderServing(sa) || host == "" {
 		return nil, nil
 	}
 
@@ -109,7 +110,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 }
 
 // needsReplicationFix returns true if replication is not configured or stopped.
-func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(pa *store.Pooler) bool {
+func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(pa *multiorchdatapb.PoolerHealthState) bool {
 	// No primary_conninfo configured
 	if primaryConnInfoHost(pa) == "" {
 		return true

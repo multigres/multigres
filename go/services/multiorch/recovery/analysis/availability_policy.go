@@ -18,87 +18,22 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
-	"github.com/multigres/multigres/go/services/multiorch/store"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 )
-
-// AvailabilityPolicy is configuration that influences the orchestrator's
-// decisions about when to take action and what choices to make — for example,
-// how stale an observation may be before it stops counting as evidence, how
-// aggressively to act on weak versus strong signals, and (in time) backoff and
-// selection preferences. It exists so these knobs live in one named, injectable
-// place rather than as constants scattered through the analyzers, and so
-// decisions that warrant different policies can carry different values.
-//
-// Today it holds the observation-freshness thresholds that decide when a
-// pooler's last health snapshot is too old to be trusted as a live signal. The
-// set of fields will grow as more decisions become policy-driven.
-//
-// This is an in-process Go struct, deliberately scoped to multiorch for now.
-// The longer-term direction (see the orch health/failover principles doc, P6)
-// is to source it from a proto distributed to poolers, with per-shard
-// overrides; when that lands, callers read the same struct, populated from the
-// proto instead of from DefaultAvailabilityPolicy.
-type AvailabilityPolicy struct {
-	// LeaderLivenessFreshness bounds how stale the leader's most recent health
-	// snapshot may be before it stops counting as a live observation. This is
-	// the signal that TRIGGERS failover, so it wants confidence before firing:
-	// a snapshot older than this means "we no longer have current evidence the
-	// leader is alive."
-	LeaderLivenessFreshness time.Duration
-
-	// FollowerStreamFreshness bounds the same for a follower's snapshot when its
-	// "still streaming from the leader" report is used to SUPPRESS failover.
-	// Directionality is inverted from the trigger: a stale follower snapshot
-	// must NOT keep suppressing failover, so an age beyond this drops the
-	// follower from the connected set.
-	FollowerStreamFreshness time.Duration
-
-	// LeaderChangeFreshness bounds how stale the leader's snapshot may be before
-	// it stops counting as a serving primary suitable to drive a leader-led
-	// change (cohort reconcile, replica re-pointing). These decisions are not
-	// latency-sensitive (Q3): being conservative here merely defers a non-urgent
-	// change, so it is a separate, independently tunable knob from the
-	// failover-detection thresholds above.
-	LeaderChangeFreshness time.Duration
-
-	// ConnectReplicasToNewLeaderGrace bounds how long after a leadership rule is created we keep
-	// suppressing failover for a leader that reports it is still promoting. It
-	// exists only to let freshly-promoted leaders' followers reconnect and start
-	// streaming before "are followers vouching?" becomes meaningful. It is bounded
-	// by rule age on purpose: a leader that claims to be promoting indefinitely but
-	// never gains followers cannot make progress, so once this lapses we stop
-	// honoring the claim and let normal detection fail it over.
-	ConnectReplicasToNewLeaderGrace time.Duration
-
-	// ObservationFreshness bounds how stale a pooler's health snapshot may be
-	// before it stops counting as a trustworthy fact at all. It's the default
-	// tolerance for decisions that aren't specifically about leader liveness
-	// (LeaderLivenessFreshness) or follower streaming evidence
-	// (FollowerStreamFreshness) — e.g. "is this replica initialized."
-	ObservationFreshness time.Duration
-
-	// QuorumCommitStaleAfter bounds how old the freshest cohort-observed
-	// quorum_commit_ts may be before LeaderQuorumWritesStalled considers commits stalled.
-	// Kept generous and longer than LeaderLivenessFreshness: this signal is
-	// multi-hop (heartbeat interval, one-tick defer, reader poll, then
-	// health-snapshot propagation), so delays stack even when nothing is
-	// wrong -- a false positive here drives a real failover against a
-	// healthy leader.
-	QuorumCommitStaleAfter time.Duration
-}
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
 // configuration is supplied. The freshness thresholds are a small multiple of
 // the default health-snapshot interval, so a brief stream interruption does not
 // flip a pooler's liveness while a genuinely stalled stream is caught well
 // before the staleness watchdog's much longer window.
-func DefaultAvailabilityPolicy() AvailabilityPolicy {
-	return AvailabilityPolicy{
+func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
+	return snapshot.AvailabilityPolicy{
 		LeaderLivenessFreshness:         15 * time.Second,
 		FollowerStreamFreshness:         15 * time.Second,
-		LeaderChangeFreshness:           store.DefaultLeaderWriteFreshness,
+		LeaderChangeFreshness:           snapshot.DefaultLeaderWriteFreshness,
 		ConnectReplicasToNewLeaderGrace: 10 * time.Second,
-		ObservationFreshness:            store.DefaultObservationFreshness,
+		ObservationFreshness:            snapshot.DefaultObservationFreshness,
 		QuorumCommitStaleAfter:          consensus.DefaultQuorumCommitStaleAfter,
+		PreRecheckRefreshTimeout:        5 * time.Second,
 	}
 }

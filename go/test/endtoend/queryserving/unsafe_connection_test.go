@@ -60,7 +60,7 @@ func TestUnsafeConnection(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	param := constants.UnsafeConnectionParam
 
 	// Baseline: the probe really is rejected on an ordinary (enforcing)

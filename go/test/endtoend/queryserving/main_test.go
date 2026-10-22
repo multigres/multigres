@@ -18,11 +18,21 @@ import (
 	"os"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
+// The default, TLS and require-SSL clusters run on either topology, chosen by
+// MULTIGRES_E2E_TOPOLOGY (see clustersetup.IsMinigres). The replica and
+// slot-based replication clusters need Multigres; their tests skip under
+// Minigres.
+
 // setupManager manages the shared test setup for tests in this package.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t)
+	}
 	// Create a 2-node cluster for testing (primary + standby)
 	// We only use the primary for transaction tests, but shardsetup requires 2 nodes for bootstrap
 	return shardsetup.New(t,
@@ -41,7 +51,10 @@ var replicaSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *s
 
 // tlsSetupManager manages a separate shared setup with TLS-enabled multigateway.
 // SSL tests need their own cluster because the multigateway must be started with TLS certificates.
-var tlsSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+var tlsSetupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t, minigressetup.WithTLS())
+	}
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2),
 		shardsetup.WithMultigatewayTLS(), // enable multigateway with TLS
@@ -50,7 +63,10 @@ var tlsSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shard
 
 // requireSSLSetupManager manages a shared setup with --pg-require-ssl=true.
 // Plaintext StartupMessage is rejected; only TLS-negotiated clients succeed.
-var requireSSLSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+var requireSSLSetupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
+	if clustersetup.IsMinigres() {
+		return minigressetup.New(t, minigressetup.WithRequireSSL())
+	}
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2),
 		shardsetup.WithMultigatewayRequireSSL(),
@@ -87,19 +103,19 @@ func TestMain(m *testing.M) {
 }
 
 // getSharedSetup returns the shared setup for tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getSharedSetup(t *testing.T) shardsetup.Cluster {
 	t.Helper()
 	return setupManager.Get(t)
 }
 
 // getTLSSharedSetup returns the shared setup with TLS-enabled multigateway for SSL tests.
-func getTLSSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getTLSSharedSetup(t *testing.T) shardsetup.Cluster {
 	t.Helper()
 	return tlsSetupManager.Get(t)
 }
 
 // getRequireSSLSharedSetup returns the shared setup with --pg-require-ssl=true.
-func getRequireSSLSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getRequireSSLSharedSetup(t *testing.T) shardsetup.Cluster {
 	t.Helper()
 	return requireSSLSetupManager.Get(t)
 }
@@ -108,5 +124,21 @@ func getRequireSSLSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 // --enable-slot-based-replication=true on multigateway and multipooler.
 func getSlotBasedReplicationSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
+	clustersetup.RequireMultigresTopology(t, "slot-based replication to replicas")
 	return slotBasedReplicationSetupManager.Get(t)
+}
+
+// newIsolatedCluster starts a cluster owned by one test, on the topology chosen
+// by MULTIGRES_E2E_TOPOLOGY: a Multigres shard (two poolers and a gateway) or a
+// single Minigres process. poolerArgs are passed to the pooler half.
+func newIsolatedCluster(t *testing.T, poolerArgs ...string) (shardsetup.Cluster, func()) {
+	t.Helper()
+	if clustersetup.IsMinigres() {
+		return minigressetup.NewIsolated(t, minigressetup.WithExtraArgs(poolerArgs...))
+	}
+	return shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
+		shardsetup.WithMultigateway(),
+		shardsetup.WithMultipoolerExtraArgs(poolerArgs...),
+	)
 }

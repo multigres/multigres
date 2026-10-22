@@ -15,6 +15,8 @@
 package viperutil
 
 import (
+	"os"
+
 	"github.com/spf13/viper"
 
 	"github.com/multigres/multigres/go/tools/viperutil/internal/sync"
@@ -65,6 +67,20 @@ func NewRegistry() *Registry {
 // LoadConfig has run (or when no config file was found).
 func (reg *Registry) InStaticConfig(key string) bool {
 	return reg.static.InConfig(key)
+}
+
+// ConfigFileLoaded returns the path of the static config file that LoadConfig
+// read, or "" when no file was read (none configured, or a configured file that
+// does not exist and was tolerated by the not-found handling).
+func (reg *Registry) ConfigFileLoaded() string {
+	file := reg.static.ConfigFileUsed()
+	if file == "" {
+		return ""
+	}
+	if _, err := os.Stat(file); err != nil {
+		return ""
+	}
+	return file
 }
 
 // Combined returns a viper instance combining the static and dynamic registries.

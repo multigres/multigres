@@ -51,7 +51,7 @@ func TestMultigateway_LogicalReplicationSlotFailoverAdmission(t *testing.T) {
 	setup := getSlotBasedReplicationSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -185,7 +185,7 @@ func TestMultigateway_LogicalReplicationSlotFailoverAdmission(t *testing.T) {
 		const slot = "e2e_failover_copy"
 		t.Cleanup(func() { dropSlot(t, slot) })
 
-		connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+		connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 		copyConn, err := pgconn.Connect(ctx, connStr)
 		require.NoError(t, err)
 		defer copyConn.Close(context.Background())
@@ -267,7 +267,7 @@ func TestMultigateway_LogicalReplicationSlotFailoverAdmission_FlagOff(t *testing
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()

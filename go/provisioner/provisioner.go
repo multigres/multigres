@@ -93,11 +93,15 @@ type Provisioner interface {
 
 	// DefaultConfig returns the default configuration for this provisioner.
 	// The returned map contains key-value pairs that represent the default
-	// settings for the provisioner. The provisioner will use the configPaths
-	// to specify data file locations and backupConfig for backup settings.
+	// settings for the provisioner. configPaths specifies data file
+	// locations; options carries backup settings (e.g. "type", "path") and
+	// other named choices a caller wants reflected in the generated config,
+	// such as "topology" for provisioners that support more than one
+	// topology shape. It's a plain string map rather than a typed struct so
+	// new options don't require interface changes.
 	// TODO: We can have better typing in the future here,
 	// but we can wait until we start implementing other provisioners
-	DefaultConfig(configPaths []string, backupConfig map[string]string) map[string]any
+	DefaultConfig(configPaths []string, options map[string]string) map[string]any
 
 	// LoadConfig loads the provisioner-specific configuration from the given config paths.
 	// The provisioner will search for config files in the provided paths and load

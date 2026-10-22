@@ -131,17 +131,12 @@ func TestPostgRESTIO(t *testing.T) {
 func runIOGateway(t *testing.T, ctx context.Context, src string) *specResult {
 	t.Helper()
 
-	setup := shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),
-		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=50"),
-	)
+	setup := newPostgRESTCluster(t)
 	setup.SetupTest(t)
 
-	primary := setup.GetPrimary(t)
 	conn := pgConn{
-		Host:      filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets"),
-		Port:      primary.Pgctld.PgPort,
+		Host:      setup.PostgresSocketDir(t),
+		Port:      setup.PostgresPort(t),
 		SuperUser: shardsetup.DefaultTestUser,
 		SuperPass: shardsetup.TestPostgresPassword,
 		Database:  "postgres",
@@ -150,7 +145,7 @@ func runIOGateway(t *testing.T, ctx context.Context, src string) *specResult {
 		t.Fatalf("load io fixtures on primary: %v", err)
 	}
 
-	res, err := runIO(t, ctx, specTarget{Name: "gateway", Port: setup.MultigatewayPgPort})
+	res, err := runIO(t, ctx, specTarget{Name: "gateway", Port: setup.ClientPort()})
 	if err != nil {
 		t.Fatalf("run io suite through gateway: %v", err)
 	}

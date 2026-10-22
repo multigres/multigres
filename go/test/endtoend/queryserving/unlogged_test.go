@@ -53,7 +53,7 @@ func TestUnloggedTableCreateWarning(t *testing.T) {
 	// Plan with IsPortal=false, exec (unnamed extended) hits Plan with IsPortal=true.
 	for _, mode := range []string{"simple_protocol", "exec"} {
 		t.Run(mode, func(t *testing.T) {
-			connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+			connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 				"sslmode=disable", "default_query_exec_mode="+mode)
 			conn, collector := connectWithNotices(ctx, t, connStr)
 			defer conn.Close(ctx)
@@ -122,7 +122,7 @@ func TestUnloggedTablesAfterFailover(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)

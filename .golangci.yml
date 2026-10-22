@@ -141,6 +141,9 @@ linters:
             - "!**/go/services/multigateway/**/*.go"
             - "!**/go/cmd/multigateway/*.go"
             - "!**/go/cmd/multigateway/**/*.go"
+            # minigres runs the multigateway and the multipooler in one process.
+            - "!**/go/cmd/minigres/*.go"
+            - "!**/go/cmd/minigres/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -163,6 +166,9 @@ linters:
             - "!**/go/services/multipooler/**/*.go"
             - "!**/go/cmd/multipooler/*.go"
             - "!**/go/cmd/multipooler/**/*.go"
+            # minigres runs the multigateway and the multipooler in one process.
+            - "!**/go/cmd/minigres/*.go"
+            - "!**/go/cmd/minigres/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:

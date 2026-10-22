@@ -75,18 +75,14 @@ func TestPreparedDDLMatrix(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping")
 	}
 
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2),
-		shardsetup.WithMultigateway(),
-		shardsetup.WithMultipoolerExtraArgs(describeStalePoolCapacity, describeStaleReservedRatio, describeStaleRebalanceFast),
-	)
+	setup, cleanup := newIsolatedCluster(t, describeStalePoolCapacity, describeStaleReservedRatio, describeStaleRebalanceFast)
 	defer cleanup()
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	ctx := utils.WithTimeout(t, 8*time.Minute)
 
 	// Settle the regular sub-pool to a single backend.
-	settleDB, err := sql.Open("postgres", shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable"))
+	settleDB, err := sql.Open("postgres", shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable"))
 	require.NoError(t, err)
 	_, _ = settleDB.ExecContext(ctx, "SELECT 1")
 	time.Sleep(5 * time.Second)
@@ -125,7 +121,7 @@ func TestPreparedDDLMatrix(t *testing.T) {
 	reuseModes := []string{"reuse", "reprepare"}
 	txnModes := []string{"autocommit", "in_txn"}
 
-	targets := setup.GetComparisonTargets(t)
+	targets := setup.ComparisonTargets(t)
 	// results[cellKey][targetName] = outcome
 	results := map[string]map[string]string{}
 	// mayDiverge marks the cells the multigateway is allowed to answer

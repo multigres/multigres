@@ -23,7 +23,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -47,13 +46,23 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// defaultPostgresUnrecoverableTimeout defaults the unrecoverable-postgres
-// classifier to OFF (0). Quarantining a pooler disables its restarts and marks
-// it cohort-INELIGIBLE, so it is only safe to enable once an actor exists to
-// replace the node (the operator-side Layer 2 remediation). Until then the
-// operator's manifests opt in explicitly (a good value is ~5m of continuous
-// FATAL-looping — long enough that transient faults self-heal first).
-const defaultPostgresUnrecoverableTimeout time.Duration = 0
+// defaultPostgresUnrecoverableTimeout enables the unrecoverable-postgres
+// classifier by default with a 5m budget: postgres must fail to
+// start/rewind/restore continuously for this long (and across at least
+// defaultPostgresUnrecoverableMinAttempts attempts) before the pooler
+// quarantines itself for replacement. 5m is long enough that transient faults
+// self-heal first, but short enough that a genuinely unrecoverable node (e.g. a
+// diverged standby left with an invalid checkpoint that PANICs on every start)
+// stops FATAL-looping and signals for replacement instead of silently running
+// the shard one member short of durability.
+//
+// Quarantining disables the node's restarts and marks it cohort-INELIGIBLE, so
+// it is only fully resolved where an actor provisions a replacement (the
+// operator-side Layer 2 remediation). A deployment without such an actor still
+// benefits — the node stops looping and raises a clear terminal signal — but the
+// shard sits short until a human re-seeds it; such deployments can opt out by
+// setting --postgres-unrecoverable-timeout=0.
+const defaultPostgresUnrecoverableTimeout = 5 * time.Minute
 
 // Bounds for --postgres-unrecoverable-min-attempts: must be at least 2 (a floor
 // of 1 would defeat its purpose) and less than 10 (the timeout is the real gate;
@@ -120,14 +129,17 @@ type Multipooler struct {
 	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
+	queryGrpcServer *servenv.GrpcServer
 	// Senv is the serving environment
-	senv *servenv.ServEnv
-	// TopoConfig holds topology configuration
-	topoConfig *topoclient.TopoConfig
-	telemetry  *telemetry.Telemetry
+	senv      *servenv.ServEnv
+	telemetry *telemetry.Telemetry
 	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
+	// ts is set from Init's ts argument. Owned by whoever constructed this
+	// Multipooler (cmd/multipooler standalone, or cmd/minigres sharing it with
+	// a multigateway): they open it and close it, never Shutdown.
 	ts            topoclient.Store
 	poolerManager *manager.MultipoolerManager
 	serverStatus  Status
@@ -137,15 +149,33 @@ type Multipooler struct {
 	// --socket-file was unset. Stored so the /status page reports the live
 	// value rather than the raw flag. Set once during Init.
 	resolvedSocketFilePath string
+
+	// statusPath is where the status page is served, given by main: "/" when
+	// the multipooler owns the process, under its service name when it shares
+	// the HTTP server with other components.
+	statusPath string
+	// staticLeader makes the multipooler its shard's leader without consensus,
+	// given by main — independent of whether the process is shared (Minigres
+	// always sets it; a standalone multipooler never does, but process sharing
+	// and static leadership are different axes in principle).
+	staticLeader bool
 }
 
-func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
-	return mp.senv.CobraPreRunE(cmd)
-}
-
-// NewMultipooler creates a new Multipooler instance with default configuration
-func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
-	reg := viperutil.NewRegistry()
+// NewMultipooler creates a new Multipooler instance. reg is the settings
+// registry the multipooler configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multipooler for a standalone process,
+// cmd/minigres for one shared with a multigateway) owns and constructs them;
+// the multipooler never creates its own. statusPath is where the status page is served ("/" when the multipooler
+// owns the process, under its service name when it shares the HTTP server).
+// staticLeader makes the multipooler its shard's leader without consensus
+// (Minigres); independent of whether resources are shared, in principle.
+func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, staticLeader bool) *Multipooler {
+	if reg == nil {
+		panic("multipooler: reg is required")
+	}
 	mp := &Multipooler{
 		reg: reg,
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
@@ -258,10 +288,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_ENABLE_SLOT_BASED_REPLICATION"},
 		}),
-		grpcServer:     servenv.NewGrpcServer(reg),
-		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
-		topoConfig:     topoclient.NewTopoConfig(reg),
 		connPoolConfig: connpoolmanager.NewConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
@@ -272,10 +299,26 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			},
 		},
 	}
+	if err := resources.Validate(); err != nil {
+		panic(fmt.Sprintf("multipooler: invalid ProcessResources: %v", err))
+	}
+	mp.senv = resources.ServEnv
+	mp.grpcServer = resources.GrpcServer
+	mp.queryGrpcServer = resources.QueryGrpcServer
+	mp.statusPath = statusPath
+	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
 	return mp
+}
+
+// consensusEnabled reports whether the pooler takes part in consensus: whether
+// the consensus service is registered and the manager runs with consensus. A
+// static leader never does, whatever --service-map says: a coordinator's
+// Recruit would demote a pooler that promotes itself back.
+func (mp *Multipooler) consensusEnabled() bool {
+	return !mp.staticLeader && mp.grpcServer.CheckServiceMap("consensus", mp.senv)
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
@@ -298,7 +341,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
-	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement (e.g. 5m). 0 (default) disables it; enable only where an actor replaces quarantined nodes.")
+	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement. Default 5m; set 0 to disable (do so where no actor replaces quarantined nodes).")
 	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
 	flags.Bool("enable-slot-based-replication", mp.slotBasedReplicationEnabled.Default(), "Enable slot-based physical replication (per-follower physical replication slots, primary_slot_name, synchronized_standby_slots) for logical-slot failover. Dynamic (runtime-toggleable); default off keeps the slot-less posture.")
 
@@ -328,9 +371,6 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	)
 	mp.flagSet = flags
 
-	mp.grpcServer.RegisterFlags(flags)
-	mp.senv.RegisterFlags(flags)
-	mp.topoConfig.RegisterFlags(flags)
 	mp.connPoolConfig.RegisterFlags(flags)
 }
 
@@ -371,40 +411,24 @@ func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
 
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
-// until successful.
-func (mp *Multipooler) Init(startCtx context.Context) error {
+// until successful. ts is the process's already-open topology store (main
+// opens it, after parsing flags, before calling Init).
+func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
-	// Resolve service ID early for telemetry resource attributes
-	serviceID := mp.serviceID.Get()
-	if serviceID == "" {
-		serviceID = servenv.GenerateRandomServiceID()
+	if ts == nil {
+		return errors.New("topology store is not open: main must open it before Init")
 	}
+	mp.ts = ts
+
+	// main has already resolved and applied the service ID (see
+	// ServiceIdentity/servenv.Init), so this is never empty here.
+	serviceID := mp.serviceID.Get()
 	cell := mp.cell.Get()
 
-	if err := mp.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultipooler,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-		Shard:             mp.shard.Get(),
-		Database:          mp.database.Get(),
-		TableGroup:        mp.tableGroup.Get(),
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
-
-	// Ensure we open the topo before we start the context, so that the
-	// defer that closes the topo runs after cancelling the context.
-	// This ensures that we've properly closed things like the watchers
-	// at that point.
-	var err error
-	mp.ts, err = mp.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
 
 	logger.InfoContext(
 		startCtx, "multipooler starting up",
@@ -491,6 +515,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return err
 	}
 
+	consensusEnabled := mp.consensusEnabled()
+
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:                 socketFilePath,
@@ -499,7 +525,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
-		ConsensusEnabled:               mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
@@ -511,6 +537,8 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 
 		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
 		PostgresUnrecoverableMinAttempts: minAttempts,
+
+		StaticLeader: mp.staticLeader,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -522,10 +550,12 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
-	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
-	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
+	if consensusEnabled {
+		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
+	}
+	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
 
-	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
 
 	// Register /ready probe: ready iff this pooler's own gRPC control plane is
 	// accepting connections. Postgres health is intentionally excluded — a
@@ -573,6 +603,30 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// Record returns a copy of the multipooler's topology record, without the
+// topology. Requires Init.
+func (mp *Multipooler) Record() *clustermetadatapb.Multipooler {
+	if mp.poolerManager == nil {
+		panic("multipooler: Record called before Init")
+	}
+	return mp.poolerManager.PoolerRecord()
+}
+
+// ServiceIdentity returns the identity the multipooler reports when it
+// initializes its own servenv. ServiceInstanceID is the configured service ID
+// and may be empty. A caller that owns a shared servenv (see WithServEnv) can
+// use it to initialize that servenv with the pooler's cell and shard.
+func (mp *Multipooler) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: mp.serviceID.Get(),
+		Cell:              mp.cell.Get(),
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
+	}
+}
+
 func (mp *Multipooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
@@ -582,7 +636,6 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)
 	}
-	mp.ts.Close()
 }
 
 // flagExplicitlySet reports whether the named flag was explicitly configured:

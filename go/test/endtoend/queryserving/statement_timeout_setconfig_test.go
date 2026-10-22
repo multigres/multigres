@@ -56,7 +56,7 @@ func TestStatementTimeoutSetConfig(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -331,7 +331,7 @@ func TestStatementTimeoutSetConfigScopeBatch(t *testing.T) {
 		"op",
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			ctx := utils.WithTimeout(t, 150*time.Second)
@@ -456,7 +456,7 @@ func TestStatementTimeoutSetConfigBackendLeak(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -570,7 +570,7 @@ func TestStatementTimeoutSetConfigMixed(t *testing.T) {
 			"backend statement_timeout must be 0 after reset — a stale value is the leak")
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 
@@ -611,7 +611,7 @@ func TestStatementTimeoutSetConfigSharedBoundValue(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -676,7 +676,7 @@ func TestSetConfigGatewayManagedVariables(t *testing.T) {
 		{"idle_session_timeout", "5000", "5s"},
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			ctx := utils.WithTimeout(t, 150*time.Second)
@@ -773,7 +773,7 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 		"mixed": "SELECT set_config('statement_timeout', NULL, false), set_config('work_mem', '64MB', false)",
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -910,7 +910,7 @@ func TestCurrentSettingGatewayManaged(t *testing.T) {
 		{"idle_session_timeout", "5000", "5s"},
 	}
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			ctx := utils.WithTimeout(t, 150*time.Second)
@@ -986,7 +986,7 @@ func TestCurrentSettingMaterialized(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -1077,7 +1077,7 @@ func TestStatementTimeoutBoundName(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)

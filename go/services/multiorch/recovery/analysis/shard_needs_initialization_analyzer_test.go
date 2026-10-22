@@ -30,6 +30,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -57,21 +58,21 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	poolerIDFor := func(name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
 	}
-	initialized := func(name string) *store.Pooler {
-		return newRider(&multiorchdatapb.PoolerHealthState{
+	initialized := func(name string) *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: poolerIDFor(name), ShardKey: shardKey},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
-		})
+		}
 	}
 
 	t.Run("fires when quorum of initialized poolers present with no cohort or primary", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -83,12 +84,12 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not fire when not enough initialized poolers for quorum", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1")},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -98,18 +99,18 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("still counts a momentarily disconnected but freshly-observed pooler", func(t *testing.T) {
 		// StreamConnected false (e.g. a stream blip) must not hide an otherwise
 		// fresh, initialized observation from the durability-policy count.
-		blipped := newRider(&multiorchdatapb.PoolerHealthState{
+		blipped := &multiorchdatapb.PoolerHealthState{
 			Multipooler:     &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
 			StreamConnected: false,
 			LastSeen:        timestamppb.New(now),
 			Status:          &multipoolermanagerdatapb.Status{IsInitialized: true},
-		})
-		sa := &ShardAnalysis{
+		}
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), blipped},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), blipped},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -118,17 +119,17 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not count a genuinely stale observation", func(t *testing.T) {
-		stale := newRider(&multiorchdatapb.PoolerHealthState{
+		stale := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
 			LastSeen:    timestamppb.New(now.Add(-time.Minute)),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
-		})
-		sa := &ShardAnalysis{
+		}
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), stale},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), stale},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -136,7 +137,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("suppresses entire shard when any pooler has cohort members", func(t *testing.T) {
-		withCohort := newRider(&multiorchdatapb.PoolerHealthState{
+		withCohort := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
@@ -150,13 +151,13 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 					},
 				},
 			},
-		})
-		sa := &ShardAnalysis{
+		}
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), withCohort},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), withCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -165,7 +166,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
-		withCohortAndPrimary := newRider(&multiorchdatapb.PoolerHealthState{
+		withCohortAndPrimary := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: poolerIDFor("pooler-1"),
@@ -182,13 +183,13 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
 			},
-		})
-		sa := &ShardAnalysis{
+		}
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{withCohortAndPrimary, initialized("pooler-2")},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{withCohortAndPrimary, initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -199,7 +200,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		// A self-promotion whose proposal reached WAL but wasn't marked
 		// decided yet — the shard is still initialized (or being
 		// initialized), so ShardNeedsInitialization must not fire.
-		withProposalCohort := newRider(&multiorchdatapb.PoolerHealthState{
+		withProposalCohort := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
@@ -215,13 +216,13 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 					},
 				},
 			},
-		})
-		sa := &ShardAnalysis{
+		}
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), withProposalCohort},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), withProposalCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -229,12 +230,12 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("does not fire when bootstrap durability policy is unknown", func(t *testing.T) {
-		sa := &ShardAnalysis{
+		sa := &snapshot.Shard{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: nil,
 			Now:                       now,
-			Policy:                    availabilityPolicy,
-			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
+			AvailabilityPolicy:        availabilityPolicy,
+			Poolers:                   []*multiorchdatapb.PoolerHealthState{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

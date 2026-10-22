@@ -15,10 +15,11 @@
 name: Upload test results to Trunk
 description: >-
   Uploads test results to Trunk Flaky Tests and optionally quarantines
-  known-flaky failures. Authenticates with the non-secret public repo
-  identifier (public-repo-id) instead of an org token, so it works on a fork
-  where repository secrets are unavailable. Converts `go test -json` output to
-  JUnit XML when an existing JUnit file is not supplied.
+  known-flaky failures. Uses the collection's fork-upload opt-in instead of an
+  org token, so it works on a fork where repository secrets are unavailable.
+  The collection must have "Accept uploads from forked pull requests" enabled.
+  Converts `go test -json` output to JUnit XML when an existing JUnit file is
+  not supplied.
 
 inputs:
   junit-paths:
@@ -54,12 +55,12 @@ inputs:
     description: Trunk organization slug. Non-secret; safe to commit.
     required: false
     default: supabase
-  public-repo-id:
+  test-collection-id:
     description: >-
-      Trunk per-repo identifier, used instead of an org token so the upload
-      works on a fork without repository secrets. Non-secret; safe to commit.
+      Trunk test collection ID. Non-secret; safe to commit. The collection must
+      accept uploads from forked pull requests.
     required: false
-    default: R2BxLxNS
+    default: 2Dmylbxi
 
 runs:
   using: composite
@@ -74,10 +75,11 @@ runs:
       run: "$GITHUB_ACTION_PATH/prepare-junit.sh"
 
     - name: Upload to Trunk
-      uses: trunk-io/analytics-uploader@58d9d52d4a8ed29fefca0afb568293f2047826b3 # v2.1.0
+      uses: trunk-io/analytics-uploader@a86313c7029d22e6ea2d5c346060a224d90053dc # v2.1.6
       with:
         junit-paths: ${{ steps.prepare.outputs.junit-paths }}
         org-slug: ${{ inputs.org-slug }}
-        public-repo-id: ${{ inputs.public-repo-id }}
+        test-collection-id: ${{ inputs.test-collection-id }}
+        allow-forked-pr-uploads: "true"
         quarantine: ${{ inputs.allow-quarantine }}
         previous-step-outcome: ${{ steps.prepare.outputs.previous-step-outcome }}

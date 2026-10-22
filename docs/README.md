@@ -11,6 +11,7 @@ to use Multigres for your applications, please refer to the
 - **[Working with us](./teamwork.md)**
 - **[Github workflow](./workflow.md)**
 - **[Contributing](./contributing.md)**
+- **[Multiadmin REST API and OpenAPI specification](./api/)**
 
 ## Design Documents
 
@@ -27,6 +28,9 @@ Browse the design and reference docs by area:
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management, [logging conventions](./general/logging.md)).
+- **[Minigres](./general/minigres.md)** — the multigateway and multipooler in
+  one process for a single-pooler database: how to run it, and where it
+  diverges from Multigres and why.
 - **[pgctld init](./pgctld-init.md)** — data directory initialization: the init
   flags, execution order, superuser password resolution, init SQL, and init
   secrets (role passwords and database settings).

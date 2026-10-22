@@ -68,6 +68,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // TODO(dweitzman): Do we want package-specific tracing services, or is a shared
@@ -357,13 +358,16 @@ func (t *Telemetry) WithEnvTraceparent(ctx context.Context) context.Context {
 
 // InitForCommand initializes telemetry for CLI commands with just a service name.
 // Use this for one-shot commands that don't need additional resource attributes.
+//
+// On success the returned span is never nil, so callers can End it
+// unconditionally. When startSpan is false it is a no-op span.
 func (t *Telemetry) InitForCommand(cmd *cobra.Command, serviceName string, startSpan bool) (trace.Span, error) {
 	if err := t.InitTelemetry(cmd.Context(), serviceName); err != nil {
 		return nil, fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 	}
 
 	ctx := t.WithEnvTraceparent(cmd.Context())
-	var span trace.Span
+	var span trace.Span = noop.Span{}
 	if startSpan {
 		ctx, span = tracer.Start(ctx, cmd.Use)
 	}

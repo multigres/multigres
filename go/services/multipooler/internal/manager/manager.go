@@ -426,6 +426,10 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 			ID:           multipooler.Id,
 			Broadcaster:  pm.healthStreamer,
 			LoadPromises: config.ConsensusEnabled,
+			StaticLeader: config.StaticLeader,
+			// A decided rule follows a proposal a sync standby already acked, which is
+			// as good a proof the leader can commit as a heartbeat.
+			OnProposalAcked: pm.writeHeartbeatForAckedProposal,
 		})
 		if err != nil {
 			cancel()
@@ -553,6 +557,21 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+
+	// Ensure sidecar tables that a shard bootstrapped by an older pooler
+	// version may be missing (see ensureSidecarSchemas) exist on every
+	// open/resume, not just on promotion.
+	//
+	// The function createSidecarSchema only ever runs once, at genuine shard
+	// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
+	// actual pg_promote() transition. Without this, a plain process restart of
+	// an already-primary pooler would never re-ensure them, even after
+	// upgrading to a pooler version that knows about them.
+	if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
+		if err := pm.ensureSidecarSchemas(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+		}
+	}
 
 	pm.startPostgresMonitorPollerLocked()
 
@@ -1067,8 +1086,24 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
 		db, err := pm.topoClient.GetDatabase(ctx, database)
 		cancel()
-		if err != nil {
+		fromTopo := err == nil
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			// The topology answered that the database does not exist (for
+			// example, it was deleted): never serve it from a copy.
 			continue // Will retry with backoff
+		}
+		if !fromTopo {
+			// The topology is unreachable: a static leader starts from its
+			// copy of the record instead.
+			cached, cacheErr := pm.loadDatabaseCache()
+			if cacheErr != nil {
+				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)
+			}
+			if cached == nil {
+				continue // Will retry with backoff
+			}
+			pm.logger.Warn("database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
+			db = cached
 		}
 
 		// Validate and parse backup configuration
@@ -1159,6 +1194,10 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		if err != nil {
 			pm.setStateError(err)
 			return
+		}
+
+		if fromTopo {
+			pm.saveDatabaseCache(db)
 		}
 
 		pm.mu.Lock()
@@ -1798,8 +1837,9 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "monitorPostgres: postgres state changed, broadcasting health",
-					"postgres_running", newState.postgresRunning)
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+					"postgres_running", newState.postgresRunning,
+					"postgres_ready", newState.postgresReady)
 				pm.broadcastHealth()
 			}
 			// Transition lifecycle STARTING → ACTIVE once postgres is up
@@ -1896,4 +1936,10 @@ func (pm *MultipoolerManager) WaitUntilReady(ctx context.Context) error {
 			return fmt.Errorf("unexpected state after ready signal: %s", state)
 		}
 	}
+}
+
+// PoolerRecord returns a copy of the pooler's topology record, without the
+// topology.
+func (pm *MultipoolerManager) PoolerRecord() *clustermetadatapb.Multipooler {
+	return pm.record.Snapshot()
 }

@@ -295,9 +295,9 @@ func (e *Executor) PortalStreamExecute(
 // resolvePortalPlan obtains a query plan for a portal, mirroring resolvePlan but
 // for the extended protocol. The portal query already carries $1, $2, ...
 // placeholders, so there is nothing to normalize: the AST's SqlString() is used
-// directly as the cache key's SQL portion, producing the same canonical form as
-// the simple protocol path so the two protocols share cache entries regardless
-// of casing or whitespace in the original query text.
+// once per prepared statement as the cache key's SQL portion. This produces the
+// same canonical form as the simple protocol path, so both protocols share
+// cache entries regardless of casing or whitespace in the original query text.
 //
 // Returns the plan, whether it was a cache hit, the normalized SQL (empty for
 // non-cacheable statements), a fingerprint of that SQL, and any planning error.
@@ -340,8 +340,7 @@ func (e *Executor) resolvePortalPlan(
 		return plan, false, "", "", nil
 	}
 
-	normalizedSQL := astStmt.SqlString()
-	fingerprint := ast.FingerprintSQL(normalizedSQL)
+	normalizedSQL, fingerprint := portalInfo.PreparedStatementInfo.CanonicalSQLAndFingerprint()
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
 
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {

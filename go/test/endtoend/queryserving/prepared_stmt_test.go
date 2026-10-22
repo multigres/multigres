@@ -49,7 +49,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -211,7 +211,7 @@ func TestPreparedStatementTransactionSemantics(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -373,7 +373,7 @@ func TestSQLPrepareEagerParseInTransaction(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			ctx := utils.WithTimeout(t, 30*time.Second)
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
@@ -461,7 +461,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 
 	setup := getSharedSetup(t)
 
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
 			db, err := sql.Open("postgres", connStr)
@@ -653,7 +653,7 @@ func TestMultigateway_MigrationPattern(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -731,7 +731,7 @@ func TestTransactionParseMaterializesOnce(t *testing.T) {
 	}
 	setup := getSharedSetup(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
-	conn := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	conn := connectLowLevelToPort(t, ctx, setup.ClientPort())
 	defer conn.Close()
 	_, err := conn.Query(ctx, "BEGIN")
 	require.NoError(t, err)

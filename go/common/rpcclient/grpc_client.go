@@ -45,9 +45,9 @@ type Client struct {
 // to distinct multipoolers. When the cache is full, least-recently-used unreferenced
 // connections are evicted to make room for new connections.
 // The transportCreds dial option configures TLS or insecure transport.
-func NewClient(capacity int, transportCreds grpc.DialOption) *Client {
+func NewClient(capacity int, transportCreds grpc.DialOption, opts ...Option) *Client {
 	return &Client{
-		cache: newConnCacheWithCapacity(capacity, transportCreds),
+		cache: newConnCacheWithCapacity(capacity, transportCreds, opts...),
 	}
 }
 

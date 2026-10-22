@@ -40,10 +40,9 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/stringutil"
@@ -388,40 +387,6 @@ func WithPgInitdbExtraConfFiles(paths ...string) SetupOption {
 	}
 }
 
-// SetupTestConfig holds configuration for SetupTest.
-type SetupTestConfig struct {
-	NoReplication    bool     // Don't configure replication
-	PauseReplication bool     // Configure replication but pause WAL replay
-	GucsToReset      []string // GUCs to save before test and restore after
-}
-
-// SetupTestOption is a function that configures SetupTest behavior.
-type SetupTestOption func(*SetupTestConfig)
-
-// WithoutReplication returns an option that actively breaks replication.
-// Clears primary_conninfo and synchronous_standby_names, so tests can set up replication from scratch.
-func WithoutReplication() SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.NoReplication = true
-	}
-}
-
-// WithPausedReplication returns an option that pauses WAL replay on standbys.
-// Replication is already configured from bootstrap; this just pauses WAL application.
-// Use this for tests that need to test pg_wal_replay_resume().
-func WithPausedReplication() SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.PauseReplication = true
-	}
-}
-
-// WithResetGuc returns an option that saves and restores specific GUC settings.
-func WithResetGuc(gucNames ...string) SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.GucsToReset = append(c.GucsToReset, gucNames...)
-	}
-}
-
 // multipoolerName returns the name for a multipooler instance by index.
 // Uses generic names like "pooler-1", "pooler-2" since multiorch decides which becomes primary.
 func multipoolerName(index int) string {
@@ -532,32 +497,14 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		cancel()
 		t.Fatalf("failed to create etcd data directory: %v", err)
 	}
-	etcdClientAddr, etcdCmd, err := startEtcd(runningCtx, t, etcdDataDir)
+	etcdClientAddr, etcdCmd, err := clustersetup.StartEtcd(runningCtx, t, etcdDataDir)
 	if err != nil {
 		cancel()
 		t.Fatalf("failed to start etcd: %v", err)
 	}
 
 	// Create topology server and cell
-	testRoot := "/multigres"
-	globalRoot := path.Join(testRoot, "global")
-	cellRoot := path.Join(testRoot, config.CellName)
-
-	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
-	if err != nil {
-		t.Fatalf("failed to open topology server: %v", err)
-	}
-
-	// Create the cell
-	err = ts.CreateCell(context.Background(), config.CellName, &clustermetadatapb.Cell{
-		ServerAddresses: []string{etcdClientAddr},
-		Root:            cellRoot,
-	})
-	if err != nil {
-		t.Fatalf("failed to create cell: %v", err)
-	}
-
-	t.Logf("Created topology cell '%s' at etcd %s", config.CellName, etcdClientAddr)
+	ts := clustersetup.CreateTopologyCell(t, etcdClientAddr, config.CellName)
 
 	// Create the database entry in topology with backup_location
 	var backupLocation *clustermetadatapb.BackupLocation
@@ -599,20 +546,9 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		t.Logf("Backup encryption required: cipher key file at %s", keyFilePath)
 	}
 
-	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(config.DurabilityPolicy)
-	if err != nil {
+	if err := clustersetup.CreateDatabaseRecord(ts, config.Database, backupLocation, config.DurabilityPolicy); err != nil {
 		cancel()
-		t.Fatalf("invalid durability policy %q: %v", config.DurabilityPolicy, err)
-	}
-
-	err = ts.CreateDatabase(context.Background(), config.Database, &clustermetadatapb.Database{
-		Name:                      config.Database,
-		BackupLocation:            backupLocation,
-		BootstrapDurabilityPolicy: bootstrapPolicy,
-	})
-	if err != nil {
-		cancel()
-		t.Fatalf("failed to create database in topology: %v", err)
+		t.Fatalf("%v", err)
 	}
 
 	setup := &ShardSetup{
@@ -1485,76 +1421,6 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
-}
-
-// startEtcd starts etcd without registering t.Cleanup() handlers
-// since cleanup is handled manually by TestMain via Cleanup().
-// Follows the pattern from multipooler/setup_test.go:startEtcdForSharedSetup.
-func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *executil.Cmd, error) {
-	t.Helper()
-
-	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startEtcd")
-	defer span.End()
-
-	// Check if etcd is available in PATH
-	_, err := exec.LookPath("etcd")
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "etcd not found in PATH")
-		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
-	}
-
-	// Get ports for etcd (client, peer, and metrics)
-	clientPort := utils.GetFreePort(t)
-	peerPort := utils.GetFreePort(t)
-	metricsPort := utils.GetFreePort(t)
-
-	span.SetAttributes(
-		attribute.Int("etcd.client_port", clientPort),
-		attribute.Int("etcd.peer_port", peerPort),
-		attribute.Int("etcd.metrics_port", metricsPort),
-	)
-
-	name := "shardsetup_test"
-	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
-	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
-	metricsAddr := fmt.Sprintf("http://localhost:%v", metricsPort)
-	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
-
-	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
-	// runningCtx is cancelled so run_in_test.sh can terminate etcd cleanly.
-	cmd := utils.CommandWithOrphanProtection(ctx, "etcd",
-		"-name", name,
-		"-advertise-client-urls", clientAddr,
-		"-initial-advertise-peer-urls", peerAddr,
-		"-listen-client-urls", clientAddr,
-		"-listen-peer-urls", peerAddr,
-		"-listen-metrics-urls", metricsAddr,
-		"-initial-cluster", initialCluster,
-		"-data-dir", dataDir)
-
-	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	cmd.AddEnv("MULTIGRES_TESTDATA_DIR=" + dataDir)
-
-	if err := cmd.Start(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to start etcd")
-		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := etcdtopo.WaitForReady(waitCtx, metricsAddr); err != nil {
-		// Stop the etcd process if it's not ready
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_, _ = cmd.Stop(stopCtx)
-		stopCancel()
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "etcd not ready")
-		return "", nil, err
-	}
-
-	return clientAddr, cmd, nil
 }
 
 // ValidateCleanState checks that all multipoolers are in the expected clean state.

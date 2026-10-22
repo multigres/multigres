@@ -200,6 +200,14 @@ type Problem struct {
 	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
 	DetectedAt     time.Time                   // When the problem was detected
 	RecoveryAction RecoveryAction              // What to do about it
+
+	// SkipPreRecheckRefresh tells the engine that a live refresh of pooler health
+	// before the recheck cannot change this problem's verdict, so it should not spend
+	// time on one. Why that holds is the analyzer's business. The zero value means
+	// refresh (when the action asks for it), so a problem that says nothing is still
+	// verified. Consensus safety does not depend on this: the refresh only avoids
+	// acting on a wrong guess, which would otherwise cause an unnecessary failover.
+	SkipPreRecheckRefresh bool
 }
 
 // IsShardWide reports whether this problem affects the entire shard.
@@ -224,7 +232,7 @@ type GracePeriodConfig struct {
 }
 
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
-// pre-execution recheck just re-verified it against (the same ShardAnalysis
+// pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
 // two are bundled deliberately: an action performing a CAS-anchored mutation
 // must judge safety and anchor its CAS on the same rule, or the two could
@@ -268,6 +276,14 @@ type RecoveryMetadata struct {
 	// Defaults to 15 seconds if zero.
 	LockTimeout time.Duration
 	Retryable   bool
+	// RefreshBeforeRecheckTimeout, when positive, asks the engine to refresh the
+	// shard's reachable poolers with a live Status RPC, waiting at most this long
+	// overall, before it re-runs the analyzer for the recheck, for problems whose
+	// problem does not set SkipPreRecheckRefresh. For actions
+	// disruptive enough (a failover) to warrant more confidence than the streamed
+	// cache gives. Zero means no refresh. A pooler that does not answer in time is
+	// itself evidence for the recheck, which then uses its cached state.
+	RefreshBeforeRecheckTimeout time.Duration
 }
 
 // GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.

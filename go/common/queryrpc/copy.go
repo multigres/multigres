@@ -1,0 +1,166 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package queryrpc
+
+import (
+	"context"
+	"errors"
+	"io"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
+)
+
+// dispatchCopy owns the COPY lifecycle around the existing bidi handler.
+// Serve owns completion framing: unread input is drained only after that frame
+// is sent, unless early upload failure requires retiring the transport instead.
+func dispatchCopy(req *pb.CopyBidiExecuteRequest, service Service, stream *operationStream) error {
+	copyOperation := &copyStream{operationStream: stream, initial: req, direction: req.Direction}
+	err := service.CopyBidiExecute(copyOperation)
+	stream.retire = stream.ctx.Err() != nil || !copyOperation.reusable()
+	stream.afterCompletion = copyOperation.drain
+	return err
+}
+
+// copyStream presents a single COPY conversation to the existing bidi handler.
+// Only this adapter reads continuation frames; Serve resumes reading operations
+// after drain has consumed the explicit input boundary.
+type copyStream struct {
+	*operationStream
+	initial       *pb.CopyBidiExecuteRequest
+	ended         bool
+	draining      bool
+	input         chan copyInputResult
+	direction     pb.CopyBidiExecuteRequest_Direction
+	ready         bool
+	inputFinished bool
+}
+
+func (s *copyStream) Send(response *pb.CopyBidiExecuteResponse) error {
+	if response.Phase == pb.CopyBidiExecuteResponse_READY {
+		s.ready = true
+	}
+	return s.send(&pb.ExecuteStreamResponse{Result: &pb.ExecuteStreamResponse_CopyBidiExecute{CopyBidiExecute: response}})
+}
+
+func (s *copyStream) Recv() (*pb.CopyBidiExecuteRequest, error) {
+	if s.initial != nil {
+		req := s.initial
+		s.initial = nil
+		return req, nil
+	}
+	if s.ended {
+		return nil, io.EOF
+	}
+	if s.recvErr != nil {
+		return nil, s.recvErr
+	}
+	frame, err := s.receiveInput()
+	if errors.Is(err, context.DeadlineExceeded) && s.ctx.Err() != nil {
+		// This is an operation timeout, not a broken transport. Let the handler
+		// abort/drain COPY and send completion before retiring the transport.
+		return nil, err
+	}
+	if err != nil {
+		s.recvErr = err
+		return nil, err
+	}
+	input := frame.GetCopyInput()
+	if input == nil || frame.TimeoutNanos != 0 || len(frame.Propagation) != 0 {
+		s.recvErr = status.Error(codes.InvalidArgument, "expected COPY input frame")
+		return nil, s.recvErr
+	}
+	if input.GetEnd() {
+		s.ended = true
+		return nil, io.EOF
+	}
+	req := input.GetRequest()
+	if req == nil || (req.Phase != pb.CopyBidiExecuteRequest_DATA && req.Phase != pb.CopyBidiExecuteRequest_DONE && req.Phase != pb.CopyBidiExecuteRequest_FAIL) {
+		s.recvErr = status.Error(codes.InvalidArgument, "invalid COPY input")
+		return nil, s.recvErr
+	}
+	if req.Phase == pb.CopyBidiExecuteRequest_DONE || req.Phase == pb.CopyBidiExecuteRequest_FAIL {
+		s.inputFinished = true
+	}
+	return req, nil
+}
+
+// A COPY FROM client can be busy sending and may not read another response
+// until DONE. On an early failure after READY, close the transport to unblock
+// its sender, just as the dedicated RPC does. Draining indefinitely would hide
+// the failure behind arbitrarily much client input. Completion is sent first
+// so a receiver can still recover the diagnostic and reservation state.
+func (s *copyStream) reusable() bool {
+	return !s.ready || s.direction == pb.CopyBidiExecuteRequest_TO_STDOUT || s.inputFinished || s.ended
+}
+
+func (s *copyStream) drain() error {
+	s.draining = true
+	for !s.ended {
+		if _, err := s.Recv(); err != nil {
+			if s.ended && errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+type copyInputResult struct {
+	frame *pb.ExecuteStreamRequest
+	err   error
+}
+
+// Read with one pump per COPY operation, stopping exactly at its input boundary.
+// The operation deadline interrupts the handler's wait without killing the
+// transport needed for completion. Retirement closes any outstanding gRPC read.
+func (s *copyStream) receiveInput() (*pb.ExecuteStreamRequest, error) {
+	ctx := s.ctx
+	if s.draining {
+		ctx = s.stream.Context()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.input == nil {
+		s.input = make(chan copyInputResult)
+		go func() {
+			defer close(s.input)
+			for {
+				frame, err := s.stream.Recv()
+				select {
+				case s.input <- copyInputResult{frame, err}:
+				case <-s.stream.Context().Done():
+					return
+				}
+				if err != nil || frame.GetCopyInput() == nil || frame.GetCopyInput().GetEnd() {
+					return
+				}
+			}
+		}()
+	}
+	select {
+	case result, ok := <-s.input:
+		if !ok {
+			return nil, io.EOF
+		}
+		return result.frame, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}

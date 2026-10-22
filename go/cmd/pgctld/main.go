@@ -17,12 +17,22 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
+	"github.com/multigres/multigres/go/tools/initproc"
 )
 
 func main() {
+	// As a container's PID 1, pgctld inherits the postmaster after `pg_ctl
+	// start -W` exits, plus any other orphan in the container. Reaping those from
+	// inside pgctld with Wait4(-1) races its own os/exec children for their exit
+	// status, so PID 1 becomes a minimal init and pgctld proper runs as its child.
+	if initproc.IsInit() {
+		os.Exit(initproc.Run(slog.New(slog.NewJSONHandler(os.Stderr, nil)))) //nolint:forbidigo // main() is allowed to call os.Exit
+	}
+
 	root, pgctlCmd := command.GetRootCommand()
 
 	if err := root.Execute(); err != nil {

@@ -173,17 +173,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 			"http_port", s.senv.GetHTTPPort(),
 		)
 
-		// Start reaping the postmaster to prevent a zombie. Only needed when
-		// pgctld is PID 1 (container init): `pg_ctl start -W` forks the postmaster
-		// and exits, so it is reparented to pgctld and must be wait()ed on. When
-		// pgctld is NOT PID 1 (tests, CI, systemd) orphans reparent to the system
-		// init instead, so no reaper is needed. See childReaper for why it tracks
-		// exact PIDs rather than using Wait4(-1).
-		if os.Getpid() == 1 {
-			pgctldService.reaper = newChildReaper(logger)
-			go pgctldService.reaper.Run()
-		}
-
 		// Start pgBackRest management
 		pgctldService.StartPgBackRestManagement()
 
@@ -251,9 +240,6 @@ type PgCtldService struct {
 	statusMu         sync.RWMutex
 	restartCount     int32
 	metrics          *Metrics
-
-	// reaper reaps the postmaster when pgctld runs as PID 1. Nil otherwise.
-	reaper *childReaper
 }
 
 // pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
@@ -653,9 +639,6 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
-	// Reap this postmaster when it exits (no-op unless pgctld is PID 1).
-	s.reaper.TrackPID(result.PID)
-
 	pid, err := intToInt32(result.PID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid PID: %w", err)
@@ -703,9 +686,6 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
-
-	// Reap the restarted postmaster when it exits (no-op unless pgctld is PID 1).
-	s.reaper.TrackPID(result.PID)
 
 	pid, err := intToInt32(result.PID)
 	if err != nil {

@@ -839,3 +839,41 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 		return cache.topoSource.broadcaster.cellCount() < beforeCells
 	}, 2*time.Second, 5*time.Millisecond, "onCellRemoved must deregister the zone2 watcher")
 }
+
+// TestCache_PoolersKnownUpFront tracks the given poolers from Start, without a
+// topology watch, and disposes of them on Shutdown.
+func TestCache_PoolersKnownUpFront(t *testing.T) {
+	rec := &hookRecorder{}
+	c := New(t.Context(), Config[*testRider]{
+		Poolers: []*clustermetadatapb.Multipooler{
+			pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+		},
+		Logger: silentLogger(),
+	})
+	c.Start(Hooks[*testRider]{
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *testRider) *testRider {
+			rec.record("live:" + p.Id.Name)
+			return newRider()
+		},
+		OnGone: func(p *clustermetadatapb.Multipooler, _ *testRider, r GoneReason) {
+			rec.record("gone-" + r.String() + ":" + p.Id.Name)
+		},
+	})
+	assert.Nil(t, c.topoSource, "no topology watch")
+	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
+
+	c.Shutdown()
+	assert.Len(t, rec.snapshot(), 2, "Shutdown disposes of the pooler")
+}
+
+func TestCache_SourceAndPoolersAreMutuallyExclusive(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	defer ts.Close()
+	assert.PanicsWithValue(t, "poolerwatch: Config.Source and Config.Poolers are mutually exclusive", func() {
+		New(t.Context(), Config[*testRider]{
+			Source:  ts,
+			Poolers: []*clustermetadatapb.Multipooler{pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)},
+			Logger:  silentLogger(),
+		})
+	})
+}

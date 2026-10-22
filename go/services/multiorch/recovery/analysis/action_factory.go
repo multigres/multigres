@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -34,6 +35,12 @@ type RecoveryActionFactory struct {
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
+	// policy supplies the timings actions are built with.
+	//
+	// TODO: this is a second copy of the policy: the recovery loop's snapshot options
+	// build their own from DefaultAvailabilityPolicy(). Build one policy and inject it into both, so
+	// the action timings and the analyzers' timings cannot drift once it is configurable.
+	policy snapshot.AvailabilityPolicy
 }
 
 // NewRecoveryActionFactory creates a factory for recovery actions.
@@ -55,6 +62,7 @@ func NewRecoveryActionFactory(
 		topoStore:   topoStore,
 		coordinator: coordinator,
 		logger:      logger,
+		policy:      DefaultAvailabilityPolicy(),
 	}
 }
 
@@ -65,7 +73,7 @@ func (f *RecoveryActionFactory) NewShardInitAction() types.RecoveryAction {
 
 // NewAppointLeaderAction creates an appoint leader action.
 func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
-	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore, f.logger, f.policy.PreRecheckRefreshTimeout)
 }
 
 // NewFixReplicationAction creates a fix replication action.

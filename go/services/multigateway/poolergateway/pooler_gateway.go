@@ -125,6 +125,8 @@ type PoolerGateway struct {
 
 // PoolerGatewayOpts groups the construction parameters for a PoolerGateway.
 type PoolerGatewayOpts struct {
+	// DisableQueryStreamReuse restores per-operation StreamExecute RPCs.
+	DisableQueryStreamReuse bool
 	// Ctx is the service-lifetime context; cancelled on shutdown. Required.
 	Ctx context.Context
 	// Source is the topology source for the pooler cache. Required.
@@ -136,20 +138,64 @@ type PoolerGatewayOpts struct {
 	// DialOpt configures transport credentials for pooler gRPC connections.
 	// Required.
 	DialOpt grpc.DialOption
-	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
-	// it when a new consensus leader reports SERVING. Optional.
+	// Buffer is the failover buffer. When non-nil, it is drained when a new
+	// consensus leader reports SERVING. Optional.
 	Buffer *buffer.Buffer
+	// OnLeaderServing is called, after the buffer drain, on every health
+	// update in which the elected leader attests PRIMARY and SERVING. The
+	// notification manager uses it to reopen streams after a leader change.
+	// Optional.
+	OnLeaderServing func(*clustermetadatapb.ShardKey)
 	// LowLag is the preferred replication-lag threshold for replicas.
 	LowLag time.Duration
 	// HighTolerance is the absolute maximum replication lag for replicas.
 	HighTolerance time.Duration
+	// LocalPooler, when set, is the only pooler the gateway uses: every other
+	// pooler in the topology is ignored. minigres sets it. Optional.
+	LocalPooler *LocalPooler
+}
+
+// LocalPooler is the pooler running in the same process as the gateway: the
+// only pooler of its database, with the gateway as the only one in front of it.
+type LocalPooler struct {
+	// ID returns the pooler's topology ID. It is read when poolers are
+	// discovered, after flags are parsed.
+	ID func() *clustermetadatapb.ID
+	// DialOptions connect to the pooler's query service in the same process,
+	// replacing the topology address and DialOpt.
+	DialOptions []grpc.DialOption
+	// Record, when set, returns the pooler's record, read when the gateway
+	// starts. The gateway then learns of its pooler from it instead of the
+	// topology: the fields it uses (ID, shard) never change, and role and
+	// serving status come from the health stream. Optional.
+	Record func() *clustermetadatapb.Multipooler
+}
+
+// isLocal reports whether pooler is the local pooler.
+func (l *LocalPooler) isLocal(pooler *clustermetadatapb.Multipooler) bool {
+	id, local := pooler.GetId(), l.ID()
+	return id.GetComponent() == local.GetComponent() && id.GetCell() == local.GetCell() && id.GetName() == local.GetName()
 }
 
 // NewPoolerGateway constructs a PoolerGateway along with its underlying
 // pooler cache and load balancer.
 func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
+	// The gateway finds poolers in the topology, unless it is given its local
+	// pooler's record: then it uses that pooler and does not watch the topology.
+	var filter func(*clustermetadatapb.Multipooler) bool
+	source := opts.Source
+	var poolers []*clustermetadatapb.Multipooler
+	if opts.LocalPooler != nil {
+		filter = opts.LocalPooler.isLocal
+		if opts.LocalPooler.Record != nil {
+			source = nil
+			poolers = []*clustermetadatapb.Multipooler{opts.LocalPooler.Record()}
+		}
+	}
 	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
-		Source: opts.Source,
+		Source:  source,
+		Poolers: poolers,
+		Filter:  filter,
 		// LastReachedTimestamp is a no-op under the gateway's current
 		// zero-grace config — entries are evicted at the NoNode moment —
 		// but wiring it now means raising the grace to a non-zero value
@@ -171,8 +217,15 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	})
 
 	var onLeaderServing func(*clustermetadatapb.ShardKey)
-	if opts.Buffer != nil {
-		onLeaderServing = opts.Buffer.StopBuffering
+	if opts.Buffer != nil || opts.OnLeaderServing != nil {
+		onLeaderServing = func(sk *clustermetadatapb.ShardKey) {
+			if opts.Buffer != nil {
+				opts.Buffer.StopBuffering(sk)
+			}
+			if opts.OnLeaderServing != nil {
+				opts.OnLeaderServing(sk)
+			}
+		}
 	}
 
 	lb := newLoadBalancer(loadBalancerOpts{
@@ -194,7 +247,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, !opts.DisableQueryStreamReuse, lb.onPoolerHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)

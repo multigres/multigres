@@ -116,6 +116,10 @@ jobs:
         run: make validate-generated-files
         shell: bash
 
+      - name: Check OpenAPI documentation
+        run: make openapi-check
+        shell: bash
+
   typecheck-multiadmin:
     name: Typecheck multiadmin web
     runs-on: ubuntu-latest

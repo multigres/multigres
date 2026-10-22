@@ -65,7 +65,7 @@ func NewNotificationMetrics() (*NotificationMetrics, error) {
 
 	streams, err := meter.Int64UpDownCounter(
 		"mg.gateway.notification.streams",
-		metric.WithDescription("Active gRPC notification streams (one per unique PG channel)"),
+		metric.WithDescription("Active gRPC notification streams (one per listening client session)"),
 		metric.WithUnit("{stream}"),
 	)
 	if err != nil {

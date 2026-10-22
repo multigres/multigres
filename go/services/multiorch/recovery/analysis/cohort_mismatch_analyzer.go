@@ -22,8 +22,9 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // CohortMismatchAnalyzer detects drift between the desired cohort and the
@@ -58,26 +59,26 @@ func (a *CohortMismatchAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewReconcileCohortAction()
 }
 
-func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	// We only act when the shard has a reachable, ready leader to receive the
 	// rule update. Bootstrap and failover paths set up the cohort separately.
-	if !leaderServing(sa) {
+	if !intendedLeaderServing(sa) {
 		return nil, nil
 	}
 
 	// Detect against proposals as well as decisions to ensure we surface a problem, but
 	// the action to resolve will defer taking action if a proposal is in progress.
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition)
+	intendedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache
 	// cohort member (no pooler rider carries its ID otherwise).
-	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(undecidedRule.GetCohortMembers()))
-	for _, id := range undecidedRule.GetCohortMembers() {
+	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(intendedRule.GetCohortMembers()))
+	for _, id := range intendedRule.GetCohortMembers() {
 		cohortIDs[topoclient.ComponentIDString(id)] = id
 	}
 
@@ -86,7 +87,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	seen := make(map[topoclient.ComponentID]struct{}, len(cohortIDs))
 
 	var problems []types.Problem
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		id := poolerID(pa)
 		key := topoclient.ComponentIDString(id)
 		// Removal candidates: current cohort members signaling INELIGIBLE.
@@ -115,8 +116,8 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			// and UpdateConsensusRule's compare-and-swap means only one
 			// removal lands per cycle regardless — the rest fail the CAS and
 			// retry next cycle against the now-changed cohort.
-			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
-				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
+			if types.PoolerIsCohortIneligible(pa.GetAvailabilityStatus()) &&
+				commonconsensus.IsCohortMemberRemovalSafe(intendedRule, id) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",
@@ -179,7 +180,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 		//
 		// For non-tombstone missing-from-cache cases the pooler may still be
 		// alive somewhere; gate those on the durability policy.
-		if !isTombstone && !commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
+		if !isTombstone && !commonconsensus.IsCohortMemberRemovalSafe(intendedRule, id) {
 			continue
 		}
 		if isTombstone {
@@ -244,11 +245,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *store.Pooler) bool {
-	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *snapshot.Shard, pa *multiorchdatapb.PoolerHealthState) bool {
+	if commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if !recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
+	if !recruitable(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness) {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby

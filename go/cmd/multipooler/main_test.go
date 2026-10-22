@@ -15,6 +15,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,4 +82,22 @@ func TestInit_TopoMissingRoot(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
+}
+
+// TestConfigFileReachesMultipoolerSettings verifies that a configuration file
+// sets the multipooler's own settings, not only the process ones: main loads
+// the file into the registry its servenv uses, so the multipooler must
+// configure its settings on that same registry.
+func TestConfigFileReachesMultipoolerSettings(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "multipooler.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("database: db-from-file\ncell: cell-from-file\n"), 0o600))
+
+	cmd, mp := CreateMultipoolerCommand()
+	require.NoError(t, cmd.ParseFlags([]string{"--config-file", configFile, "--table-group", "tg-from-flag"}))
+	require.NoError(t, cmd.PreRunE(cmd, nil))
+
+	id := mp.ServiceIdentity()
+	assert.Equal(t, "db-from-file", id.Database)
+	assert.Equal(t, "cell-from-file", id.Cell)
+	assert.Equal(t, "tg-from-flag", id.TableGroup)
 }

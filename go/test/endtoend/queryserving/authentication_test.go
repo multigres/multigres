@@ -39,7 +39,7 @@ func TestMultigateway_Authentication(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect as postgres (superuser) to create test users
-	adminConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	adminConnStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	adminDB, err := sql.Open("postgres", adminConnStr)
 	require.NoError(t, err)
 	defer adminDB.Close()
@@ -59,7 +59,7 @@ func TestMultigateway_Authentication(t *testing.T) {
 
 	t.Run("correct password authentication", func(t *testing.T) {
 		connStr := fmt.Sprintf("host=localhost port=%d user=testuser1 password=password1 dbname=postgres sslmode=disable connect_timeout=5",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
 		defer db.Close()
@@ -73,7 +73,7 @@ func TestMultigateway_Authentication(t *testing.T) {
 
 	t.Run("wrong password authentication fails", func(t *testing.T) {
 		connStr := fmt.Sprintf("host=localhost port=%d user=testuser1 password=wrongpassword dbname=postgres sslmode=disable connect_timeout=5",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
 		defer db.Close()
@@ -86,7 +86,7 @@ func TestMultigateway_Authentication(t *testing.T) {
 
 	t.Run("nonexistent user authentication fails", func(t *testing.T) {
 		connStr := fmt.Sprintf("host=localhost port=%d user=nonexistent password=anypassword dbname=postgres sslmode=disable connect_timeout=5",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
 		defer db.Close()
@@ -105,7 +105,7 @@ func TestMultigateway_Authentication(t *testing.T) {
 		// from db.Ping; the test asserts on the message text since the lib/pq
 		// error wraps the body without exposing the raw SQLSTATE field.
 		connStr := fmt.Sprintf("host=localhost port=%d user=testuser1 password=password1 dbname=postgres sslmode=disable connect_timeout=5 replication=true",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
 		defer db.Close()
@@ -118,14 +118,14 @@ func TestMultigateway_Authentication(t *testing.T) {
 	t.Run("multiple users with separate connection pools", func(t *testing.T) {
 		// Connect as testuser1
 		connStr1 := fmt.Sprintf("host=localhost port=%d user=testuser1 password=password1 dbname=postgres sslmode=disable connect_timeout=5",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db1, err := sql.Open("postgres", connStr1)
 		require.NoError(t, err)
 		defer db1.Close()
 
 		// Connect as testuser2
 		connStr2 := fmt.Sprintf("host=localhost port=%d user=testuser2 password=password2 dbname=postgres sslmode=disable connect_timeout=5",
-			setup.MultigatewayPgPort)
+			setup.ClientPort())
 		db2, err := sql.Open("postgres", connStr2)
 		require.NoError(t, err)
 		defer db2.Close()

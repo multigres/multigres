@@ -17,6 +17,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"testing"
 
@@ -81,4 +82,18 @@ func TestRestore_ErrorsWhenConfigPathMissing(t *testing.T) {
 	err := e.Restore(context.Background(), "20250104-100000F", poolerDir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pgbackrest config not found")
+}
+
+func TestRestoreCommand(t *testing.T) {
+	e := NewEngine(slog.New(slog.DiscardHandler), nil, nil, Settings{})
+
+	_, err := e.RestoreCommand("/pooler")
+	require.Error(t, err, "no pgbackrest config yet")
+
+	e.SetConfigPath("/etc/pgbackrest.conf")
+	cmd, err := e.RestoreCommand("/pooler")
+	require.NoError(t, err)
+	assert.Equal(t,
+		`pgctld restore-wrapper '/pooler/restore_command.pid' -- pgbackrest --stanza='`+stanzaName+`' --config='/etc/pgbackrest.conf' archive-get %f "%p"`,
+		cmd)
 }

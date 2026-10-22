@@ -58,7 +58,7 @@ func (c *CopyStatement) StreamExecute(
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
 	// For now, use DefaultShard (unsharded). When sharding is supported,
 	// this will need to be determined from the COPY target table.
 	shard := constants.DefaultShard
@@ -84,7 +84,9 @@ func (c *CopyStatement) StreamExecute(
 	completed := false
 	defer func() {
 		if !completed {
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+			if abortErr := exec.CopyAbort(ctx, conn, c.TableGroup, shard, state); abortErr != nil {
+				retErr = abortErr
+			}
 		}
 	}()
 
@@ -223,7 +225,7 @@ func (c *CopyStatement) streamCopyOut(
 	shard string,
 	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
 	format, columnFormats, initNotices, err := exec.CopyOutInitiate(ctx, conn, c.TableGroup, shard, c.Query, state)
 	if err != nil {
 		// Surface PG errors un-wrapped so the gateway re-emits a verbatim
@@ -249,7 +251,9 @@ func (c *CopyStatement) streamCopyOut(
 	streamCompleted := false
 	defer func() {
 		if !streamCompleted {
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+			if abortErr := exec.CopyAbort(ctx, conn, c.TableGroup, shard, state); abortErr != nil {
+				retErr = abortErr
+			}
 		}
 	}()
 

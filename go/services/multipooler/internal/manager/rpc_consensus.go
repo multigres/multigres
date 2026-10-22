@@ -45,11 +45,13 @@ func (pm *MultipoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 }
 
 // buildCohortEligibilityStatus returns the pooler's self-reported willingness
-// to be a cohort member. Defaults to ELIGIBLE; downgraded to INELIGIBLE when
-// the WAL receiver was manually stopped (StopReplication cleared
-// primary_conninfo), so the coordinator does not try to re-include this node
-// while the admin signal is in effect. ConsensusManager.SetCohortEligibility
-// sets the base value the dynamic downgrade applies on top of.
+// to be a cohort member. Returns INELIGIBLE when the WAL receiver was manually
+// stopped (StopReplication cleared primary_conninfo) or when setCohortEligibility
+// was called explicitly (e.g. graceful shutdown).
+//
+// Note: postgres readiness (Status.PostgresReady, see leader_fitness.go) is a
+// separate, transient signal — this field is permanent/administrative cohort
+// membership preference only.
 func (pm *MultipoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
 	if pm.walReceiverManuallyStopped.Load() {
 		return &clustermetadatapb.CohortEligibilityStatus{
@@ -123,6 +125,10 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
 	defer span.End()
 
+	if err := pm.consensusMgr.ResignGuard(); err != nil {
+		return nil, err
+	}
+
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
 	if err != nil {
@@ -162,6 +168,10 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
 	// drives the election. Best-effort: if this fails the caller can still poll
 	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
+	//
+	// TODO: publish after the restart in step 5, even if it fails, as the doc
+	// comment says. Publishing first lets Recruit disconnect standbys before
+	// the shutdown checkpoint WAL reaches them, risking a pg_rewind on rejoin.
 	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
 		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
 			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)

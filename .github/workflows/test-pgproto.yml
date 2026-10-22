@@ -32,11 +32,17 @@ permissions: {}
 
 jobs:
   test-pgproto:
-    name: Run pgproto conformance suite
+    # Runs against Multigres and, under the topology switch, against a single
+    # Minigres process; the Multigres entry keeps the original check name.
+    name: ${{ matrix.topology == 'minigres' && 'Run pgproto conformance suite (Minigres)' || 'Run pgproto conformance suite' }}
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
       contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     environment:
       name: ci
@@ -78,6 +84,7 @@ jobs:
         # exit code through tparse so the step (and job) fail.
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
           PGPROTO_PATCH_MODE: verify
           TEST_PRINT_LOGS: "1"
         run: |
@@ -94,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: pgproto-results
+          name: pgproto-results${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: |
             /tmp/multigres_pg_cache/results/**/*
             pgproto-results.jsonl
@@ -104,6 +111,7 @@ jobs:
         # Daily-cron health check: alert on any failure (unpatched divergence or
         # infrastructure). PR runs surface failures as a red check instead.
         if: >-
+          matrix.topology == 'multigres' &&
           failure() &&
           github.event_name == 'schedule'
         env:

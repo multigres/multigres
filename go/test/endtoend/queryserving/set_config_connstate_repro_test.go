@@ -29,7 +29,7 @@ func TestSetConfigWithoutFollowUpQuery_CrossClientLeak(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	// Connection A: set_config then disconnect with no SHOW/SELECT after.
 	connA, err := sql.Open("postgres", gatewayDSN)
@@ -62,7 +62,7 @@ func TestSetConfigInTxnCommitWithoutFollowUp_CrossClientLeak(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestSetConfigWithoutFollowUpQuery_SameClientNextQuery(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := context.Background()
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	conn, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestPreparedExecuteSetConfig_TrackedAndIsolated(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestFailedCommitDoesNotStampAbandonedSettings(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestDynamicSetConfigGatewayManaged_DoesNotPersistOnBackend(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestPinnedResetRestoresStartupParam(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	dsn := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+	dsn := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(),
 		"sslmode=disable", "connect_timeout=5", "application_name=mtg_reset_e2e")
 
 	connA, err := sql.Open("postgres", dsn)
@@ -320,7 +320,7 @@ func TestMidTxnDisconnectDoesNotStampAbandonedSettings(t *testing.T) {
 	// A raw protocol client so the session can be torn down with the
 	// transaction genuinely open — database/sql will not close a connection
 	// held by an open Tx, so it cannot drive the disconnect-release path.
-	raw := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	raw := connectClientToGateway(t, ctx, setup.ClientPort())
 	_, err := raw.Query(ctx, "SET work_mem = '7MB'")
 	require.NoError(t, err)
 	_, err = raw.Query(ctx, "BEGIN")
@@ -337,7 +337,7 @@ func TestMidTxnDisconnectDoesNotStampAbandonedSettings(t *testing.T) {
 	// restored work_mem to 7MB there, so a stale stamp surfaces as 7MB. The
 	// probing client must share the abandoned session's startup params (raw
 	// client, none) so the two settings maps intern to the same bucket.
-	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	probe := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer probe.Close()
 	_, err = probe.Query(ctx, "SET work_mem = '9MB'")
 	require.NoError(t, err)
@@ -363,7 +363,7 @@ func TestPrepareGatewayManagedSetConfigRejected(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	conn := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer conn.Close()
 
 	_, err := conn.Query(ctx, "PREPARE leak AS SELECT set_config('statement_timeout', '50ms', false)")
@@ -376,7 +376,7 @@ func TestPrepareGatewayManagedSetConfigRejected(t *testing.T) {
 
 	// No backend picked up a timer: a query longer than the attempted timeout
 	// still succeeds for a fresh client.
-	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	probe := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer probe.Close()
 	results, err := probe.Query(ctx, "SELECT 1 FROM pg_sleep(0.2)")
 	require.NoError(t, err, "no backend may carry a leaked statement_timeout")
@@ -401,7 +401,7 @@ func TestSuspendedSetConfigPortalAbandoned(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	conn := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer conn.Close()
 
 	require.NoError(t, conn.Parse(ctx, "s1",
@@ -425,7 +425,7 @@ func TestSuspendedSetConfigPortalAbandoned(t *testing.T) {
 
 	// A bucket-sharing client must see a truthful label on whatever backend
 	// the abandoned flow released.
-	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	probe := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer probe.Close()
 	_, err = probe.Query(ctx, "SET work_mem = '64MB'")
 	require.NoError(t, err)
@@ -452,7 +452,7 @@ func TestMidStreamErrorThenBackendReuse(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	conn := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer conn.Close()
 
 	// Plain pooled statement erroring after ~499 streamed rows.
@@ -483,7 +483,7 @@ func TestMidStreamErrorThenBackendReuse(t *testing.T) {
 	require.NoError(t, conn.Close())
 
 	// A fresh client sees a healthy, uncorrupted pool.
-	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	probe := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer probe.Close()
 	results, err = probe.Query(ctx, "SELECT current_setting('work_mem')")
 	require.NoError(t, err)
@@ -507,7 +507,7 @@ func TestPinnedDateStyleTracksCanonicalAcrossRotation(t *testing.T) {
 	setup.SetupTest(t)
 
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	conn := connectClientToGateway(t, ctx, setup.ClientPort())
 	defer conn.Close()
 
 	readDateStyle := func() string {
@@ -570,7 +570,7 @@ func TestSetConfigCrossClientLeak(t *testing.T) {
 	// so it is reliably reused; fails if the target is never reached.
 	probeForLeak := func(t *testing.T, ctx context.Context, bucketSQL, targetPID string) {
 		t.Helper()
-		probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		probe := connectClientToGateway(t, ctx, setup.ClientPort())
 		defer probe.Close()
 		_, err := probe.Query(ctx, bucketSQL)
 		require.NoError(t, err)
@@ -614,7 +614,7 @@ func TestSetConfigCrossClientLeak(t *testing.T) {
 	// pid it ran on. maxRows=0 fetches all (regular pool); maxRows above the row
 	// count completes within its limit (transiently reserved).
 	runSetConfigPortal := func(t *testing.T, ctx context.Context, bucketSQL string, maxRows int32) string {
-		connA := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		connA := connectClientToGateway(t, ctx, setup.ClientPort())
 		_, err := connA.Query(ctx, bucketSQL)
 		require.NoError(t, err)
 		require.NoError(t, connA.Parse(ctx, "s1",
@@ -668,12 +668,12 @@ func TestSetConfigCrossClientLeak(t *testing.T) {
 		const bucketSQL = "SET lock_timeout = '7333ms'"
 
 		// Holder keeps the advisory lock open so the victim's try deterministically fails.
-		holder := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		holder := connectClientToGateway(t, ctx, setup.ClientPort())
 		defer holder.Close()
 		_, err := holder.Query(ctx, "SELECT pg_advisory_lock(918273)")
 		require.NoError(t, err)
 
-		victim := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+		victim := connectClientToGateway(t, ctx, setup.ClientPort())
 		_, err = victim.Query(ctx, bucketSQL)
 		require.NoError(t, err)
 		res, err := victim.Query(ctx,

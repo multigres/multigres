@@ -71,16 +71,12 @@ func TestDescribeStaleAcrossClients(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping")
 	}
 
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
-		shardsetup.WithMultigateway(),
-		shardsetup.WithMultipoolerExtraArgs(describeStalePoolCapacity, describeStaleReservedRatio, describeStaleRebalanceFast),
-	)
+	setup, cleanup := newIsolatedCluster(t, describeStalePoolCapacity, describeStaleReservedRatio, describeStaleRebalanceFast)
 	defer cleanup()
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 
 	// Settle the user's regular pool down to a single backend so the two
 	// client connections below are forced to share it.
@@ -92,7 +88,7 @@ func TestDescribeStaleAcrossClients(t *testing.T) {
 	settleDB.Close()
 
 	// Client A: creates the table and warms the canonical prepared statement.
-	connA := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	connA := connectLowLevelToPort(t, ctx, setup.ClientPort())
 	defer connA.Close()
 
 	_, err = connA.Query(ctx, "DROP TABLE IF EXISTS desctest")
@@ -103,7 +99,7 @@ func TestDescribeStaleAcrossClients(t *testing.T) {
 	// function's own defers (including shardsetup's cluster teardown below),
 	// so a t.Cleanup here would try to connect after the cluster is gone.
 	defer func() {
-		c := connectLowLevelToPort(t, context.Background(), setup.MultigatewayPgPort)
+		c := connectLowLevelToPort(t, context.Background(), setup.ClientPort())
 		defer c.Close()
 		_, _ = c.Query(context.Background(), "DROP TABLE IF EXISTS desctest")
 	}()
@@ -123,7 +119,7 @@ func TestDescribeStaleAcrossClients(t *testing.T) {
 	// canonical statement at the pooler, and the settled 1-backend pool means
 	// it is handed the same backend client A used — the one with a stale
 	// PREPARE cached from before the DDL.
-	connB := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+	connB := connectLowLevelToPort(t, ctx, setup.ClientPort())
 	defer connB.Close()
 
 	require.NoError(t, connB.Parse(ctx, "b_s1", "SELECT * FROM desctest", nil))
@@ -166,12 +162,9 @@ func TestReprepareParamTypeAfterDDLInTransaction(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping")
 	}
 
-	setup, cleanup := shardsetup.NewIsolated(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby (bootstrap needs 2)
-		shardsetup.WithMultigateway(),
-	)
+	setup, cleanup := newIsolatedCluster(t)
 	defer cleanup()
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	for _, tc := range []struct{ name, sql string }{
 		{"formatting_only", "SELECT  *  FROM  reptest  WHERE  id = $1"},
@@ -181,7 +174,7 @@ func TestReprepareParamTypeAfterDDLInTransaction(t *testing.T) {
 			reQuery := tc.sql
 			ctx := utils.WithTimeout(t, 60*time.Second)
 
-			conn := connectLowLevelToPort(t, ctx, setup.MultigatewayPgPort)
+			conn := connectLowLevelToPort(t, ctx, setup.ClientPort())
 			defer conn.Close()
 
 			_, err := conn.Query(ctx, "DROP TABLE IF EXISTS reptest")
@@ -191,7 +184,7 @@ func TestReprepareParamTypeAfterDDLInTransaction(t *testing.T) {
 			_, err = conn.Query(ctx, "INSERT INTO reptest VALUES ('11111111-1111-1111-1111-111111111111', 10)")
 			require.NoError(t, err)
 			defer func() {
-				c := connectLowLevelToPort(t, context.Background(), setup.MultigatewayPgPort)
+				c := connectLowLevelToPort(t, context.Background(), setup.ClientPort())
 				defer c.Close()
 				_, _ = c.Query(context.Background(), "DROP TABLE IF EXISTS reptest")
 			}()

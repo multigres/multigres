@@ -118,6 +118,10 @@ func (s *connQueryService) QueryAdmin(ctx context.Context, query string) (*sqlty
 	return s.Query(ctx, query)
 }
 
+func (s *connQueryService) QueryAdminNoQueryText(ctx context.Context, query string) (*sqltypes.Result, error) {
+	return s.Query(ctx, query)
+}
+
 func (s *connQueryService) QueryAdminArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	return s.QueryArgs(ctx, query, args...)
 }
