@@ -89,4 +89,6 @@ func TestDefaultConstants(t *testing.T) {
 	// Ensure the default constants have the expected values
 	assert.Equal(t, "default", DefaultTableGroup)
 	assert.Equal(t, "0-inf", DefaultShard)
+	assert.Equal(t, "0", ShardNameMinBound)
+	assert.Equal(t, "inf", ShardNameMaxBound)
 }

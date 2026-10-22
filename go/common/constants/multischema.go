@@ -20,8 +20,17 @@ import "fmt"
 // serves the default database where multischema global tables should be created.
 const DefaultTableGroup = "default"
 
-// DefaultShard is the only shard supported for the default tablegroup in the MVP.
-const DefaultShard = "0-inf"
+// Shard names are "<start>-<end>" (see keyrange.ParseShardName). These are the
+// spellings of the two open ends of the keyspace.
+const (
+	// ShardNameMinBound is the shard-name spelling of the start of the keyspace.
+	ShardNameMinBound = "0"
+	// ShardNameMaxBound is the shard-name spelling of the end of the keyspace.
+	ShardNameMaxBound = "inf"
+)
+
+// DefaultShard is the only shard of the default tablegroup: the full keyspace.
+const DefaultShard = ShardNameMinBound + "-" + ShardNameMaxBound
 
 // ValidateMVPTableGroupAndShard validates that the tablegroup and shard values
 // match the MVP constraints. Returns an error if they don't.
