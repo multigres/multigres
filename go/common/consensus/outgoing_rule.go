@@ -104,9 +104,9 @@ type revokedOutgoingRule struct {
 func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
 	var err error
 	if o.basis.cert != nil {
-		err = o.revokeByCert()
+		err = o.proveRevokedByCert()
 	} else {
-		err = o.revokeByRecruitment()
+		err = o.proveRevokedByRecruitment()
 	}
 	if err != nil {
 		return revokedOutgoingRule{}, err
@@ -114,7 +114,7 @@ func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
 	return revokedOutgoingRule{o}, nil
 }
 
-// revokeByCert relies on the cert's two promises about the outgoing rule:
+// proveRevokedByCert relies on the cert's two promises about the outgoing rule:
 // nothing durable lies beyond its frozen LSN, and its term is unique. The
 // outgoing cohort is not recruited, so the term can still be retried by the same
 // coordinator, for example repeated bootstrap attempts with different proposed
@@ -124,7 +124,7 @@ func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
 // a stale cert: if an earlier attempt's rule became durable on this cohort, the
 // recruits must overlap its quorum, and holders of that rule refuse the new
 // revocation.
-func (o observedOutgoingRule) revokeByCert() error {
+func (o observedOutgoingRule) proveRevokedByCert() error {
 	cert := o.basis.cert
 	recruitedIncoming := statusesToIDs(filterCohortStatuses(cert.incomingCohort, o.recruited))
 	if err := CheckSufficientRecruitment(cert.incomingPolicy, cert.incomingCohort, recruitedIncoming); err != nil {
@@ -133,7 +133,7 @@ func (o observedOutgoingRule) revokeByCert() error {
 	return nil
 }
 
-// revokeByRecruitment requires the outgoing decision's cohort to be sufficiently
+// proveRevokedByRecruitment requires the outgoing decision's cohort to be sufficiently
 // recruited (see CheckSufficientRecruitment). This is what makes the proposal
 // safe.
 //
@@ -143,7 +143,7 @@ func (o observedOutgoingRule) revokeByCert() error {
 // is durable under the outgoing rule is invisible to the recruits: while a
 // proposal is undecided, a write needs the "Both" policy of the decision and the
 // proposal, and the cohort of that policy lies within the decision's.
-func (o observedOutgoingRule) revokeByRecruitment() error {
+func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	decision := o.position.GetDecision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {

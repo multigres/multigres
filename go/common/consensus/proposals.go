@@ -123,7 +123,7 @@ type certBasis struct {
 	frozenLSN pgutil.LSN
 	// incomingCohort and incomingPolicy are the proposed rule's cohort and
 	// policy. Recruiting them is the certified path's guard against retries of
-	// the same term (see revokeByCert), so the built proposal must match them
+	// the same term (see proveRevokedByCert), so the built proposal must match them
 	// exactly.
 	incomingCohort      []*clustermetadatapb.ID
 	incomingPolicy      DurabilityPolicy
@@ -172,7 +172,7 @@ func newCertBasis(
 // RecruitmentResult.OutgoingRuleDecided. buildProposalCore trusts it as the
 // outgoing baseline either way. Safety is judged against the decision's cohort,
 // the one every competing coordinator recruits (see
-// observedOutgoingRule.revokeByRecruitment). An undecided proposal must also be
+// observedOutgoingRule.proveRevokedByRecruitment). An undecided proposal must also be
 // finalizable by the recruits (see revokedOutgoingRule.checkRecruitsCanFinalizeProposal), and
 // the new proposal may then change only its leader (see validateProposal).
 func BuildSafeProposal(
@@ -558,7 +558,7 @@ func validateProposal(
 	}
 
 	if cert != nil {
-		// revokeByCert recruited the cert's incoming cohort; it only protects a
+		// proveRevokedByCert recruited the cert's incoming cohort; it only protects a
 		// proposal for that same cohort and policy.
 		if !sameCohort(proposedRule.GetCohortMembers(), cert.incomingCohort) ||
 			!proto.Equal(proposedRule.GetDurabilityPolicy(), cert.incomingPolicyProto) {
