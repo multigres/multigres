@@ -45,3 +45,10 @@ func ValidateMVPTableGroupAndShard(tableGroup, shard string) error {
 	}
 	return nil
 }
+
+// IsCatalogShard reports whether the given tablegroup and shard identify the
+// shard that hosts the multischema catalog tables (tablegroup,
+// tablegroup_table, shard): the default tablegroup's only shard.
+func IsCatalogShard(tableGroup, shard string) bool {
+	return tableGroup == DefaultTableGroup && shard == DefaultShard
+}

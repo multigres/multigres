@@ -40,12 +40,10 @@ import (
 
 // createSidecarSchema creates the multigres sidecar schema and all its tables.
 //
-// MVP Limitation: Currently, we only support the default tablegroup. This function
-// validates that the multipooler is configured for the default tablegroup and will
-// return an error otherwise.
-//
-// For the default tablegroup, this function also creates the multischema global
-// tables (tablegroup, tablegroup_table, shard).
+// Every shard gets the shard-local tables (heartbeat, pgBackRest repos,
+// consensus rules, and the ensureSidecarSchemas tables). Only the catalog shard
+// (see constants.IsCatalogShard) also gets the multischema catalog tables
+// (tablegroup, tablegroup_table, shard).
 func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "creating multigres sidecar schema")
 
@@ -58,23 +56,26 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		func(ctx context.Context) error {
 			return pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID)
 		},
-		func(ctx context.Context) error {
-			// Create multischema global tables for the default tablegroup
-			pm.logger.InfoContext(ctx, "creating multischema global tables for default tablegroup")
-			return pm.createTablegroup(ctx)
-		},
-		pm.createTablegroupTable,
-		pm.createShard,
-		// ensureSidecarSchemas goes last, deliberately: it also runs alone
-		// (without the rest of createSidecarSchema) from openLocked's
-		// version-skew catch-up on an already-bootstrapped shard, so nothing
-		// created here may ever depend on a table it creates. Keeping it last
-		// turns a violation of that into an ordering failure here - a step
-		// above it trying to depend on backend_vpid (or a future sidecar
-		// table added here) would fail since ensureSidecarSchemas hasn't run
-		// yet - rather than a convention someone has to remember.
-		pm.ensureSidecarSchemas,
 	}
+	if pm.isCatalogShard() {
+		createFuncs = append(createFuncs,
+			func(ctx context.Context) error {
+				pm.logger.InfoContext(ctx, "creating multischema catalog tables on the catalog shard")
+				return pm.createTablegroup(ctx)
+			},
+			pm.createTablegroupTable,
+			pm.createShard,
+		)
+	}
+	// ensureSidecarSchemas goes last, deliberately: it also runs alone
+	// (without the rest of createSidecarSchema) from openLocked's
+	// version-skew catch-up on an already-bootstrapped shard, so nothing
+	// created here may ever depend on a table it creates. Keeping it last
+	// turns a violation of that into an ordering failure here - a step
+	// above it trying to depend on backend_vpid (or a future sidecar
+	// table added here) would fail since ensureSidecarSchemas hasn't run
+	// yet - rather than a convention someone has to remember.
+	createFuncs = append(createFuncs, pm.ensureSidecarSchemas)
 
 	for _, createFunc := range createFuncs {
 		if err := createFunc(ctx); err != nil {
@@ -84,6 +85,12 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 
 	pm.logger.InfoContext(ctx, "successfully created multigres sidecar schema")
 	return nil
+}
+
+// isCatalogShard reports whether this pooler serves the shard that hosts the
+// multischema catalog tables.
+func (pm *MultipoolerManager) isCatalogShard() bool {
+	return constants.IsCatalogShard(pm.record.ShardKey().GetTableGroup(), pm.record.ShardKey().GetShard())
 }
 
 // ensureSidecarSchemas idempotently (re-)creates the sidecar tables that a
@@ -221,7 +228,7 @@ GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 }
 
 // ----------------------------------------------------------------------------
-// Multischema Global Tables (default tablegroup only)
+// Multischema Catalog Tables (catalog shard only)
 // ----------------------------------------------------------------------------
 
 // createTablegroup creates the tablegroup table for tracking table groups

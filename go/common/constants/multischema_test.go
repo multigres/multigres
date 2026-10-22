@@ -85,6 +85,14 @@ func TestValidateMVPTableGroupAndShard(t *testing.T) {
 	}
 }
 
+func TestIsCatalogShard(t *testing.T) {
+	assert.True(t, IsCatalogShard(DefaultTableGroup, DefaultShard))
+	assert.False(t, IsCatalogShard(DefaultTableGroup, "0-80"))
+	assert.False(t, IsCatalogShard("commerce", DefaultShard))
+	assert.False(t, IsCatalogShard("commerce", "0-80"))
+	assert.False(t, IsCatalogShard("", ""))
+}
+
 func TestDefaultConstants(t *testing.T) {
 	// Ensure the default constants have the expected values
 	assert.Equal(t, "default", DefaultTableGroup)
