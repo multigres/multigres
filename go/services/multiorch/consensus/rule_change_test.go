@@ -237,8 +237,8 @@ func TestBuildBootstrapProposal(t *testing.T) {
 
 	t.Run("sets skip_outgoing_quorum and picks first eligible leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
+			TermRevocation:               rev,
+			RecruitsWithAllDurableWrites: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 
 		proposal, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)
@@ -249,10 +249,10 @@ func TestBuildBootstrapProposal(t *testing.T) {
 		assert.Equal(t, int64(5), proposal.GetProposedTransition().GetProposal().GetRuleNumber().GetCoordinatorTerm())
 	})
 
-	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
+	t.Run("no RecruitsWithAllDurableWrites returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			EligibleLeaders: nil,
+			TermRevocation:               rev,
+			RecruitsWithAllDurableWrites: nil,
 		}
 
 		_, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)
@@ -262,8 +262,8 @@ func TestBuildBootstrapProposal(t *testing.T) {
 
 	t.Run("leader missing from addressByID returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("ghost")},
+			TermRevocation:               rev,
+			RecruitsWithAllDurableWrites: []*clustermetadatapb.ConsensusStatus{makeCS("ghost")},
 		}
 
 		_, err := buildBootstrapProposal(result, cohortIDs, policy, addressByID)

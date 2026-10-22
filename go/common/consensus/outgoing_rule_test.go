@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -225,48 +226,165 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 	})
 }
 
-// A cert revokes the outgoing rule without recruiting its cohort, and its frozen
-// LSN bounds which recruits can lead.
-func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
+// mustProveRevoked builds the revoked outgoing rule found among recruits.
+func mustProveRevoked(t *testing.T, recruits []*clustermetadatapb.ConsensusStatus, expected *clustermetadatapb.RuleNumber, basis revocationBasis) revokedOutgoingRule {
+	t.Helper()
+	observed, err := discoverOutgoingRule(recruits, expected, basis)
+	require.NoError(t, err)
+	revoked, err := observed.revoke()
+	require.NoError(t, err)
+	return revoked
+}
+
+// The recruits that can lead are those at or above the minimum durable position.
+// Positions compare by rule first, then by LSN.
+func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrites(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+	decision := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+	olderRule := makeRule(ruleNum(2, 0), atLeast(2), cohort...)
+	proposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+	withProposal := &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}
+	rev := revocation(5, ruleNum(3, 0))
+	revAtProposal := revocation(5, ruleNum(4, 0))
+
+	tests := []struct {
+		name         string
+		recruits     []*clustermetadatapb.ConsensusStatus
+		outgoing     *clustermetadatapb.RuleNumber
+		basis        revocationBasis
+		wantPosition *clustermetadatapb.RulePosition
+		wantLSN      string
+		wantEligible []string
+		wantErr      string // set when no recruit can lead
+	}{
+		{
+			name: "the most advanced recruit sets the minimum; those behind it cannot lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/1000000"),
+				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
+				makeStatusWithLSN(zone1.c, decision, rev, "0/1000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/2000000",
+			wantEligible: []string{zone1.b.GetName()},
+		},
+		{
+			name: "recruits tied at the minimum can all lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/2000000"),
+				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
+				makeStatusWithLSN(zone1.c, decision, rev, "0/1000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/2000000",
+			wantEligible: []string{zone1.a.GetName(), zone1.b.GetName()},
+		},
+		{
+			name: "an older rule loses to the outgoing rule even with a far higher LSN",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/1000000"),
+				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
+				makeStatusWithLSN(zone1.c, olderRule, rev, "0/9000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/2000000",
+			wantEligible: []string{zone1.b.GetName()},
+		},
+		{
+			name: "an undecided proposal outranks a bare decision even with a far higher LSN",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, withProposal, revAtProposal, "0/2000000"),
+				makeStatusWithProposal(zone1.b, withProposal, revAtProposal, "0/1000000"),
+				makeStatusWithLSN(zone1.c, decision, revAtProposal, "0/9000000"),
+			},
+			outgoing:     ruleNum(4, 0),
+			wantPosition: withProposal,
+			wantLSN:      "0/2000000",
+			wantEligible: []string{zone1.a.GetName()},
+		},
+		{
+			name: "a cert's frozen LSN above every recruit raises the minimum, leaving no eligible leader",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/1000000"),
+				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x3000000}},
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/3000000",
+			wantErr:      "no recruited nodes at or above the required LSN 0/3000000",
+		},
+		{
+			name: "a recruit exactly at a cert's frozen LSN can lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/2000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}},
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/2000000",
+			wantEligible: []string{zone1.a.GetName()},
+		},
+		{
+			// Conservative: a cert would allow any recruit at or above its frozen LSN.
+			name: "a cert's frozen LSN below the most advanced recruit does not lower the minimum",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithLSN(zone1.a, decision, rev, "0/1000000"),
+				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
+				makeStatusWithLSN(zone1.c, decision, rev, "0/3000000"),
+			},
+			outgoing:     ruleNum(3, 0),
+			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x1000000}},
+			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
+			wantLSN:      "0/3000000",
+			wantEligible: []string{zone1.c.GetName()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			revoked := mustProveRevoked(t, tt.recruits, tt.outgoing, tt.basis)
+
+			minimum, err := revoked.minimumDurablePosition()
+			require.NoError(t, err)
+			assert.True(t, proto.Equal(tt.wantPosition, minimum.GetPosition()), "minimum rule position: got %s", FormatRulePosition(minimum.GetPosition()))
+			assert.Equal(t, tt.wantLSN, minimum.GetLsn())
+
+			eligible, err := revoked.recruitsWithAllDurableWrites()
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			var names []string
+			for _, cs := range eligible {
+				names = append(names, cs.GetId().GetName())
+			}
+			assert.ElementsMatch(t, tt.wantEligible, names)
+		})
+	}
+}
+
+// A cert revokes the outgoing rule without recruiting its cohort; coordinator-led
+// revocation of the same lone recruit is rejected.
+func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
 	rule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
-	rev := revocation(5, ruleNum(0, 1))
-	// Only a is recruited: a coordinator-led revocation would reject this.
-	statuses := []*clustermetadatapb.ConsensusStatus{makeStatusWithLSN(zone1.a, rule, rev, "0/2000000")}
+	statuses := []*clustermetadatapb.ConsensusStatus{makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(0, 1)), "0/2000000")}
 
-	t.Run("a recruit at or above the frozen LSN can lead", func(t *testing.T) {
-		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}})
-		require.NoError(t, err)
-		revoked, err := observed.revoke()
-		require.NoError(t, err)
+	byCert, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}})
+	require.NoError(t, err)
+	_, err = byCert.revoke()
+	require.NoError(t, err)
 
-		leaders, err := revoked.eligibleLeaders()
-
-		require.NoError(t, err)
-		require.Len(t, leaders, 1)
-		assert.Equal(t, zone1.a.GetName(), leaders[0].GetId().GetName())
-	})
-
-	t.Run("none at or above the frozen LSN", func(t *testing.T) {
-		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x3000000}})
-		require.NoError(t, err)
-		revoked, err := observed.revoke()
-		require.NoError(t, err)
-
-		_, err = revoked.eligibleLeaders()
-
-		require.EqualError(t, err, "no recruited nodes at or above the required LSN 0/3000000")
-	})
-
-	t.Run("a coordinator-led revocation of the same recruits is rejected", func(t *testing.T) {
-		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
-		require.NoError(t, err)
-
-		_, err = observed.revoke()
-
-		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2")
-	})
+	byRecruitment, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
+	require.NoError(t, err)
+	_, err = byRecruitment.revoke()
+	require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2")
 }
 
 func TestDiscoverOutgoingRule_InconsistentRecruits(t *testing.T) {
@@ -291,10 +409,12 @@ func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
 	assert.Nil(t, position)
 }
 
-func TestNarrowByLSN_NoCandidates(t *testing.T) {
-	_, err := narrowByLSN(nil, 0)
+func TestRevokedOutgoingRule_MinimumDurablePosition_NoRecruitRecordsRule(t *testing.T) {
+	revoked := revokedOutgoingRule{observedOutgoingRule{position: &clustermetadatapb.RulePosition{}}}
 
-	require.EqualError(t, err, "no eligible leaders found among recruited nodes")
+	_, err := revoked.minimumDurablePosition()
+
+	require.EqualError(t, err, "no recruit records the outgoing rule")
 }
 
 func TestCheckUnrecruitedCannotCommit_RecruitedPoolerOutsideCohort(t *testing.T) {
