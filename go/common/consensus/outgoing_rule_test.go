@@ -41,21 +41,21 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 		}
 		return out
 	}
-	revoke := func(recruited []*clustermetadatapb.ConsensusStatus) error {
+	proveRevoked := func(recruited []*clustermetadatapb.ConsensusStatus) error {
 		observed, err := discoverOutgoingRule(recruited, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 		return err
 	}
 
 	t.Run("recruiting only the proposal's new members is rejected", func(t *testing.T) {
-		err := revoke(statuses(zone1.d, zone1.e))
+		err := proveRevoked(statuses(zone1.d, zone1.e))
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	})
 
 	t.Run("a majority of the decision's cohort is enough", func(t *testing.T) {
 		// A majority of the proposal's five-member cohort is not required.
-		require.NoError(t, revoke(statuses(zone1.a, zone1.b)))
+		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b)))
 	})
 }
 
@@ -202,7 +202,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -219,7 +219,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -241,7 +241,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 	t.Run("recruits at or above the frozen LSN can lead", func(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), mustCertBasis(rev, "0/2000000", incoming, atLeast(2)))
 		require.NoError(t, err)
-		revoked, err := observed.revoke()
+		revoked, err := observed.proveRevoked()
 		require.NoError(t, err)
 
 		leaders, err := revoked.eligibleLeaders()
@@ -254,7 +254,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 	t.Run("none at or above the frozen LSN", func(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), mustCertBasis(rev, "0/3000000", incoming, atLeast(2)))
 		require.NoError(t, err)
-		revoked, err := observed.revoke()
+		revoked, err := observed.proveRevoked()
 		require.NoError(t, err)
 
 		_, err = revoked.eligibleLeaders()
@@ -266,7 +266,7 @@ func TestRevokedOutgoingRule_RevokeByCert_EligibleLeaders(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	})
@@ -293,7 +293,7 @@ func TestObservedOutgoingRule_RevokeByCert_IncomingRecruitment(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.EqualError(t, err, "insufficient proposed cohort recruitment: majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3")
 	})
@@ -304,7 +304,7 @@ func TestObservedOutgoingRule_RevokeByCert_IncomingRecruitment(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.EqualError(t, err, "insufficient proposed cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
 	})
@@ -314,7 +314,7 @@ func TestObservedOutgoingRule_RevokeByCert_IncomingRecruitment(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.NoError(t, err)
 	})
@@ -325,7 +325,7 @@ func TestObservedOutgoingRule_RevokeByCert_IncomingRecruitment(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.NoError(t, err)
 	})

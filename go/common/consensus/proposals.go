@@ -348,7 +348,7 @@ func buildProposalCore(
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := outgoing.revoke()
+	revoked, err := outgoing.proveRevoked()
 	if err != nil {
 		return nil, err
 	}

@@ -37,7 +37,7 @@ type observedOutgoingRule struct {
 	// TODO: hold a RuleTransition once it exists, replacing the
 	// PossiblyUndecidedRule and IsRuleDecided calls on this position.
 	position *clustermetadatapb.RulePosition
-	// basis is how this rule is to be revoked; see revoke.
+	// basis is how this rule is to be revoked; see proveRevoked.
 	basis revocationBasis
 }
 
@@ -93,15 +93,15 @@ func discoverOutgoingRule(
 
 // revokedOutgoingRule is an observedOutgoingRule that is known to be revoked:
 // no write can become durable under it that the recruits cannot see. It can only
-// be built by revoke, so anything derived from it rests on that proof.
+// be built by proveRevoked, so anything derived from it rests on that proof.
 type revokedOutgoingRule struct {
 	observedOutgoingRule
 }
 
-// revoke establishes that the outgoing rule is revoked, by the evidence its
+// proveRevoked establishes that the outgoing rule is revoked, by the evidence its
 // basis names: recruitment of the outgoing decision's cohort, or an external cert
 // plus recruitment of the incoming cohort.
-func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
+func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
 	var err error
 	if o.basis.cert != nil {
 		err = o.revokeByCert()
