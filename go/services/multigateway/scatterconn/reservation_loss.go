@@ -64,7 +64,10 @@ func lostSessionState(reasons uint32, state *handler.MultigatewayConnectionState
 }
 
 // sessionStateLostError logs a lost reservation that held session state and
-// returns the FATAL that ends the client's session.
+// returns the FATAL that ends the client's session. A cause that is already
+// FATAL (e.g. PostgreSQL's own 57P01 when the session's backend was terminated)
+// ends the session by itself and says why more precisely, so it is returned
+// unchanged.
 func (sc *ScatterConn) sessionStateLostError(ctx context.Context, conn *server.Conn, lost uint32, cause error) error {
 	lostState := protoutil.ReasonsString(lost)
 	// Only the SQLSTATE of the cause: its text can carry query data.
@@ -72,5 +75,8 @@ func (sc *ScatterConn) sessionStateLostError(ctx context.Context, conn *server.C
 		"connection_id", conn.ConnectionID(),
 		"lost_state", lostState,
 		"cause_sqlstate", mterrors.ExtractSQLSTATE(cause))
+	if mterrors.IsFatal(cause) {
+		return cause
+	}
 	return mterrors.NewSessionStateLost(lostState)
 }

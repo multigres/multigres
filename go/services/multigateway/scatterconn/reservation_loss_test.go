@@ -139,6 +139,23 @@ func TestScatterConn_StreamExecute_ReservationLost(t *testing.T) {
 	}
 }
 
+// A backend that dies with its own FATAL (pg_terminate_backend, a shutdown)
+// already ends the session; its diagnostic is passed through unchanged.
+func TestScatterConn_StreamExecute_FatalCauseKept(t *testing.T) {
+	fatal := mterrors.NewPgError("FATAL", mterrors.PgSSAdminShutdown, "terminating connection due to administrator command", "")
+	gw := &mockGateway{streamExecuteErr: fatal}
+	sc := NewScatterConn(gw, slog.Default())
+	conn, state := newLossSession(protoutil.ReasonTempTable | protoutil.ReasonSessionAdvisoryLock)
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_terminate_backend(pg_backend_pid())", nil, state,
+		engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Same(t, fatal, diag)
+	require.Nil(t, state.GetMatchingShardState(lossTarget))
+}
+
 // A reservation the pooler releases without an error was released on purpose
 // (e.g. pg_advisory_unlock dropped the last lock) and loses nothing.
 func TestScatterConn_StreamExecute_CleanReleaseKeepsSession(t *testing.T) {

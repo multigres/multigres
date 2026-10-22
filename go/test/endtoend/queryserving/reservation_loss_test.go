@@ -195,13 +195,17 @@ func terminateBackend(t *testing.T, ctx context.Context, setup shardsetup.Cluste
 	time.Sleep(time.Second)
 }
 
-// requireSessionEnded asserts that err is FATAL 57P01 naming the lost state, and
-// that the gateway closed the client's connection.
+// requireSessionEnded asserts that err is FATAL 57P01 and that the gateway
+// closed the client's connection. The FATAL is either the gateway's, naming the
+// lost state, or PostgreSQL's own from the terminated backend, which the gateway
+// passes through when the pooler relays it.
 func requireSessionEnded(t *testing.T, ctx context.Context, conn *pgx.Conn, err error, lostState string) {
 	t.Helper()
 	pgErr := utils.RequirePgError(t, err, "57P01")
 	require.Equal(t, "FATAL", pgErr.Severity, "got %+v", pgErr)
-	require.Contains(t, pgErr.Detail, lostState)
+	if pgErr.Message != "terminating connection due to administrator command" {
+		require.Contains(t, pgErr.Detail, lostState)
+	}
 
 	require.Error(t, utils.PgxExec(ctx, conn, "SELECT 1"), "the gateway must close the connection after the FATAL")
 	require.True(t, conn.IsClosed())
