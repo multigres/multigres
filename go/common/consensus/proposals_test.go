@@ -605,7 +605,8 @@ func TestBuildProposalCore(t *testing.T) {
 			}
 		}(),
 		func() tc {
-			// a at newRule/high LSN, b at newRule/low LSN, c at oldRule — only a eligible
+			// a at newRule/high LSN, b at newRule/low LSN, c at oldRule with the highest
+			// LSN of all — only a eligible: rule is compared first, then LSN
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
@@ -616,7 +617,7 @@ func TestBuildProposalCore(t *testing.T) {
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
 					makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(3, 0)), "0/5000000"),
 					makeStatusWithLSN(zone1.b, rule, revocation(5, ruleNum(3, 0)), "0/3000000"),
-					makeStatusWithLSN(zone1.c, makeRule(ruleNum(2, 0), atLeast(2), cohort...), revocation(5, ruleNum(3, 0)), "0/4000000"),
+					makeStatusWithLSN(zone1.c, makeRule(ruleNum(2, 0), atLeast(2), cohort...), revocation(5, ruleNum(3, 0)), "0/9000000"), // highest LSN overall
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
@@ -628,6 +629,32 @@ func TestBuildProposalCore(t *testing.T) {
 				wantLeader: "pooler-a",
 				checkResult: func(t *testing.T, r RecruitmentResult) {
 					require.Len(t, r.EligibleLeaders, 1)
+					assert.Equal(t, "pooler-a", r.EligibleLeaders[0].GetId().GetName())
+				},
+			}
+		}(),
+		func() tc {
+			// a and b hold an undecided proposal at (4,0) on top of decision (3,0); c
+			// holds only the decision, with the highest LSN. A proposal outranks a bare
+			// decision regardless of LSN, so only a and b are eligible.
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			withProposal := &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}
+			return tc{
+				name:       "undecided proposal outranks a bare decision despite a lower LSN",
+				basis:      revocationBasis{},
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, withProposal, revocation(5, ruleNum(4, 0)), "0/2000000"),
+					makeStatusWithProposal(zone1.b, withProposal, revocation(5, ruleNum(4, 0)), "0/1000000"),
+					makeStatusWithLSN(zone1.c, decidedRule, revocation(5, ruleNum(4, 0)), "0/9000000"), // highest LSN, lower position
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantLeader:    "pooler-a",
+				checkResult: func(t *testing.T, r RecruitmentResult) {
+					require.Len(t, r.EligibleLeaders, 1, "only the node at the highest position with the highest LSN")
 					assert.Equal(t, "pooler-a", r.EligibleLeaders[0].GetId().GetName())
 				},
 			}
