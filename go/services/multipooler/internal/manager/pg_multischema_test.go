@@ -18,6 +18,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -33,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockPoolerController implements poolerserver.PoolerController for testing.
@@ -237,6 +241,69 @@ func TestCreateSidecarSchema(t *testing.T) {
 	}
 }
 
+// TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard verifies that every
+// shard gets the shard-local sidecar tables, but only the catalog shard
+// (default/0-inf) gets the multischema catalog tables.
+func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
+	shardLocal := []string{
+		"CREATE SCHEMA multigres",
+		"CREATE TABLE multigres.heartbeat",
+		"CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos",
+		"CREATE TABLE multigres.current_rule",
+		"INSERT INTO multigres.current_rule",
+		"CREATE TABLE multigres.rule_history",
+		"CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
+	}
+	catalog := []string{
+		"CREATE TABLE multigres.tablegroup (",
+		"CREATE TABLE multigres.tablegroup_table",
+		"CREATE TABLE multigres.shard",
+	}
+	catalogRef := regexp.MustCompile(`multigres\.(tablegroup|tablegroup_table|shard)\b`)
+
+	tests := []struct {
+		name        string
+		tableGroup  string
+		shard       string
+		wantCatalog bool
+	}{
+		{name: "catalog shard", tableGroup: constants.DefaultTableGroup, shard: constants.DefaultShard, wantCatalog: true},
+		{name: "non-default tablegroup", tableGroup: "commerce", shard: "0-80", wantCatalog: false},
+		{name: "non-default tablegroup full range", tableGroup: "commerce", shard: constants.DefaultShard, wantCatalog: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, tt.shard)
+
+			var queries []string
+			mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) {
+				queries = append(queries, q)
+			})
+
+			require.NoError(t, pm.createSidecarSchema(context.Background(), testBootstrapPolicy()))
+
+			// Every shard runs the shard-local statements, in order, with
+			// backend_vpid (ensureSidecarSchemas) last.
+			for _, want := range shardLocal {
+				assert.True(t, slices.ContainsFunc(queries, func(q string) bool { return strings.Contains(q, want) }),
+					"expected shard-local statement %q", want)
+			}
+			require.NotEmpty(t, queries)
+			assert.Contains(t, queries[len(queries)-1], "multigres.backend_vpid", "ensureSidecarSchemas must run last")
+
+			for _, want := range catalog {
+				got := slices.ContainsFunc(queries, func(q string) bool { return strings.Contains(q, want) })
+				assert.Equal(t, tt.wantCatalog, got, "catalog statement %q", want)
+			}
+			if !tt.wantCatalog {
+				for _, q := range queries {
+					assert.False(t, catalogRef.MatchString(q), "non-catalog shard must not touch catalog tables: %s", q)
+				}
+			}
+		})
+	}
+}
+
 func TestCreateBackendVpidTableDDL(t *testing.T) {
 	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
 
@@ -297,22 +364,6 @@ func TestInitializeMultischemaData(t *testing.T) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.shard", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
-		},
-		{
-			name:          "rejects non-default tablegroup",
-			tableGroup:    "custom",
-			shard:         constants.DefaultShard,
-			setupMock:     func(m *mock.QueryService) {},
-			expectError:   true,
-			errorContains: "only default tablegroup is supported",
-		},
-		{
-			name:          "rejects non-default shard",
-			tableGroup:    constants.DefaultTableGroup,
-			shard:         "shard-1",
-			setupMock:     func(m *mock.QueryService) {},
-			expectError:   true,
-			errorContains: "only shard " + constants.DefaultShard + " is supported",
 		},
 		{
 			name:       "tablegroup insert fails",

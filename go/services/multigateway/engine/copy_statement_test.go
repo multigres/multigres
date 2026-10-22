@@ -353,6 +353,38 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
 }
 
+// TestCopyStatement_CopyAbortSessionStateLost tests that when the deferred
+// CopyAbort reports that the session must end (the COPY's connection was lost
+// with session state on it), that error replaces the one the COPY failed with.
+func TestCopyStatement_CopyAbortSessionStateLost(t *testing.T) {
+	mockExec := &mockIExecute{
+		copyInitiateFormat:  0,
+		copyInitiateFormats: []int16{0, 0},
+		copySendDataErr:     errors.New("send data failed"),
+		copyAbortErr:        mterrors.NewSessionStateLost("temp_table"),
+	}
+
+	readBuf := &bytes.Buffer{}
+	server.WriteCopyDataMessage(readBuf, []byte("test data"))
+	testConn := server.NewTestConn(readBuf)
+
+	err := newTestCopyStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultigatewayConnectionState{},
+		nil,
+		PlanExecInfo{},
+		func(ctx context.Context, result *sqltypes.Result) error { return nil },
+	)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Equal(t, mterrors.PgSSAdminShutdown, diag.Code)
+	require.True(t, diag.IsFatal())
+	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
+}
+
 // TestCopyStatement_CopyFinalizeError tests that CopyAbort is NOT called
 // when CopyFinalize fails. CopyFinalize owns the full tail-end lifecycle:
 // it drains ReadyForQuery, updates reserved-state tracking via the gateway,

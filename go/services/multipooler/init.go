@@ -29,6 +29,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -462,6 +463,10 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return errors.New("shard is required")
 	}
 
+	if err := keyrange.ValidateTableGroupAndShard(mp.tableGroup.Get(), mp.shard.Get()); err != nil {
+		return err
+	}
+
 	if os.Getenv(constants.PgDataDirEnvVar) == "" {
 		return errors.New("PGDATA environment variable is required")
 	}
@@ -506,6 +511,12 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),
 	}
+	// The shard name was validated above, so this should never fail.
+	keyRange, err := keyrange.ParseShardName(mp.shard.Get())
+	if err != nil {
+		return err
+	}
+	multipooler.KeyRange = keyRange
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.PoolerDir = adopted.poolerDir
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
