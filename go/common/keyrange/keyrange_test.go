@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -114,6 +115,91 @@ func TestShardName(t *testing.T) {
 			kr, err := ParseShardName(got)
 			require.NoError(t, err)
 			assert.Equal(t, got, ShardName(kr))
+		})
+	}
+}
+
+func TestValidateTableGroupAndShard(t *testing.T) {
+	tests := []struct {
+		name        string
+		tableGroup  string
+		shard       string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:       "default tablegroup and shard",
+			tableGroup: constants.DefaultTableGroup,
+			shard:      constants.DefaultShard,
+		},
+		{
+			name:       "non-default tablegroup with full range",
+			tableGroup: "commerce",
+			shard:      "0-inf",
+		},
+		{
+			name:       "non-default tablegroup with partial range",
+			tableGroup: "commerce",
+			shard:      "0-80",
+		},
+		{
+			name:       "non-default tablegroup with bounded range",
+			tableGroup: "commerce",
+			shard:      "40-80",
+		},
+		{
+			name:        "default tablegroup with non-default shard",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "80-inf",
+			wantErr:     true,
+			errContains: "tablegroup default only supports shard 0-inf",
+		},
+		{
+			name:        "default tablegroup with empty shard",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "",
+			wantErr:     true,
+			errContains: "tablegroup default only supports shard 0-inf",
+		},
+		{
+			name:        "non-default tablegroup with garbage shard",
+			tableGroup:  "commerce",
+			shard:       "garbage",
+			wantErr:     true,
+			errContains: "invalid shard name",
+		},
+		{
+			name:        "non-default tablegroup with non-canonical shard",
+			tableGroup:  "commerce",
+			shard:       "00-80",
+			wantErr:     true,
+			errContains: "invalid shard name",
+		},
+		{
+			name:        "non-default tablegroup with empty shard",
+			tableGroup:  "commerce",
+			shard:       "",
+			wantErr:     true,
+			errContains: "invalid shard name",
+		},
+		{
+			name:        "empty tablegroup",
+			tableGroup:  "",
+			shard:       constants.DefaultShard,
+			wantErr:     true,
+			errContains: "tablegroup is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTableGroupAndShard(tt.tableGroup, tt.shard)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

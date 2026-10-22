@@ -79,6 +79,27 @@ func ShardName(kr *clustermetadatapb.KeyRange) string {
 	return start + "-" + end
 }
 
+// ValidateTableGroupAndShard validates a multipooler's tablegroup and shard.
+//
+// The tablegroup must be non-empty. The default tablegroup always has the single
+// shard constants.DefaultShard, since it hosts the catalog. Any other
+// tablegroup's shard must be a canonical shard name (see ParseShardName).
+func ValidateTableGroupAndShard(tableGroup, shard string) error {
+	if tableGroup == "" {
+		return errors.New("tablegroup is required")
+	}
+	if tableGroup == constants.DefaultTableGroup {
+		if shard != constants.DefaultShard {
+			return fmt.Errorf("tablegroup %s only supports shard %s, got: %s", constants.DefaultTableGroup, constants.DefaultShard, shard)
+		}
+		return nil
+	}
+	if _, err := ParseShardName(shard); err != nil {
+		return err
+	}
+	return nil
+}
+
 // parseBound decodes a canonical hex bound.
 func parseBound(s string) ([]byte, error) {
 	if s == "" {

@@ -366,22 +366,6 @@ func TestInitializeMultischemaData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:          "rejects non-default tablegroup",
-			tableGroup:    "custom",
-			shard:         constants.DefaultShard,
-			setupMock:     func(m *mock.QueryService) {},
-			expectError:   true,
-			errorContains: "only default tablegroup is supported",
-		},
-		{
-			name:          "rejects non-default shard",
-			tableGroup:    constants.DefaultTableGroup,
-			shard:         "shard-1",
-			setupMock:     func(m *mock.QueryService) {},
-			expectError:   true,
-			errorContains: "only shard " + constants.DefaultShard + " is supported",
-		},
-		{
 			name:       "tablegroup insert fails",
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,

@@ -18,72 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestValidateMVPTableGroupAndShard(t *testing.T) {
-	tests := []struct {
-		name        string
-		tableGroup  string
-		shard       string
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name:       "valid default tablegroup and shard",
-			tableGroup: DefaultTableGroup,
-			shard:      DefaultShard,
-			wantErr:    false,
-		},
-		{
-			name:        "invalid tablegroup",
-			tableGroup:  "custom",
-			shard:       DefaultShard,
-			wantErr:     true,
-			errContains: "only default tablegroup is supported",
-		},
-		{
-			name:        "invalid shard",
-			tableGroup:  DefaultTableGroup,
-			shard:       "0-100",
-			wantErr:     true,
-			errContains: "only shard 0-inf is supported",
-		},
-		{
-			name:        "both invalid",
-			tableGroup:  "custom",
-			shard:       "0-100",
-			wantErr:     true,
-			errContains: "only default tablegroup is supported",
-		},
-		{
-			name:        "empty tablegroup",
-			tableGroup:  "",
-			shard:       DefaultShard,
-			wantErr:     true,
-			errContains: "only default tablegroup is supported",
-		},
-		{
-			name:        "empty shard",
-			tableGroup:  DefaultTableGroup,
-			shard:       "",
-			wantErr:     true,
-			errContains: "only shard 0-inf is supported",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMVPTableGroupAndShard(tt.tableGroup, tt.shard)
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errContains)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
 
 func TestIsCatalogShard(t *testing.T) {
 	assert.True(t, IsCatalogShard(DefaultTableGroup, DefaultShard))

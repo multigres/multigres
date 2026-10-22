@@ -124,27 +124,16 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	return nil
 }
 
-// initializeMultischemaData inserts the initial tablegroup and shard records.
+// initializeMultischemaData inserts this shard's tablegroup and shard records
+// into the catalog tables. Only called on the catalog shard, which is the only
+// shard that has them.
 //
-// MVP Limitation: Currently, we only support the default tablegroup with shard "0-inf".
-// This function validates these constraints and returns an error otherwise.
-//
-// TODO: In the future, tablegroup and shard insertion should be done via a dedicated
-// RPC, and the bootstrap code should insert the tablegroup in the default primary
-// pooler. For simplicity in the MVP, we do this as part of InitializePrimary since
-// we only support a single tablegroup/shard for now.
+// TODO: In the future, tablegroup and shard insertion should be done via a
+// dedicated RPC, so that the catalog shard records every tablegroup and shard,
+// not just its own.
 func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) error {
 	tableGroup := pm.record.ShardKey().GetTableGroup()
 	shard := pm.record.ShardKey().GetShard()
-
-	// MVP validation: only default tablegroup with shard 0-inf is supported
-	// This is an extra guardrail. Multipoolers shouldn't start unless they
-	// are in the default tablegroup. However, we shouldn't be calling this function
-	// by the time we support multiple tablegroups/shards.
-	// This will ensure we make sure to remove this code when we get to that point.
-	if err := constants.ValidateMVPTableGroupAndShard(tableGroup, shard); err != nil {
-		return mterrors.Wrap(err, "MVP validation failed in initializeMultischemaData")
-	}
 
 	pm.logger.InfoContext(ctx, "initializing multischema data",
 		"tablegroup", tableGroup, "shard", shard)
