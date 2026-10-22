@@ -126,10 +126,10 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	poolerByID, healthByID := buildCohortMaps(cohort)
 	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		if len(r.EligibleLeaders) == 0 {
+		if len(r.RecruitsWithAllDurableWrites) == 0 {
 			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
 		}
-		leader := selectFittestLeader(r.EligibleLeaders, healthByID, rng)
+		leader := selectFittestLeader(r.RecruitsWithAllDurableWrites, healthByID, rng)
 		return buildFailoverProposal(r, leader, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {

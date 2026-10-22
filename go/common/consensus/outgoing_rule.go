@@ -15,11 +15,11 @@
 package consensus
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // observedOutgoingRule is the rule a coordinator-led or certified proposal
@@ -39,18 +39,6 @@ type observedOutgoingRule struct {
 	position *clustermetadatapb.RulePosition
 	// basis is how this rule is to be revoked; see revoke.
 	basis revocationBasis
-}
-
-// recruitsRecordingRule are all recruits that record the outgoing position,
-// whether or not they are members of the rule's cohort.
-func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
-	var recording []*clustermetadatapb.ConsensusStatus
-	for _, cs := range o.recruited {
-		if CompareRulePosition(cs.GetCurrentPosition().GetPosition(), o.position) == 0 {
-			recording = append(recording, cs)
-		}
-	}
-	return recording
 }
 
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
@@ -187,13 +175,53 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 	return finalizableOutgoingRule{r}, nil
 }
 
-// eligibleLeaders returns the recruits that can lead: those recording the
-// outgoing rule that are tied at the highest LSN at or above the basis's frozen
-// LSN (zero when revoking by recruitment).
-func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
-	var minLSN pgutil.LSN
-	if r.basis.cert != nil {
-		minLSN = r.basis.cert.frozenLSN
+// minimumDurablePosition is the lowest position a leader may have: one at or above
+// it holds every write the outgoing rule could have made durable. It is the most
+// advanced recruit's position (always at the outgoing rule, the highest any recruit
+// records), raised to the cert's frozen LSN under a cert.
+//
+// TODO: take it from recruited members of the outgoing decision's cohort (the
+// incoming cohort under a cert), so a further-ahead non-member does not raise it.
+// TODO: relax it to the highest position the policy could have made durable, or
+// to exactly the frozen LSN under a cert.
+func (r revokedOutgoingRule) minimumDurablePosition() (*clustermetadatapb.PoolerPosition, error) {
+	var minimum *clustermetadatapb.PoolerPosition
+	for _, cs := range r.recruited {
+		if position := cs.GetCurrentPosition(); minimum == nil || ComparePoolerPosition(position, minimum) > 0 {
+			minimum = position
+		}
 	}
-	return narrowByLSN(r.recruitsRecordingRule(), minLSN)
+	if minimum == nil {
+		return nil, errors.New("no recruit records the outgoing rule")
+	}
+	if cert := r.basis.cert; cert != nil {
+		frozen := &clustermetadatapb.PoolerPosition{Position: r.position, Lsn: cert.frozenLSN.String()}
+		if ComparePoolerPosition(frozen, minimum) > 0 {
+			minimum = frozen
+		}
+	}
+	return minimum, nil
+}
+
+// recruitsWithAllDurableWrites returns the recruits at or above the minimum
+// durable position. Only recruits can lead: Promote needs a recruit still in
+// force, which proves the pooler is reachable and fenced and which later events,
+// such as a restore, invalidate.
+func (r revokedOutgoingRule) recruitsWithAllDurableWrites() ([]*clustermetadatapb.ConsensusStatus, error) {
+	minimum, err := r.minimumDurablePosition()
+	if err != nil {
+		return nil, err
+	}
+	var eligible []*clustermetadatapb.ConsensusStatus
+	for _, cs := range r.recruited {
+		if ComparePoolerPosition(cs.GetCurrentPosition(), minimum) >= 0 {
+			eligible = append(eligible, cs)
+		}
+	}
+	if len(eligible) == 0 {
+		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
+		// minimum is itself a recruit's position.
+		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
+	}
+	return eligible, nil
 }
