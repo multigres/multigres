@@ -2387,8 +2387,9 @@ func (e *Executor) ConcludeTransaction(
 	return result, e.buildReservedState(reservedConn), nil
 }
 
-// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
-// The connection may remain reserved if there are other reasons to keep it (e.g., transaction).
+// DiscardTempTables sends DISCARD TEMP on a reserved connection and, outside a transaction,
+// removes the temp table reason. The connection may remain reserved if there are other reasons
+// to keep it (e.g., transaction).
 // Returns ReservedState with the authoritative reservation state.
 func (e *Executor) DiscardTempTables(
 	ctx context.Context,
@@ -2418,8 +2419,14 @@ func (e *Executor) DiscardTempTables(
 		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
 	}
 
-	// Remove the temp table reason
-	reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+	// DISCARD TEMP is transactional: inside a transaction, a ROLLBACK (or a ROLLBACK
+	// TO SAVEPOINT) brings the temp tables back. The temp table reason therefore
+	// stays while a transaction is open, so the connection is not handed to another
+	// session with the restored tables on it, and its own session keeps them. A
+	// DISCARD TEMP outside a transaction is final.
+	if !reservedConn.IsInTransaction() {
+		reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+	}
 
 	result := &sqltypes.Result{CommandTag: "DISCARD"}
 
