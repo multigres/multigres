@@ -498,6 +498,20 @@ func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
 		require.True(t, state.HasOpenHoldCursor("c_pre"), "pre-BEGIN cursor must survive")
 		require.False(t, state.HasOpenHoldCursor("c_in"), "in-txn cursor must be dropped")
 	})
+
+	t.Run("pre-BEGIN cursor closed in the transaction stays closed", func(t *testing.T) {
+		state := NewMultigatewayConnectionState()
+		state.AddOpenHoldCursor("c_closed")
+		state.AddOpenHoldCursor("c_kept")
+		state.BeginTransaction()
+		state.RemoveOpenHoldCursor("c_closed") // CLOSE c_closed
+
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		// PG semantics: CLOSE is not transactional, so ROLLBACK does not reopen it.
+		require.False(t, state.HasOpenHoldCursor("c_closed"),
+			"CLOSE inside a rolled-back transaction is not undone by ROLLBACK")
+		require.True(t, state.HasOpenHoldCursor("c_kept"))
+	})
 }
 
 func TestHoldCursorsDeclaredAfterSavepoint(t *testing.T) {

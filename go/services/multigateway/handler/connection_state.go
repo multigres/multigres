@@ -333,9 +333,13 @@ func (m *MultigatewayConnectionState) HoldCursorsDeclaredInTxn() []string {
 }
 
 // RestoreOpenHoldCursorsToBeginSnapshot restores the OpenHoldCursors set
-// to the snapshot captured by BeginTransaction at the depth-0 frame.
-// Cursors declared after BEGIN are dropped (PG closed them at ROLLBACK);
-// cursors that existed before BEGIN are kept (PG preserves them).
+// to the *intersection* of the snapshot captured by BeginTransaction at the
+// depth-0 frame with the current open set, as RollbackToSavepoint does for a
+// savepoint. Cursors declared after BEGIN are dropped (PG closed them at
+// ROLLBACK); cursors that existed before BEGIN are kept (PG preserves them),
+// unless they were CLOSE'd inside the transaction: CLOSE is not transactional
+// in PostgreSQL, so they stay closed after ROLLBACK, and the multipooler-side
+// portal pin was already dropped by the CLOSE.
 //
 // Falls back to clearing the set entirely when there is no BEGIN-level
 // frame on the stack — matches the previous ClearOpenHoldCursors behavior
@@ -350,7 +354,9 @@ func (m *MultigatewayConnectionState) RestoreOpenHoldCursorsToBeginSnapshot() {
 	snapshot := m.savepoints[0].openHoldCursors
 	restored := make(map[string]bool, len(snapshot))
 	for cur := range snapshot {
-		restored[cur] = true
+		if m.OpenHoldCursors[cur] {
+			restored[cur] = true
+		}
 	}
 	m.OpenHoldCursors = restored
 }
