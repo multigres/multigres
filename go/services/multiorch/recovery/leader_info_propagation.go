@@ -34,7 +34,7 @@ import (
 // leaderInfoPropagationInterval is deliberately much shorter than a recovery
 // cycle: telling a pooler who the leader is (or that it's rewind-ready) is
 // always safe (SetPrimary no-ops when the pooler is already current), so
-// this doesn't need recovery's grace periods or backoff.
+// this doesn't need recovery's backoff.
 const leaderInfoPropagationInterval = 1 * time.Second
 
 const setPrimaryPropagationTimeout = 5 * time.Second

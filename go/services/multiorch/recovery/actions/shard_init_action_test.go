@@ -136,11 +136,6 @@ func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
 	assert.False(t, NewShardInitAction(config.NewTestConfig(), nil, nil, nil, slog.Default()).RequiresHealthyLeader())
 }
 
-func TestShardInitAction_GracePeriod(t *testing.T) {
-	action := NewShardInitAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
-	assert.Nil(t, action.GracePeriod(), "bootstrapping an uninitialized shard has nothing to defer for")
-}
-
 // --- getInitializedPoolers ---
 
 func TestShardInitAction_GetInitializedPoolers_FiltersByShard(t *testing.T) {

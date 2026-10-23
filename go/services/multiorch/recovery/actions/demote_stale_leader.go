@@ -93,14 +93,6 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 	return false
 }
 
-func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
-	// The demote goes through SetPrimary, which is position-fenced: a
-	// leader that's only momentarily-stale would see its own rule >= the
-	// incoming rule and no-op without touching postgres. A spurious detection
-	// costs an RPC, not a wrongful demote, so no grace period is needed.
-	return nil
-}
-
 // Execute demotes the stale leader using SetPrimary with the correct leader's rule.
 // This is safer than Recruit because we use the correct leader's existing rule rather than
 // minting a new term, so both leaders end up agreeing on the same term and rule.

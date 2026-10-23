@@ -253,13 +253,3 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 		Retryable:   true,
 	}
 }
-
-// GracePeriod is nil: bootstrapping an uninitialized shard has no working
-// state to protect, so there's no reason to wait once a failure-safe cohort
-// is available. Collision-avoidance against another coordinator's concurrent
-// attempt is handled by the shared rule-change pipeline's collective
-// recruitment backoff (AppointInitialLeader runs through the same
-// newRuleChange path as ordinary failover), not by this action.
-func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
-}

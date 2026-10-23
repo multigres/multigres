@@ -431,8 +431,9 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// progress/liveness signals. intendedLeaderHasResigned is the fast path (the leader's
 	// REQUESTING_DEMOTION/INELIGIBLE health broadcast); the SHUTDOWN tombstone is the
 	// durable fallback for when that ephemeral broadcast is lost.
-	// TODO: first-hand causes still wait the shared failover grace; they could skip it
-	// (intent doesn't flap; multi-orch safety is the Recruit CAS), cutting the write outage.
+	// TODO: after a failed attempt, first-hand causes wait the same recruitment backoff
+	// as the rest; they could skip it (intent doesn't flap; multi-orch safety is the
+	// Recruit CAS), cutting the write outage.
 	if intendedLeaderHasResigned(sa) || intendedLeaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
 			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
