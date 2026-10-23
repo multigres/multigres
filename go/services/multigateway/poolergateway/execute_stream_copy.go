@@ -29,16 +29,14 @@ import (
 )
 
 // openCopy submits INITIATE exactly once, selecting the dedicated RPC only
-// before submission when reuse is disabled or the peer lacks COPY support.
+// before submission when per-call authorization, metadata or propagation requires it.
 func (g *grpcQueryService) openCopy(ctx context.Context, req *pb.CopyBidiExecuteRequest) (pb.MultipoolerService_CopyBidiExecuteClient, error) {
-	if g.executeStreams != nil {
-		responses, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
-		if err != nil {
-			return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start reusable COPY")
-		}
-		if used {
-			return &reusableCopyStream{ClientStream: responses.lease.stream, responses: responses}, nil
-		}
+	responses, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
+	if err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start reusable COPY")
+	}
+	if used {
+		return &reusableCopyStream{ClientStream: responses.lease.stream, responses: responses}, nil
 	}
 	stream, err := g.client.CopyBidiExecute(ctx)
 	if err != nil {
@@ -47,9 +45,9 @@ func (g *grpcQueryService) openCopy(ctx context.Context, req *pb.CopyBidiExecute
 	if err := stream.Send(req); err != nil {
 		_ = stream.CloseSend()
 		_, _ = stream.Recv()
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(legacyTimeoutError(ctx, err)), "failed to send INITIATE")
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(dedicatedTimeoutError(ctx, err)), "failed to send INITIATE")
 	}
-	return &legacyCopyStream{MultipoolerService_CopyBidiExecuteClient: stream, ctx: ctx}, nil
+	return &dedicatedCopyStream{MultipoolerService_CopyBidiExecuteClient: stream, ctx: ctx}, nil
 }
 
 // reusableCopyStream holds an exclusive lease across READY, DATA and the final
@@ -178,18 +176,18 @@ func releaseCopyStream(stream pb.MultipoolerService_CopyBidiExecuteClient) {
 }
 
 // Dedicated RPCs cannot acknowledge cleanup once their deadline expires.
-type legacyCopyStream struct {
+type dedicatedCopyStream struct {
 	pb.MultipoolerService_CopyBidiExecuteClient
 	ctx context.Context
 }
 
-func (s *legacyCopyStream) Send(req *pb.CopyBidiExecuteRequest) error {
-	return legacyTimeoutError(s.ctx, s.MultipoolerService_CopyBidiExecuteClient.Send(req))
+func (s *dedicatedCopyStream) Send(req *pb.CopyBidiExecuteRequest) error {
+	return dedicatedTimeoutError(s.ctx, s.MultipoolerService_CopyBidiExecuteClient.Send(req))
 }
 
-func (s *legacyCopyStream) Recv() (*pb.CopyBidiExecuteResponse, error) {
+func (s *dedicatedCopyStream) Recv() (*pb.CopyBidiExecuteResponse, error) {
 	response, err := s.MultipoolerService_CopyBidiExecuteClient.Recv()
-	return response, legacyTimeoutError(s.ctx, err)
+	return response, dedicatedTimeoutError(s.ctx, err)
 }
 
 // completeCopy drains a timed-out operation even when a callback or send error

@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -60,13 +61,38 @@ func ValidPropagation(carrier map[string]string) bool {
 	return size <= 16*1024
 }
 
+const (
+	authorizationErrorDomain   = "multigres.queryrpc"
+	perCallAuthorizationReason = "PER_CALL_AUTHORIZATION_REQUIRED"
+)
+
+// RequiresPerCallAuthorization distinguishes the server's pre-submission
+// authorization requirement from an unsupported RPC on an incompatible peer.
+func RequiresPerCallAuthorization(err error) bool {
+	if status.Code(err) != codes.Unimplemented {
+		return false
+	}
+	for _, detail := range status.Convert(err).Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == authorizationErrorDomain && info.Reason == perCallAuthorizationReason {
+			return true
+		}
+	}
+	return false
+}
+
 // Serve runs one query-service operation at a time. Every operation carries
 // its own deadline and ends with a status frame, including on handler error.
 func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) error {
 	// Per-call authorization headers must be revalidated by the ordinary RPC
 	// interceptor. Never silently widen their lifetime through transport reuse.
 	if md, ok := metadata.FromIncomingContext(stream.Context()); ok && len(md.Get("authorization")) != 0 {
-		return status.Error(codes.Unimplemented, "per-call authorization requires a dedicated RPC")
+		st, err := status.New(codes.Unimplemented, "per-call authorization requires a dedicated RPC").WithDetails(
+			&errdetails.ErrorInfo{Domain: authorizationErrorDomain, Reason: perCallAuthorizationReason},
+		)
+		if err != nil {
+			return status.Error(codes.Internal, "failed to encode authorization requirement")
+		}
+		return st.Err()
 	}
 	if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: supportedOperations}); err != nil {
 		return err

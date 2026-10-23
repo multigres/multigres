@@ -62,7 +62,7 @@ func queryServiceAt(t *testing.T, addr string) queryservice.QueryService {
 	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cc.Close() })
-	return newGRPCQueryService(cc, "test-pooler", slog.New(slog.DiscardHandler), true)
+	return newGRPCQueryService(cc, "test-pooler", slog.New(slog.DiscardHandler))
 }
 
 func noopStreamCallback(context.Context, *sqltypes.Result) error { return nil }
@@ -154,11 +154,14 @@ type midStreamFailServer struct {
 	multipoolerservice.UnimplementedMultipoolerServiceServer
 }
 
-func (s *midStreamFailServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	stream grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	if err := stream.Send(&multipoolerservice.StreamExecuteResponse{}); err != nil {
+func (s *midStreamFailServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Result: &multipoolerservice.ExecuteStreamResponse_Response{Response: &multipoolerservice.StreamExecuteResponse{}}}); err != nil {
 		return err
 	}
 	return status.Error(codes.Unavailable, "transport is closing")
@@ -192,11 +195,18 @@ type promotedPoolerServer struct {
 	*controllableHealthServer
 }
 
-func (s *promotedPoolerServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	_ grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	return nil
+func (s *promotedPoolerServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return err
+		}
+		if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Completion: status.New(codes.OK, "").Proto()}); err != nil {
+			return err
+		}
+	}
 }
 
 // newTestLBFrozenHealth is newTestLBWithLeaderServing with one twist: the
@@ -227,7 +237,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 			if p.GetId().GetName() == frozenPooler {
 				cb = nil
 			}
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, nil, true, cb)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, nil, cb)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil

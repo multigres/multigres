@@ -42,15 +42,15 @@ const (
 // streamPool retains only idle transport streams, never PostgreSQL connections.
 // Each lease is exclusive; reservations and callers remain request fields.
 type streamPool struct {
-	client       pb.MultipoolerServiceClient
-	ctx          context.Context
-	cancel       context.CancelFunc
-	m            *streamPoolMetrics
-	mu           sync.Mutex
-	idle         []*streamLease
-	closed       bool
-	cleanupGrace time.Duration
-	unsupported  atomic.Bool
+	client               pb.MultipoolerServiceClient
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	m                    *streamPoolMetrics
+	mu                   sync.Mutex
+	idle                 []*streamLease
+	closed               bool
+	cleanupGrace         time.Duration
+	perCallAuthorization atomic.Bool
 }
 
 type streamLease struct {
@@ -288,14 +288,15 @@ func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*s
 }
 
 // open handles all typed operations with the same exclusive lease and retry
-// boundary. A capability fallback is allowed only before submitting a request.
+// boundary. Dedicated RPCs are selected only for per-call metadata/authorization
+// or propagation that cannot be carried by the operation envelope.
 func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (*streamResponses, bool, error) {
 	operation := queryrpc.Operation(frame)
 	if operation == pb.ExecuteStreamOperation_EXECUTE_STREAM_OPERATION_UNSPECIFIED {
 		return nil, false, status.Error(codes.InvalidArgument, "missing execute stream operation")
 	}
-	if p.unsupported.Load() {
-		p.m.operations.Add(p.ctx, 1, attrLegacyRPCUnsupported)
+	if p.perCallAuthorization.Load() {
+		p.m.operations.Add(p.ctx, 1, attrLegacyAuthorization)
 		return nil, false, nil
 	}
 	// Credentials/custom RPC metadata belong to individual calls. Preserve
@@ -337,22 +338,17 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 				// caller's own deadline/cancellation, not the derived cancel.
 				return nil, false, status.FromContextError(ctxErr).Err()
 			}
-			if status.Code(err) == codes.Unimplemented {
-				p.unsupported.Store(true)
-				p.m.operations.Add(p.ctx, 1, attrLegacyRPCUnsupported)
+			if queryrpc.RequiresPerCallAuthorization(err) {
+				p.perCallAuthorization.Store(true)
+				p.m.operations.Add(p.ctx, 1, attrLegacyAuthorization)
 				return nil, false, nil
 			}
 			// No SQL has been sent, but leave classification to the caller.
 			return nil, false, err
 		}
 		l = &streamLease{stream: stream, cancel: cancel, operations: make(map[pb.ExecuteStreamOperation]bool)}
-		if len(ready.SupportedOperations) == 0 {
-			// Original peers only understand field 1 (StreamExecute).
-			l.operations[pb.ExecuteStreamOperation_STREAM_EXECUTE] = true
-		} else {
-			for _, op := range ready.SupportedOperations {
-				l.operations[op] = true
-			}
+		for _, op := range ready.SupportedOperations {
+			l.operations[op] = true
 		}
 	} else {
 		stop = context.AfterFunc(ctx, l.cancel)
@@ -365,8 +361,7 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 		} else {
 			p.put(l)
 		}
-		p.m.operations.Add(p.ctx, 1, attrLegacyOperationUnsupported)
-		return nil, false, nil
+		return nil, false, status.Errorf(codes.Unimplemented, "pooler does not support ExecuteStream operation %s", operation)
 	}
 	// The handshake uses immediate cancellation. Switch only before submission,
 	// while it is still safe to stop without needing a completion acknowledgement.
