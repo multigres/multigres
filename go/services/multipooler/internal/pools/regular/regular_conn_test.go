@@ -17,6 +17,7 @@ package regular
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -45,6 +45,21 @@ func newTestDirectConn(t *testing.T, server *fakepgserver.Server) *Conn {
 	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
 	require.NoError(t, err)
 	return NewConn(clientConn, nil /* adminPool */)
+}
+
+// newClosedWhileIdleConn returns a connection whose server session ended while
+// it sat idle: the server sent FATAL 57P05 and closed the socket, and the
+// client has read neither. A pooled connection is left this way by a
+// PostgreSQL restart, a failover or pg_terminate_backend.
+func newClosedWhileIdleConn(t *testing.T, server *fakepgserver.Server) *Conn {
+	t.Helper()
+	server.SetIdleSessionTimeout(10 * time.Millisecond)
+	conn := newTestDirectConn(t, server)
+	require.Eventually(t, func() bool {
+		return conn.RawConn().CheckIdle() != nil
+	}, 5*time.Second, 5*time.Millisecond)
+	server.SetIdleSessionTimeout(0)
+	return conn
 }
 
 // connErrFATAL returns a PgDiagnostic for FATAL 57P01 (admin_shutdown),
@@ -120,77 +135,47 @@ func TestQueryWithRetry_NonRetryableFatalClosesWithoutRetry(t *testing.T) {
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT fatal"), "non-retryable FATAL must not reconnect-retry")
 }
 
-func TestQueryWithRetry_ReconnectsOnConnectionError(t *testing.T) {
+func TestQueryWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.OrderMatters()
-
-	// First attempt: connection error (admin_shutdown).
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT 1",
-		Error: connErrFATAL(),
-	})
-
-	// Second attempt (after reconnect): success.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SELECT 1",
-		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
-	})
+	// The backend dies while running the statement. PostgreSQL may already
+	// have applied its effects, so the statement must not be sent again.
+	server.AddRejectedQuery("SELECT nextval('s')", connErrFATAL())
 
 	conn := newTestDirectConn(t, server)
+
+	_, err := conn.QueryWithRetry(context.Background(), "SELECT nextval('s')")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT nextval('s')"), "statement must run at most once")
+}
+
+func TestQueryWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("SELECT 1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}))
+
+	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
 	results, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
-
-	server.VerifyAllExecutedOrFail()
-}
-
-func TestQueryWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-
-	server.OrderMatters()
-
-	// All 3 attempts fail with connection error.
-	for range constants.MaxConnPoolRetryAttempts {
-		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-			Query: "SELECT 1",
-			Error: connErrFATAL(),
-		})
-	}
-
-	conn := newTestDirectConn(t, server)
-
-	_, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
-	require.Error(t, err)
-	assert.True(t, mterrors.IsConnectionError(err))
-
-	// Connection should be closed after exhausting all attempts.
-	assert.True(t, conn.IsClosed())
-
-	server.VerifyAllExecutedOrFail()
+	assert.False(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT 1"))
 }
 
 func TestQueryWithRetry_ReconnectFails(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.OrderMatters()
-
-	// First attempt: connection error.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT 1",
-		Error: connErrFATAL(),
-	})
-
-	conn := newTestDirectConn(t, server)
+	conn := newClosedWhileIdleConn(t, server)
 
 	// Close the listener so reconnect's dial will fail.
-	// Existing connections are not affected.
 	server.CloseListener()
 
 	_, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
@@ -199,32 +184,7 @@ func TestQueryWithRetry_ReconnectFails(t *testing.T) {
 
 	// Connection should be closed after reconnect failure.
 	assert.True(t, conn.IsClosed())
-
-	server.VerifyAllExecutedOrFail()
-}
-
-func TestQueryWithRetry_StopsOnContextCancellation(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-
-	server.OrderMatters()
-
-	// First attempt: connection error.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT 1",
-		Error: connErrFATAL(),
-	})
-
-	conn := newTestDirectConn(t, server)
-	defer conn.Close()
-
-	// Cancel context before the retry can proceed.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := conn.QueryWithRetry(ctx, "SELECT 1")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 0, server.GetQueryCalledNum("SELECT 1"))
 }
 
 // --- QueryStreamingWithRetry tests ---
@@ -264,25 +224,30 @@ func TestQueryStreamingWithRetry_NonConnectionError(t *testing.T) {
 	assert.False(t, conn.IsClosed())
 }
 
-func TestQueryStreamingWithRetry_ReconnectsOnConnectionError(t *testing.T) {
+func TestQueryStreamingWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.OrderMatters()
-
-	// First attempt: connection error.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT 1",
-		Error: connErrFATAL(),
-	})
-
-	// Second attempt (after reconnect): success.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SELECT 1",
-		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
-	})
+	server.AddRejectedQuery("SELECT nextval('s')", connErrFATAL())
 
 	conn := newTestDirectConn(t, server)
+
+	err := conn.QueryStreamingWithRetry(context.Background(), "SELECT nextval('s')", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+	require.Error(t, err)
+	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT nextval('s')"), "statement must run at most once")
+}
+
+func TestQueryStreamingWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("SELECT 1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}))
+
+	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
 	var collected []*sqltypes.Result
@@ -292,57 +257,7 @@ func TestQueryStreamingWithRetry_ReconnectsOnConnectionError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, collected)
-
-	server.VerifyAllExecutedOrFail()
-}
-
-func TestQueryStreamingWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-
-	server.OrderMatters()
-
-	for range constants.MaxConnPoolRetryAttempts {
-		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-			Query: "SELECT 1",
-			Error: connErrFATAL(),
-		})
-	}
-
-	conn := newTestDirectConn(t, server)
-
-	err := conn.QueryStreamingWithRetry(context.Background(), "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
-		return nil
-	})
-	require.Error(t, err)
-	assert.True(t, mterrors.IsConnectionError(err))
-	assert.True(t, conn.IsClosed())
-
-	server.VerifyAllExecutedOrFail()
-}
-
-func TestQueryStreamingWithRetry_SentinelIsNotConnectionError(t *testing.T) {
-	// The errStreamingAlreadyStarted sentinel is used internally to stop the
-	// retry loop. It must NOT be classified as a connection error, otherwise
-	// retryOnConnectionError would keep retrying instead of stopping.
-	assert.False(t, mterrors.IsConnectionError(errStreamingAlreadyStarted),
-		"errStreamingAlreadyStarted must not be classified as a connection error")
-}
-
-func TestQueryStreamingWithRetry_PostSwapPreservesOriginalError(t *testing.T) {
-	// After the retry loop stops via the sentinel, QueryStreamingWithRetry
-	// replaces it with mterrors.Wrapf(streamErr, ...) so that callers can
-	// inspect the original PostgreSQL error via errors.As.
-	originalErr := connErrFATAL()
-	swapped := mterrors.Wrapf(originalErr, "streaming already started, cannot retry")
-
-	// The swapped error should expose the original PgDiagnostic.
-	var diag *mterrors.PgDiagnostic
-	assert.True(t, errors.As(swapped, &diag), "callers should be able to extract PgDiagnostic")
-	assert.Equal(t, "57P01", diag.Code)
-
-	// The sentinel should NOT be in the chain (it was replaced).
-	assert.False(t, errors.Is(swapped, errStreamingAlreadyStarted))
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT 1"))
 }
 
 func TestQueryStreamingWithRetry_MidStreamFailureNoRetry(t *testing.T) {
@@ -470,30 +385,13 @@ func TestQueryWithRetry_ReappliesSettingsAfterReconnect(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.OrderMatters()
+	const setQuery = "SELECT pg_catalog.set_config('search_path', 'public', false)"
+	server.AddQuery(setQuery, &sqltypes.Result{})
+	server.AddQuery("SELECT 1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}))
 
-	// First attempt: connection error.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT 1",
-		Error: connErrFATAL(),
-	})
-
-	// Reconnect re-applies settings via SET.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SELECT pg_catalog.set_config('search_path', 'public', false)",
-		QueryResult: &sqltypes.Result{},
-	})
-
-	// Second attempt (after reconnect): success.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SELECT 1",
-		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
-	})
-
-	conn := newTestDirectConn(t, server)
+	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
-	// Apply settings before the query.
 	settings := connstate.NewSettings(map[string]string{
 		"search_path": "public",
 	}, 0)
@@ -504,10 +402,9 @@ func TestQueryWithRetry_ReappliesSettingsAfterReconnect(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
 
-	// Settings should still be present after reconnect+retry.
+	// The fresh session got the settings before the query ran on it.
 	assert.Equal(t, settings, conn.Settings())
-
-	server.VerifyAllExecutedOrFail()
+	assert.Equal(t, strings.ToLower(setQuery)+";select 1", server.QueryLog())
 }
 
 // --- QueryArgsWithRetry tests ---
@@ -543,56 +440,35 @@ func TestQueryArgsWithRetry_NonConnectionError(t *testing.T) {
 	assert.False(t, conn.IsClosed())
 }
 
-func TestQueryArgsWithRetry_ReconnectsOnConnectionError(t *testing.T) {
+func TestQueryArgsWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.OrderMatters()
-
-	// First attempt: connection error.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query: "SELECT $1",
-		Error: connErrFATAL(),
-	})
-
-	// Second attempt (after reconnect): success.
-	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SELECT $1",
-		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"hello"}}),
-	})
+	server.AddRejectedQuery("SELECT nextval($1)", connErrFATAL())
 
 	conn := newTestDirectConn(t, server)
+
+	_, err := conn.QueryArgsWithRetry(context.Background(), "SELECT nextval($1)", "s")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT nextval($1)"), "statement must run at most once")
+}
+
+func TestQueryArgsWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("SELECT $1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"hello"}}))
+
+	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
 	results, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "hello", string(results[0].Rows[0].Values[0]))
-
-	server.VerifyAllExecutedOrFail()
-}
-
-func TestQueryArgsWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-
-	server.OrderMatters()
-
-	for range constants.MaxConnPoolRetryAttempts {
-		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-			Query: "SELECT $1",
-			Error: connErrFATAL(),
-		})
-	}
-
-	conn := newTestDirectConn(t, server)
-
-	_, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
-	require.Error(t, err)
-	assert.True(t, mterrors.IsConnectionError(err))
-	assert.True(t, conn.IsClosed())
-
-	server.VerifyAllExecutedOrFail()
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT $1"))
 }
 
 // --- handleContextCancellation tests ---
