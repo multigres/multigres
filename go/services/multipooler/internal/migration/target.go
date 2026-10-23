@@ -92,28 +92,29 @@ func (t *target) CheckDropPrivilege(ctx context.Context, tables []string, caller
 		fmt.Sprintf("role %q lacks DROP privilege on existing target table(s): %s", callerRole, strings.Join(forbidden, ", ")), "")
 }
 
-// CheckConnectionOwnership verifies that callerRole could use the connection
-// ownerRole created, under PostgreSQL's own privilege model — pg_has_role's
-// USAGE check covers both the creator itself and any role whose privileges
-// include it (e.g. a group the creator belongs to), confirmed against a live
-// server. A named connection carries no ACL of its own: without this, any
-// role that passes the gateway's CanCreateMigration gate could name any
-// connection on the shard and use its stored credentials to pull another
-// operator's source data into a target table the caller does own, without
-// ever holding that source's own credentials. Callers skip this entirely
-// when either role is empty (see CreateMigration's doc comment on
-// CallerRole and Connection.OwnerRole for when that happens); the error
-// message never names the connection, so a caller cannot use it to learn
-// whether a given connection name exists.
-func (t *target) CheckConnectionOwnership(ctx context.Context, callerRole, ownerRole string) error {
+// CheckRoleOwnership verifies that callerRole could act as ownerRole under
+// PostgreSQL's own privilege model — pg_has_role's USAGE check covers both
+// the creator itself and any role whose privileges include it (e.g. a group
+// the creator belongs to), confirmed against a live server. Shared by every
+// create-time ownership gate in this package: a named Connection or Migration
+// carries no ACL of its own, so without a check like this, any role that
+// passes the gateway's CanCreateMigration gate could name a resource it did
+// not create and act on it with that resource's privileges or data — see
+// CreateMigration's doc comment on CallerRole/Connection.OwnerRole, and
+// DropMigration's on Migration.OwnerRole, for the specific vectors this
+// closes. Callers skip this entirely when either role is empty, and wrap a
+// non-nil error in their own resource-appropriate message — this function's
+// own message is never surfaced directly, so it does not attempt to avoid
+// naming the resource itself.
+func (t *target) CheckRoleOwnership(ctx context.Context, callerRole, ownerRole string) error {
 	sql := "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
 	res, err := t.qs.QueryAdminArgs(ctx, sql, callerRole, ownerRole)
 	if err != nil {
-		return fmt.Errorf("check connection ownership: %w", err)
+		return fmt.Errorf("check role ownership: %w", err)
 	}
 	if res != nil && len(res.Rows) > 0 {
 		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege,
-			fmt.Sprintf("role %q lacks privilege to use this connection", callerRole), "")
+			fmt.Sprintf("role %q lacks privilege to act as %q", callerRole, ownerRole), "")
 	}
 	return nil
 }

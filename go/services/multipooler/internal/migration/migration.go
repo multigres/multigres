@@ -185,6 +185,70 @@ type Migration struct {
 	Tables         []string
 	SequenceMargin int64
 
+	// OwnerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client was connected as when this migration was created. Empty when
+	// created through the CLI/multiadmin path, which has no SQL-authenticated
+	// identity to stamp it from — DropMigration's ownership check is skipped
+	// in that case, the same empty-callerRole convention CheckRoleOwnership
+	// already uses. See DropMigration's doc comment on DropOptions.CallerRole
+	// for the vector this closes: a named migration carries no ACL of its
+	// own, so without it any caller that merely passes the gateway's
+	// CanCreateMigration gate could abort another operator's migration.
+	OwnerRole string
+
+	// QuiesceRoles is the optional set of application role names whose CONNECT
+	// privilege on the source is revoked at the ACTIVATE cutover (and restored on a
+	// deactivate rollback or teardown), so they cannot reconnect and write once the
+	// source becomes a subscriber. Empty ⇒ the hard quiesce still freezes and
+	// terminates existing client backends, but does not fence reconnects by role.
+	// Immutable after create; validated at create time (each role must exist and
+	// none may be the DSN's own role). Persisted as a JSON array on the row.
+	QuiesceRoles []string
+
+	// PublicHadConnect records whether the PUBLIC pseudo-role held CONNECT on the
+	// source database immediately before the ACTIVATE cutover's hard quiesce
+	// revoked it (queried via source.PublicHasConnect, set the moment
+	// RevokeConnect runs — unconditionally, regardless of QuiesceRoles, since
+	// RevokeConnect always revokes PUBLIC). GrantConnect, at deactivate rollback
+	// or teardown, reads this back so it only restores PUBLIC's CONNECT when
+	// PUBLIC genuinely had it — never when an operator had already locked PUBLIC
+	// out as a hardening measure. Defaults to true (Postgres's own default ACL
+	// state for a fresh database) for a migration that never reaches a hard
+	// quiesce.
+	PublicHadConnect bool
+
+	// QuiesceApplied records whether this migration's ACTIVATE cutover actually
+	// ran a hard quiesce (set the moment drainCurrent captures PublicHadConnect,
+	// before RevokeConnect runs). QuiesceRoleConnLimits alone cannot prove a
+	// revoke happened — it stays empty whenever QuiesceRoles is empty, even
+	// though RevokeConnect still revokes PUBLIC's CONNECT unconditionally — so
+	// teardown and a partially-failed-cutover's forced drop need this separate
+	// flag to know whether GrantConnect must run to restore CONNECT.
+	QuiesceApplied bool
+
+	// QuiesceRoleConnLimits records each quiesce role's pg_roles.rolconnlimit
+	// (-1 means no limit) immediately before the ACTIVATE cutover's hard
+	// quiesce caps it to 0 (source.RevokeConnect), so GrantConnect's later
+	// restore (rollback or teardown) sets each role back to its own original
+	// limit rather than assuming -1 — an operator-set custom limit must not be
+	// silently replaced. Capping CONNECTION LIMIT (not just REVOKE CONNECT) is
+	// what fences a role regardless of whether it derives CONNECT from a
+	// personal grant, PUBLIC, or an inherited ancestor group-role grant: see
+	// source.SetConnLimits. Keyed by role name; empty when QuiesceRoles is.
+	QuiesceRoleConnLimits map[string]int32
+
+	// QuiesceRolesHadConnect records, per quiesce role, whether it held its own
+	// direct CONNECT grant on the source database (not merely effective access
+	// inherited through PUBLIC or a group role) immediately before the ACTIVATE
+	// cutover's hard quiesce revoked it. A role named in QuiesceRoles is not
+	// guaranteed to have ever held a personal grant — it may only have been
+	// reachable via PUBLIC's own (separately tracked) CONNECT — so GrantConnect's
+	// later restore (rollback or teardown) must only re-grant roles this map
+	// marks true; unconditionally granting every QuiesceRoles entry would hand a
+	// role a new, permanent personal CONNECT grant it never had. Keyed by role
+	// name; empty when QuiesceRoles is.
+	QuiesceRolesHadConnect map[string]bool
+
 	// CopyData is the initial-copy choice recorded at create time: true (the
 	// default) runs the stock tablesync initial COPY at subscription setup; false
 	// subscribes without a copy (target seeded out-of-band).
@@ -217,6 +281,27 @@ func (m *Migration) PublicationName() string { return "mt_pub_" + strconv.Format
 // SubscriptionName is the subscription object name for a migration.
 func (m *Migration) SubscriptionName() string { return "mt_sub_" + strconv.FormatInt(m.ID, 10) }
 
+// quiesceRolesToRestoreConnect narrows QuiesceRoles down to the roles
+// GrantConnect should actually re-grant: those QuiesceRolesHadConnect marks as
+// having held their own direct CONNECT grant before the hard quiesce revoked
+// it. A role named in QuiesceRoles is not guaranteed to have ever held one
+// (see QuiesceRolesHadConnect's doc comment) — passing QuiesceRoles through
+// unfiltered would hand such a role a new, permanent personal grant it never
+// had. A migration that never reached a hard quiesce has an empty
+// QuiesceRolesHadConnect map, so this correctly returns none.
+func (m *Migration) quiesceRolesToRestoreConnect() []string {
+	if len(m.QuiesceRoles) == 0 {
+		return nil
+	}
+	restore := make([]string, 0, len(m.QuiesceRoles))
+	for _, r := range m.QuiesceRoles {
+		if m.QuiesceRolesHadConnect[r] {
+			restore = append(restore, r)
+		}
+	}
+	return restore
+}
+
 // CreateMigrationShardKeyTypeSQL defines the composite type mirroring
 // clustermetadata.ShardKey (database, table_group, shard) that
 // migration_target below is stored as, and multigres.stat_migration's own
@@ -243,10 +328,16 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_phase TEXT NOT NULL,
 	migration_target multigres.shard_key NOT NULL,
 	connection_id BIGINT NOT NULL REFERENCES multigres.migration_connection(connection_id),
+	owner_role TEXT NOT NULL DEFAULT '',
 	sequence_margin BIGINT NOT NULL DEFAULT 0,
 	copy_data BOOLEAN NOT NULL DEFAULT true,
 	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
 	direction TEXT NOT NULL DEFAULT 'IMPORT',
+	quiesce_roles TEXT NOT NULL DEFAULT '[]',
+	public_had_connect BOOLEAN NOT NULL DEFAULT true,
+	quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+	quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
+	quiesce_roles_had_connect TEXT NOT NULL DEFAULT '{}',
 	last_error TEXT NOT NULL DEFAULT '',
 	reverse_link_error TEXT NOT NULL DEFAULT '',
 	streaming_since TIMESTAMPTZ NULL

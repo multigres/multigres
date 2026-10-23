@@ -186,6 +186,29 @@ func TestPrepareInTransaction(t *testing.T) {
 	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetPreparedStatement().GetForceReparse())
 }
 
+// TestLogSafeQuery_RedactsConnectionPassword is the regression test for the
+// finding this guards against: StreamExecute/PortalStreamExecute log the raw
+// query text verbatim (DEBUG on every call, ERROR on planning/execution
+// failure), and CREATE CONNECTION carries the source password as a SQL
+// literal, so logging queryStr directly would write reusable source
+// credentials to gateway logs (mirrors engine.MigrationDDL.String()'s
+// redaction of the same statement type).
+func TestLogSafeQuery_RedactsConnectionPassword(t *testing.T) {
+	t.Run("CREATE CONNECTION is redacted", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("CREATE CONNECTION src OPTIONS (host 'h', password 'supersecret')")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts[0])
+		assert.NotContains(t, got, "supersecret")
+		assert.Contains(t, got, "src", "the connection name is still useful to keep for debugging")
+	})
+	t.Run("other statements are logged in full", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("SELECT 1")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts[0])
+		assert.Equal(t, stmts[0].SqlString(), got)
+	})
+}
+
 // ---------- StreamExecute plan cache tests ----------
 
 func TestStreamExecute_CacheHitOnRepeatedQuery(t *testing.T) {

@@ -150,9 +150,16 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	p.mu.Unlock()
 
 	p.reserveCount.Add(1)
-	if p.config.OnReserve != nil {
-		p.config.OnReserve()
-	}
+	// Deliberately do NOT fire OnReserve (the serving-drain counter) for a
+	// logical-replication tunnel. A streaming walsender is a read-only WAL
+	// producer — it cannot write to this backend — so the serving gate, which
+	// exists to stop client WRITES to a subscriber-mode target, must not wait on
+	// it or force-close it during a not-serving transition. Counting it here is
+	// what deadlocked migration DEACTIVATE: the drain severed the reverse stream
+	// and the drain barrier then waited forever for it. The release path skips
+	// OnRelease symmetrically (see release()), so the drain counter stays
+	// balanced. KillAllForDrain preserves the tunnel too, as a backstop when
+	// another reserved connection forces the force-close path.
 	p.logger.DebugContext(ctx, "logical replication connection created",
 		"conn_id", connID,
 		"process_id", c.ProcessID())
