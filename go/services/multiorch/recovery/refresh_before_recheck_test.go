@@ -30,6 +30,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -47,9 +48,9 @@ func (a *staleHealthAnalyzer) Name() types.CheckName { return "MockStaleHealth" 
 
 func (a *staleHealthAnalyzer) RecoveryAction() types.RecoveryAction { return a.action }
 
-func (a *staleHealthAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
-	for _, p := range sa.Analyses {
-		if p.Health().GetStatus().GetPostgresReady() {
+func (a *staleHealthAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
+	for _, p := range sa.Poolers {
+		if p.GetStatus().GetPostgresReady() {
 			return nil, nil
 		}
 	}

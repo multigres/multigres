@@ -14,11 +14,10 @@
 
 package analysis
 
-// Tests for the call-time predicate helpers on ShardAnalysis (leaderServing,
-// leaderPostgresReady, replicasStreamingFromLeader). These derive verdicts
-// from an already-built ShardAnalysis; the analyzers consume them, so they
-// live alongside the helpers rather than with the generator that only
-// assembles the ShardAnalysis.
+// Tests for the call-time predicate helpers over a shard snapshot
+// (intendedLeaderServing, intendedLeaderPostgresReady, replicasStreamingFromLeader).
+// These derive verdicts from an already-built snapshot; the analyzers consume
+// them, so they live alongside the helpers rather than with the capture code.
 
 import (
 	"testing"
@@ -34,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -41,23 +41,23 @@ import (
 // folded into vouchingForLeader: every fresh follower is actively streaming from
 // the leader (and at least one such follower exists). It preserves the
 // per-follower streaming coverage these tests exercise.
-func allFollowersStreaming(sa *ShardAnalysis) bool {
-	if sa.Leader == nil {
+func allFollowersStreaming(sa *snapshot.Shard) bool {
+	if sa.IntendedLeaderHealth() == nil {
 		return false
 	}
-	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
-	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition)
+	primaryHost := sa.IntendedLeaderHealth().GetMultipooler().GetHostname()
+	primaryPort := sa.IntendedLeaderHealth().GetMultipooler().GetPortMap()["postgres"]
+	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
 	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
 	replicaCount, connectedCount := 0, 0
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		if pa == nil {
 			continue
 		}
-		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			continue
 		}
-		if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+		if !observationFresh(pa, sa.Now, sa.AvailabilityPolicy.FollowerStreamFreshness) {
 			continue
 		}
 		replicaCount++
@@ -68,7 +68,7 @@ func allFollowersStreaming(sa *ShardAnalysis) bool {
 	return replicaCount > 0 && connectedCount == replicaCount
 }
 
-func TestLeaderServing(t *testing.T) {
+func TestIntendedLeaderServing(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {
 		ps := store.NewTestCache(t)
 
@@ -116,12 +116,12 @@ func TestLeaderServing(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, leaderPostgresReady(sa))
-		assert.True(t, leaderServing(sa))
+		assert.True(t, intendedLeaderPostgresReady(sa))
+		assert.True(t, intendedLeaderServing(sa))
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
@@ -168,12 +168,12 @@ func TestLeaderServing(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, leaderPostgresReady(sa))
-		assert.False(t, leaderServing(sa))
+		assert.False(t, intendedLeaderPostgresReady(sa))
+		assert.False(t, intendedLeaderServing(sa))
 	})
 }
 
@@ -265,8 +265,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(sa), "should be true when all replicas are connected")
@@ -351,8 +351,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when any replica is disconnected")
@@ -404,8 +404,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica is unreachable")
@@ -438,8 +438,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// Primary-only shard: ReplicasConnectedToLeader should be false (no replicas)
@@ -501,8 +501,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica points to wrong primary")
@@ -554,8 +554,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 				},
 			}, nil))
 
-			gen := NewAnalysisGenerator(ps, nil)
-			analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+			gen := newTestCapture(ps)
+			analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 			require.NoError(t, err)
 			assert.False(t, allFollowersStreaming(analysis), "should be false when wal_receiver_status=%q", status)
 		}
@@ -611,9 +611,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time is stale")
@@ -671,9 +671,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
@@ -735,9 +735,9 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		gen.now = func() time.Time { return fixedNow }
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		gen := newTestCapture(ps)
+		gen.now = fixedNow
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when delay exceeds wal_receiver_timeout")
@@ -791,8 +791,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			},
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		analysis, err := gen.GenerateAnalysisForPooler(topoclient.ComponentID("multipooler-cell1-replica"))
+		gen := newTestCapture(ps)
+		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(analysis), "should be true when last_msg_receive_time is nil")
@@ -856,8 +856,8 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			// LastSeen and StreamSnapshotsReceived are both zero — brand new pooler.
 		}, nil))
 
-		gen := NewAnalysisGenerator(ps, nil)
-		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		gen := newTestCapture(ps)
+		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// replica1 is connected; replica2 has never reported health and must not

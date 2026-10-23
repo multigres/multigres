@@ -18,81 +18,25 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// ShardAnalysis groups all per-pooler analyses for a single shard.
-// It is the input type for the Analyzer interface.
-type ShardAnalysis struct {
-	ShardKey *clustermetadatapb.ShardKey
-	// Analyses holds the cache rider for every pooler in the shard. Analyzers
-	// read raw health via Rider.Health() and derive judgments through the
-	// package helpers (walReplayNotPaused, primaryConnInfoHost, …) and the
-	// consensus SelfConsensusRole API rather than
-	// reading pre-baked digest fields.
-	Analyses []*store.Pooler
-
-	// Now is the evaluation timestamp (orchestrator clock) captured when this
-	// analysis was generated. Analyzers use it — together with Policy — to judge
-	// observation freshness explicitly, rather than reading pre-baked liveness
-	// verdicts from the generator.
-	Now time.Time
-
-	// Policy carries the availability thresholds in effect for this evaluation.
-	Policy AvailabilityPolicy
-
-	// TombstoneIDs is the set of pooler IDs the cache has marked as SHUTDOWN
-	// tombstones cluster-wide. Analyzers consult it to detect cohort members
-	// that have explicitly drained (and therefore had their riders evicted
-	// from the live cache, so they don't appear in Analyses) versus poolers
-	// that are merely missing from the cache for transient reasons. Cohort
-	// scope is enforced naturally: cohort membership is per-shard, so a
-	// missing cohort member found here is necessarily a shutdown of THIS
-	// shard's pooler.
-	TombstoneIDs map[topoclient.ComponentID]struct{}
-
-	// HighestPosition is the highest known consensus position across all poolers
-	// in the shard (commonconsensus.HighestKnownRule), or nil if no leader is
-	// known. It is the single source of leader identity: HighestRule() names
-	// the shard leader and its GetCohortMembers() is the recorded synchronous
-	// cohort. Whether that leader is currently serving is judged by
-	// leaderServing() from the rider, not stored here.
-	HighestPosition *clustermetadatapb.RulePosition
-
-	// Leader is the health of the pooler that HighestPosition's rule names as
-	// leader, or nil if we have no health for it. The rule can name a leader we
-	// have never observed; in that case we don't know where to point replicas,
-	// so consumers that need the leader's host/port (e.g. ReplicaNotReplicating)
-	// gate on Leader being non-nil rather than on reachability — an
-	// unreachable-but-known leader is still the official term leader.
-	Leader *store.Pooler
-
-	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
-	// May be nil if not yet configured or not available.
-	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
-}
-
-// Replicas returns the riders for all follower poolers.
-func (sa *ShardAnalysis) Replicas() []*store.Pooler {
-	var replicas []*store.Pooler
-	for _, p := range sa.Analyses {
-		if commonconsensus.SelfConsensusRole(p.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
-			replicas = append(replicas, p)
-		}
-	}
-	return replicas
-}
-
 // The helpers below derive analyzer-relevant judgments from a pooler's raw
-// health (Health()). They replaced the digested PoolerAnalysis fields so the
-// rider stays the single source of truth and there is no parallel cached copy.
+// health (Health()). They derive judgments on demand so the snapshot stays
+// the single source of truth and there is no parallel cached copy.
+
+// leaderEndpoint returns the leader's postgres host and port; host is "" when
+// there is no leader snapshot or it hasn't reported a hostname.
+func leaderEndpoint(leader *multiorchdatapb.PoolerHealthState) (host string, port int32) {
+	return leader.GetMultipooler().GetHostname(), leader.GetMultipooler().GetPortMap()["postgres"]
+}
 
 // poolerID returns the pooler's ID from its health record.
-func poolerID(p *store.Pooler) *clustermetadatapb.ID {
-	return p.Health().GetMultipooler().GetId()
+func poolerID(p *multiorchdatapb.PoolerHealthState) *clustermetadatapb.ID {
+	return p.GetMultipooler().GetId()
 }
 
 // freshAndInitialized reports whether p's health snapshot is within freshness
@@ -106,8 +50,8 @@ func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 // what it checks, not "reachable": this is purely about data trustworthiness,
 // a third axis distinct from both network connectivity (StreamConnected) and
 // recruitment eligibility (recruitable).
-func freshAndInitialized(p *store.Pooler, now time.Time, freshness time.Duration) bool {
-	hs, ok := p.HealthWithin(now, freshness)
+func freshAndInitialized(p *multiorchdatapb.PoolerHealthState, now time.Time, freshness time.Duration) bool {
+	hs, ok := snapshot.HealthWithin(p, now, freshness)
 	return ok && hs.GetStatus().GetIsInitialized()
 }
 
@@ -118,11 +62,11 @@ func freshAndInitialized(p *store.Pooler, now time.Time, freshness time.Duration
 // it exists so callers' feasibility judgments (is a recruitment quorum
 // reachable, is this pooler admissible) agree with what an actual Recruit
 // attempt would do, instead of counting a member that would just be refused.
-func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+func recruitable(p *multiorchdatapb.PoolerHealthState, now time.Time, freshness time.Duration) bool {
 	if !freshAndInitialized(p, now, freshness) {
 		return false
 	}
-	hs, _ := p.HealthWithin(now, freshness)
+	hs, _ := snapshot.HealthWithin(p, now, freshness)
 	// Draining (graceful shutdown or an admin-stopped WAL receiver).
 	if types.PoolerIsCohortIneligible(hs.GetAvailabilityStatus()) {
 		return false
@@ -141,8 +85,8 @@ func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
 // walReplayNotPaused reports whether the standby's WAL replay is active. A
 // pooler with no replication status returns false; callers that distinguish an
 // unavailable observation from a negative one must check for nil first.
-func walReplayNotPaused(p *store.Pooler) bool {
-	rs := p.Health().GetStatus().GetReplicationStatus()
+func walReplayNotPaused(p *multiorchdatapb.PoolerHealthState) bool {
+	rs := p.GetStatus().GetReplicationStatus()
 	if rs == nil {
 		return false
 	}
@@ -151,8 +95,8 @@ func walReplayNotPaused(p *store.Pooler) bool {
 
 // primaryConnInfoHost returns the standby's configured primary host, or "" if
 // replication is not configured.
-func primaryConnInfoHost(p *store.Pooler) string {
-	return p.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost()
+func primaryConnInfoHost(p *multiorchdatapb.PoolerHealthState) string {
+	return p.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost()
 }
 
 // walReceiverActive reports whether the standby's WAL receiver is actively
@@ -160,8 +104,8 @@ func primaryConnInfoHost(p *store.Pooler) string {
 // the primary has no new WAL to send. Any other status (including "") means
 // the receiver is not running — this covers timeline divergence where the
 // receiver connects, gets FATAL, and exits, leaving primary_conninfo on disk.
-func walReceiverActive(p *store.Pooler) bool {
-	rs := p.Health().GetStatus().GetReplicationStatus()
+func walReceiverActive(p *multiorchdatapb.PoolerHealthState) bool {
+	rs := p.GetStatus().GetReplicationStatus()
 	if rs == nil {
 		return false
 	}
@@ -177,8 +121,8 @@ func walReceiverActive(p *store.Pooler) bool {
 // member must advance only by streaming, never the archive). "waiting" stays
 // healthy: the receiver is connected and current, the primary just has nothing
 // new to send.
-func walReceiverStreaming(p *store.Pooler) bool {
-	rs := p.Health().GetStatus().GetReplicationStatus()
+func walReceiverStreaming(p *multiorchdatapb.PoolerHealthState) bool {
+	rs := p.GetStatus().GetReplicationStatus()
 	if rs == nil {
 		return false
 	}
@@ -192,26 +136,26 @@ func walReceiverStreaming(p *store.Pooler) bool {
 	}
 }
 
-// compareLeaderTimeline compares two leader riders by rule position. LSN is
+// compareLeaderTimeline compares two leader snapshots by rule position. LSN is
 // intentionally excluded from the comparison (CompareRulePosition already
 // stops at decision-then-proposal): for leaders, the coordinator term must be
 // unique per promotion, so equal terms indicate a consensus bug rather than a
 // resolvable tie.
-func compareLeaderTimeline(a, b *store.Pooler) int {
+func compareLeaderTimeline(a, b *multiorchdatapb.PoolerHealthState) int {
 	return commonconsensus.CompareRulePosition(
-		a.Health().GetConsensusStatus().GetCurrentPosition().GetPosition(),
-		b.Health().GetConsensusStatus().GetCurrentPosition().GetPosition(),
+		a.GetConsensusStatus().GetCurrentPosition().GetPosition(),
+		b.GetConsensusStatus().GetCurrentPosition().GetPosition(),
 	)
 }
 
-// analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
-// Both the shard analysis and the per-pooler analysis are passed so callbacks can
+// analyzeAllPoolers runs fn against each pooler in sa, collecting all problems.
+// Both the shard snapshot and the pooler's snapshot are passed so callbacks can
 // access shard-level context alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
-func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *store.Pooler) (*types.Problem, error)) ([]types.Problem, error) {
+func analyzeAllPoolers(sa *snapshot.Shard, fn func(*snapshot.Shard, *multiorchdatapb.PoolerHealthState) (*types.Problem, error)) ([]types.Problem, error) {
 	var problems []types.Problem
 	var firstErr error
-	for _, poolerAnalysis := range sa.Analyses {
+	for _, poolerAnalysis := range sa.Poolers {
 		p, err := fn(sa, poolerAnalysis)
 		if err != nil {
 			if firstErr == nil {
@@ -224,4 +168,19 @@ func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *store.Pooler)
 		}
 	}
 	return problems, firstErr
+}
+
+// observationFresh reports whether the pooler's most recent successful health
+// snapshot is recent enough (within maxAge, measured against now on the
+// orchestrator clock) to be trusted as a live observation.
+//
+// A pooler that has never recorded a snapshot is NOT fresh: with no observation
+// we have no evidence it is alive. Because LastSeen advances only on a
+// successful snapshot (never on a disconnect), freshness alone captures
+// "recently, successfully observed" — so callers need not separately consult a
+// connection flag or a snapshot counter, and a brief stream interruption does
+// not flip liveness until the observation genuinely ages out.
+func observationFresh(h *multiorchdatapb.PoolerHealthState, now time.Time, maxAge time.Duration) bool {
+	_, ok := snapshot.HealthWithin(h, now, maxAge)
+	return ok
 }

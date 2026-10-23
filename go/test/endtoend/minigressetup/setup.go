@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const (
@@ -107,6 +108,7 @@ type Setup struct {
 	TLSCertPaths *clustersetup.MultigatewayTLSCertPaths
 
 	baselineGucs   map[string]string
+	etcdCmd        *executil.Cmd
 	tempDirCleanup func()
 	runningCtx     context.Context
 	cancel         context.CancelFunc
@@ -147,12 +149,13 @@ func New(t *testing.T, opts ...Option) *Setup {
 	t.Logf("Starting etcd for topology...")
 	etcdDataDir := filepath.Join(tempDir, "etcd_data")
 	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
-	etcdClientAddr, _, err := clustersetup.StartEtcd(runningCtx, t, etcdDataDir)
+	etcdClientAddr, etcdCmd, err := clustersetup.StartEtcd(runningCtx, t, etcdDataDir)
 	if err != nil {
 		cancel()
 		t.Fatalf("failed to start etcd: %v", err)
 	}
 	s.EtcdClientAddr = etcdClientAddr
+	s.etcdCmd = etcdCmd
 	s.TopoServer = clustersetup.CreateTopologyCell(t, etcdClientAddr, cellName)
 
 	backupDir := filepath.Join(tempDir, "backup-repo")
@@ -233,6 +236,16 @@ func (s *Setup) newMinigresInstance(t *testing.T, cfg *config) *clustersetup.Pro
 		inst.TLSKeyFile = s.TLSCertPaths.ServerKeyFile
 	}
 	return inst
+}
+
+// StopEtcd stops etcd, to check that Minigres serves without the topology.
+// Only for a topology owned by one test (NewIsolated).
+func (s *Setup) StopEtcd(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, stopped := s.etcdCmd.Stop(ctx)
+	require.True(t, stopped, "etcd did not stop within the deadline")
 }
 
 // waitForPrimary waits until the pooler has bootstrapped and promoted itself:

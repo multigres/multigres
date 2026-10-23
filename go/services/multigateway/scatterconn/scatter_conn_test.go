@@ -101,6 +101,9 @@ type mockGateway struct {
 	releaseReservedConnectionKeepSticky  bool
 	releaseReservedConnectionReturnState *querypb.ReservedState
 	releaseReservedConnectionErr         error
+
+	// DiscardTempTables tracking
+	discardTempTablesErr error
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -194,7 +197,7 @@ func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, 
 }
 
 func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Target, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
-	return nil, nil, nil
+	return nil, nil, m.discardTempTablesErr
 }
 
 func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {

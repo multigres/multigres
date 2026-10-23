@@ -60,8 +60,8 @@ func (re *Engine) runLeaderInfoPropagation(ctx context.Context) {
 }
 
 // distinctShardKeys returns one ShardKey per shard currently represented in
-// the pooler cache. Deliberately cheaper than analysis.GenerateShardAnalyses,
-// which builds a full per-pooler liveness analysis this loop doesn't need —
+// the pooler cache. Deliberately cheaper than store.SnapshotShards,
+// which freezes every pooler's health, more than this loop needs —
 // it only cares which shards exist, then re-derives everything else itself
 // via store.FindShardMembers.
 func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {

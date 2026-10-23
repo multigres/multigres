@@ -18,13 +18,14 @@ Minigres evolves.
   it leads without consensus and without Multiorch.
 - **The multigateway reaches the pooler in memory.** Queries, authentication,
   LISTEN/NOTIFY and the health stream go over the in-memory gRPC server and
-  never leave the process. The gateway still finds the pooler through etcd but
-  uses only its own pooler, so it never sees other instances' poolers.
-  Learning of the pooler without etcd, and an in-process health subscription,
-  are planned work.
+  never leave the process. The gateway learns of the pooler from the pooler
+  itself, not from etcd, so it never sees other instances' poolers. An
+  in-process health subscription, replacing the health stream, is planned work.
 - **pgctld runs as its own process**, as in Multigres.
 
-Many Minigres processes can share one etcd and one Multiadmin.
+Many Minigres processes can share one etcd and one Multiadmin. Once a database
+has bootstrapped, Minigres keeps serving and can restart while etcd is down (see
+[Running without etcd](#running-without-etcd)).
 
 ## Running it
 
@@ -69,13 +70,8 @@ Things to know:
   [Bootstrap and the rule store](#bootstrap-and-the-rule-store)).
 - **Status pages:** `/` is an index linking to `/multigateway` and
   `/multipooler`.
-- **Configuration files are not supported yet.** Settings come from flags and
-  `MT_*` environment variables. A config file (`--config-file`, or one found
-  through `--config-name` and `--config-path`) makes `minigres` refuse to start:
-  each half keeps its own settings registry, because both define keys such as
-  `pg-port` with different meanings, so component settings in a file would
-  otherwise be silently ignored. Separate configuration namespaces for the two
-  halves are planned.
+- **Settings** come from flags, `MT_*` environment variables and a config
+  file (see [Configuration file](#configuration-file)).
 
 ### Flags
 
@@ -88,7 +84,42 @@ Things to know:
 | `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see [The static leader](#the-static-leader))                  |
 
 A flag that both halves define is rejected at startup, so a new flag that
-collides fails loudly instead of silently shadowing another.
+collides fails loudly instead of silently shadowing another. Likewise, an `MT_*`
+environment variable that both halves read is rejected at startup unless it
+belongs to a shared setting.
+
+### Configuration file
+
+One file configures the process and both halves (`--config-file`, or one found
+through `--config-name` and `--config-path`). The process's settings and the
+shared settings sit at the top level; each half's own settings are written
+behind the half's name, with the same names as in a Multigres component's file:
+
+```yaml
+grpc-port: 15100
+log-level: info
+topo-global-server-addresses: localhost:2379
+cell: zone1 # shared: applied to both halves
+service-id: mg-1 # shared
+multigateway.pg-port: 15432
+multigateway.statement-timeout: 30s
+multipooler.pgctld-addr: localhost:15200
+multipooler.database: postgres
+```
+
+- **Nested sections** (`multigateway:` with `pg-port: 15432` indented under it)
+  are read as the same settings.
+- **Shared settings** (`cell`, `service-id`, `enable-slot-based-replication`)
+  are written once at the top level and applied to both halves, as their flags
+  are. Inside a section they are accepted only with the top-level value.
+- **Priority** is the same as in Multigres: flag, then environment variable,
+  then the file, then the default.
+- **Settings nothing reads are rejected.** A typo, a half's setting without its
+  prefix (the message suggests the prefixed name) or `multipooler.pg-port`
+  makes `minigres` refuse to start.
+- **Changes while running:** dynamic settings follow edits to the file. An edit
+  with a setting nothing reads is rejected as a whole; the previous settings
+  stay and an error is logged.
 
 ## How it is wired
 
@@ -103,8 +134,11 @@ resources themselves, and they never register the process flags, call
 `main` also passes the settings registry each half configures its own settings
 on. `cmd/multigateway` and `cmd/multipooler` pass the registry their servenv
 uses, so a configuration file sets the half's settings too. `cmd/minigres`
-gives each half its own registry, because both define keys such as `pg-port`
-with different meanings; that is why it refuses configuration files for now.
+passes each half a view of its registry behind the half's name
+(`Registry.WithPrefix`): both define keys such as `pg-port` with different
+meanings, and the view stores the gateway's as `multigateway.pg-port` and the
+pooler's as `multipooler.pg-port`. The halves' code is unchanged; the config
+file's rules are in `cmd/minigres/config.go`.
 
 `cmd/multigateway` and `cmd/multipooler` do this for one half each, and
 `cmd/minigres` does it once for both. `cmd/minigres` opens the store, calls
@@ -118,10 +152,11 @@ their one gRPC server. `cmd/minigres` sets it to an in-memory server
 no port, no TLS and no auth, and the external server's limits. The serving loop
 starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
 also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
-and the in-memory server's dial options (`DialOptions`). The gateway then keeps
-only that pooler from the etcd watch (the pooler cache's filter) and connects to
-it in memory; the Multigres binaries pass none and use every pooler in the
-topology.
+the in-memory server's dial options (`DialOptions`) and the pooler's record
+(`Record`). The gateway then reads that pooler's record in memory instead of
+watching etcd, keeps only that pooler (the pooler cache's filter), and connects
+to it in memory; the Multigres binaries pass none and use every pooler
+in the topology.
 
 ## The process
 
@@ -139,10 +174,13 @@ topology.
 
 ## How the gateway reaches the pooler
 
-- **It uses only its own pooler.** The gateway still discovers poolers through
-  etcd, but keeps only the pooler in its own process and ignores every other
-  one. Even when many Minigres instances share one etcd, queries never reach
-  another instance and readiness counts only its own pooler.
+- **It uses only its own pooler.** The gateway reads the record of the pooler
+  in its own process once, when it starts (`Multipooler.Record`), and never
+  watches etcd for poolers. It needs nothing more: the fields it uses (ID and
+  shard) never change, and the pooler's role and serving status come from the
+  health stream. Even when many Minigres
+  instances share one etcd, queries never reach another instance and readiness
+  counts only its own pooler.
 - **It connects in memory.** The pooler serves its query service
   (`MultipoolerService`) only on an in-memory gRPC server, and the
   gateway connects there, without TLS. Queries, authentication, LISTEN/NOTIFY
@@ -150,9 +188,43 @@ topology.
 - **The external gRPC port carries the admin services.** The pooler manager and
   gateway manager services stay on the TCP port, for Multiadmin and the test
   harness. Calling the query service on that port returns `Unimplemented`.
-- **The gateway's `--multipooler-grpc-*` flags are not used for queries.** They
-  still configure cancel-request forwarding between gateways, which does not
-  apply to a single gateway and is planned to be turned off.
+
+## What is turned off
+
+The gateway is the only one in front of the only pooler, so the features that
+need several poolers or gateways are off. They are off for any gateway given a
+local pooler (`poolergateway.LocalPooler`), which `cmd/minigres` does: their
+settings are never created, so neither a flag nor an `MT_*` environment variable
+can turn them on, and their flags are rejected as unknown.
+
+| Feature                                                                                                | Why it does not apply                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Replica reads (`--pg-replica-port`, `--low-replication-lag-ms`, `--high-replication-lag-tolerance-ms`) | There are no replicas                                                                                                                                                                                                                             |
+| Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
+| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway reaches its pooler in memory, and the settings otherwise secure only cancel forwarding                                                                                                                                                |
+| Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
+
+Without cancel forwarding the gateway claims no connection-ID prefix: connection
+IDs are used as they are, and the limit of 2,047 gateways per etcd and the
+"PID prefix held" readiness check do not apply.
+
+## Running without etcd
+
+Minigres uses etcd so that Multiadmin can see it, not to serve queries. Once its
+database has bootstrapped, it keeps serving when etcd goes down and starts while
+etcd is down:
+
+| Part                       | Without etcd                                                                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Opening the topology       | Does not wait: the connection is retried in the background                                                                                                                                                    |
+| The gateway's pooler       | Read from the pooler's record in memory                                                                                                                                                                       |
+| The gateway's registration | Retried in the background (`toporeg.Register`) instead of blocking startup, so Multiadmin sees the gateway once etcd is back                                                                                  |
+| The pooler's registration  | Retried in the background, as in Multigres                                                                                                                                                                    |
+| The database record        | The static leader keeps a copy of the database record it last read (`topo-database.pb` in the pooler directory) and starts from it when etcd is unreachable. Nothing else can change the record while it runs |
+
+The first bootstrap still needs etcd: the first backup reads the durability
+policy and takes a backup lease. Backups and the other admin RPCs that read
+the topology fail until etcd is back.
 
 ## The static leader
 

@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -36,10 +37,10 @@ type RecoveryActionFactory struct {
 	logger      *slog.Logger
 	// policy supplies the timings actions are built with.
 	//
-	// TODO: this is a second copy of the policy: AnalysisGenerator builds its own
-	// from DefaultAvailabilityPolicy(). Build one policy and inject it into both, so
+	// TODO: this is a second copy of the policy: the recovery loop's snapshot options
+	// build their own from DefaultAvailabilityPolicy(). Build one policy and inject it into both, so
 	// the action timings and the analyzers' timings cannot drift once it is configurable.
-	policy AvailabilityPolicy
+	policy snapshot.AvailabilityPolicy
 }
 
 // NewRecoveryActionFactory creates a factory for recovery actions.

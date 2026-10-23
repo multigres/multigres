@@ -703,7 +703,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
+func TestNewMultipoolerManager_TableGroupAndShardValidation(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -743,18 +743,24 @@ func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
 			errContains: "Shard is required",
 		},
 		{
-			name:        "invalid tablegroup fails",
-			tableGroup:  "custom",
-			shard:       constants.DefaultShard,
-			wantErr:     true,
-			errContains: "only default tablegroup is supported",
+			name:       "non-default tablegroup with partial shard",
+			tableGroup: "commerce",
+			shard:      "0-80",
+			wantErr:    false,
 		},
 		{
-			name:        "invalid shard fails",
-			tableGroup:  constants.DefaultTableGroup,
-			shard:       "0-100",
+			name:        "non-default tablegroup with invalid shard fails",
+			tableGroup:  "commerce",
+			shard:       "garbage",
 			wantErr:     true,
-			errContains: "only shard " + constants.DefaultShard + " is supported",
+			errContains: "invalid shard name",
+		},
+		{
+			name:        "default tablegroup with non-default shard fails",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "80-inf",
+			wantErr:     true,
+			errContains: "tablegroup default only supports shard " + constants.DefaultShard,
 		},
 	}
 

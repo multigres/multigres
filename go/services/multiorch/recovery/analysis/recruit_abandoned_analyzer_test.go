@@ -30,6 +30,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -58,8 +59,8 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	}
 	highestPosition := ruleLedBy(1, 0)
 
-	leaderHealth := func() *store.Pooler {
-		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+	leaderHealth := func() *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
 			LastSeen:    timestamppb.New(now),
 			Status: &multipoolermanagerdatapb.Status{
@@ -67,14 +68,14 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 				PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: primaryID, CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleLedBy(1, 0)}},
-		}, nil)
+		}
 	}
 
 	// strandedFollower builds a follower recruited at term 2 (revocation revokes
 	// the term-1 rule) whose own WAL rule is still at term 1 — the abandoned
 	// recruit. initiatedAt controls the revocation's age for the grace gate.
-	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *store.Pooler {
-		return newRider(&multiorchdatapb.PoolerHealthState{
+	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *multiorchdatapb.PoolerHealthState {
+		return &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: initialized},
@@ -88,20 +89,18 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 					CoordinatorInitiatedAt: timestamppb.New(initiatedAt),
 				},
 			},
-		})
+		}
 	}
 
-	// newSA builds a ShardAnalysis with the given analyses, a serving leader, and
+	// newSA builds a shard snapshot with the given analyses, a serving leader, and
 	// the shard's committed rule at term 1.
-	newSA := func(analyses ...*store.Pooler) *ShardAnalysis {
-		return &ShardAnalysis{
-			ShardKey:        shardKey,
-			Analyses:        analyses,
-			Leader:          leaderHealth(),
-			HighestPosition: highestPosition,
-			Now:             now,
-			Policy:          DefaultAvailabilityPolicy(),
-		}
+	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
+		return newTestShard(&snapshot.Shard{
+			ShardKey:           shardKey,
+			Poolers:            analyses,
+			Now:                now,
+			AvailabilityPolicy: DefaultAvailabilityPolicy(),
+		}, highestPosition, leaderHealth())
 	}
 
 	// noGraceFactory treats a revocation as abandoned immediately (grace 0).
@@ -150,10 +149,10 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		// on this term right now; don't race it.
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
-		sa.HighestPosition = &clustermetadatapb.RulePosition{
+		setRule(sa, &clustermetadatapb.RulePosition{
 			Decision: ruleLedBy(1, 0).Decision,
 			Proposal: ruleLedBy(2, 0).Decision,
-		}
+		})
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
@@ -162,7 +161,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores when no serving leader is known", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
-		sa.Leader = nil
+		removePooler(sa, poolerID(sa.IntendedLeaderHealth()).GetName())
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)

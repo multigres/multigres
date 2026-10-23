@@ -1061,12 +1061,18 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 // The listener is looked up per stream, not once at registration: the manager
 // replaces it on every connection reopen, and a stale one stays stopped. A
 // stream stays bound to the listener it started on; when that listener stops,
-// it closes notifCh and the stream ends, and the gateway's next subscription
-// update reconnects to the current one.
+// it closes notifCh and the stream ends, and the gateway reopens a stream
+// against the current leader. A stopped listener (this pooler is not the
+// writable, serving leader) refuses new streams rather than acking subscribes
+// it can never deliver on, so a gateway that still routes to a demoted leader
+// keeps retrying until the load balancer observes the new one.
 func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerService_NotificationStreamServer) error {
 	listener := s.pooler.PubSubListener()
 	if listener == nil {
 		return errors.New("PubSubListener not initialized")
+	}
+	if !listener.Running() {
+		return status.Error(codes.Unavailable, "pubsub listener not running: pooler is not the serving leader")
 	}
 
 	notifCh := make(chan *sqltypes.Notification, 256)
@@ -1117,10 +1123,18 @@ func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerServi
 				}
 			}
 			for _, ch := range req.GetSubscribeChannels() {
-				if !subscribed[ch] {
-					listener.SubscribeCh(ch, notifCh)
-					subscribed[ch] = true
+				if subscribed[ch] {
+					continue
 				}
+				// The listener may have stopped since the Running check
+				// above. An unregistered notifCh is never closed, so
+				// acking here would leave this stream open, and the
+				// gateway subscribed to nothing, until the client went
+				// away. Refuse instead so the gateway reconnects.
+				if !listener.SubscribeCh(ch, notifCh) {
+					return status.Error(codes.Unavailable, "pubsub listener stopped: pooler is no longer the serving leader")
+				}
+				subscribed[ch] = true
 			}
 			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{Ready: true}); err != nil {
 				return err

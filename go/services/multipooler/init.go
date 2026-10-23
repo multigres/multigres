@@ -29,6 +29,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -487,6 +488,10 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return errors.New("shard is required")
 	}
 
+	if err := keyrange.ValidateTableGroupAndShard(mp.tableGroup.Get(), mp.shard.Get()); err != nil {
+		return err
+	}
+
 	if os.Getenv(constants.PgDataDirEnvVar) == "" {
 		return errors.New("PGDATA environment variable is required")
 	}
@@ -531,6 +536,12 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),
 	}
+	// The shard name was validated above, so this should never fail.
+	keyRange, err := keyrange.ParseShardName(mp.shard.Get())
+	if err != nil {
+		return err
+	}
+	multipooler.KeyRange = keyRange
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.PoolerDir = adopted.poolerDir
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
@@ -631,6 +642,15 @@ func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
+// Record returns a copy of the multipooler's topology record, without the
+// topology. Requires Init.
+func (mp *Multipooler) Record() *clustermetadatapb.Multipooler {
+	if mp.poolerManager == nil {
+		panic("multipooler: Record called before Init")
+	}
+	return mp.poolerManager.PoolerRecord()
+}
+
 // ServiceIdentity returns the identity the multipooler reports when it
 // initializes its own servenv. ServiceInstanceID is the configured service ID
 // and may be empty. A caller that owns a shared servenv (see WithServEnv) can
@@ -661,8 +681,8 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 // set on the command line, even to its default or an empty value
 // (pflag.Flag.Changed), or present as a key in the loaded config file
 // (Registry.InStaticConfig) — distinctions viperutil's Get cannot make. The
-// flag name must equal the value's viper key for the config-file check to
-// apply. False when RegisterFlags has not run (e.g. minimal test setups) and
+// flag name must equal the value's viper key, behind the registry's prefix
+// if any, for the config-file check to apply. False when RegisterFlags has not run (e.g. minimal test setups) and
 // no config file mentions the key.
 func (mp *Multipooler) flagExplicitlySet(name string) bool {
 	if mp.flagSet != nil {
@@ -672,7 +692,7 @@ func (mp *Multipooler) flagExplicitlySet(name string) bool {
 	}
 	// A config file writing e.g. `socket-file: ""` is as deliberate as
 	// --socket-file='' and must equally force the TCP path.
-	return mp.reg != nil && mp.reg.InStaticConfig(name)
+	return mp.reg != nil && mp.reg.InStaticConfig(mp.reg.Key(name))
 }
 
 // resolveSocketFilePath returns the postgres socket path the pooler should

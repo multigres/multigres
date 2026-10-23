@@ -44,6 +44,7 @@ const (
 	PgSSSyntaxError               = "42601" // syntax_error
 	PgSSUndefinedObject           = "42704" // undefined_object
 	PgSSQueryCanceled             = "57014" // query_canceled
+	PgSSAdminShutdown             = "57P01" // admin_shutdown
 	PgSSCannotConnectNow          = "57P03" // cannot_connect_now
 	PgSSIdleSessionTimeout        = "57P05" // idle_session_timeout
 	PgSSInternalError             = "XX000" // internal_error
@@ -101,12 +102,15 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // period. The message deliberately does not name a specific cause: it isn't
 // determinable at this call site, and naming the wrong one (e.g. blaming
 // "planned failover" for what's actually a routine idle timeout) misleads
-// whoever reads it during an incident. The message is also deliberately not
-// transaction-specific: a reserved connection may hold a transaction or only
-// non-transactional session state (temp tables, portals, COPY, LISTEN), and
-// the same termination applies to all of them. SQLSTATE 40001
-// (serialization_failure) so clients and ORMs retry their in-flight work; the
-// connection's state was rolled back, so a retry is the correct recovery.
+// whoever reads it during an incident.
+//
+// The multipooler raises this for any lost reservation: once the connection is
+// gone it no longer knows what the reservation held. The multigateway does, and
+// passes this error to the client only when the reservation held nothing but a
+// transaction. SQLSTATE 40001 (serialization_failure) so clients and ORMs retry
+// the transaction, which was rolled back with the connection. When the
+// reservation also held session state a retry cannot restore, the multigateway
+// ends the session with NewSessionStateLost instead.
 //
 // This is deliberately NOT MTF01: the connection is gone, so there is nothing
 // to buffer or auto-retry inside the cluster — only the client can replay it.
@@ -114,6 +118,22 @@ func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
 		"reserved connection terminated; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
+}
+
+// NewSessionStateLost creates the PgDiagnostic that ends a client session whose
+// reserved connection was lost while it held session state the client relies on
+// (temp tables, session advisory locks, a seeded PRNG, WITH HOLD cursors, ...).
+// The next statement would otherwise run on a fresh backend that has none of it,
+// silently: a lock another session can now take, a temp table that no longer
+// shadows a permanent one. A retry cannot bring that state back, so the session
+// ends and the client reconnects. lostState names what was lost.
+//
+// SQLSTATE 57P01 (admin_shutdown), severity FATAL: what PostgreSQL sends when it
+// terminates a backend, which drivers and poolers treat as a lost connection.
+func NewSessionStateLost(lostState string) *PgDiagnostic {
+	return NewPgError("FATAL", PgSSAdminShutdown,
+		"terminating connection because the backend holding its session state was lost",
+		"Lost session state: "+lostState+".")
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout

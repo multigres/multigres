@@ -28,6 +28,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -197,7 +198,7 @@ func (a *ShardInitAction) allowUnsafeInitialCohort() bool {
 // pooler has cohort members, decided or an outstanding undecided proposal).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 //
-// "Initialized" requires a fresh observation (store.DefaultObservationFreshness), not just
+// "Initialized" requires a fresh observation (snapshot.DefaultObservationFreshness), not just
 // a durable IsInitialized flag from an arbitrarily old snapshot — a pooler that looked
 // initialized once but has since gone stale should not be trusted for the bootstrap cohort.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
@@ -210,7 +211,7 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.Shar
 		if len(commonconsensus.PossiblyUndecidedRule(position).GetCohortMembers()) > 0 {
 			return nil, true
 		}
-		if hs, ok := pooler.HealthWithin(now, store.DefaultObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
+		if hs, ok := pooler.HealthWithin(now, snapshot.DefaultObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
 	}

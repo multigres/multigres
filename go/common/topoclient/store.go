@@ -67,6 +67,7 @@ import (
 	"log"
 	"log/slog"
 	"maps"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -127,6 +128,19 @@ type TLSOptions struct {
 	KeyPEM  []byte
 	CAPEM   []byte
 	Config  *tls.Config
+}
+
+// ContextDialer opens the network connection to a topology server address
+// (host:port).
+type ContextDialer func(ctx context.Context, addr string) (net.Conn, error)
+
+// FactoryWithDialer creates topology connections whose network connections go
+// through a caller-provided dialer, for a process that cannot reach the
+// topology servers directly (one outside the cluster, tunnelling through the
+// Kubernetes API). tlsOptions may be nil.
+type FactoryWithDialer interface {
+	Factory
+	CreateWithDialer(topoName, root string, serverAddrs []string, tlsOptions *TLSOptions, dial ContextDialer) (Conn, error)
 }
 
 // FactoryWithTLS creates topology connections with caller-provided TLS options.
@@ -331,7 +345,10 @@ type cellConn struct {
 // TopoConfig holds topology connection settings.
 type TopoConfig struct {
 	// TLS applies to connections created by this topology store.
-	TLS                    *TLSOptions
+	TLS *TLSOptions
+	// ContextDialer, when set, carries every connection this topology store
+	// makes. The implementation must support it (FactoryWithDialer).
+	ContextDialer          ContextDialer
 	globalServerAddresses  viperutil.Value[[]string]
 	globalRoot             viperutil.Value[string]
 	readConcurrency        viperutil.Value[int64]
@@ -416,7 +433,14 @@ func (tc *TopoConfig) SetRemoteOperationTimeout(d time.Duration) {
 	tc.remoteOperationTimeout.Set(d)
 }
 
-func createConn(factory Factory, topoName, root string, serverAddrs []string, tlsOptions *TLSOptions) (Conn, error) {
+func createConn(factory Factory, topoName, root string, serverAddrs []string, config *TopoConfig) (Conn, error) {
+	tlsOptions := tlsOptionsFromConfig(config)
+	if config != nil && config.ContextDialer != nil {
+		if dialFactory, ok := factory.(FactoryWithDialer); ok {
+			return dialFactory.CreateWithDialer(topoName, root, serverAddrs, tlsOptions, config.ContextDialer)
+		}
+		return nil, fmt.Errorf("topology factory %T does not support a custom dialer", factory)
+	}
 	if tlsOptions != nil {
 		if tlsFactory, ok := factory.(FactoryWithTLS); ok {
 			return tlsFactory.CreateWithTLS(topoName, root, serverAddrs, tlsOptions)
@@ -470,7 +494,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 	ts.status[GlobalCell] = ""
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return createConn(factory, GlobalCell, root, serverAddrs, tlsOptionsFromConfig(config))
+			return createConn(factory, GlobalCell, root, serverAddrs, config)
 		},
 		func(s string) {
 			ts.setStatus(GlobalCell, s)
@@ -567,7 +591,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	ts.setStatus(cell, "")
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return createConn(ts.factory, cell, ci.Root, ci.ServerAddresses, tlsOptionsFromConfig(ts.config))
+			return createConn(ts.factory, cell, ci.Root, ci.ServerAddresses, ts.config)
 		},
 		func(s string) {
 			ts.setStatus(cell, s)

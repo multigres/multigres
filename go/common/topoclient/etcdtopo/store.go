@@ -86,6 +86,20 @@ func (f Factory) CreateWithTLS(cell, root string, serverAddrs []string, tlsOptio
 	return NewServerWithTLS(serverAddrs, root, tlsOptions)
 }
 
+// CreateWithDialer creates an etcd topology client whose connections go
+// through dial. When tlsOptions is nil, TLS comes from the --topo-etcd-tls-*
+// flags, as it does for Create, so adding a dialer never drops configured TLS.
+func (f Factory) CreateWithDialer(cell, root string, serverAddrs []string, tlsOptions *topoclient.TLSOptions, dial topoclient.ContextDialer) (topoclient.Conn, error) {
+	if tlsOptions == nil {
+		tlscfg, err := newTLSConfig(clientCertPath, clientKeyPath, serverCaPath)
+		if err != nil {
+			return nil, err
+		}
+		return connect(serverAddrs, root, tlscfg, dial)
+	}
+	return newServer(serverAddrs, root, tlsOptions, dial)
+}
+
 // etcdtopo is the implementation of topoclient.Conn for etcd.
 type etcdtopo struct {
 	// cli is the v3 client.
@@ -202,11 +216,19 @@ func newTLSConfigFromOptions(tlsOptions *topoclient.TLSOptions) (*tls.Config, er
 	return newTLSConfigFromPEM(tlsOptions.CertPEM, tlsOptions.KeyPEM, tlsOptions.CAPEM)
 }
 
-func newEtcdClientConfig(serverAddrs []string, tlsConfig *tls.Config) clientv3.Config {
+// newEtcdClientConfig builds the client config. A non-nil dial carries every
+// member connection: clientv3 resolves endpoints with its own resolver, never
+// DNS, and appends DialOptions after its own, so dial receives the raw
+// host:port.
+func newEtcdClientConfig(serverAddrs []string, tlsConfig *tls.Config, dial topoclient.ContextDialer) clientv3.Config {
+	opts := []grpc.DialOption{grpc.WithBlock()} // grpc.WithBlock is deprecated but required by etcd client
+	if dial != nil {
+		opts = append(opts, grpc.WithContextDialer(dial))
+	}
 	return clientv3.Config{
 		Endpoints:   serverAddrs,
 		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // grpc.WithBlock is deprecated but required by etcd client
+		DialOptions: opts,
 		TLS:         tlsConfig,
 	}
 }
@@ -233,7 +255,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	if err != nil {
 		return nil, err
 	}
-	config := newEtcdClientConfig(serverAddrs, tlscfg)
+	config := newEtcdClientConfig(serverAddrs, tlscfg, nil)
 
 	cli, err := clientv3.New(config)
 	if err != nil {
@@ -249,14 +271,22 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 
 // NewServerWithTLS creates a new server with in-memory TLS options.
 func NewServerWithTLS(serverAddrs []string, root string, tlsOptions *topoclient.TLSOptions) (*etcdtopo, error) {
+	return newServer(serverAddrs, root, tlsOptions, nil)
+}
+
+func newServer(serverAddrs []string, root string, tlsOptions *topoclient.TLSOptions, dial topoclient.ContextDialer) (*etcdtopo, error) {
 	tlscfg, err := newTLSConfigFromOptions(tlsOptions)
 	if err != nil {
 		return nil, err
 	}
+	return connect(serverAddrs, root, tlscfg, dial)
+}
+
+func connect(serverAddrs []string, root string, tlscfg *tls.Config, dial topoclient.ContextDialer) (*etcdtopo, error) {
 	if err := validateTLSEndpoints(serverAddrs, tlscfg); err != nil {
 		return nil, err
 	}
-	config := newEtcdClientConfig(serverAddrs, tlscfg)
+	config := newEtcdClientConfig(serverAddrs, tlscfg, dial)
 
 	cli, err := clientv3.New(config)
 	if err != nil {

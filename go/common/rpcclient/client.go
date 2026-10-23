@@ -259,6 +259,6 @@ type MultipoolerClient interface {
 //
 // For multiorch deployments monitoring many poolers, a capacity of 1000 is recommended.
 // For smaller deployments or testing, 100 may be sufficient.
-func NewMultipoolerClient(capacity int, transportCreds grpc.DialOption) MultipoolerClient {
-	return NewClient(capacity, transportCreds)
+func NewMultipoolerClient(capacity int, transportCreds grpc.DialOption, opts ...Option) MultipoolerClient {
+	return NewClient(capacity, transportCreds, opts...)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -34,7 +35,7 @@ import (
 // and writes the confirmed fields into p's cache via applyStatusResponse, the
 // same field-writing logic a streamed snapshot uses, so the two can't drift on
 // which fields a fresh observation updates. Callers re-derive whatever
-// shard-wide view they need (a fresh ShardAnalysis) after this returns.
+// shard-wide view they need (a fresh shard snapshot) after this returns.
 //
 // Returns an error, leaving the cache untouched, if the pooler is unreachable
 // or the RPC came back with no Status payload.
@@ -64,10 +65,10 @@ type RefreshResult struct {
 // and an unreachable pooler is itself evidence for whatever judgment follows.
 // Best-effort: failures are logged and counted, never returned.
 //
-// TODO: "looks reachable" is DefaultObservationFreshness here, but the analyzer
+// TODO: "looks reachable" is snapshot.DefaultObservationFreshness here, but the analyzer
 // decides whether the leader is observed live with the policy's own
 // LeaderLivenessFreshness. They are both 15s today without being linked; take
-// the threshold from the same source once the policy moves to a shared package.
+// the threshold from an AvailabilityPolicy passed in by the caller.
 func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.MultipoolerClient, poolers []*Pooler, timeout time.Duration, logger *slog.Logger) RefreshResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -79,8 +80,7 @@ func RefreshRecentInParallel(ctx context.Context, rpcClient rpcclient.Multipoole
 		result RefreshResult
 	)
 	for _, pooler := range poolers {
-		age, ok := pooler.ObservationAge(now)
-		if !ok || age > DefaultObservationFreshness {
+		if _, ok := pooler.HealthWithin(now, snapshot.DefaultObservationFreshness); !ok {
 			result.Skipped++
 			continue
 		}

@@ -232,7 +232,7 @@ type GracePeriodConfig struct {
 }
 
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
-// pre-execution recheck just re-verified it against (the same ShardAnalysis
+// pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
 // two are bundled deliberately: an action performing a CAS-anchored mutation
 // must judge safety and anchor its CAS on the same rule, or the two could

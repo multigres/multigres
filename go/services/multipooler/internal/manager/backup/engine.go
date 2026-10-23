@@ -23,6 +23,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
@@ -122,6 +123,10 @@ type Engine struct {
 	roleFn     RoleFunc
 	archiverFn ArchiverStatsFunc
 	settingsFn PGSettingsFunc
+
+	// archiverQueryFailing is true while consecutive archiver reads are failing,
+	// so only the first failure of a streak is logged at Warn.
+	archiverQueryFailing atomic.Bool
 }
 
 // NewEngine constructs a backup engine and its metrics from the given fixed

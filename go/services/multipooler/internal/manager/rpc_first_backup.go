@@ -174,8 +174,10 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to create multigres schema")
 	}
 
-	if err := pm.initializeMultischemaData(ctx); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
+	if pm.isCatalogShard() {
+		if err := pm.initializeMultischemaData(ctx); err != nil {
+			return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
+		}
 	}
 
 	if err := pm.insertInitialPgBackRestRepo(ctx); err != nil {

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -44,7 +45,7 @@ func (a *ShardNeedsInitializationAnalyzer) RecoveryAction() types.RecoveryAction
 	return a.factory.NewShardInitAction()
 }
 
-func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -54,10 +55,10 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 		return nil, nil
 	}
 
-	for _, pa := range sa.Analyses {
+	for _, pa := range sa.Poolers {
 		// If any pooler has cohort members, consider the shard initialized.
 		// If it got stuck somehow, let stuck rule propagation deal with it.
-		position := pa.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()
+		position := pa.GetConsensusStatus().GetCurrentPosition().GetPosition()
 		if len(consensus.PossiblyUndecidedRule(position).GetCohortMembers()) > 0 {
 			return nil, nil
 		}
@@ -68,9 +69,9 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bootstrap durability policy: %w", err)
 	}
-	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Analyses))
-	for _, pa := range sa.Analyses {
-		if hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
+	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Poolers))
+	for _, pa := range sa.Poolers {
+		if hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}

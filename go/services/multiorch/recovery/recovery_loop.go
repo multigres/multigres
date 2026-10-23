@@ -42,21 +42,20 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	ctx, span := telemetry.Tracer().Start(ctx, "recovery/cycle")
 	defer span.End()
 
-	// Create generator - this builds the poolersByTG map once
-	generator := analysis.NewAnalysisGenerator(re.poolerCache, re.makePolicyLookup(ctx))
-	shardAnalyses := generator.GenerateShardAnalyses()
+	// Freeze every shard once, so each analyzer reads the same state.
+	snaps := store.SnapshotShards(re.poolerCache, re.snapshotOptions(ctx))
 
 	// Run all analyzers to detect problems
 	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
-	for _, shardAnalysis := range shardAnalyses {
+	for _, snap := range snaps {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(shardAnalysis)
+			detectedProblems, err := analyzer.Analyze(snap)
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
 					"analyzer", analyzer.Name(),
-					"shard", shardAnalysis.ShardKey,
+					"shard", snap.ShardKey,
 					"error", err,
 				)
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
@@ -433,12 +432,12 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 // problem still exists before executing a recovery action.
 //
 // Under streaming, the store is continuously updated by ManagerHealthStream
-// streams, so no explicit force-poll is needed. We simply re-generate the
-// shard analysis from the current store and re-run the analyzer.
+// streams, so no explicit force-poll is needed. We simply freeze the
+// shard again from the current store and re-run the analyzer.
 //
 // Returns nil (with a nil error) if the problem is no longer detected — the
 // caller should skip recovery. Otherwise returns the redetected problem
-// bundled with the shard's highest known consensus position as of this
+// bundled with the shard's highest intended rule as of this
 // recheck (the same snapshot the analyzer just re-verified it against), so
 // Execute anchors its CAS on exactly what was just judged safe rather than
 // re-deriving the rule itself and risking a second, independently-read
@@ -452,21 +451,20 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 		"scope", problem.Scope,
 	)
 
-	// Re-generate analysis for this shard using current store data.
+	// Freeze the shard again from current store data.
 	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
 	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
-	generator := analysis.NewAnalysisGenerator(re.poolerCache, re.makePolicyLookup(ctx))
-	shardAnalysis, err := generator.GenerateShardAnalysis(problem.ShardKey)
+	snap, err := store.SnapshotShard(re.poolerCache, problem.ShardKey, re.snapshotOptions(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
+		return nil, fmt.Errorf("failed to snapshot shard after re-poll: %w", err)
 	}
-	rule := shardAnalysis.HighestPosition
+	rule := snap.HighestIntendedRule()
 
 	// Re-run the analyzer that originally detected this problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
-			redetectedProblems, err := analyzer.Analyze(shardAnalysis)
+			redetectedProblems, err := analyzer.Analyze(snap)
 			if err != nil {
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
@@ -502,7 +500,16 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 	return nil, fmt.Errorf("analyzer %s not found", problem.CheckName)
 }
 
-// makePolicyLookup returns a closure that fetches the bootstrap durability policy
+// snapshotOptions are the inputs, besides the cache, to freezing a shard now.
+func (re *Engine) snapshotOptions(ctx context.Context) store.SnapshotOptions {
+	return store.SnapshotOptions{
+		Now:                       time.Now(),
+		AvailabilityPolicy:        analysis.DefaultAvailabilityPolicy(),
+		BootstrapDurabilityPolicy: re.bootstrapPolicyLookup(ctx),
+	}
+}
+
+// bootstrapPolicyLookup returns a closure that fetches the bootstrap durability policy
 // for a given database. The lookup uses a short per-call timeout so a slow etcd
 // read doesn't stall a full recovery cycle.
 //
@@ -510,7 +517,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 // (e.g. ShardNeedsInitialization) refuse to fire when policy is nil, so a transient
 // failure simply delays bootstrap until the next cycle. GetBootstrapPolicy caches
 // successful results in a sync.Map, so a healthy cluster never hits the error path.
-func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermetadatapb.DurabilityPolicy {
+func (re *Engine) bootstrapPolicyLookup(ctx context.Context) func(string) *clustermetadatapb.DurabilityPolicy {
 	return func(database string) *clustermetadatapb.DurabilityPolicy {
 		lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
