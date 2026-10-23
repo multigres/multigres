@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
@@ -59,6 +61,8 @@ type MutablePoolerRecordState struct {
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
 type poolerTopoStore interface {
 	RegisterMultipooler(ctx context.Context, multipooler *clustermetadatapb.Multipooler, allowUpdate bool) error
+	GetMultipooler(ctx context.Context, id *clustermetadatapb.ID) (*topoclient.MultipoolerInfo, error)
+	CreateMultipooler(ctx context.Context, multipooler *clustermetadatapb.Multipooler) error
 }
 
 // poolerRecord is the single owner of the local Multipooler topology entry.
@@ -82,6 +86,11 @@ type poolerTopoStore interface {
 // The publisher follows the eventual-consistency model: a wakeup channel
 // signals an immediate write attempt and a 30s ticker recovers from
 // transient etcd outages. proto.Equal short-circuits no-op publishes.
+//
+// The ticker also re-creates the record if it has vanished (for example the
+// topology etcd was wiped or replaced) while the desired state is unchanged,
+// so a running pooler is back in topology within one tick (30s) instead of at
+// the next restart. This costs one extra etcd read per tick per pooler.
 type poolerRecord struct {
 	logger     *slog.Logger
 	topoClient poolerTopoStore
@@ -381,24 +390,28 @@ func (r *poolerRecord) publisherLoop(ctx context.Context, tickC <-chan time.Time
 		case <-r.wakeup:
 			r.publishIfNeeded(ctx)
 		case <-tickC:
-			r.publishIfNeeded(ctx)
+			if r.publishIfNeeded(ctx) {
+				r.restoreIfMissing(ctx)
+			}
 		}
 	}
 }
 
 // publishIfNeeded writes the desired state to etcd if it differs from the
 // last successfully published state. A no-op when state is already current.
-func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
+// It reports whether the desired form already equals the last published one,
+// so the caller knows nothing was attempted.
+func (r *poolerRecord) publishIfNeeded(ctx context.Context) bool {
 	desired := r.desired.Load()
 	if desired == nil {
-		return
+		return false
 	}
 	// Reduce to the etcd form (rule kept only for the writable PRIMARY), then
 	// dedup against the last published form: a replica's frequent
 	// highest-known-rule bumps reduce to an identical form and never churn etcd.
 	pub := routingStateForPublish(desired)
 	if proto.Equal(pub, r.lastPublished.Load()) {
-		return
+		return true
 	}
 
 	r.logger.InfoContext(ctx, "publishing multipooler state to topology",
@@ -413,7 +426,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 			"error", err,
 			"routing_role", pub.GetRoutingState().GetRole().String(),
 			"serving_status", pub.ServingStatus.String())
-		return
+		return false
 	}
 
 	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
@@ -421,4 +434,52 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	r.logger.InfoContext(ctx, "published multipooler state to topology",
 		"routing_role", pub.GetRoutingState().GetRole().String(),
 		"serving_status", desired.ServingStatus.String())
+	return false
+}
+
+// restoreIfMissing re-creates the topology record when it no longer exists.
+// Only the ticker calls it, once the desired state is already published.
+//
+// It uses an atomic create-only write, so a registration that landed in
+// between wins and is never overwritten. A record that exists is left alone
+// even if its contents differ. A SHUTDOWN lifecycle never restores. That state
+// is only set after Unregister has cancelled the publisher and waited for it,
+// so the guard is defense in depth against a future path that sets it while the
+// publisher runs. The real fence is Unregister's cancel-then-wait on ctx.
+// Failures are logged and retried on the next tick.
+func (r *poolerRecord) restoreIfMissing(ctx context.Context) {
+	desired := r.desired.Load()
+	if desired == nil ||
+		desired.LifecycleStatus.GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
+	defer cancel()
+
+	_, err := r.topoClient.GetMultipooler(checkCtx, desired.Id)
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+		r.logger.WarnContext(ctx, "failed to check multipooler record in topology; will retry",
+			"error", err)
+		return
+	}
+
+	pub := routingStateForPublish(desired)
+	err = r.topoClient.CreateMultipooler(checkCtx, pub)
+	switch {
+	case err == nil:
+		r.logger.InfoContext(ctx, "restored missing multipooler record in topology",
+			"routing_role", pub.GetRoutingState().GetRole().String(),
+			"serving_status", pub.ServingStatus.String())
+	case errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}):
+		// Someone registered between the check and the create; keep theirs.
+	default:
+		r.logger.WarnContext(ctx, "failed to restore missing multipooler record in topology; will retry",
+			"error", err,
+			"routing_role", pub.GetRoutingState().GetRole().String(),
+			"serving_status", pub.ServingStatus.String())
+	}
 }
