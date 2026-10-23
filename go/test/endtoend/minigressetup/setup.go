@@ -170,8 +170,8 @@ func New(t *testing.T, opts ...Option) *Setup {
 		s.TLSCertPaths = clustersetup.GenerateMultigatewayTLSCerts(t, filepath.Join(tempDir, "minigres-tls"))
 	}
 
-	// pgctld runs PostgreSQL. No pgBackRest TLS server: with one pooler the
-	// first backup and restore are local (MUL-1714).
+	// pgctld runs PostgreSQL. No pgBackRest TLS server: a static leader backs
+	// up and restores locally.
 	s.Pgctld = clustersetup.CreatePgctldInstance(t, serviceID, tempDir,
 		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t), 0, "", backupLocation)
 	s.Minigres = s.newMinigresInstance(t, cfg)
