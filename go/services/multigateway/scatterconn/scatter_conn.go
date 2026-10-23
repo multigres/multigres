@@ -249,7 +249,7 @@ func (sc *ScatterConn) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
+	eagerParsePreparedStatement *querypb.PreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
 	keepStructured bool,
@@ -282,7 +282,7 @@ func (sc *ScatterConn) StreamExecute(
 		User:                        conn.User(),
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
-		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
+		EagerParsePreparedStatement: eagerParsePreparedStatement,
 		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
 
