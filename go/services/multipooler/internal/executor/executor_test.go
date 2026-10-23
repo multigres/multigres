@@ -2934,3 +2934,63 @@ func TestPrepareOnlyReusesNamedStatement(t *testing.T) {
 		"a fresh client Parse must reach PostgreSQL even on a cache hit")
 	require.Nil(t, conn.State().GetPreparedStatement(name), "failed reprepare must evict the stale cache entry")
 }
+
+// newDiscardTempExecutor returns an Executor over a connection reserved for reasons,
+// on a fake server that accepts any query.
+func newDiscardTempExecutor(t *testing.T, reasons uint32) (*Executor, *reserved.Conn) {
+	t.Helper()
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	t.Cleanup(pool.Close)
+
+	rconn, err := pool.NewConn(context.Background(), cache.GetOrCreate(nil))
+	require.NoError(t, err)
+	rconn.AddReservationReason(reasons)
+	return &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}, rconn
+}
+
+// TestDiscardTempTables_InTransactionKeepsTheTempTableReason: DISCARD TEMP is undone by
+// a rollback of the transaction it ran in, so the connection stays reserved for its temp
+// tables until a DISCARD TEMP outside a transaction or the session's end.
+func TestDiscardTempTables_InTransactionKeepsTheTempTableReason(t *testing.T) {
+	e, rconn := newDiscardTempExecutor(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	_, reservedState, err := e.DiscardTempTables(context.Background(), nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	})
+	require.NoError(t, err)
+
+	require.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(rconn.RemainingReasons()))
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()),
+		"the gateway must keep tracking the temp tables a rollback can bring back")
+}
+
+// TestDiscardTempTables_OutsideTransactionReleasesTheConnection: outside a transaction
+// DISCARD TEMP is final, so a connection reserved only for temp tables is released.
+func TestDiscardTempTables_OutsideTransactionReleasesTheConnection(t *testing.T) {
+	e, rconn := newDiscardTempExecutor(t, protoutil.ReasonTempTable)
+
+	_, reservedState, err := e.DiscardTempTables(context.Background(), nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+}
