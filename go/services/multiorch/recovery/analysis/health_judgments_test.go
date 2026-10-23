@@ -47,7 +47,7 @@ func allFollowersStreaming(sa *snapshot.Shard) bool {
 	}
 	primaryHost := sa.IntendedLeaderHealth().GetMultipooler().GetHostname()
 	primaryPort := sa.IntendedLeaderHealth().GetMultipooler().GetPortMap()["postgres"]
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
+	undecidedRule := sa.HighestIntendedRule().PossiblyUndecidedRule()
 	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
 	replicaCount, connectedCount := 0, 0
 	for _, pa := range sa.Poolers {

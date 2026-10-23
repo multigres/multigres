@@ -28,15 +28,12 @@ import (
 type observedOutgoingRule struct {
 	// recruited are the recruits the outgoing rule was found among.
 	recruited []*clustermetadatapb.ConsensusStatus
-	// position is the highest rule position the recruits record. The outgoing rule
-	// is PossiblyUndecidedRule(position): the decision, or the undecided proposal
-	// on top of it. Trusting an undecided rule needs no separate verification:
-	// UpdateRule always finalizes it, exactly as it stands, before applying
-	// anything new.
-	//
-	// TODO: hold a RuleTransition once it exists, replacing the
-	// PossiblyUndecidedRule and IsRuleDecided calls on this position.
-	position *clustermetadatapb.RulePosition
+	// transition is the highest rule position the recruits record, read as a
+	// transition. The outgoing rule is its PossiblyUndecidedRule(): the decision, or
+	// the undecided proposal on top of it. Trusting an undecided rule needs no
+	// separate verification: UpdateRule always finalizes it, exactly as it stands,
+	// before applying anything new.
+	transition RuleTransition
 	// basis is how this rule is to be revoked; see revoke.
 	basis revocationBasis
 }
@@ -46,7 +43,7 @@ type observedOutgoingRule struct {
 func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
 	var recording []*clustermetadatapb.ConsensusStatus
 	for _, cs := range o.recruited {
-		if CompareRulePosition(cs.GetCurrentPosition().GetPosition(), o.position) == 0 {
+		if NewRuleTransition(cs.GetCurrentPosition().GetPosition()).Compare(o.transition) == 0 {
 			recording = append(recording, cs)
 		}
 	}
@@ -64,8 +61,9 @@ func discoverOutgoingRule(
 	if err != nil {
 		return observedOutgoingRule{}, err
 	}
-	observed := observedOutgoingRule{recruited: recruited, position: position, basis: basis}
-	outgoing := PossiblyUndecidedRule(position)
+	transition := NewRuleTransition(position)
+	observed := observedOutgoingRule{recruited: recruited, transition: transition, basis: basis}
+	outgoing := transition.PossiblyUndecidedRule()
 	cmp := CompareRuleNumbers(outgoing.GetRuleNumber(), expected)
 	if cmp == 0 {
 		return observed, nil
@@ -82,7 +80,7 @@ func discoverOutgoingRule(
 	if cmp > 0 {
 		return observedOutgoingRule{}, fmt.Errorf(
 			"recruit %s reports position %s ahead of expected outgoing rule %v; coordinator view is stale, re-discover",
-			topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), FormatRulePosition(position), expected,
+			topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), transition, expected,
 		)
 	}
 	return observedOutgoingRule{}, fmt.Errorf(
@@ -123,7 +121,7 @@ func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
 // proposal is undecided, a write needs the "Both" policy of the decision and the
 // proposal, and the cohort of that policy lies within the decision's.
 func (o observedOutgoingRule) revokeByRecruitment() error {
-	decision := o.position.GetDecision()
+	decision := o.transition.Decision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
 		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
@@ -160,15 +158,15 @@ type finalizableOutgoingRule struct {
 // Nothing is required for a decided outgoing rule, or when a cert revokes the
 // rule: the pooler then decides the proposal under the incoming policy instead.
 func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutgoingRule, error) {
-	if IsRuleDecided(r.position) || r.basis.cert != nil {
+	if r.transition.IsDecided() || r.basis.cert != nil {
 		return finalizableOutgoingRule{r}, nil
 	}
-	decision := r.position.GetDecision()
+	decision := r.transition.Decision()
 	decisionPolicy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	proposal := PossiblyUndecidedRule(r.position)
+	proposal := r.transition.PossiblyUndecidedRule()
 	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)

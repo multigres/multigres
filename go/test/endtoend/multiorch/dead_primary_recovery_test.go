@@ -346,7 +346,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			leaderName := commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule(
+			leaderName := commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule(
 				[]*clustermetadatapb.ConsensusStatus{status.ConsensusStatus},
 			)).GetLeaderId().GetName()
 			if leaderName != finalPrimary.Name {

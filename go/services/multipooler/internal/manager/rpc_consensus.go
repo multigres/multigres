@@ -816,7 +816,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	//
 	// Why here, and not in SetPrimary's caller-side gate or UpdateConsensusRule:
 	// membership is decided by the rule, which RecordTermPrimary just folded into
-	// HighestKnownRule, so IsPotentialCohortMember reflects the rule this call is
+	// HighestIntendedRule, so IsPotentialCohortMember reflects the rule this call is
 	// delivering — making the clear race-free without waiting for the member to
 	// independently stream the new rule. It sits after the revoked-rule early
 	// return above, so a revoked rule never reaches here to trigger a clear. An

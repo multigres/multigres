@@ -84,8 +84,8 @@ func newRecruitmentResult(
 	}
 	return RecruitmentResult{
 		TermRevocation:      revocation,
-		OutgoingRule:        PossiblyUndecidedRule(outgoing.position),
-		OutgoingRuleDecided: IsRuleDecided(outgoing.position),
+		OutgoingRule:        outgoing.transition.PossiblyUndecidedRule(),
+		OutgoingRuleDecided: outgoing.transition.IsDecided(),
 		EligibleLeaders:     eligible,
 		outgoing:            outgoing,
 	}, nil
