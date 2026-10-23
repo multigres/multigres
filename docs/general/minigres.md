@@ -223,8 +223,9 @@ etcd is down:
 | The database record        | The static leader keeps a copy of the database record it last read (`topo-database.pb` in the pooler directory) and starts from it when etcd is unreachable. Nothing else can change the record while it runs |
 
 The first bootstrap still needs etcd: the first backup reads the durability
-policy and takes a backup lease. Backups and the other admin RPCs that read
-the topology fail until etcd is back.
+policy. Backups themselves take no etcd lease (see [Backups](#backups)), but
+Multiadmin finds the pooler through etcd, so backups requested through it, and
+the other admin RPCs that read the topology, wait for etcd.
 
 ## The static leader
 
@@ -259,6 +260,32 @@ answers every question about its role:
   while the routing role is PRIMARY. The write waits for a single-pooler
   durability policy: with `AT_LEAST_2`, the rule would make
   `synchronous_standby_names` wait for a standby that cannot exist.
+
+## Backups
+
+The static leader is the only pooler of its shard, so its backups are taken on
+it, locally (`pg1` only):
+
+- **No `ForcePrimary` needed.** A coordinated primary refuses a backup without
+  `ForcePrimary`, to keep backup load off the primary; a static leader does not
+  (`allowBackupOnPrimary`). `multigres cluster backup` works without
+  `--primary`.
+- **Multiadmin chooses it.** The pooler publishes
+  `leadership_mode: LEADERSHIP_MODE_STATIC` in its topology record. For a shard
+  whose pooler is a static leader, Multiadmin sends backups, listing, expiry,
+  verification and job status to it, whatever "force primary" says
+  (`findPoolerForBackup`); other shards still use a replica.
+- **No etcd lease.** The backup, expire and first-backup leases exist so that
+  only one pooler of a shard works on its repository at a time. A static leader
+  is the only one, and the action lock already serializes its own operations,
+  so it takes none of them (`withBackupLease`). This assumes each Minigres
+  instance has its own topology root and backup location, as Multigres projects
+  do, so two instances never share a shard's keys.
+- **No pgBackRest TLS server.** It exists so a replica can reach the primary
+  during a replica backup; a static leader backs up and restores locally.
+- **Restore** is automatic, as in Multigres: with an empty data directory and a
+  backup in the repository, the pooler restores the latest backup, starts
+  PostgreSQL as a standby and promotes itself.
 
 ## Testing
 
@@ -315,10 +342,9 @@ run daily.
 - `multigres cluster init --topology minigres` only generates a single
   all-minigres cell; mixing a minigres cell with full-Multigres cells in one
   cluster config is not supported yet.
-- Backups need `ForcePrimary` on a primary, and the standby backup path relies on
-  a consensus-recorded primary that a static leader does not have.
-- Several Minigres instances serving the same database name in one etcd look
-  like one shard to the topology.
+- Several Minigres instances serving the same database name under one
+  topology root look like one shard to the topology. Each instance needs its
+  own topology root (`--topo-global-root`), as Multigres projects have.
 - Shutdown uses the Multigres hooks, which run the halves' shutdowns
   concurrently, so shutdown under load does not yet drain the gateway before the
   pooler stops.
