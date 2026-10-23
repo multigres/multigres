@@ -58,7 +58,7 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	var backupID string
 	var fnStarted bool
 	health := pm.backup.Health()
-	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
+	err = pm.withBackupLease(ctx, true /* steal */, "backup", func(ctx context.Context) error {
 		// The lease is held for the duration of this function.
 		fnStarted = true
 		health.SetLeaseHeld(true)
@@ -86,6 +86,27 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 	return backupID, nil
+}
+
+// withBackupLease runs fn under the shard's etcd backup lease, stealing it from
+// another pooler when steal is set. A static leader is the only pooler of its
+// shard, so the action lock its caller holds already excludes every other
+// backup: it runs fn without the lease, and without etcd.
+func (pm *MultipoolerManager) withBackupLease(ctx context.Context, steal bool, action string, fn func(ctx context.Context) error) error {
+	switch {
+	case pm.staticLeader():
+		return fn(ctx)
+	case steal:
+		return pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, action, pm.logger, fn)
+	default:
+		return pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, action, pm.logger, fn)
+	}
+}
+
+// staticLeader reports whether the pooler is its shard's static leader
+// (Config.StaticLeader).
+func (pm *MultipoolerManager) staticLeader() bool {
+	return pm.config != nil && pm.config.StaticLeader
 }
 
 // recordLeaseLossIfApplicable records a lost-lease event + counter when a backup
@@ -156,7 +177,9 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
 	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
-	if isPrimary && !forcePrimary {
+	// A static leader is the only pooler of its shard: its backups can only
+	// be taken on it.
+	if isPrimary && !forcePrimary && !pm.staticLeader() {
 		slog.WarnContext(ctx, "backup requested on primary database without ForcePrimary flag")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"backups from primary databases are not allowed unless ForcePrimary is set")
@@ -556,7 +579,7 @@ func (pm *MultipoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
 	// not preempt an in-progress backup — it can wait or fail fast.
 	var expiredIDs []string
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
+	err = pm.withBackupLease(ctx, false /* steal */, "expire", func(ctx context.Context) error {
 		var expireErr error
 		expiredIDs, expireErr = pm.backup.Expire(ctx, overrides)
 		return expireErr

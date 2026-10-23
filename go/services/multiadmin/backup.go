@@ -148,6 +148,14 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		}
 	}
 
+	// A static leader is the only pooler of its shard, so every backup
+	// operation runs on it, whatever forceLeader says.
+	for _, p := range poolers {
+		if p.GetLeadershipMode() == clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC {
+			return p, nil
+		}
+	}
+
 	if forceLeader {
 		var bestLeader *clustermetadatapb.Multipooler
 		var bestRule *clustermetadatapb.RuleNumber
