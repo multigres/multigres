@@ -483,10 +483,10 @@ func TestConn_GetRolAuthInfo_SQLInjection(t *testing.T) {
 	server.VerifyAllPatternsUsedOrFail()
 }
 
-// --- QueryWithRetry tests ---
+// --- StatelessQuery tests ---
 
 // newTestDirectConn creates an admin.Conn directly (bypassing the pool)
-// for testing Conn-level methods like QueryWithRetry.
+// for testing Conn-level methods like StatelessQuery.
 func newTestDirectConn(t *testing.T, server *fakepgserver.Server) *Conn {
 	t.Helper()
 	ctx := context.Background()
@@ -520,7 +520,7 @@ func connErrFATAL() *mterrors.PgDiagnostic {
 	}
 }
 
-func TestQueryWithRetry_Success(t *testing.T) {
+func TestStatelessQuery_Success(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -529,14 +529,14 @@ func TestQueryWithRetry_Success(t *testing.T) {
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
 
-	results, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
+	results, err := conn.StatelessQuery(context.Background(), "SELECT 1")
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Len(t, results[0].Rows, 1)
 	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
 }
 
-func TestQueryWithRetry_NonConnectionError(t *testing.T) {
+func TestStatelessQuery_NonConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -547,7 +547,7 @@ func TestQueryWithRetry_NonConnectionError(t *testing.T) {
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
 
-	_, err := conn.QueryWithRetry(context.Background(), "SELECT bad_query")
+	_, err := conn.StatelessQuery(context.Background(), "SELECT bad_query")
 	require.Error(t, err)
 
 	// Verify it's not a connection error (no retry happened).
@@ -557,7 +557,7 @@ func TestQueryWithRetry_NonConnectionError(t *testing.T) {
 	assert.False(t, conn.IsClosed())
 }
 
-func TestQueryWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
+func TestStatelessQuery_DoesNotReplayAfterConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -567,14 +567,14 @@ func TestQueryWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
 
 	conn := newTestDirectConn(t, server)
 
-	_, err := conn.QueryWithRetry(context.Background(), "SELECT nextval('s')")
+	_, err := conn.StatelessQuery(context.Background(), "SELECT nextval('s')")
 	require.Error(t, err)
 	assert.True(t, mterrors.IsConnectionError(err))
 	assert.True(t, conn.IsClosed())
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT nextval('s')"), "statement must run at most once")
 }
 
-func TestQueryWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
+func TestStatelessQuery_ReplacesConnClosedWhileIdle(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -583,7 +583,7 @@ func TestQueryWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
 	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
-	results, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
+	results, err := conn.StatelessQuery(context.Background(), "SELECT 1")
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
@@ -591,7 +591,7 @@ func TestQueryWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT 1"))
 }
 
-func TestQueryArgsWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
+func TestStatelessQueryArgs_DoesNotReplayAfterConnectionError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -599,14 +599,14 @@ func TestQueryArgsWithRetry_DoesNotReplayAfterConnectionError(t *testing.T) {
 
 	conn := newTestDirectConn(t, server)
 
-	_, err := conn.QueryArgsWithRetry(context.Background(), "SELECT nextval($1)", "s")
+	_, err := conn.StatelessQueryArgs(context.Background(), "SELECT nextval($1)", "s")
 	require.Error(t, err)
 	assert.True(t, mterrors.IsConnectionError(err))
 	assert.True(t, conn.IsClosed())
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT nextval($1)"), "statement must run at most once")
 }
 
-func TestQueryArgsWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
+func TestStatelessQueryArgs_ReplacesConnClosedWhileIdle(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -615,14 +615,14 @@ func TestQueryArgsWithRetry_ReplacesConnClosedWhileIdle(t *testing.T) {
 	conn := newClosedWhileIdleConn(t, server)
 	defer conn.Close()
 
-	results, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
+	results, err := conn.StatelessQueryArgs(context.Background(), "SELECT $1", "hello")
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "hello", string(results[0].Rows[0].Values[0]))
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT $1"))
 }
 
-func TestQueryWithRetry_ReconnectFails(t *testing.T) {
+func TestStatelessQuery_ReconnectFails(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -631,7 +631,7 @@ func TestQueryWithRetry_ReconnectFails(t *testing.T) {
 	// Close the listener so reconnect's dial will fail.
 	server.CloseListener()
 
-	_, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
+	_, err := conn.StatelessQuery(context.Background(), "SELECT 1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reconnect dial failed")
 
@@ -657,7 +657,7 @@ func TestTerminateBackend_ReplacesConnClosedWhileIdle(t *testing.T) {
 	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT pg_terminate_backend(12345)"))
 }
 
-// TestQueryWithRetry_ContextCancelledWhileBlocked is a regression test for the
+// TestStatelessQuery_ContextCancelledWhileBlocked is a regression test for the
 // action lock bug: previously, when a PostgreSQL backend stalled (e.g. an INSERT
 // waiting for synchronous standby acknowledgement), the admin conn goroutine
 // remained stuck in readMessage() after the caller's context expired, holding
@@ -665,7 +665,7 @@ func TestTerminateBackend_ReplacesConnClosedWhileIdle(t *testing.T) {
 //
 // With execQueryWithContextCancel, context cancellation force-closes the connection
 // to unblock readMessage, and the call returns promptly with context.Canceled.
-func TestQueryWithRetry_ContextCancelledWhileBlocked(t *testing.T) {
+func TestStatelessQuery_ContextCancelledWhileBlocked(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -691,7 +691,7 @@ func TestQueryWithRetry_ContextCancelledWhileBlocked(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := conn.QueryWithRetry(ctx, "SELECT pg_sleep(100)")
+		_, err := conn.StatelessQuery(ctx, "SELECT pg_sleep(100)")
 		errCh <- err
 	}()
 
@@ -700,12 +700,12 @@ func TestQueryWithRetry_ContextCancelledWhileBlocked(t *testing.T) {
 	<-serverReceived
 	cancel()
 
-	// QueryWithRetry must return promptly, not hang indefinitely holding the lock.
+	// StatelessQuery must return promptly, not hang indefinitely holding the lock.
 	select {
 	case err := <-errCh:
 		assert.ErrorIs(t, err, context.Canceled)
 	case <-time.After(5 * time.Second):
-		t.Fatal("QueryWithRetry did not return after context cancellation")
+		t.Fatal("StatelessQuery did not return after context cancellation")
 	}
 
 	// After force-close, IsClosed() must be true so that Recycle() replaces the

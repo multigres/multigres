@@ -143,7 +143,7 @@ func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInf
 			"FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
 		ast.QuoteStringLiteral(username))
 
-	results, err := c.QueryWithRetry(ctx, sql)
+	results, err := c.StatelessQuery(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query role auth info: %w", err)
 	}
@@ -193,18 +193,18 @@ func parsePgBool(v sqltypes.Value) bool {
 	return string(v) == "t"
 }
 
-// QueryWithRetry executes a query, first replacing the socket if PostgreSQL
+// StatelessQuery executes a query, first replacing the socket if PostgreSQL
 // already closed it. Safe for stateless internal queries (heartbeat,
 // replication tracking). See execOnLiveConn.
-func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+func (c *Conn) StatelessQuery(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	return c.execOnLiveConn(ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
 }
 
-// QueryArgsWithRetry executes a parameterized query, first replacing the
-// socket if PostgreSQL already closed it, like QueryWithRetry.
-func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+// StatelessQueryArgs executes a parameterized query, first replacing the
+// socket if PostgreSQL already closed it, like StatelessQuery.
+func (c *Conn) StatelessQueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
 	return c.execOnLiveConn(ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, sql, args...)
 	})
@@ -236,12 +236,12 @@ func (c *Conn) execOnLiveConn(ctx context.Context, op func() ([]*sqltypes.Result
 	return results, err
 }
 
-// queryNoRetry and queryArgsNoRetry run a single query attempt with no retry
-// or reconnection. Used by TxConn once BEGIN has been sent: the WithRetry
+// queryNoReconnect and queryArgsNoReconnect run a query without ever
+// reconnecting. Used by TxConn once BEGIN has been sent: the Stateless
 // variants silently reconnect a socket found closed before sending, which
-// would start a fresh session that never ran BEGIN, losing the transaction. Unexported —
-// TxConn is the only supported way to run a transaction here.
-func (c *Conn) queryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+// would start a fresh session that never ran BEGIN, losing the transaction.
+// Unexported — TxConn is the only supported way to run a transaction here.
+func (c *Conn) queryNoReconnect(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
@@ -251,8 +251,8 @@ func (c *Conn) queryNoRetry(ctx context.Context, sql string) ([]*sqltypes.Result
 	return results, err
 }
 
-// queryArgsNoRetry is queryNoRetry for a parameterized query.
-func (c *Conn) queryArgsNoRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+// queryArgsNoReconnect is queryNoReconnect for a parameterized query.
+func (c *Conn) queryArgsNoReconnect(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
 	results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, sql, args...)
 	})
@@ -263,10 +263,10 @@ func (c *Conn) queryArgsNoRetry(ctx context.Context, sql string, args ...any) ([
 }
 
 // TxConn is an admin Conn that has started an explicit transaction. It
-// exposes only single-attempt query methods — no retry variant exists on it
-// at all — mirroring how the regular pool's reserved.Conn separates
-// transactional connections from the retry-capable stateless ones, so a
-// caller mid-transaction cannot reach for the wrong method by mistake.
+// exposes only methods that never reconnect — no Stateless variant exists on
+// it at all — mirroring how the regular pool's reserved.Conn separates
+// transactional connections from the stateless ones, so a caller
+// mid-transaction cannot reach for the wrong method by mistake.
 type TxConn struct {
 	conn *Conn
 }
@@ -274,31 +274,31 @@ type TxConn struct {
 // BeginTx sends BEGIN on c and returns a TxConn for running the rest of the
 // transaction. c must not be used directly again until the transaction ends.
 func (c *Conn) BeginTx(ctx context.Context) (*TxConn, error) {
-	if _, err := c.queryNoRetry(ctx, "BEGIN"); err != nil {
+	if _, err := c.queryNoReconnect(ctx, "BEGIN"); err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	return &TxConn{conn: c}, nil
 }
 
-// Query runs sql as a single no-retry attempt.
+// Query runs sql on the transaction's session, never reconnecting.
 func (tc *TxConn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
-	return tc.conn.queryNoRetry(ctx, sql)
+	return tc.conn.queryNoReconnect(ctx, sql)
 }
 
 // QueryArgs is Query for a parameterized query.
 func (tc *TxConn) QueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
-	return tc.conn.queryArgsNoRetry(ctx, sql, args...)
+	return tc.conn.queryArgsNoReconnect(ctx, sql, args...)
 }
 
 // Commit sends COMMIT.
 func (tc *TxConn) Commit(ctx context.Context) error {
-	_, err := tc.conn.queryNoRetry(ctx, "COMMIT")
+	_, err := tc.conn.queryNoReconnect(ctx, "COMMIT")
 	return err
 }
 
 // Rollback sends ROLLBACK.
 func (tc *TxConn) Rollback(ctx context.Context) error {
-	_, err := tc.conn.queryNoRetry(ctx, "ROLLBACK")
+	_, err := tc.conn.queryNoReconnect(ctx, "ROLLBACK")
 	return err
 }
 
@@ -371,13 +371,13 @@ type queryResult struct {
 
 // execBackendFunc executes a pg_*_backend() function with context cancellation support.
 // If the context is cancelled while the query is running, the connection is closed
-// to abort the operation. The underlying query uses QueryWithRetry, which
+// to abort the operation. The underlying query uses StatelessQuery, which
 // replaces a socket PostgreSQL already closed before sending on it.
 func (c *Conn) execBackendFunc(ctx context.Context, sql, operation string, processID uint32) (bool, error) {
 	// Run query in goroutine so we can respect context cancellation.
 	ch := make(chan queryResult, 1)
 	go func() {
-		results, err := c.QueryWithRetry(ctx, sql)
+		results, err := c.StatelessQuery(ctx, sql)
 		if err != nil {
 			ch <- queryResult{err: fmt.Errorf("failed to %s backend %d: %w", operation, processID, err)}
 			return

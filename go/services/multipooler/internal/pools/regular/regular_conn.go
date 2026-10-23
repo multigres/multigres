@@ -483,28 +483,28 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 	return nil
 }
 
-// --- Stateless query retry ---
+// --- Stateless queries ---
 //
-// QueryWithRetry, QueryStreamingWithRetry and QueryArgsWithRetry replace a
+// StatelessQuery, StatelessQueryStreaming and StatelessQueryArgs replace a
 // pooled socket that PostgreSQL already closed before sending the query on
 // it, and never send the query a second time. See execOnLiveConn.
 //
 // These methods are for stateless pool queries only. Stateful operations
 // (transactions, reserved connections, extended query protocol) must use the
-// non-retrying Query/QueryStreaming methods directly, because server-side
-// state would be lost on reconnection.
+// plain Query/QueryStreaming methods directly, which never reconnect, because
+// server-side state would be lost on reconnection.
 
-// QueryWithRetry executes a simple query, first replacing the socket if
+// StatelessQuery executes a simple query, first replacing the socket if
 // PostgreSQL already closed it.
-func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+func (c *Conn) StatelessQuery(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	return execOnLiveConn(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
 }
 
-// QueryStreamingWithRetry executes a streaming query, first replacing the
+// StatelessQueryStreaming executes a streaming query, first replacing the
 // socket if PostgreSQL already closed it.
-func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
+func (c *Conn) StatelessQueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
 	var callbackInvoked bool
 	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		callbackInvoked = true
@@ -707,10 +707,10 @@ func nodeListLen(l *ast.NodeList) int {
 	return l.Len()
 }
 
-// QueryArgsWithRetry executes a parameterized query (via the extended query
+// StatelessQueryArgs executes a parameterized query (via the extended query
 // protocol), first replacing the socket if PostgreSQL already closed it, like
-// QueryWithRetry.
-func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+// StatelessQuery.
+func (c *Conn) StatelessQueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
 	return execOnLiveConn(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, sql, args...)
 	})
@@ -830,8 +830,8 @@ func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, err
 // query is cancelled via adminPool. If the session is dead, the connection is
 // closed so the pool can replace it.
 //
-// This is used by the non-retrying methods (Query, QueryStreaming, etc.) where
-// the pool handles replacement of broken connections.
+// This is used by the plain methods (Query, QueryStreaming, etc.), which never
+// reconnect; the pool handles replacement of broken connections.
 func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
 	type result struct {
 		val T
