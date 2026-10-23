@@ -231,6 +231,12 @@ message Multipooler {
   // that publish path (pooler_record.go), not a constraint of the
   // RoutingState message itself — see RoutingState below.
   RoutingState routing_state = 13;
+
+  // leadership_mode is how this pooler gets its leadership. It is fixed for
+  // the life of the process. A static leader (minigres) is the only pooler of
+  // its shard: callers such as multiadmin use it for work they would
+  // otherwise send to a replica, such as backups.
+  LeadershipMode leadership_mode = 14;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
@@ -575,6 +581,21 @@ message LsnPosition {
 message ConsensusPromises {
   TermRevocation term_revocation = 1;
   LsnPosition recruit_blocked_until = 2;
+}
+
+// LeadershipMode is how a pooler gets its leadership.
+enum LeadershipMode {
+  // LEADERSHIP_MODE_UNSPECIFIED is the proto3 zero value, published by
+  // poolers predating this field. Treated as LEADERSHIP_MODE_CONSENSUS.
+  LEADERSHIP_MODE_UNSPECIFIED = 0;
+
+  // LEADERSHIP_MODE_CONSENSUS: leadership is decided by consensus, coordinated
+  // by multiorch, among the shard's poolers.
+  LEADERSHIP_MODE_CONSENSUS = 1;
+
+  // LEADERSHIP_MODE_STATIC: the pooler is the only pooler of its shard and
+  // leads it without consensus (minigres).
+  LEADERSHIP_MODE_STATIC = 2;
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
