@@ -115,6 +115,11 @@ func expressionCorpus() []expressionCase {
 		// "function does not exist".
 		"random_normal()", "random_normal(0)", "random_normal(0, 1)", "make_interval(1)", "make_interval()",
 		"pg_terminate_backend(1)", "jsonb_set('{}', '{a}', '1')", "parse_ident('a.b')",
+		// Column naming (FigureColname) across node kinds the corpus does not
+		// otherwise produce at the top level.
+		"true", "'x'", "1::integer", "CAST(1 AS int)", "(1)", "CASE WHEN true THEN 1 ELSE abs(2) END",
+		"CASE WHEN true THEN 1 ELSE 2::int8 END", "ROW(1, 2)", "current_date", "current_user", "(SELECT 1)",
+		"(SELECT 1 AS n)", "EXISTS (SELECT 1)", "ARRAY(SELECT 1)", "abs(1)::int8", "int4 '1'", "pg_catalog.abs(1)::int8",
 	} {
 		add(sql)
 	}
@@ -241,6 +246,14 @@ func compareExpression(t *testing.T, ctx context.Context, conn *pgx.Conn, tc exp
 		return fail("local parse: %v", err)
 	}
 	raw := stmts[0].(*ast.SelectStmt).TargetList.Items[0].(*ast.ResTarget).Val
+	// The output column name is figured from the raw tree (parse_target.c), so
+	// compare it before analysis consumes the tree. The server names every
+	// column it accepts, whether or not the engine can evaluate it.
+	if pgErr == nil && len(sd.Fields) == 1 {
+		if got, want := analyze.FigureColname(raw), sd.Fields[0].Name; got != want {
+			return fail("column name mismatch: server %q, local %q", want, got)
+		}
+	}
 	ps := analyze.NewParseState()
 	ps.SetVariableParameters(tc.params)
 	tree, localErr := ps.TransformExpr(raw)
