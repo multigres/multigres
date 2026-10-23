@@ -454,10 +454,12 @@ func (p *Pool) Close() {
 	p.active = make(map[int64]*Conn)
 	p.mu.Unlock()
 
-	// Taint all connections since they may be in an inconsistent state.
+	// Release every connection with an error reason, which taints it since it may be in an
+	// inconsistent state, and closes it. That calls OnRelease for each, so a count of open
+	// reservations reaches zero when the pool closes with some open, and a Release that a
+	// handler may still make for the connection is a no-op.
 	for _, rc := range conns {
-		rc.pooled.Taint()
-		rc.pooled.Close()
+		rc.Release(ReleaseError, nil)
 	}
 
 	// Close the underlying regular pool.
