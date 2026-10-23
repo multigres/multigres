@@ -52,11 +52,16 @@ jobs:
 
       # The test container runs as the image's postgres user, which does not
       # own the bind-mounted checkout or Go cache (both owned by the runner
-      # user), so make them writable for it.
-      - name: Make workspace writable for the container user
+      # user). Open up only what it writes: bin/, the Go cache, and the test
+      # result files in the workspace root. The sticky bit lets it create
+      # files in the root without replacing runner-owned entries, so the
+      # tracked tree, including scripts that later steps run on the host,
+      # stays read-only to it.
+      - name: Make output paths writable for the container user
         run: |
-          mkdir -p /tmp/go-cache
-          chmod -R a+rwX "${GITHUB_WORKSPACE}" /tmp/go-cache
+          mkdir -p /tmp/go-cache "${GITHUB_WORKSPACE}/bin"
+          chmod a+rwx /tmp/go-cache "${GITHUB_WORKSPACE}/bin"
+          chmod 1777 "${GITHUB_WORKSPACE}"
 
       - name: Run integration tests
         id: integration-tests
