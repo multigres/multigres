@@ -44,22 +44,35 @@ jobs:
         run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Run race detection tests
+        id: tests
+        continue-on-error: true
         run: |
           gotestsum \
             --format=testname \
-            --rerun-fails=3 \
-            --rerun-fails-max-failures=10 \
             --packages="./..." \
             --jsonfile=race-test-results.jsonl \
+            --junitfile=race-test-results.xml \
             -- \
             -short -race -timeout=20m
+
+      - name: Upload results and apply Trunk quarantine
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        uses: ./.github/actions/upload-test-results
+        with:
+          junit-paths: race-test-results.xml
+          previous-step-outcome: ${{ steps.tests.outcome }}
+          allow-quarantine: "true"
+          # Track race failures independently of ordinary test results.
+          variant: race
 
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
           name: race-test-logs
-          path: race-test-results.jsonl
+          path: |
+            race-test-results.jsonl
+            race-test-results.xml
           retention-days: 14
 
       - name: Test Report
@@ -69,3 +82,4 @@ jobs:
           name: Race Detection Tests
           path: race-test-results.jsonl
           reporter: golang-json
+          fail-on-error: "false" # Trunk owns the test failure decision.

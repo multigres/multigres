@@ -2,7 +2,6 @@ ignore:
   - "go/pb/**"
   - "go/common/parser/goyacc/**"
   - "go/tools/asthelpergen/**"
-  - "go/tools/flakyaggregator/**"
   - "go/tools/ruleguard/**"
   # Build-time metric-catalog generator and its generated output. The tool
   # runs from `make metrics`, not the coverage-collecting test CI, and the
