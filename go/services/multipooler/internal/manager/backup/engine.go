@@ -51,6 +51,10 @@ type Settings struct {
 	// PgDataDir is the PostgreSQL data directory (for archive-command config in
 	// postgresql.auto.conf).
 	PgDataDir string
+	// NoBackupLease means backups run without the shard's etcd backup lease:
+	// the pooler is a static leader, the only pooler of its shard, so its
+	// action lock already excludes every other backup.
+	NoBackupLease bool
 }
 
 // RunFunc executes a (possibly long-running) command with progress logging. It

@@ -68,8 +68,10 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
-	if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardKey()); err != nil {
-		return "", mterrors.Wrap(err, "backup lease not held")
+	if !e.settings.NoBackupLease {
+		if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardKey()); err != nil {
+			return "", mterrors.Wrap(err, "backup lease not held")
+		}
 	}
 
 	cfg, err := e.requireBackupConfig()
