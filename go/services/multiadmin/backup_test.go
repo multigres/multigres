@@ -308,6 +308,23 @@ func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
 	require.Equal(t, serving.Id.Name, got.Id.Name)
 }
 
+func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+
+	for _, forceLeader := range []bool{false, true} {
+		got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", forceLeader)
+		require.NoError(t, err, "a static leader is chosen with forceLeader=%v", forceLeader)
+		require.Equal(t, leader.Id.Name, got.Id.Name)
+	}
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
