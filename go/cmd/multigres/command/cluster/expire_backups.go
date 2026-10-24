@@ -58,7 +58,7 @@ func AddExpireBackupsCommand(clusterCmd *cobra.Command) {
 
 	cmd.Flags().String("database", ecmd.database.Default(), "Database name")
 	cmd.Flags().Duration("timeout", ecmd.timeout.Default(), "Timeout for the expire operation")
-	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 
 	viperutil.BindFlags(cmd.Flags(), ecmd.database, ecmd.timeout)
 
