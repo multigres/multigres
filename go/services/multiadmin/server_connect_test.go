@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/servenvtest"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 )
@@ -202,4 +203,24 @@ func TestConnectAdapterGetDatabaseNames(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, resp.Msg)
 	assert.Empty(t, resp.Msg.Names)
+}
+
+// TestConnectAdapterConnectionForwarders covers the Connect-protocol wrappers
+// for the Connection RPCs: with no leader pooler registered, each forwards to
+// MultiadminServer and surfaces its Unavailable error unchanged.
+func TestConnectAdapterConnectionForwarders(t *testing.T) {
+	adapter := newTestAdapter(t)
+	ctx := t.Context()
+
+	_, err := adapter.CreateConnection(ctx, connect.NewRequest(&migratorpb.CreateConnectionRequest{}))
+	assert.ErrorContains(t, err, "no leader pooler")
+
+	_, err = adapter.GetConnection(ctx, connect.NewRequest(&migratorpb.GetConnectionRequest{}))
+	assert.ErrorContains(t, err, "no leader pooler")
+
+	_, err = adapter.ListConnections(ctx, connect.NewRequest(&migratorpb.ListConnectionsRequest{}))
+	assert.ErrorContains(t, err, "no leader pooler")
+
+	_, err = adapter.DropConnection(ctx, connect.NewRequest(&migratorpb.DropConnectionRequest{}))
+	assert.ErrorContains(t, err, "no leader pooler")
 }

@@ -24,6 +24,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
 // ============================================================================
@@ -41,8 +42,9 @@ import (
 // createSidecarSchema creates the multigres sidecar schema and all its tables.
 //
 // Every shard gets the shard-local tables (heartbeat, pgBackRest repos,
-// consensus rules, and the ensureSidecarSchemas tables). Only the catalog shard
-// (see constants.IsCatalogShard) also gets the multischema catalog tables
+// consensus rules, the migration coordinator's state, and the
+// ensureSidecarSchemas tables). Only the catalog shard (see
+// constants.IsCatalogShard) also gets the multischema catalog tables
 // (tablegroup, tablegroup_table, shard).
 func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "creating multigres sidecar schema")
@@ -67,6 +69,12 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 			pm.createShard,
 		)
 	}
+	// migration is the Multigres Migrator table-migration coordinator's state table.
+	// Created here so standbys inherit it via restore and post-failover primaries
+	// already have it; the coordinator also ensures it on first use to cover
+	// shards bootstrapped before this table existed. Every shard gets it, not
+	// just the catalog shard: a migration can target any shard.
+	createFuncs = append(createFuncs, pm.createMigrationTable)
 	// ensureSidecarSchemas goes last, deliberately: it also runs alone
 	// (without the rest of createSidecarSchema) from openLocked's
 	// version-skew catch-up on an already-bootstrapped shard, so nothing
@@ -120,7 +128,6 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -262,6 +269,37 @@ func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 		UNIQUE (tablegroup_oid, shard_name)
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create shard table")
+	}
+	return nil
+}
+
+// createMigrationTable creates the Multigres Migrator coordinator's state
+// tables: migration_connection, migration, and migration_tables. Idempotent.
+// No PUBLIC grant since migration_connection rows hold the source DSN, so
+// they stay readable only through the admin pool.
+func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Order matters: each statement depends on types or tables created by the
+	// one before it. This runs once on a genuinely fresh shard, so no
+	// existence check is needed.
+	stmts := []struct {
+		label string
+		sql   string
+	}{
+		{"shard_key type", migration.CreateMigrationShardKeyTypeSQL},
+		{"migration_connection table", migration.CreateMigrationConnectionSQL},
+		{"migration_connection name index", migration.MigrationConnectionNameUniqueIndexSQL},
+		{"migration table", migration.CreateMigrationSQL},
+		{"migration_tables table", migration.CreateMigrationTablesSQL},
+		{"migration_journal table", migration.CreateMigrationJournalSQL},
+		{"migration_journal index", migration.MigrationJournalMigrationIndexSQL},
+	}
+	for _, s := range stmts {
+		if err := pm.adminExec(execCtx, s.sql); err != nil {
+			return mterrors.Wrap(err, "failed to create "+s.label)
+		}
 	}
 	return nil
 }
