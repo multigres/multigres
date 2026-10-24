@@ -39,6 +39,7 @@ const (
 	Migrator_GetMigrationJournal_FullMethodName   = "/migrator.Migrator/GetMigrationJournal"
 	Migrator_SetMigrationDirection_FullMethodName = "/migrator.Migrator/SetMigrationDirection"
 	Migrator_DropMigration_FullMethodName         = "/migrator.Migrator/DropMigration"
+	Migrator_ReseedReverseLink_FullMethodName     = "/migrator.Migrator/ReseedReverseLink"
 	Migrator_CreateConnection_FullMethodName      = "/migrator.Migrator/CreateConnection"
 	Migrator_GetConnection_FullMethodName         = "/migrator.Migrator/GetConnection"
 	Migrator_ListConnections_FullMethodName       = "/migrator.Migrator/ListConnections"
@@ -72,6 +73,13 @@ type MigratorClient interface {
 	// DropMigration tears down the subscription/publication/slot and removes
 	// the workflow (default drains first; wait/force modify that).
 	DropMigration(ctx context.Context, in *DropMigrationRequest, opts ...grpc.CallOption) (*DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link (the reverse
+	// subscription's slot is missing or unusable): drops the broken
+	// subscription (if any), recreates the slot fresh, and resubscribes with a
+	// full copy. Explicit, operator-triggered; only valid for an EXPORTING
+	// migration. A no-op (beyond clearing a stale degraded marker) if the link
+	// is already healthy.
+	ReseedReverseLink(ctx context.Context, in *ReseedReverseLinkRequest, opts ...grpc.CallOption) (*ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(ctx context.Context, in *CreateConnectionRequest, opts ...grpc.CallOption) (*CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -151,6 +159,16 @@ func (c *migratorClient) DropMigration(ctx context.Context, in *DropMigrationReq
 	return out, nil
 }
 
+func (c *migratorClient) ReseedReverseLink(ctx context.Context, in *ReseedReverseLinkRequest, opts ...grpc.CallOption) (*ReseedReverseLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReseedReverseLinkResponse)
+	err := c.cc.Invoke(ctx, Migrator_ReseedReverseLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *migratorClient) CreateConnection(ctx context.Context, in *CreateConnectionRequest, opts ...grpc.CallOption) (*CreateConnectionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateConnectionResponse)
@@ -218,6 +236,13 @@ type MigratorServer interface {
 	// DropMigration tears down the subscription/publication/slot and removes
 	// the workflow (default drains first; wait/force modify that).
 	DropMigration(context.Context, *DropMigrationRequest) (*DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link (the reverse
+	// subscription's slot is missing or unusable): drops the broken
+	// subscription (if any), recreates the slot fresh, and resubscribes with a
+	// full copy. Explicit, operator-triggered; only valid for an EXPORTING
+	// migration. A no-op (beyond clearing a stale degraded marker) if the link
+	// is already healthy.
+	ReseedReverseLink(context.Context, *ReseedReverseLinkRequest) (*ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *CreateConnectionRequest) (*CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -254,6 +279,9 @@ func (UnimplementedMigratorServer) SetMigrationDirection(context.Context, *SetMi
 }
 func (UnimplementedMigratorServer) DropMigration(context.Context, *DropMigrationRequest) (*DropMigrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DropMigration not implemented")
+}
+func (UnimplementedMigratorServer) ReseedReverseLink(context.Context, *ReseedReverseLinkRequest) (*ReseedReverseLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReseedReverseLink not implemented")
 }
 func (UnimplementedMigratorServer) CreateConnection(context.Context, *CreateConnectionRequest) (*CreateConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConnection not implemented")
@@ -396,6 +424,24 @@ func _Migrator_DropMigration_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Migrator_ReseedReverseLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReseedReverseLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MigratorServer).ReseedReverseLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Migrator_ReseedReverseLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MigratorServer).ReseedReverseLink(ctx, req.(*ReseedReverseLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Migrator_CreateConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateConnectionRequest)
 	if err := dec(in); err != nil {
@@ -498,6 +544,10 @@ var Migrator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DropMigration",
 			Handler:    _Migrator_DropMigration_Handler,
+		},
+		{
+			MethodName: "ReseedReverseLink",
+			Handler:    _Migrator_ReseedReverseLink_Handler,
 		},
 		{
 			MethodName: "CreateConnection",
