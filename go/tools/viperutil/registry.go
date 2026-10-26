@@ -15,7 +15,10 @@
 package viperutil
 
 import (
+	"maps"
 	"os"
+	"slices"
+	gosync "sync"
 
 	"github.com/spf13/viper"
 
@@ -39,7 +42,54 @@ type Registry struct {
 	// second viper (see sync.Viper), and variables registered to it will pick
 	// up changes to that config file throughout the lifetime of the process.
 	dynamic *sync.Viper
+
+	// prefix is put in front of every key configured on this view (WithPrefix).
+	prefix string
+
+	// prepare and configured are shared by a registry and its views.
+	prepare    *ConfigPreparer
+	configured *configuredKeys
 }
+
+type configuredKeys struct {
+	mu   gosync.Mutex
+	keys map[string]struct{}
+	env  map[string][]string
+}
+
+func (c *configuredKeys) record(key string, envVars []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.keys[key] = struct{}{}
+	for _, env := range envVars {
+		c.env[env] = append(c.env[env], key)
+	}
+}
+
+// Keys returns the full key of every value configured on reg and its views.
+func (reg *Registry) Keys() []string {
+	reg.configured.mu.Lock()
+	defer reg.configured.mu.Unlock()
+	return slices.Collect(maps.Keys(reg.configured.keys))
+}
+
+// EnvVars maps each environment variable read by values on reg and its views
+// to their full keys.
+func (reg *Registry) EnvVars() map[string][]string {
+	reg.configured.mu.Lock()
+	defer reg.configured.mu.Unlock()
+	env := make(map[string][]string, len(reg.configured.env))
+	for name, keys := range reg.configured.env {
+		env[name] = slices.Clone(keys)
+	}
+	return env
+}
+
+// ConfigPreparer gets the config file's settings, keyed in dotted form
+// ("multigateway.pg-port"), and returns settings to add to them, ranking as the
+// file's. An error rejects the file: LoadConfig fails, or a reload is skipped
+// and the previous settings stay.
+type ConfigPreparer func(settings map[string]any) (map[string]any, error)
 
 // NewRegistry creates a new isolated configuration registry.
 // This is the preferred way to create registries for services and commands,
@@ -56,7 +106,40 @@ func NewRegistry() *Registry {
 	return &Registry{
 		static:  viper.New(),
 		dynamic: sync.New(),
+		prepare: new(ConfigPreparer),
+		configured: &configuredKeys{
+			keys: map[string]struct{}{},
+			env:  map[string][]string{},
+		},
 	}
+}
+
+// SetConfigPreparer runs prepare on every load and reload of the config file.
+// Must be called before LoadConfig.
+func (reg *Registry) SetConfigPreparer(prepare ConfigPreparer) {
+	*reg.prepare = prepare
+}
+
+// WithPrefix returns a view of reg that stores a value configured as "pg-port"
+// under "<prefix>.pg-port", so components with keys of the same name can share
+// one registry and config file. Flag and environment variable names do not
+// change.
+func (reg *Registry) WithPrefix(prefix string) *Registry {
+	return &Registry{
+		static:     reg.static,
+		dynamic:    reg.dynamic,
+		prefix:     reg.Key(prefix),
+		prepare:    reg.prepare,
+		configured: reg.configured,
+	}
+}
+
+// Key returns the full key under which reg stores name.
+func (reg *Registry) Key(name string) string {
+	if reg.prefix == "" {
+		return name
+	}
+	return reg.prefix + "." + name
 }
 
 // InStaticConfig reports whether the key was present in the loaded static

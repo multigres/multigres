@@ -62,7 +62,7 @@ func TestLocalPooler_ConnectsInMemory(t *testing.T) {
 	pooler := unreachablePooler("zone1", "pooler-1")
 	local := &LocalPooler{ID: func() *clustermetadatapb.ID { return pooler.Id }, DialOptions: server.DialOptions()}
 	conn, err := newPoolerConnection(context.Background(), pooler, slog.New(slog.DiscardHandler),
-		grpc.WithTransportCredentials(insecure.NewCredentials()), local, true, nil)
+		grpc.WithTransportCredentials(insecure.NewCredentials()), local, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Shutdown() }()
 

@@ -348,6 +348,8 @@ type IExecute interface {
 
 	// CopyAbort aborts the COPY operation via bidirectional stream.
 	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
+	// The abort is best effort: it returns an error only when the session must
+	// end because the COPY's connection was lost with session state on it.
 	CopyAbort(
 		ctx context.Context,
 		conn *server.Conn,

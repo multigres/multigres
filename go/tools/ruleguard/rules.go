@@ -224,7 +224,7 @@ func disallowWallClockInDeterministicPkgs(m dsl.Matcher) {
 // disallowMultipoolerTypeForRouting flags reads of a Multipooler record's Type
 // in the multigateway and multiorch — both the .Type field and the generated
 // GetType() getter — which must derive leader identity from consensus state
-// (routing_state / the highest known shard rule), never from the topology role
+// (routing_state / the highest intended shard rule), never from the topology role
 // label. The PoolerType routing label on a query.Target is a different field and
 // is unaffected; constructing a record with a Type (struct literal) is also
 // unaffected — only reading the Type off a discovered Multipooler /

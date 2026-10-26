@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -233,11 +234,11 @@ func (p Problem) EntityID() string {
 // silently disagree. Passing them as independent parameters would let a
 // caller pass a mismatched pair and still compile; this makes that
 // structurally impossible — the only way to obtain one is from a successful
-// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck. HighestIntendedRule is empty if no rule was known for the shard at
 // recheck time; actions that don't mutate the consensus rule can ignore it.
 type RecheckedProblem struct {
 	Problem
-	HighestKnownRule *clustermetadatapb.RulePosition
+	HighestIntendedRule commonconsensus.RuleTransition
 }
 
 // RecoveryAction is a function that fixes a problem.

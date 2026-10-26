@@ -114,7 +114,7 @@ func TestFindShardMembers_EmptyCache(t *testing.T) {
 
 	members := FindShardMembers(cache, shard())
 	assert.Empty(t, members.Poolers)
-	assert.Nil(t, members.HighestKnownPosition)
+	assert.True(t, members.HighestIntendedRule.IsEmpty())
 	assert.Nil(t, members.Leader)
 }
 
@@ -129,7 +129,7 @@ func TestFindShardMembers_NoConsensusStatus(t *testing.T) {
 
 	members := FindShardMembers(cache, shard())
 	assert.Len(t, members.Poolers, 2)
-	assert.Nil(t, members.HighestKnownPosition, "no rule → HighestKnownRule must be nil")
+	assert.True(t, members.HighestIntendedRule.IsEmpty(), "no rule → the intended rule must be empty")
 	assert.Nil(t, members.Leader)
 }
 
@@ -143,8 +143,8 @@ func TestFindShardMembers_LeaderResolvesFromHighestRule(t *testing.T) {
 	SeedCache(t, cache, withRule(poolerID("zone1", "p2"), 3, 0, p1ID))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownPosition)
-	assert.Equal(t, int64(3), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	require.False(t, members.HighestIntendedRule.IsEmpty())
+	assert.Equal(t, int64(3), members.HighestIntendedRule.Decision().GetRuleNumber().GetCoordinatorTerm())
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p1", members.Leader.Health().Multipooler.Id.Name)
 }
@@ -163,7 +163,7 @@ func TestFindShardMembers_LeaderResolvesFromUndecidedProposal(t *testing.T) {
 	SeedCache(t, cache, withRule(p2ID, 3, 0, p2ID))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownPosition)
+	require.False(t, members.HighestIntendedRule.IsEmpty())
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p1", members.Leader.Health().Multipooler.Id.Name,
 		"leader should resolve via p1's undecided proposal, not its stale decision")
@@ -181,8 +181,8 @@ func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
 	SeedCache(t, cache, withRule(p2ID, 3, 0, p2ID))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownPosition)
-	assert.Equal(t, int64(3), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
+	require.False(t, members.HighestIntendedRule.IsEmpty())
+	assert.Equal(t, int64(3), members.HighestIntendedRule.Decision().GetRuleNumber().GetCoordinatorTerm(),
 		"higher coordinator_term wins")
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p2", members.Leader.Health().Multipooler.Id.Name)
@@ -190,7 +190,7 @@ func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
 
 func TestFindShardMembers_LeaderNamedButNotInCache(t *testing.T) {
 	// A common state during failover: a follower reports a rule naming a
-	// new leader the cache hasn't observed yet. HighestKnownRule must still
+	// new leader the cache hasn't observed yet. HighestIntendedRule must still
 	// surface so callers can act on the term — but Leader is nil because
 	// we can't dereference a pooler we don't have.
 	cache := NewTestCache(t)
@@ -201,24 +201,24 @@ func TestFindShardMembers_LeaderNamedButNotInCache(t *testing.T) {
 	SeedCache(t, cache, withRule(p1ID, 5, 0, notInCache))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownPosition)
-	assert.Equal(t, int64(5), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
-	assert.Equal(t, "ghost-leader", members.HighestKnownPosition.GetDecision().GetLeaderId().GetName())
+	require.False(t, members.HighestIntendedRule.IsEmpty())
+	assert.Equal(t, int64(5), members.HighestIntendedRule.Decision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "ghost-leader", members.HighestIntendedRule.Decision().GetLeaderId().GetName())
 	assert.Nil(t, members.Leader, "leader named by rule but not in cache → nil Leader")
 }
 
 func TestFindShardMembers_RuleWithNoLeader(t *testing.T) {
 	// A rule with no LeaderId (e.g. pre-promotion or post-resignation).
-	// HighestKnownRule is the rule; Leader is nil.
+	// HighestIntendedRule is the rule; Leader is nil.
 	cache := NewTestCache(t)
 	defer cache.Shutdown()
 
 	SeedCache(t, cache, withRule(poolerID("zone1", "p1"), 4, 0, nil /*no leader*/))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownPosition)
-	assert.Equal(t, int64(4), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
-	assert.Nil(t, members.HighestKnownPosition.GetDecision().GetLeaderId())
+	require.False(t, members.HighestIntendedRule.IsEmpty())
+	assert.Equal(t, int64(4), members.HighestIntendedRule.Decision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Nil(t, members.HighestIntendedRule.Decision().GetLeaderId())
 	assert.Nil(t, members.Leader)
 }
 
