@@ -84,40 +84,42 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked
 
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	leader := members.Leader
-	if leader == nil || members.HighestKnownPosition == nil {
+	if leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
 	}
 
 	revocation := follower.Health().GetConsensusStatus().GetTermRevocation()
 
-	// Advance the rule only if the follower is still stranded — the highest known
+	// Advance the rule only if the follower is still stranded — the highest intended
 	// rule may already outrank the revocation (its decision is high enough, even
 	// mid-transition with an outstanding proposal, or a prior cycle / racing
 	// orchestrator already advanced it), in which case SetPrimary is safe to send
 	// as-is and no advance is needed.
-	advanced := members.HighestKnownPosition
-	if commonconsensus.IsRuleRevoked(advanced, revocation) {
+	advanced := members.HighestIntendedRule
+	if advanced.IsRevokedBy(revocation) {
 		// Advancing rewrites the rule; the leader refuses that while a proposal is
 		// undecided (it CAS-guards on the decided outgoing rule), so defer to a
 		// later cycle rather than erroring.
-		if !commonconsensus.IsRuleDecided(advanced) {
+		if !advanced.IsDecided() {
 			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 				"shard %s has an undecided proposal; cannot advance rule yet", problem.ShardKey)
 		}
 		req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 			Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,
-			ExpectedOutgoingRule: members.HighestKnownPosition.GetDecision().GetRuleNumber(),
+			ExpectedOutgoingRule: advanced.Decision().GetRuleNumber(),
 		}
 		resp, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req)
 		if err != nil {
 			return mterrors.Wrap(err, "leader-led rule advance failed")
 		}
-		advanced = resp.GetCurrentPosition().GetPosition()
-		if commonconsensus.IsRuleRevoked(advanced, revocation) {
+		// The leader's reply is its own recorded position; treat it as the new
+		// intended rule.
+		advanced = commonconsensus.NewRuleTransition(resp.GetCurrentPosition().GetPosition())
+		if advanced.IsRevokedBy(revocation) {
 			return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 				"leader reported rule %s still short of the follower's revocation after advancing",
-				commonconsensus.FormatRulePosition(advanced))
+				advanced)
 		}
 		a.logger.InfoContext(ctx, "advanced leader rule to reconnect stranded follower",
 			"leader", leader.Health().Multipooler.Id.Name,
@@ -129,7 +131,7 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked
 	// that also needs a rewind defers it until the leader is checkpointed.
 	setReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    advanced,
+			Position:    advanced.Position(),
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
@@ -163,8 +165,4 @@ func (a *ReconnectRecruitAbandonedAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconnectRecruitAbandonedAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
 }

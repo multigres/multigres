@@ -30,15 +30,16 @@ const coverageTimeoutFactor = 3
 
 // RunningUnderCoverage reports whether the current test process is running with
 // coverage instrumentation, accounting for both mechanisms the "Code Coverage"
-// workflow uses:
+// workflow uses (in a single pass since the workflow was sharded, but each can
+// also be used alone locally):
 //
-//   - Direct coverage ("Direct test coverage" job): `go test -cover
-//     -coverpkg=./...` instruments the test process itself, so testing.CoverMode()
-//     is non-empty. This is the job that flakes, and it is invisible to a
-//     GOCOVERDIR check because no GOCOVERDIR is set.
-//   - Subprocess coverage ("Subprocess coverage" job): `make build-coverage`
-//     plus a GOCOVERDIR environment variable instruments the spawned service
-//     binaries; testing.CoverMode() is empty there.
+//   - Direct coverage: `go test -cover -coverpkg=./...` instruments the test
+//     process itself, so testing.CoverMode() is non-empty. On its own this is
+//     invisible to a GOCOVERDIR check because no GOCOVERDIR is set.
+//   - Subprocess coverage: `make build-coverage` plus a GOCOVERDIR environment
+//     variable (or MULTIGRES_SUBPROCESS_GOCOVERDIR, see
+//     pathutil.PrependBinToPath) instruments the spawned service binaries;
+//     testing.CoverMode() is empty there.
 //
 // Both make the end-to-end suite run materially slower, so timing-sensitive
 // waits need proportionally more headroom in either case.

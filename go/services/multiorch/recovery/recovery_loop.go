@@ -67,16 +67,6 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		}
 	}
 
-	// Reconcile grace-period deadlines against everything detected this cycle:
-	// new problems start their countdown, still-present ones keep counting, and
-	// problems that dropped out of the detected set are treated as resolved. This
-	// must run once per cycle, after all analyzers, with the full detected set.
-	//
-	// Failover problems are included here (harmlessly) but their grace deadline is
-	// never consulted — attemptRecovery gates failover on recruitment backoff, not
-	// the grace tracker. Reconciling them keeps eviction bookkeeping uniform.
-	re.recoveryGracePeriodTracker.Reconcile(problems)
-
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)
 
@@ -297,9 +287,9 @@ func (re *Engine) recordGated(ctx context.Context, problem types.Problem, readyA
 
 	args := []any{"problem_code", problem.Code, "entity_id", problem.EntityID()}
 	if !readyAt.IsZero() {
-		// Zero here means the action needs no grace-period tracking at all
-		// (readyToExecute wouldn't have gated it in that case, so this is
-		// defensive rather than a real path today).
+		// Zero means the gate gave no earliest-attempt time (readyToExecute
+		// wouldn't have gated in that case, so this is defensive rather than a
+		// real path today).
 		span.SetAttributes(attribute.String("ready_at", readyAt.Format(time.RFC3339)))
 		args = append(args, "ready_at", readyAt)
 	}
@@ -484,7 +474,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 						"entity_id", entityID,
 						"problem_code", problem.Code,
 					)
-					return &types.RecheckedProblem{Problem: p, HighestKnownRule: rule}, nil
+					return &types.RecheckedProblem{Problem: p, HighestIntendedRule: rule}, nil
 				}
 			}
 
@@ -536,7 +526,7 @@ func (re *Engine) bootstrapPolicyLookup(ctx context.Context) func(string) *clust
 // collective recruitment backoff (independent orchs defer to a deterministic
 // slot derived from the shard's observed TermRevocation, escalating while
 // recruits churn against the same baseline; no observed revocation means act
-// immediately). Every other action uses the local grace period.
+// immediately). Every other action acts immediately.
 //
 // TODO: this failover-vs-everything-else split is a stopgap; each recovery
 // action should own its "may I act now?" gate so this selection dissolves.
@@ -545,8 +535,8 @@ func (re *Engine) bootstrapPolicyLookup(ctx context.Context) func(string) *clust
 // shard, as a backstop against a flapping health bug (each flap looks like a
 // fresh, ungated problem here).
 //
-// TODO: collective backoff has no persist-across-ticks debounce like
-// recoveryGracePeriodTracker — a first-ever failover acts on one detection.
+// TODO: collective backoff has no persist-across-ticks debounce — a first-ever
+// failover acts on one detection.
 // Fine for first-hand causes (LeaderResigned); less clearly so for
 // observer-derived ones (LeaderUnreachableByCohort, LeaderUnhealthy), whose
 // quorum-of-followers check is a different anti-false-positive mechanism.
@@ -555,7 +545,7 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardKey)
 	}
-	return re.recoveryGracePeriodTracker.ShouldExecute(problem)
+	return time.Time{}, true
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover

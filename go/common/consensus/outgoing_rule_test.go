@@ -42,21 +42,21 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 		}
 		return out
 	}
-	revoke := func(recruited []*clustermetadatapb.ConsensusStatus) error {
+	proveRevoked := func(recruited []*clustermetadatapb.ConsensusStatus) error {
 		observed, err := discoverOutgoingRule(recruited, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 		return err
 	}
 
 	t.Run("recruiting only the proposal's new members is rejected", func(t *testing.T) {
-		err := revoke(statuses(zone1.d, zone1.e))
+		err := proveRevoked(statuses(zone1.d, zone1.e))
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	})
 
 	t.Run("a majority of the decision's cohort is enough", func(t *testing.T) {
 		// A majority of the proposal's five-member cohort is not required.
-		require.NoError(t, revoke(statuses(zone1.a, zone1.b)))
+		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b)))
 	})
 }
 
@@ -203,7 +203,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -220,7 +220,7 @@ func TestObservedOutgoingRule_Revoke_InvalidPolicies(t *testing.T) {
 		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
 		require.NoError(t, err)
 
-		_, err = observed.revoke()
+		_, err = observed.proveRevoked()
 
 		require.ErrorContains(t, err, "failed to parse durability policy from decision")
 	})
@@ -231,7 +231,7 @@ func mustProveRevoked(t *testing.T, recruits []*clustermetadatapb.ConsensusStatu
 	t.Helper()
 	observed, err := discoverOutgoingRule(recruits, expected, basis)
 	require.NoError(t, err)
-	revoked, err := observed.revoke()
+	revoked, err := observed.proveRevoked()
 	require.NoError(t, err)
 	return revoked
 }
@@ -313,7 +313,7 @@ func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrit
 				makeStatusWithLSN(zone1.b, decision, rev, "0/2000000"),
 			},
 			outgoing:     ruleNum(3, 0),
-			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x3000000}},
+			basis:        mustCertBasis(rev, "0/3000000", cohort, atLeast(2)),
 			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
 			wantLSN:      "0/3000000",
 			wantErr:      "no recruited nodes at or above the required LSN 0/3000000",
@@ -324,7 +324,7 @@ func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrit
 				makeStatusWithLSN(zone1.a, decision, rev, "0/2000000"),
 			},
 			outgoing:     ruleNum(3, 0),
-			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}},
+			basis:        mustCertBasis(rev, "0/2000000", []*clustermetadatapb.ID{zone1.a}, atLeast(1)),
 			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
 			wantLSN:      "0/2000000",
 			wantEligible: []string{zone1.a.GetName()},
@@ -338,7 +338,7 @@ func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrit
 				makeStatusWithLSN(zone1.c, decision, rev, "0/3000000"),
 			},
 			outgoing:     ruleNum(3, 0),
-			basis:        revocationBasis{cert: &certBasis{frozenLSN: 0x1000000}},
+			basis:        mustCertBasis(rev, "0/1000000", cohort, atLeast(2)),
 			wantPosition: &clustermetadatapb.RulePosition{Decision: decision},
 			wantLSN:      "0/3000000",
 			wantEligible: []string{zone1.c.GetName()},
@@ -372,19 +372,162 @@ func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrit
 // revocation of the same lone recruit is rejected.
 func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testing.T) {
 	zone1 := poolerIDs.zone1
-	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+	incoming := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+	// The outgoing cohort is never recruited.
+	rule := makeRule(ruleNum(0, 1), atLeast(2), zone1.d, zone1.e, zone1.f)
+	rev := revocation(5, ruleNum(0, 1))
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithLSN(zone1.a, rule, rev, "0/2000000"),
+		makeStatusWithLSN(zone1.b, rule, rev, "0/1000000"),
+	}
+
+	t.Run("recruits at or above the frozen LSN can lead", func(t *testing.T) {
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), mustCertBasis(rev, "0/2000000", incoming, atLeast(2)))
+		require.NoError(t, err)
+		revoked, err := observed.proveRevoked()
+		require.NoError(t, err)
+
+		leaders, err := revoked.recruitsWithAllDurableWrites()
+
+		require.NoError(t, err)
+		require.Len(t, leaders, 1)
+		assert.Equal(t, zone1.a.GetName(), leaders[0].GetId().GetName())
+	})
+
+	t.Run("none at or above the frozen LSN", func(t *testing.T) {
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), mustCertBasis(rev, "0/3000000", incoming, atLeast(2)))
+		require.NoError(t, err)
+		revoked, err := observed.proveRevoked()
+		require.NoError(t, err)
+
+		_, err = revoked.recruitsWithAllDurableWrites()
+
+		require.EqualError(t, err, "no recruited nodes at or above the required LSN 0/3000000")
+	})
+
+	t.Run("a coordinator-led revocation recruits the outgoing cohort instead", func(t *testing.T) {
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
+		require.NoError(t, err)
+
+		_, err = observed.proveRevoked()
+
+		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
+	})
+}
+
+// A cert revokes the outgoing rule only together with recruitment of the
+// incoming cohort, which forces any retries of the same term to overlap.
+func TestObservedOutgoingRule_RevokeByCert_IncomingRecruitment(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c, zone1.d, zone1.e}
 	rule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
-	statuses := []*clustermetadatapb.ConsensusStatus{makeStatusWithLSN(zone1.a, rule, revocation(5, ruleNum(0, 1)), "0/2000000")}
+	rev := revocation(5, ruleNum(0, 1))
+	basis := mustCertBasis(rev, "0/0", cohort, atLeast(2))
+	recruiting := func(ids ...*clustermetadatapb.ID) []*clustermetadatapb.ConsensusStatus {
+		var statuses []*clustermetadatapb.ConsensusStatus
+		for _, id := range ids {
+			statuses = append(statuses, makeStatus(id, rule, rev))
+		}
+		return statuses
+	}
 
-	byCert, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{cert: &certBasis{frozenLSN: 0x2000000}})
-	require.NoError(t, err)
-	_, err = byCert.revoke()
+	t.Run("a minority of the incoming cohort is rejected", func(t *testing.T) {
+		statuses := recruiting(zone1.a, zone1.b)
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
+		require.NoError(t, err)
+
+		_, err = observed.proveRevoked()
+
+		require.EqualError(t, err, "insufficient proposed cohort recruitment: majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3")
+	})
+
+	t.Run("leftovers that could still reach the policy are rejected", func(t *testing.T) {
+		// AT_LEAST_2 over 5: recruiting 3 leaves 2, which could satisfy it alone.
+		statuses := recruiting(zone1.a, zone1.b, zone1.c)
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
+		require.NoError(t, err)
+
+		_, err = observed.proveRevoked()
+
+		require.EqualError(t, err, "insufficient proposed cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
+	})
+
+	t.Run("enough recruits succeed", func(t *testing.T) {
+		statuses := recruiting(zone1.a, zone1.b, zone1.c, zone1.d)
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
+		require.NoError(t, err)
+
+		_, err = observed.proveRevoked()
+
+		require.NoError(t, err)
+	})
+
+	t.Run("recruits outside the incoming cohort are ignored", func(t *testing.T) {
+		// f is recruited and records the rule but is not in the incoming cohort.
+		statuses := recruiting(zone1.a, zone1.b, zone1.c, zone1.d, zone1.f)
+		observed, err := discoverOutgoingRule(statuses, ruleNum(0, 1), basis)
+		require.NoError(t, err)
+
+		_, err = observed.proveRevoked()
+
+		require.NoError(t, err)
+	})
+}
+
+// The incoming-cohort recruitment only protects a proposal for the cohort and
+// policy it was made against, so the built proposal must carry exactly those.
+func TestBuildExternallyCertifiedProposal_MustMatchProvenCohortAndPolicy(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	provenCohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+	rule := makeRule(ruleNum(0, 1), atLeast(2), provenCohort...)
+	rev := revocation(5, ruleNum(0, 1))
+	cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: rev, FrozenLsn: "0/0"}
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(zone1.a, rule, rev), makeStatus(zone1.b, rule, rev), makeStatus(zone1.c, rule, rev),
+	}
+	propose := func(policy *clustermetadatapb.DurabilityPolicy, cohort ...*clustermetadatapb.ID) func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			return &consensusdatapb.CoordinatorProposal{
+				TermRevocation: r.TermRevocation,
+				ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
+				ProposedTransition: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+					Proposal: makeRule(ruleNum(5, 0), policy, cohort...),
+				},
+				SkipOutgoingQuorum: true,
+			}, nil
+		}
+	}
+	const wantErr = "proposal validation: proposed rule's cohort or durability policy differs from the incoming cohort and policy the revocation was proven against"
+
+	_, err := BuildExternallyCertifiedProposal(cert, provenCohort, atLeast(2), statuses, propose(atLeast(2), zone1.a, zone1.b, zone1.c))
 	require.NoError(t, err)
 
-	byRecruitment, err := discoverOutgoingRule(statuses, ruleNum(0, 1), revocationBasis{})
-	require.NoError(t, err)
-	_, err = byRecruitment.revoke()
-	require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2")
+	t.Run("a different cohort", func(t *testing.T) {
+		_, err := BuildExternallyCertifiedProposal(cert, provenCohort, atLeast(2), statuses, propose(atLeast(2), zone1.a, zone1.b))
+		require.EqualError(t, err, wantErr)
+	})
+
+	t.Run("a different policy over the same cohort", func(t *testing.T) {
+		_, err := BuildExternallyCertifiedProposal(cert, provenCohort, atLeast(2), statuses, propose(atLeast(3), zone1.a, zone1.b, zone1.c))
+		require.EqualError(t, err, wantErr)
+	})
+}
+
+func TestNewCertBasis_Invalid(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+
+	t.Run("invalid incoming policy", func(t *testing.T) {
+		cert := &clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: revocation(5, ruleNum(0, 1)), FrozenLsn: "0/0"}
+		_, err := newCertBasis(cert, cohort, &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN})
+		require.ErrorContains(t, err, "invalid incoming durability policy")
+	})
+
+	t.Run("cert without a frozen LSN", func(t *testing.T) {
+		_, err := newCertBasis(&clustermetadatapb.ExternallyCertifiedRevocation{TermRevocation: revocation(5, ruleNum(0, 1))}, cohort, atLeast(2))
+		require.EqualError(t, err, "cert is missing frozen_lsn")
+	})
 }
 
 func TestDiscoverOutgoingRule_InconsistentRecruits(t *testing.T) {
@@ -410,7 +553,7 @@ func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
 }
 
 func TestRevokedOutgoingRule_MinimumDurablePosition_NoRecruitRecordsRule(t *testing.T) {
-	revoked := revokedOutgoingRule{observedOutgoingRule{position: &clustermetadatapb.RulePosition{}}}
+	revoked := revokedOutgoingRule{observedOutgoingRule{transition: NewRuleTransition(&clustermetadatapb.RulePosition{})}}
 
 	_, err := revoked.minimumDurablePosition()
 

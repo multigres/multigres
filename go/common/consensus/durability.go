@@ -19,8 +19,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/tools/sortedmaps"
 )
@@ -293,6 +295,17 @@ func normalizeIDs(ids []*clustermetadatapb.ID) []*clustermetadatapb.ID {
 		byKey[topoclient.ClusterIDString(id)] = id
 	}
 	return sortedmaps.Values(byKey)
+}
+
+// requirePrimaryInCohort fails unless primary is a member of cohort. Sync
+// replication configs count the primary's own write toward durability, which only
+// holds when the primary is one of the cohort members acknowledging it.
+func requirePrimaryInCohort(cohort []*clustermetadatapb.ID, primary *clustermetadatapb.ID) error {
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(primary)]; primary == nil || !member {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("cannot establish synchronous replication: primary %s is not in the cohort", topoclient.ClusterIDString(primary)))
+	}
+	return nil
 }
 
 // validateMajority returns nil if recruited forms a strict majority of cohort

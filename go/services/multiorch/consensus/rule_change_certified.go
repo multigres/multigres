@@ -100,11 +100,13 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	buildProposal := func(_ commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return proposal, nil
 	}
+	incomingCohort := proposedTransition.GetProposal().GetCohortMembers()
+	incomingPolicy := proposedTransition.GetProposal().GetDurabilityPolicy()
 	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-		return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposal)
+		return commonconsensus.BuildExternallyCertifiedProposal(cert, incomingCohort, incomingPolicy, statuses, buildProposal)
 	}
 	checkProposalPossible := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-		return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposal)
+		return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, incomingCohort, incomingPolicy, statuses, buildProposal)
 	}
 
 	c.logger.InfoContext(ctx, "applying certified rule change",

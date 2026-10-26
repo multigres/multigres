@@ -37,7 +37,7 @@ import (
 )
 
 // NewTestMultipoolerManager builds a MultipoolerManager for tests with a
-// minimal Multipooler (MVP table_group/shard, a temp PoolerDir, and a valid
+// minimal Multipooler (default table_group/shard, a temp PoolerDir, and a valid
 // service ID). Tests override pm.record fields, pm.pgctldClient, etc.
 // as needed.
 func NewTestMultipoolerManager(t *testing.T) *MultipoolerManager {

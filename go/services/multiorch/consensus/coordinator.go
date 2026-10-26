@@ -126,10 +126,11 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	poolerByID, healthByID := buildCohortMaps(cohort)
 	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		if len(r.RecruitsWithAllDurableWrites) == 0 {
-			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+		candidates, err := failoverCandidates(r)
+		if err != nil {
+			return nil, err
 		}
-		leader := selectFittestLeader(r.RecruitsWithAllDurableWrites, healthByID, rng)
+		leader := selectFittestLeader(candidates, healthByID, rng)
 		return buildFailoverProposal(r, leader, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
@@ -145,6 +146,38 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 		return err
 	}
 	return nil
+}
+
+// failoverCandidates returns the recruits a failover may appoint: the eligible
+// leaders that are members of the outgoing cohort. buildFailoverProposal keeps
+// the outgoing cohort, so its leader must be in it. Recruitment covers every
+// shard member, so a caught-up pooler that was never admitted, such as a
+// replacement pod, can tie with the members, and appointing it would leave the
+// leader outside the cohort of the rule it leads.
+func failoverCandidates(r commonconsensus.RecruitmentResult) ([]*clustermetadatapb.ConsensusStatus, error) {
+	if len(r.RecruitsWithAllDurableWrites) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+	}
+	candidates := cohortMemberStatuses(r.RecruitsWithAllDurableWrites, r.OutgoingRule.GetCohortMembers())
+	if len(candidates) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leader is a member of the outgoing cohort")
+	}
+	return candidates, nil
+}
+
+// cohortMemberStatuses returns the statuses whose pooler is in cohort, in order.
+func cohortMemberStatuses(statuses []*clustermetadatapb.ConsensusStatus, cohort []*clustermetadatapb.ID) []*clustermetadatapb.ConsensusStatus {
+	members := make(map[string]struct{}, len(cohort))
+	for _, id := range cohort {
+		members[topoclient.ClusterIDString(id)] = struct{}{}
+	}
+	var out []*clustermetadatapb.ConsensusStatus
+	for _, cs := range statuses {
+		if _, ok := members[topoclient.ClusterIDString(cs.GetId())]; ok {
+			out = append(out, cs)
+		}
+	}
+	return out
 }
 
 // AppointInitialLeader orchestrates consensus leader election for a freshly
@@ -206,10 +239,10 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	return c.newRuleChange(
 		"ShardInit",
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-			return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposalFn)
+			return commonconsensus.BuildExternallyCertifiedProposal(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposalFn)
+			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 	).Run(ctx, cohort, revocation)
 }

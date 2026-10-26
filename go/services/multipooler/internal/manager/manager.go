@@ -28,6 +28,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
+	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -318,9 +319,9 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		return nil, mterrors.Wrap(err, "invalid Multipooler.Id")
 	}
 
-	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := constants.ValidateMVPTableGroupAndShard(multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()); err != nil {
-		return nil, mterrors.Wrap(err, "MVP validation failed")
+	// Fail fast on a tablegroup/shard this pooler cannot serve.
+	if err := keyrange.ValidateTableGroupAndShard(multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()); err != nil {
+		return nil, mterrors.Wrap(err, "invalid tablegroup/shard")
 	}
 
 	record, err := newPoolerRecord(logger, config.TopoClient, multipooler)

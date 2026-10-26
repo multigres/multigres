@@ -61,39 +61,21 @@ type Shard struct {
 	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
 }
 
-// HighestIntendedRule returns the highest rule position anyone has told us of,
-// or nil if no rule is known. A rule can sit at three levels:
+// HighestIntendedRule returns the highest rule anyone has told us of, or an empty
+// RuleTransition (IsEmpty) if no rule is known. It ranks at the intended level (see
+// commonconsensus.HighestIntendedRule): a follower can learn of a newer leader via
+// SetPrimary before that leader has promoted or recorded the rule.
 //
-//   - decided: the decision half of a pooler's own position, settled;
-//   - in the WAL: a pooler's own position, which may also carry an undecided
-//     proposal (these are what "position" always means);
-//   - intended: the above plus positions only advertised through a
-//     ReplicationPrimary, which no pooler's WAL need hold yet.
-//
-// This is the intended level, so it is not called a position: a follower can
-// learn of a newer leader via SetPrimary before that leader has promoted or
-// recorded the rule.
-//
-// TODO: rename commonconsensus.HighestKnownRule to HighestIntendedRule and the
-// ReplicationPrimary proto message to IntendedPrimary to match this vocabulary.
-func (sa *Shard) HighestIntendedRule() *clustermetadatapb.RulePosition {
+// TODO: rename the ReplicationPrimary proto message to IntendedPrimary to match
+// this vocabulary.
+func (sa *Shard) HighestIntendedRule() commonconsensus.RuleTransition {
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(sa.Poolers))
 	for _, p := range sa.Poolers {
 		if cs := p.GetConsensusStatus(); cs != nil {
 			statuses = append(statuses, cs)
 		}
 	}
-	return commonconsensus.HighestKnownRule(statuses)
-}
-
-// IntendedLeaderID returns the ID the shard's rule names as leader, or nil if
-// no rule is known. That is the leader the coordinator is installing, not
-// necessarily one that is established or serving: the rule may still be
-// undecided, and followers can learn of it through SetPrimary before the named
-// leader has been promoted or has recorded it. Judge whether it is serving
-// from its health snapshot, not from this ID alone.
-func (sa *Shard) IntendedLeaderID() *clustermetadatapb.ID {
-	return commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule()).GetLeaderId()
+	return commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule(statuses))
 }
 
 // PoolerHealth returns the health snapshot for id, or nil if the shard has none.
@@ -109,12 +91,12 @@ func (sa *Shard) PoolerHealth(id *clustermetadatapb.ID) *multiorchdatapb.PoolerH
 	return nil
 }
 
-// IntendedLeaderHealth returns the health snapshot of the pooler IntendedLeaderID
-// names, or nil if no rule is known or we have no health for that pooler. The rule
-// can name a leader we have never observed; in that case we don't know where to
-// point replicas, so consumers that need the leader's host/port gate on the result
-// being non-nil rather than on reachability — an unreachable-but-known leader is
-// still the intended one.
+// IntendedLeaderHealth returns the health snapshot of the pooler the highest
+// intended rule names as leader (possibly only proposed), or nil if no rule is
+// known or we have no health for that pooler. A named leader may never have been
+// observed, so consumers that need its host and port gate on a non-nil result, not
+// on reachability. Being named does not make it established or serving: judge that
+// from the returned health.
 func (sa *Shard) IntendedLeaderHealth() *multiorchdatapb.PoolerHealthState {
-	return sa.PoolerHealth(sa.IntendedLeaderID())
+	return sa.PoolerHealth(sa.HighestIntendedRule().IntendedLeaderID())
 }

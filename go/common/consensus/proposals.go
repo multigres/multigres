@@ -82,8 +82,8 @@ func newRecruitmentResult(
 	}
 	return RecruitmentResult{
 		TermRevocation:               revocation,
-		OutgoingRule:                 PossiblyUndecidedRule(outgoing.position),
-		OutgoingRuleDecided:          IsRuleDecided(outgoing.position),
+		OutgoingRule:                 outgoing.transition.PossiblyUndecidedRule(),
+		OutgoingRuleDecided:          outgoing.transition.IsDecided(),
 		RecruitsWithAllDurableWrites: eligible,
 		outgoing:                     outgoing,
 	}, nil
@@ -119,15 +119,35 @@ type certBasis struct {
 	// frozenLSN is the cert's promise that nothing durable lies beyond it under
 	// the outgoing rule.
 	frozenLSN pgutil.LSN
+	// incomingCohort and incomingPolicy are the proposed rule's cohort and
+	// policy. Recruiting them is the certified path's guard against retries of
+	// the same term (see proveRevokedByCert), so the built proposal must match them
+	// exactly.
+	incomingCohort      []*clustermetadatapb.ID
+	incomingPolicy      DurabilityPolicy
+	incomingPolicyProto *clustermetadatapb.DurabilityPolicy
 }
 
-// newCertBasis validates cert and returns the basis it provides.
-func newCertBasis(cert *clustermetadatapb.ExternallyCertifiedRevocation) (revocationBasis, error) {
+// newCertBasis validates cert and the proposed rule's cohort and policy.
+func newCertBasis(
+	cert *clustermetadatapb.ExternallyCertifiedRevocation,
+	incomingCohort []*clustermetadatapb.ID,
+	incomingPolicy *clustermetadatapb.DurabilityPolicy,
+) (revocationBasis, error) {
 	frozenLSN, err := certMinLSN(cert)
 	if err != nil {
 		return revocationBasis{}, err
 	}
-	return revocationBasis{cert: &certBasis{frozenLSN: frozenLSN}}, nil
+	policy, err := NewPolicyFromProto(incomingPolicy)
+	if err != nil {
+		return revocationBasis{}, fmt.Errorf("invalid incoming durability policy: %w", err)
+	}
+	return revocationBasis{cert: &certBasis{
+		frozenLSN:           frozenLSN,
+		incomingCohort:      incomingCohort,
+		incomingPolicy:      policy,
+		incomingPolicyProto: incomingPolicy,
+	}}, nil
 }
 
 // BuildSafeProposal validates that the recruited nodes allow a safe
@@ -150,7 +170,7 @@ func newCertBasis(cert *clustermetadatapb.ExternallyCertifiedRevocation) (revoca
 // RecruitmentResult.OutgoingRuleDecided. buildProposalCore trusts it as the
 // outgoing baseline either way. Safety is judged against the decision's cohort,
 // the one every competing coordinator recruits (see
-// observedOutgoingRule.revokeByRecruitment). An undecided proposal must also be
+// observedOutgoingRule.proveRevokedByRecruitment). An undecided proposal must also be
 // finalizable by the recruits (see revokedOutgoingRule.checkRecruitsCanFinalizeProposal), and
 // the new proposal may then change only its leader (see validateProposal).
 func BuildSafeProposal(
@@ -193,6 +213,7 @@ func CheckProposalPossible(
 // nodes to have already accepted the revocation. It is the externally-certified
 // counterpart of CheckProposalPossible: it revokes by cert so that
 // bootstrap scenarios with no recorded rule (no OutgoingRule) are handled correctly.
+// incomingCohort and incomingPolicy are the proposed rule's cohort and policy.
 //
 // Returns an error if no viable proposal exists; the proposal itself is not
 // returned since nodes have not yet committed to the revocation.
@@ -201,6 +222,8 @@ func CheckProposalPossible(
 // recovery paths.
 func CheckExternallyCertifiedProposalPossible(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
+	incomingCohort []*clustermetadatapb.ID,
+	incomingPolicy *clustermetadatapb.DurabilityPolicy,
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) error {
@@ -209,7 +232,7 @@ func CheckExternallyCertifiedProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	basis, err := newCertBasis(cert)
+	basis, err := newCertBasis(cert, incomingCohort, incomingPolicy)
 	if err != nil {
 		return err
 	}
@@ -223,10 +246,10 @@ func CheckExternallyCertifiedProposalPossible(
 // recruited normally: nodes must have accepted the term revocation in cert
 // before this function is called.
 //
-// Unlike BuildSafeProposal, the outgoing-cohort quorum check is skipped —
-// the caller certifies via cert that the outgoing cohort is frozen. Instead,
-// validateProposal verifies that the INCOMING (proposed) cohort has sufficient
-// recruited members, ensuring the new cluster can make durable writes.
+// Unlike BuildSafeProposal, the outgoing cohort is not recruited — the caller
+// certifies via cert that it is frozen. Instead the INCOMING (proposed) cohort,
+// incomingCohort under incomingPolicy, must be sufficiently recruited, and the
+// built proposal must carry exactly that cohort and policy.
 //
 // Two additional checks enforce the cert's guarantees:
 //   - No recruited node may have a rule beyond revocation.outgoing_rule; if
@@ -236,10 +259,13 @@ func CheckExternallyCertifiedProposalPossible(
 //     leader. Nodes below that threshold still count toward quorum — they can
 //     endorse the proposal — but cannot be selected as the new leader.
 //
-// The buildProposal callback is responsible for specifying the full new cohort
-// and durability policy, since there may be no recorded rule to derive them from.
+// The buildProposal callback specifies the full proposal, since there may be no
+// recorded rule to derive it from; its cohort and policy must match the ones
+// passed here.
 func BuildExternallyCertifiedProposal(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
+	incomingCohort []*clustermetadatapb.ID,
+	incomingPolicy *clustermetadatapb.DurabilityPolicy,
 	statuses []*clustermetadatapb.ConsensusStatus,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
@@ -248,7 +274,7 @@ func BuildExternallyCertifiedProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	basis, err := newCertBasis(cert)
+	basis, err := newCertBasis(cert, incomingCohort, incomingPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +346,7 @@ func buildProposalCore(
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := outgoing.revoke()
+	revoked, err := outgoing.proveRevoked()
 	if err != nil {
 		return nil, err
 	}
@@ -482,37 +508,22 @@ func validateProposal(
 		}
 	}
 
+	if cert != nil {
+		// proveRevokedByCert recruited the cert's incoming cohort; it only protects a
+		// proposal for that same cohort and policy.
+		if !sameCohort(proposedRule.GetCohortMembers(), cert.incomingCohort) ||
+			!proto.Equal(proposedRule.GetDurabilityPolicy(), cert.incomingPolicyProto) {
+			return errors.New("proposed rule's cohort or durability policy differs from the incoming cohort and policy the revocation was proven against")
+		}
+	}
+
 	// Promote's second write, the new rule, needs the recruits to satisfy the
 	// proposed policy. The first write, deciding an undecided outgoing proposal,
 	// was checked before the builder ran (see checkRecruitsCanFinalizeProposal).
 	if err := p.SatisfiedBy(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
-	if cert != nil {
-		if err := checkCertifiedRetryGuard(p, proposedRule.GetCohortMembers(), recruitedInProposedCohort); err != nil {
-			return err
-		}
-	}
 
-	return nil
-}
-
-// checkCertifiedRetryGuard requires the proposed cohort to be sufficiently
-// recruited under the proposed policy. The cert promises the term is unique,
-// but a coordinator may still retry the same term, for example repeated
-// bootstrap attempts with different proposed leaders. A majority of the
-// proposed cohort makes any two such attempts overlap, so they cannot both
-// succeed. This relies on retries proposing the same cohort, which nothing
-// enforces. The unrecruited-cannot-commit half also rejects a stale cert: if an
-// earlier attempt's rule became durable on this cohort, the recruits must
-// overlap its quorum, and holders of that rule refuse the new revocation.
-func checkCertifiedRetryGuard(
-	policy DurabilityPolicy,
-	proposedCohort, recruitedInProposedCohort []*clustermetadatapb.ID,
-) error {
-	if err := CheckSufficientRecruitment(policy, proposedCohort, recruitedInProposedCohort); err != nil {
-		return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
-	}
 	return nil
 }
 

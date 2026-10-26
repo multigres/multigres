@@ -80,7 +80,7 @@ func NewTermRevocation(
 
 	// replaceDecision is the backoff's problem-identity baseline — see
 	// recruitAttempt below for why it must be a settled decision, not
-	// outgoingRule, and HighestDecidedRule's doc for why not HighestKnownRule.
+	// outgoingRule, and HighestDecidedRule's doc for why not HighestIntendedRule.
 	replaceDecision := HighestDecidedRule(statuses)
 
 	// The new revocation term must exceed every term discoverable within reach
@@ -91,6 +91,13 @@ func NewTermRevocation(
 	// becomes a stranded straggler RecruitAbandonedAnalyzer already
 	// reconciles via a leader-led no-op rule bump, the same as any other
 	// abandoned-recruit case.
+
+	// outgoingRule comes from the most advanced recorded position: the rule change's
+	// compare-and-swap must start from a rule the recruited poolers hold in their WAL,
+	// not one that was only advertised.
+	//
+	// TODO: also raise maxTerm to the highest intended rule's term; ValidateRevocation
+	// already rejects a reused term, so this would only save a wasted round.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	if t := highestRevokedBelowTerm(statuses); t > maxTerm {
 		maxTerm = t
@@ -271,9 +278,9 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 	return true
 }
 
-// IsSelfRevoked reports whether a node's highest known rule — the max of its
+// IsSelfRevoked reports whether a node's highest intended rule — the max of its
 // own WAL position and the last rule delivered via SetPrimary/Promote — is
-// still revoked by the promise it accepted. Keying on the highest known rule
+// still revoked by the promise it accepted. Keying on the highest intended rule
 // rather than raw WAL position matters: an accepted-but-not-yet-replayed rule
 // already means the node isn't stranded, while a rejected SetPrimary never
 // updates it, so a genuinely stranded node still reads as revoked.
@@ -300,6 +307,8 @@ func IsSelfRevoked(status *clustermetadatapb.ConsensusStatus) bool {
 //     the revocation has no authority over WAL the node has already applied.
 //   - The node hasn't caught back up to its recruit position floor (see
 //     ConsensusStatus.recruit_blocked_until), if one is set.
+//   - The node already accepted a revocation with a higher outgoing_rule —
+//     a later promise may not weaken an earlier one.
 //   - The node already accepted a revocation at the same term from a
 //     different coordinator.
 //   - The node already accepted a revocation at the same term and
@@ -390,6 +399,14 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			return fmt.Errorf(
 				"cannot accept revocation: already accepted term %d > requested %d",
 				storedTerm, revokedBelowTerm,
+			)
+		}
+		// A newer promise must not weaken an earlier one's scope; compare against
+		// the stored outgoing_rule, which can be ahead of the WAL.
+		if CompareRuleNumbers(outgoingRule, stored.GetOutgoingRule()) < 0 {
+			return fmt.Errorf(
+				"cannot accept revocation: outgoing_rule %s is below already accepted outgoing_rule %s",
+				FormatRuleNumber(outgoingRule), FormatRuleNumber(stored.GetOutgoingRule()),
 			)
 		}
 		if storedTerm == revokedBelowTerm {

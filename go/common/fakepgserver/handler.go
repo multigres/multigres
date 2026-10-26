@@ -17,6 +17,7 @@ package fakepgserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -48,6 +49,11 @@ type portal struct {
 	stmt       *preparedStmt
 	params     [][]byte
 	resultFmts []int16
+}
+
+// IdleSessionTimeout implements server.IdleSessionTimeoutProvider.
+func (h *fakeHandler) IdleSessionTimeout(*server.Conn) time.Duration {
+	return time.Duration(h.server.idleSessionTimeout.Load())
 }
 
 // HandleQuery handles a simple query protocol message.

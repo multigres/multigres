@@ -205,13 +205,13 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 
 	// Configure primary_conninfo on the replica via SetPrimary. The rule is the
-	// shard's highest-known rule (authoritative — the leader may not yet know it
+	// shard's highest intended rule (authoritative — the leader may not yet know it
 	// holds that rule), the contact is the leader's topology address, and we
 	// relay the leader's self-reported rewind_ready so a diverged replica defers
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    members.HighestKnownPosition,
+			Position:    members.HighestIntendedRule.Position(),
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
@@ -428,11 +428,6 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {
-	// No grace period needed, execute immediately
-	return nil
 }
 
 // =============================================================================

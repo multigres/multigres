@@ -44,7 +44,8 @@ RUN apk add --no-cache make git etcd pgbackrest && \
   GOBIN=/usr/local/bin /usr/local/go/bin/go install gotest.tools/gotestsum@v1.13.0 && \
   apk del .build-tools && \
   mkdir -p /home/postgres/.cache && \
-  chown -R postgres:postgres /home/postgres/.cache
+  chown -R postgres:postgres /home/postgres/.cache && \
+  git config --system --add safe.directory /multigres
 
 ENV PATH="/usr/local/go/bin:${PATH}"
 

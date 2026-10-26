@@ -120,7 +120,7 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 	}
 	return servingstate.RoutingState{
 		Role: servingstate.RoutingRoleReplica,
-		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
+		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
 }
 
@@ -192,7 +192,7 @@ func (ssm *StateManager) Unregister(component StateAware) {
 // sameFanout reports whether two states are equivalent for fan-out dedup. It
 // compares the full routing state (role + qualifying rule) and ServingStatus.
 // The rule is included because the health stream carries the full routing state
-// live: a replica's highest-known-rule bump should reach subscribers even with
+// live: a replica's highest-intended-rule bump should reach subscribers even with
 // the role unchanged (the gateway uses it to spot a stale routing primary). The
 // extra etcd churn this could cause is absorbed at the publish boundary —
 // routingStateForPublish drops a replica's routing_state, so successive replica

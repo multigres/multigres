@@ -421,6 +421,11 @@ func TruncateError(oldErr error, max int) error {
 
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
 
+// ErrUnsolicitedData reports that the server sent bytes to a connection that
+// had no request outstanding. PostgreSQL does this to an idle session only when
+// ending it, so the connection must not be used for a new request.
+var ErrUnsolicitedData = errors.New("server sent data on an idle connection")
+
 // IsConnectionError returns true if err is worth a reconnect + retry.
 // It intentionally recognizes only transport failures, SQLSTATE class 08,
 // and PostgreSQL shutdown SQLSTATEs. Use IsConnectionDead for discard-only

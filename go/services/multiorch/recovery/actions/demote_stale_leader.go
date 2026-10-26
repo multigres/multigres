@@ -93,14 +93,6 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 	return false
 }
 
-func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
-	// The demote goes through SetPrimary, which is position-fenced: a
-	// leader that's only momentarily-stale would see its own rule >= the
-	// incoming rule and no-op without touching postgres. A spurious detection
-	// costs an RPC, not a wrongful demote, so no grace period is needed.
-	return nil
-}
-
 // Execute demotes the stale leader using SetPrimary with the correct leader's rule.
 // This is safer than Recruit because we use the correct leader's existing rule rather than
 // minting a new term, so both leaders end up agreeing on the same term and rule.
@@ -128,30 +120,31 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	// }
 
 	// Identify the rewind target from cached consensus state: the leader named by
-	// the highest known rule across the shard (the global consensus view, never a
-	// node's local self-claim).
+	// the highest intended rule across the shard (the global consensus view, never a
+	// node's local self-claim). It may not have promoted yet; that is safe because the
+	// stale leader can no longer commit (see StaleLeaderAnalyzer), and the relayed
+	// rewind_ready defers pg_rewind until the leader is ready.
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
-	correctLeader, correctPosition := members.Leader, members.HighestKnownPosition
-	if correctLeader == nil || correctPosition == nil {
+	if members.Leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
 
-	// If the supposedly-stale node is itself the highest known consensus leader,
+	// If the supposedly-stale node is itself the highest intended consensus leader,
 	// it is not actually stale (e.g. a spurious or already-resolved detection):
 	// there is nothing newer to rewind it toward. Do nothing rather than send a
 	// self-targeted SetPrimary, which the pooler would ignore.
-	if proto.Equal(correctLeader.Health().GetMultipooler().GetId(), problem.PoolerID) {
+	if proto.Equal(members.Leader.Health().GetMultipooler().GetId(), problem.PoolerID) {
 		a.logger.InfoContext(ctx, "stale leader is the current consensus leader, nothing to demote",
-			"leader", correctLeader.Health().Multipooler.Id.Name,
+			"leader", members.Leader.Health().Multipooler.Id.Name,
 			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "demoting stale leader via SetPrimary",
 		"stale_leader", poolerIDStr,
-		"correct_leader", correctLeader.Health().Multipooler.Id.Name,
-		"correct_leader_position", commonconsensus.FormatRulePosition(correctPosition))
+		"correct_leader", members.Leader.Health().Multipooler.Id.Name,
+		"correct_leader_position", members.HighestIntendedRule.String())
 
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
 	defer func() {
@@ -168,7 +161,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	// 3. Restarts as standby
 	// 4. Clears sync replication config
 	// 5. Updates topology to REPLICA
-	// correctPosition is the global HighestKnownPosition (above), not the
+	// members.HighestIntendedRule is the global view (above), not the
 	// leader's self-claim, so build the message explicitly rather than
 	// relaying the leader's published ReplicationPrimary. rewind_ready is the
 	// leader's self-report — it has no global equivalent, so relay it: the
@@ -176,9 +169,9 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	// checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    correctPosition,
-			Primary:     topoclient.PoolerAddressFor(correctLeader.Health().Multipooler),
-			RewindReady: commonconsensus.ReplicationPrimaryOrNil(correctLeader.Health().GetConsensusStatus()).GetRewindReady(),
+			Position:    members.HighestIntendedRule.Position(),
+			Primary:     topoclient.PoolerAddressFor(members.Leader.Health().Multipooler),
+			RewindReady: commonconsensus.ReplicationPrimaryOrNil(members.Leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
 	}
 	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.Health().Multipooler, setPrimaryReq); err != nil {

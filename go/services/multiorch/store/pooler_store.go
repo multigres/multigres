@@ -58,17 +58,16 @@ func FindPoolersInShard(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey
 }
 
 // ShardMembers is the result of FindShardMembers: the shard's poolers, the
-// highest consensus position known across them, and the pooler that
-// position names as leader.
+// highest intended rule across them, and the pooler that rule names as leader.
 type ShardMembers struct {
 	// Poolers is every pooler the cache holds for the shard.
 	Poolers []*Pooler
-	// HighestKnownPosition is the highest known consensus position across
-	// Poolers, or nil if none carries a rule. Its possibly-undecided rule
-	// (commonconsensus.PossiblyUndecidedRule) names the leader via
-	// GetLeaderId().
-	HighestKnownPosition *clustermetadatapb.RulePosition
-	// Leader is the pooler named by HighestKnownPosition, or nil when no
+	// HighestIntendedRule is the highest rule any of Poolers has told us of,
+	// including one a follower learned only through its replication primary; it
+	// is empty if none carries a rule. Its PossiblyUndecidedRule names the
+	// intended leader via GetLeaderId().
+	HighestIntendedRule commonconsensus.RuleTransition
+	// Leader is the pooler HighestIntendedRule names, or nil when no
 	// rule is known or the named pooler is not in the cache (e.g. known only
 	// via a follower's rule).
 	Leader *Pooler
@@ -111,8 +110,8 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 		}
 	}
 
-	position := commonconsensus.HighestKnownRule(statuses)
-	leaderID := commonconsensus.PossiblyUndecidedRule(position).GetLeaderId()
+	rule := commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule(statuses))
+	leaderID := rule.IntendedLeaderID()
 
 	var leader *Pooler
 	if leaderID != nil {
@@ -124,5 +123,5 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 		}
 	}
 
-	return ShardMembers{Poolers: poolers, HighestKnownPosition: position, Leader: leader}
+	return ShardMembers{Poolers: poolers, HighestIntendedRule: rule, Leader: leader}
 }
