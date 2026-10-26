@@ -28,6 +28,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -85,6 +86,10 @@ type Server struct {
 
 	// neverFail makes unmatched queries return empty results instead of errors.
 	neverFail atomic.Bool
+
+	// idleSessionTimeout, when non-zero, ends sessions left idle this long
+	// with FATAL 57P05, as PostgreSQL's idle_session_timeout does.
+	idleSessionTimeout atomic.Int64
 
 	// queryPatternUserCallback stores optional callbacks when a query with a pattern is called.
 	queryPatternUserCallback map[*regexp.Regexp]func(string)
@@ -562,6 +567,15 @@ func (s *Server) VerifyAllPatternsUsedOrFail() {
 // SetNeverFail makes unmatched queries return empty results instead of errors.
 func (s *Server) SetNeverFail(neverFail bool) {
 	s.neverFail.Store(neverFail)
+}
+
+// SetIdleSessionTimeout ends every session that sits idle for d with FATAL
+// 57P05 and closes its socket, as PostgreSQL's idle_session_timeout does.
+// Tests use it to leave a client holding a connection the server already
+// closed. Sessions already waiting pick up the new value on their next
+// command. Zero disables it.
+func (s *Server) SetIdleSessionTimeout(d time.Duration) {
+	s.idleSessionTimeout.Store(int64(d))
 }
 
 // handleQuery handles a query and returns the result.

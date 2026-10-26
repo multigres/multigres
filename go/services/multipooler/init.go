@@ -653,8 +653,8 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 // set on the command line, even to its default or an empty value
 // (pflag.Flag.Changed), or present as a key in the loaded config file
 // (Registry.InStaticConfig) — distinctions viperutil's Get cannot make. The
-// flag name must equal the value's viper key for the config-file check to
-// apply. False when RegisterFlags has not run (e.g. minimal test setups) and
+// flag name must equal the value's viper key, behind the registry's prefix
+// if any, for the config-file check to apply. False when RegisterFlags has not run (e.g. minimal test setups) and
 // no config file mentions the key.
 func (mp *Multipooler) flagExplicitlySet(name string) bool {
 	if mp.flagSet != nil {
@@ -664,7 +664,7 @@ func (mp *Multipooler) flagExplicitlySet(name string) bool {
 	}
 	// A config file writing e.g. `socket-file: ""` is as deliberate as
 	// --socket-file='' and must equally force the TCP path.
-	return mp.reg != nil && mp.reg.InStaticConfig(name)
+	return mp.reg != nil && mp.reg.InStaticConfig(mp.reg.Key(name))
 }
 
 // resolveSocketFilePath returns the postgres socket path the pooler should

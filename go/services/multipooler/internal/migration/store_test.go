@@ -121,11 +121,11 @@ func (t *fakeTx) Query(_ context.Context, query string) (*sqltypes.Result, error
 }
 func (t *fakeTx) Commit(context.Context) error   { t.committed = true; return nil }
 func (t *fakeTx) Rollback(context.Context) error { t.rolledBack = true; return nil }
-func (t *fakeTx) QueryWithRetry(context.Context, string) ([]*sqltypes.Result, error) {
+func (t *fakeTx) StatelessQuery(context.Context, string) ([]*sqltypes.Result, error) {
 	return nil, nil
 }
 
-func (t *fakeTx) QueryArgsWithRetry(context.Context, string, ...any) ([]*sqltypes.Result, error) {
+func (t *fakeTx) StatelessQueryArgs(context.Context, string, ...any) ([]*sqltypes.Result, error) {
 	return nil, nil
 }
 

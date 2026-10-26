@@ -307,6 +307,8 @@ func IsSelfRevoked(status *clustermetadatapb.ConsensusStatus) bool {
 //     the revocation has no authority over WAL the node has already applied.
 //   - The node hasn't caught back up to its recruit position floor (see
 //     ConsensusStatus.recruit_blocked_until), if one is set.
+//   - The node already accepted a revocation with a higher outgoing_rule —
+//     a later promise may not weaken an earlier one.
 //   - The node already accepted a revocation at the same term from a
 //     different coordinator.
 //   - The node already accepted a revocation at the same term and
@@ -397,6 +399,14 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			return fmt.Errorf(
 				"cannot accept revocation: already accepted term %d > requested %d",
 				storedTerm, revokedBelowTerm,
+			)
+		}
+		// A newer promise must not weaken an earlier one's scope; compare against
+		// the stored outgoing_rule, which can be ahead of the WAL.
+		if CompareRuleNumbers(outgoingRule, stored.GetOutgoingRule()) < 0 {
+			return fmt.Errorf(
+				"cannot accept revocation: outgoing_rule %s is below already accepted outgoing_rule %s",
+				FormatRuleNumber(outgoingRule), FormatRuleNumber(stored.GetOutgoingRule()),
 			)
 		}
 		if storedTerm == revokedBelowTerm {

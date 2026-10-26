@@ -315,7 +315,7 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 		return m.fallbackGlobalCapacity(ctx, err)
 	}
 	defer pooled.Recycle()
-	results, err := pooled.Conn.QueryWithRetry(queryCtx, globalCapacityQuery)
+	results, err := pooled.Conn.StatelessQuery(queryCtx, globalCapacityQuery)
 	if err == nil && (len(results) != 1 || len(results[0].Rows) != 1 || len(results[0].Rows[0].Values) != 3) {
 		err = fmt.Errorf("unexpected result shape for %q", globalCapacityQuery)
 	}

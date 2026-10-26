@@ -36,6 +36,7 @@ package parser
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // scanDelimitedIdentifier handles the initial double-quote and transitions to delimited identifier state
@@ -181,7 +182,9 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 // postgres/src/include/pg_config_manual.h:32
 const NAMEDATALEN = 64
 
-// truncateIdentifier truncates an identifier to NAMEDATALEN-1 and optionally warns
+// truncateIdentifier truncates an identifier to NAMEDATALEN-1 bytes, cutting at a UTF-8
+// character boundary as pg_mbcliplen does. warn is currently ignored: PostgreSQL emits a
+// NOTICE when it truncates, which the parser does not yet do.
 // Equivalent to postgres/src/backend/parser/scansup.c:truncate_identifier
 func truncateIdentifier(ident string, warn bool) string {
 	maxLen := NAMEDATALEN - 1
@@ -190,12 +193,11 @@ func truncateIdentifier(ident string, warn bool) string {
 	}
 
 	// Find a safe truncation point (not in the middle of a multibyte character)
-	truncated := ident[:maxLen]
-
-	// In PostgreSQL, this would generate a NOTICE-level warning
-	// For now, we just truncate silently (warning would be added in error handling phase)
-
-	return truncated
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(ident[cut]) {
+		cut--
+	}
+	return ident[:cut]
 }
 
 // processIdentifierChar handles character processing for delimited identifiers

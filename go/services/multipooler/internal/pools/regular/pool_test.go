@@ -188,7 +188,7 @@ func TestPool_GetWithSettings_ReconnectsSelectedIdleSlot(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
-func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *testing.T) {
+func TestStatelessQueryStreaming_ReconnectsTempBuffersContaminatedBackend(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.OrderMatters()
@@ -226,7 +226,7 @@ func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *tes
 	defer pooled.Recycle()
 	oldPID := pooled.Conn.ProcessID()
 
-	err = pooled.Conn.QueryStreamingWithRetry(
+	err = pooled.Conn.StatelessQueryStreaming(
 		t.Context(),
 		"SELECT pg_catalog.set_config('temp_buffers', '100', true)",
 		func(context.Context, *sqltypes.Result) error { return nil },
@@ -237,11 +237,11 @@ func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *tes
 	server.VerifyAllExecutedOrFail()
 }
 
-// TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall pins the
+// TestStatelessQueryStreaming_TempBuffersFreezeDoesNotReplayCall pins the
 // replay-safety gate: a CALL can COMMIT mid-statement (procedure-level
 // transaction control) before hitting the freeze, so the recovery must NOT
 // reconnect-and-replay it — the error surfaces and the backend stays.
-func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall(t *testing.T) {
+func TestStatelessQueryStreaming_TempBuffersFreezeDoesNotReplayCall(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.OrderMatters()
@@ -269,7 +269,7 @@ func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall(t *testing.T
 	defer pooled.Recycle()
 	oldPID := pooled.Conn.ProcessID()
 
-	err = pooled.Conn.QueryStreamingWithRetry(
+	err = pooled.Conn.StatelessQueryStreaming(
 		t.Context(),
 		"CALL p()",
 		func(context.Context, *sqltypes.Result) error { return nil },
@@ -287,14 +287,14 @@ func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall(t *testing.T
 // statement rolls everything back", which is false: non-transactional effects
 // (nextval, advisory locks) materialize before the error and survive it, so
 // replaying a statement that carries one runs it twice.
-// TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplaySideEffects pins
+// TestStatelessQueryStreaming_TempBuffersFreezeDoesNotReplaySideEffects pins
 // the reason the gate is structural: a statement carrying a non-transactional
 // side effect must NOT be replayed. On PostgreSQL 17 a failed
 // `SELECT nextval('s'), set_config('temp_buffers',...)` still consumes the
 // sequence value, so a reconnect-and-replay would consume a second one and
 // hand the client a success it cannot distinguish from a single execution.
 // The freeze error must surface instead, leaving the backend in place.
-func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplaySideEffects(t *testing.T) {
+func TestStatelessQueryStreaming_TempBuffersFreezeDoesNotReplaySideEffects(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.OrderMatters()
@@ -325,7 +325,7 @@ func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplaySideEffects(t *te
 	defer pooled.Recycle()
 	oldPID := pooled.Conn.ProcessID()
 
-	err = pooled.Conn.QueryStreamingWithRetry(
+	err = pooled.Conn.StatelessQueryStreaming(
 		t.Context(),
 		sideEffectSQL,
 		func(context.Context, *sqltypes.Result) error { return nil },
