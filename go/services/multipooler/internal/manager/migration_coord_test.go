@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -198,4 +199,81 @@ func TestRefreshMigrationHold_UndecodableResultFailsClosed(t *testing.T) {
 			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "an undecodable result must not change the hold state")
 		})
 	}
+}
+
+// TestResolveMigrationHoldBeforeServing_RecoversFromTransientFailure covers the
+// scenario resolveMigrationHoldBeforeServing exists for: a restart that lands
+// mid-IMPORT, whose very first refreshMigrationHold read fails transiently.
+// The bounded retry must give the read a second chance and correctly resolve
+// to held, rather than leaving the gate unresolved (and so, via
+// migrationServingHold, silently open) for the rest of the interval until the
+// next postgres-monitor tick.
+func TestResolveMigrationHoldBeforeServing_RecoversFromTransientFailure(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0")
+	require.Equal(t, migrationHoldUnknown, migrationHoldState(pm.migrationImportHold.Load()), "a fresh manager must start unknown, not not-held")
+
+	qs.AddQueryPatternOnceWithError("SELECT count\\(\\*\\) FROM multigres.migration", errors.New("connection reset by peer"))
+	qs.AddQueryPattern("SELECT count\\(\\*\\) FROM multigres.migration", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(1)}}))
+
+	pm.resolveMigrationHoldBeforeServing(t.Context())
+
+	assert.Equal(t, migrationHoldHeld, migrationHoldState(pm.migrationImportHold.Load()), "a retry succeeding with an active migration must resolve to held")
+	assert.True(t, pm.migrationServingHold(), "a resolved held state must withhold serving")
+}
+
+// TestResolveMigrationHoldBeforeServing_FallsThroughWhenNeverResolves covers
+// the bound: if every attempt within the (tiny) timeout fails, this must give
+// up and leave the gate unresolved, not block bootstrap. An unresolved gate is
+// read as not-held by migrationServingHold, same as it would be without this
+// function existing at all — no worse than before. The bound itself is small
+// enough that even this worst case costs single-digit milliseconds, not
+// seconds, so it doesn't tax every reopen in the unit test suite.
+func TestResolveMigrationHoldBeforeServing_FallsThroughWhenNeverResolves(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0")
+	qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration", errors.New("connection refused"))
+
+	start := time.Now()
+	pm.resolveMigrationHoldBeforeServing(t.Context())
+	elapsed := time.Since(start)
+
+	assert.Equal(t, migrationHoldUnknown, migrationHoldState(pm.migrationImportHold.Load()), "exhausting every attempt must leave the gate unresolved, not force a guess")
+	assert.False(t, pm.migrationServingHold(), "an unresolved gate must read as not-held, matching pre-existing behavior")
+	assert.LessOrEqual(t, elapsed, migrationHoldResolveTimeout+50*time.Millisecond, "must give up within its tiny bound, not hang bootstrap")
+}
+
+// TestResolveMigrationHoldBeforeServing_OrdinaryBootstrapResolvesImmediately
+// covers the common case the earlier plain-bool-default fix regressed: a
+// pooler that has never run a migration resolves on the very first attempt
+// (undefined table), well before the retry bound, so ordinary bootstrap is not
+// slowed down waiting on a gate that was never going to be held.
+func TestResolveMigrationHoldBeforeServing_OrdinaryBootstrapResolvesImmediately(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0")
+	qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration",
+		&mterrors.PgDiagnostic{Code: mterrors.PgSSUndefinedTable, Message: `relation "multigres.migration" does not exist`})
+
+	start := time.Now()
+	pm.resolveMigrationHoldBeforeServing(t.Context())
+	elapsed := time.Since(start)
+
+	assert.Equal(t, migrationHoldNotHeld, migrationHoldState(pm.migrationImportHold.Load()))
+	assert.False(t, pm.migrationServingHold())
+	assert.Less(t, elapsed, migrationHoldResolveBaseWait, "the first attempt must resolve it; no retry wait should be needed")
+}
+
+// TestResolveMigrationHoldBeforeServing_NoQueryServiceReturnsImmediately covers
+// the fast path: no query service means connections are not open yet (or, in
+// a test harness, never configured at all), which is not a transient query
+// failure worth retrying — retrying here would just busy-wait for the whole
+// bound. This must return immediately, leaving the gate unresolved for the
+// next postgres-monitor tick to pick up once connections do exist.
+func TestResolveMigrationHoldBeforeServing_NoQueryServiceReturnsImmediately(t *testing.T) {
+	pm, _ := newTestManagerWithMock(t, "default", "0")
+	pm.qsc = nil
+
+	start := time.Now()
+	pm.resolveMigrationHoldBeforeServing(t.Context())
+	elapsed := time.Since(start)
+
+	assert.Equal(t, migrationHoldUnknown, migrationHoldState(pm.migrationImportHold.Load()))
+	assert.Less(t, elapsed, migrationHoldResolveBaseWait, "a nil query service must not trigger any retry wait")
 }

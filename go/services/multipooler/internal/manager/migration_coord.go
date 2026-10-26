@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // migrationReconcileInterval is the period of the migration reconcile poller.
@@ -197,13 +198,34 @@ func (s migrationHoldState) String() string {
 	}
 }
 
+// migrationHoldResolveTimeout/BaseWait/MaxWait bound the few quick, local
+// retries resolveMigrationHoldBeforeServing makes to resolve
+// migrationImportHold out of migrationHoldUnknown before openLocked publishes
+// the pooler's first serving status. Deliberately tiny (low single-digit
+// milliseconds total): the query is against the pooler's own admin
+// connection, not a remote round trip, so this only needs to ride out one
+// transient hiccup (e.g. the connection pool settling right after
+// openConnectionsLocked), not a sustained outage. A larger bound here taxes
+// every reopen in the unit test suite, not just real startups, since the
+// mock query service's generic "no pattern matched" error for an unmocked
+// query looks exactly like a transient failure and is retried the same way.
+const (
+	migrationHoldResolveTimeout  = 10 * time.Millisecond
+	migrationHoldResolveBaseWait = 1 * time.Millisecond
+	migrationHoldResolveMaxWait  = 4 * time.Millisecond
+)
+
 // migrationServingHold reports whether this pooler must withhold client
 // serving because an active migration on this shard is confirmed still in
 // the IMPORT direction. migrationHoldUnknown reads as false, the same as
-// migrationHoldNotHeld: a gate that has not resolved yet must not hold an
-// otherwise-ordinary bootstrap. It is the migration half of the serving
-// gate, OR-combined with the divergence hold in the state-manager drift
-// check. Read cheaply as an atomic so it can run under the monitor tick.
+// migrationHoldNotHeld: this is the general, every-tick check, so it must
+// not regress ordinary bootstrap by holding a pooler that simply has not
+// resolved the gate yet. The narrower startup case — a restart that lands
+// mid-IMPORT before any read has succeeded — gets a few quick extra chances
+// to resolve first, via resolveMigrationHoldBeforeServing, not here. It is
+// the migration half of the serving gate, OR-combined with the divergence
+// hold in the state-manager drift check. Read cheaply as an atomic so it can
+// run under the monitor tick.
 func (pm *MultipoolerManager) migrationServingHold() bool {
 	return migrationHoldState(pm.migrationImportHold.Load()) == migrationHoldHeld
 }
@@ -250,6 +272,45 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 		pm.migrationImportHold.Store(int32(migrationHoldHeld))
 	} else {
 		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+	}
+}
+
+// resolveMigrationHoldBeforeServing makes a few quick, local attempts to
+// resolve migrationImportHold out of migrationHoldUnknown before openLocked
+// publishes this pooler's first serving status. Without this, a pooler
+// restarting while genuinely mid-IMPORT whose very first refreshMigrationHold
+// read happens to fail transiently would briefly serve a half-copied target,
+// since migrationServingHold treats an unresolved gate the same as a
+// confirmed-clear one. The few near-immediate retries give that one read a
+// real second chance to land before that first publish; if it still has not
+// resolved once the (tiny) bound expires, this falls through to the same
+// not-held behavior as an unresolved gate anywhere else — no worse than
+// before this existed.
+//
+// Does not retry at all when there is no query service: that is not a
+// transient query failure to ride out, it means connections are not open
+// yet (or never will be, e.g. in a test harness with no pool configured), so
+// retrying within this bound would just busy-wait. The next postgres-monitor
+// tick resolves it once connections are up, same as before this existed.
+func (pm *MultipoolerManager) resolveMigrationHoldBeforeServing(ctx context.Context) {
+	if pm.internalQueryService() == nil {
+		pm.refreshMigrationHold(ctx)
+		return
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, migrationHoldResolveTimeout)
+	defer cancel()
+	r := retry.New(migrationHoldResolveBaseWait, migrationHoldResolveMaxWait)
+	for _, err := range r.Attempts(timeoutCtx) {
+		if err != nil {
+			return
+		}
+		pm.refreshMigrationHold(timeoutCtx)
+		if migrationHoldState(pm.migrationImportHold.Load()) != migrationHoldUnknown {
+			return
+		}
+		if pm.internalQueryService() == nil {
+			return
+		}
 	}
 }
 
