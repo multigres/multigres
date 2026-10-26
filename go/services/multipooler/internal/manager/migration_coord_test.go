@@ -117,52 +117,45 @@ func TestTargetConnInfo_SlotFeatureOffFailsFast(t *testing.T) {
 
 // TestRefreshMigrationHold_UndefinedTableClearsHold covers the common case for
 // most poolers: the migrator has never been used on this shard, so
-// multigres.migration doesn't exist. That must clear the hold, not hold it
-// hostage forever.
+// multigres.migration doesn't exist. That must resolve to not-held, not hold
+// it hostage forever.
 func TestRefreshMigrationHold_UndefinedTableClearsHold(t *testing.T) {
 	pm, qs := newTestManagerWithMock(t, "default", "0")
-	pm.migrationImportHold.Store(true) // simulate a stale "held" value
+	pm.migrationImportHold.Store(int32(migrationHoldHeld)) // simulate a stale held value
 
 	qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration",
 		&mterrors.PgDiagnostic{Code: mterrors.PgSSUndefinedTable, Message: `relation "multigres.migration" does not exist`})
 
 	pm.refreshMigrationHold(t.Context())
 
-	assert.False(t, pm.migrationImportHold.Load(), "undefined_table must clear the hold")
+	assert.Equal(t, migrationHoldNotHeld, migrationHoldState(pm.migrationImportHold.Load()), "undefined_table must resolve to not held")
 }
 
 // TestRefreshMigrationHold_OtherErrorFailsClosed covers the finding this test
 // guards against: a transient or unrelated read failure (not "table doesn't
-// exist") must NOT clear the hold, in either direction — it leaves whatever
-// was there, since the real migration state is unknown without a successful
-// read. refreshMigrationHold runs on every tick for every pooler, so treating
-// every error as "release the hold" would let a DRAINING pooler reconcile back
-// to SERVING on a mere blip during an active or failed migration; treating
-// every error as "always hold" (the naively "safe-looking" fix) would instead
-// permanently wedge every non-migrating pooler, since for them the table
-// genuinely never exists and every tick would see an error.
+// exist") must NOT resolve the hold either way — it leaves whatever state was
+// there (including migrationHoldUnknown), since the real migration state is
+// unknown without a successful read. refreshMigrationHold runs on every tick
+// for every pooler, so treating every error as "release the hold" would let a
+// DRAINING pooler reconcile back to SERVING on a mere blip during an active or
+// failed migration; treating every error as "always hold" (the naively
+// "safe-looking" fix) would instead permanently wedge every non-migrating
+// pooler, since for them the table genuinely never exists and every tick would
+// see an error.
 func TestRefreshMigrationHold_OtherErrorFailsClosed(t *testing.T) {
 	otherErr := errors.New("connection reset by peer")
 
-	t.Run("previously held, stays held", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, "default", "0")
-		pm.migrationImportHold.Store(true)
-		qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration", otherErr)
+	for _, state := range []migrationHoldState{migrationHoldUnknown, migrationHoldNotHeld, migrationHoldHeld} {
+		t.Run(state.String(), func(t *testing.T) {
+			pm, qs := newTestManagerWithMock(t, "default", "0")
+			pm.migrationImportHold.Store(int32(state))
+			qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration", otherErr)
 
-		pm.refreshMigrationHold(t.Context())
+			pm.refreshMigrationHold(t.Context())
 
-		assert.True(t, pm.migrationImportHold.Load(), "an unrelated read failure must not release a real hold")
-	})
-
-	t.Run("previously clear, stays clear", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, "default", "0")
-		pm.migrationImportHold.Store(false)
-		qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration", otherErr)
-
-		pm.refreshMigrationHold(t.Context())
-
-		assert.False(t, pm.migrationImportHold.Load(), "a non-migrating pooler must not be wedged by a transient read failure")
-	})
+			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "an unrelated read failure must not change the hold state")
+		})
+	}
 }
 
 // TestRefreshMigrationHold_NilQueryServiceFailsClosed covers the finding this
@@ -170,27 +163,19 @@ func TestRefreshMigrationHold_OtherErrorFailsClosed(t *testing.T) {
 // unavailable is the same kind of ambiguous read failure
 // TestRefreshMigrationHold_OtherErrorFailsClosed covers for a failed query —
 // there is no successful read to tell a genuinely-held migration from an
-// unreadable table, so the hold must stay at its last known value, not clear.
+// unreadable table, so the hold must stay at its last known state, not resolve.
 func TestRefreshMigrationHold_NilQueryServiceFailsClosed(t *testing.T) {
-	t.Run("previously held, stays held", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock(t, "default", "0")
-		pm.qsc = nil
-		pm.migrationImportHold.Store(true)
+	for _, state := range []migrationHoldState{migrationHoldUnknown, migrationHoldNotHeld, migrationHoldHeld} {
+		t.Run(state.String(), func(t *testing.T) {
+			pm, _ := newTestManagerWithMock(t, "default", "0")
+			pm.qsc = nil
+			pm.migrationImportHold.Store(int32(state))
 
-		pm.refreshMigrationHold(t.Context())
+			pm.refreshMigrationHold(t.Context())
 
-		assert.True(t, pm.migrationImportHold.Load(), "a nil query service must not release a real hold")
-	})
-
-	t.Run("previously clear, stays clear", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock(t, "default", "0")
-		pm.qsc = nil
-		pm.migrationImportHold.Store(false)
-
-		pm.refreshMigrationHold(t.Context())
-
-		assert.False(t, pm.migrationImportHold.Load(), "a non-migrating pooler must not be wedged by a nil query service")
-	})
+			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "a nil query service must not change the hold state")
+		})
+	}
 }
 
 // TestRefreshMigrationHold_UndecodableResultFailsClosed covers the CRITICAL
@@ -198,27 +183,19 @@ func TestRefreshMigrationHold_NilQueryServiceFailsClosed(t *testing.T) {
 // result ScanSingleRow cannot decode (e.g. zero rows) is just as ambiguous as
 // the QueryAdmin-error case TestRefreshMigrationHold_OtherErrorFailsClosed
 // covers above, and per this function's own docstring must be treated the
-// same way — leave the hold at its last known value, not clear it. Clearing
-// it here would let a DRAINING pooler reconcile back to SERVING while an
-// IMPORT or FAILED migration still holds incomplete data.
+// same way — leave the hold at its last known state, not resolve it. Resolving
+// it to not-held here would let a DRAINING pooler reconcile back to SERVING
+// while an IMPORT or FAILED migration still holds incomplete data.
 func TestRefreshMigrationHold_UndecodableResultFailsClosed(t *testing.T) {
-	t.Run("previously held, stays held", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, "default", "0")
-		pm.migrationImportHold.Store(true)
-		qs.AddQueryPattern("SELECT count\\(\\*\\) FROM multigres.migration", mock.MakeQueryResult(nil, nil))
+	for _, state := range []migrationHoldState{migrationHoldUnknown, migrationHoldNotHeld, migrationHoldHeld} {
+		t.Run(state.String(), func(t *testing.T) {
+			pm, qs := newTestManagerWithMock(t, "default", "0")
+			pm.migrationImportHold.Store(int32(state))
+			qs.AddQueryPattern("SELECT count\\(\\*\\) FROM multigres.migration", mock.MakeQueryResult(nil, nil))
 
-		pm.refreshMigrationHold(t.Context())
+			pm.refreshMigrationHold(t.Context())
 
-		assert.True(t, pm.migrationImportHold.Load(), "an undecodable result must not release a real hold")
-	})
-
-	t.Run("previously clear, stays clear", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, "default", "0")
-		pm.migrationImportHold.Store(false)
-		qs.AddQueryPattern("SELECT count\\(\\*\\) FROM multigres.migration", mock.MakeQueryResult(nil, nil))
-
-		pm.refreshMigrationHold(t.Context())
-
-		assert.False(t, pm.migrationImportHold.Load(), "a non-migrating pooler must not be wedged by an undecodable result")
-	})
+			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "an undecodable result must not change the hold state")
+		})
+	}
 }

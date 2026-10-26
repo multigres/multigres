@@ -170,13 +170,42 @@ func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *
 	pm.mu.Unlock()
 }
 
+// migrationHoldState is the three-state result of resolving the migration
+// serving gate. The zero value, migrationHoldUnknown, is distinct from
+// migrationHoldNotHeld: it means no read against multigres.migration has
+// ever succeeded, as opposed to one having succeeded and found no hold.
+// Nothing durable backs this across a process restart; it is purely an
+// in-memory cache of the last successful read.
+type migrationHoldState int32
+
+const (
+	migrationHoldUnknown migrationHoldState = iota
+	migrationHoldNotHeld
+	migrationHoldHeld
+)
+
+func (s migrationHoldState) String() string {
+	switch s {
+	case migrationHoldUnknown:
+		return "unknown"
+	case migrationHoldNotHeld:
+		return "not_held"
+	case migrationHoldHeld:
+		return "held"
+	default:
+		return "invalid"
+	}
+}
+
 // migrationServingHold reports whether this pooler must withhold client
-// serving because an active migration on this shard is still in the IMPORT
-// direction. It is the migration half of the serving gate, OR-combined with
-// the divergence hold in the state-manager drift check. Read cheaply as an
-// atomic so it can run under the monitor tick.
+// serving because an active migration on this shard is confirmed still in
+// the IMPORT direction. migrationHoldUnknown reads as false, the same as
+// migrationHoldNotHeld: a gate that has not resolved yet must not hold an
+// otherwise-ordinary bootstrap. It is the migration half of the serving
+// gate, OR-combined with the divergence hold in the state-manager drift
+// check. Read cheaply as an atomic so it can run under the monitor tick.
 func (pm *MultipoolerManager) migrationServingHold() bool {
-	return pm.migrationImportHold.Load()
+	return migrationHoldState(pm.migrationImportHold.Load()) == migrationHoldHeld
 }
 
 // refreshMigrationHold recomputes the migration serving gate from the
@@ -187,7 +216,7 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // exists in any phase other than EXPORTING, including CREATED and FAILED;
 // only an EXPORTING migration serves. A missing table clears the hold. Any
 // other read failure leaves the hold at its last known value instead of
-// clearing it, since we can't tell a genuinely-held migration from an
+// resolving it, since we can't tell a genuinely-held migration from an
 // unreadable table without a successful read, and clearing on an ambiguous
 // failure could let a DRAINING pooler reconcile back to SERVING
 // mid-migration. It is a single count over a tiny table and never touches
@@ -197,7 +226,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 	if qs == nil {
 		// Connection pools not yet open at startup, or otherwise unavailable: the
 		// same ambiguous-read-failure case the docstring above describes. Leave the
-		// hold at its last known value rather than clearing it.
+		// hold at its last known value rather than resolving it.
 		return
 	}
 	res, err := qs.QueryAdmin(ctx,
@@ -206,7 +235,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 		if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
 			// multigres.migration absent: the migrator has never been used on this
 			// shard, the common case for most poolers.
-			pm.migrationImportHold.Store(false)
+			pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
 		}
 		return
 	}
@@ -214,10 +243,14 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 	if err := executor.ScanSingleRow(res, &n); err != nil {
 		// A decode failure here is the same kind of ambiguous read failure the
 		// docstring above describes for QueryAdmin itself: leave the hold at
-		// its last known value rather than clearing it.
+		// its last known value rather than resolving it.
 		return
 	}
-	pm.migrationImportHold.Store(n > 0)
+	if n > 0 {
+		pm.migrationImportHold.Store(int32(migrationHoldHeld))
+	} else {
+		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+	}
 }
 
 // drainForMigrationImport is the synchronous serving barrier the migration
@@ -233,7 +266,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 // DRAINING back to SERVING. refreshMigrationHold then keeps it true on every
 // tick because the phase has left CREATED.
 func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error {
-	pm.migrationImportHold.Store(true)
+	pm.migrationImportHold.Store(int32(migrationHoldHeld))
 	lockCtx, err := pm.actionLock.Acquire(ctx, "MigrationImportDrain")
 	if err != nil {
 		return err
