@@ -34,7 +34,7 @@ type observedOutgoingRule struct {
 	// separate verification: UpdateRule always finalizes it, exactly as it stands,
 	// before applying anything new.
 	transition RuleTransition
-	// basis is how this rule is to be revoked; see revoke.
+	// basis is how this rule is to be revoked; see proveRevoked.
 	basis revocationBasis
 }
 
@@ -91,26 +91,47 @@ func discoverOutgoingRule(
 
 // revokedOutgoingRule is an observedOutgoingRule that is known to be revoked:
 // no write can become durable under it that the recruits cannot see. It can only
-// be built by revoke, so anything derived from it rests on that proof.
+// be built by proveRevoked, so anything derived from it rests on that proof.
 type revokedOutgoingRule struct {
 	observedOutgoingRule
 }
 
-// revoke establishes that the outgoing rule is revoked, by the evidence its
-// basis names: recruitment of the outgoing cohort, or an external cert.
-func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
-	if o.basis.cert == nil {
-		if err := o.revokeByRecruitment(); err != nil {
-			return revokedOutgoingRule{}, err
-		}
+// proveRevoked establishes that the outgoing rule is revoked, by the evidence its
+// basis names: recruitment of the outgoing decision's cohort, or an external cert
+// plus recruitment of the incoming cohort.
+func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
+	var err error
+	if o.basis.cert != nil {
+		err = o.proveRevokedByCert()
+	} else {
+		err = o.proveRevokedByRecruitment()
 	}
-	// Revoking by cert needs no recruitment of the outgoing cohort: the cert
-	// promises nothing durable lies beyond its frozen LSN under the outgoing
-	// rule.
+	if err != nil {
+		return revokedOutgoingRule{}, err
+	}
 	return revokedOutgoingRule{o}, nil
 }
 
-// revokeByRecruitment requires the outgoing decision's cohort to be sufficiently
+// proveRevokedByCert relies on the cert's two promises about the outgoing rule:
+// nothing durable lies beyond its frozen LSN, and its term is unique. The
+// outgoing cohort is not recruited, so the term can still be retried by the same
+// coordinator, for example repeated bootstrap attempts with different proposed
+// leaders. A majority of the incoming cohort forces any two such attempts to
+// overlap, so they cannot both succeed. This relies on retries proposing the same
+// cohort, which nothing enforces. The unrecruited-cannot-commit half also rejects
+// a stale cert: if an earlier attempt's rule became durable on this cohort, the
+// recruits must overlap its quorum, and holders of that rule refuse the new
+// revocation.
+func (o observedOutgoingRule) proveRevokedByCert() error {
+	cert := o.basis.cert
+	recruitedIncoming := statusesToIDs(filterCohortStatuses(cert.incomingCohort, o.recruited))
+	if err := CheckSufficientRecruitment(cert.incomingPolicy, cert.incomingCohort, recruitedIncoming); err != nil {
+		return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
+	}
+	return nil
+}
+
+// proveRevokedByRecruitment requires the outgoing decision's cohort to be sufficiently
 // recruited (see CheckSufficientRecruitment). This is what makes the proposal
 // safe.
 //
@@ -120,7 +141,7 @@ func (o observedOutgoingRule) revoke() (revokedOutgoingRule, error) {
 // is durable under the outgoing rule is invisible to the recruits: while a
 // proposal is undecided, a write needs the "Both" policy of the decision and the
 // proposal, and the cohort of that policy lies within the decision's.
-func (o observedOutgoingRule) revokeByRecruitment() error {
+func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	decision := o.transition.Decision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
