@@ -60,7 +60,7 @@ func shardKeyOf(sk *clustermetadatapb.ShardKey) shardKey {
 // The state is the SET of poolers currently claiming to be the writable
 // (routing) primary — membership means "this pooler is a routing primary right
 // now," keyed by pooler id. This is distinct from consensus: orch reasons about
-// the highest-known rule over consensus statuses; the gateway only cares which
+// the highest intended rule over consensus statuses; the gateway only cares which
 // pooler(s) are writable primaries. The observation's rule number is used only
 // as a tiebreaker to pick among members during the brief failover-overlap window
 // when two poolers both claim primary. A pooler is added when it advertises

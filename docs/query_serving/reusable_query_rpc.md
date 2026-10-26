@@ -1,8 +1,8 @@
 # Reusable query RPC transport
 
-Rollback: `--query-stream-reuse=false` on multigateway restores per-call
-query-service RPCs; `--grpc-stream-workers=0` on any server restores gRPC's
-goroutine-per-stream default. Both are independent.
+Reusable query streams are always enabled.
+`--grpc-stream-workers=0` restores gRPC's goroutine-per-stream default
+without changing the query transport or its completion acknowledgement.
 
 The gateway sends sequential SQL, portal, COPY and unary query-service operations
 over one bidirectional `ExecuteStream` RPC. This reuses HTTP/2 stream state and a
@@ -17,9 +17,10 @@ admission and reservation validation on every operation. SQL errors retain
 their gRPC status and PostgreSQL diagnostic details.
 
 The client waits for a readiness handshake advertising supported operation
-types before sending work. A server without ExecuteStream returns UNIMPLEMENTED;
-a server without a capability list supports only the original StreamExecute
-operation. Unsupported operations select their dedicated RPC before submission.
+types before sending work. Servers must implement ExecuteStream and advertise
+support for the requested operation. A missing RPC, missing capability list, or
+unsupported operation returns UNIMPLEMENTED before submission; it does not select
+a dedicated RPC.
 The original request/response field numbers remain unchanged for wire compatibility. There is no automatic
 replay after sending SQL, including after an ambiguous send/receive failure.
 Cancellation, an abandoned callback, or a malformed response discards the
@@ -69,7 +70,7 @@ If COPY FROM fails after READY but before DONE/FAIL, the server marks completion
 and closes the transport to interrupt a client still uploading. That transport
 is discarded; terminal diagnostics and reservation state can still be read.
 Abandoned output callbacks and incomplete/malformed conversations also discard the lease.
-Peers that do not advertise COPY support use the dedicated CopyBidiExecute RPC.
+Peers that do not advertise COPY support are rejected before submission.
 
 Statement deadlines use the existing per-operation timeout and completion fields.
 The gateway owns the timeout policy; the pooler's operation context expires and
@@ -104,12 +105,18 @@ Unary operations retain their conservative retry classification; no operation
 is replayed after submission, even when its completion status is UNAVAILABLE.
 
 Requests carrying outgoing RPC metadata or nonstandard propagation use the
-legacy per-call path. Servers reject reuse with authorization headers before
-the readiness handshake. This preserves per-call credential validation for
+dedicated per-call path. Servers reject reuse with authorization headers before
+the readiness handshake using a structured error detail. This also covers credentials
+added by gRPC after the gateway has selected a transport; a plain UNIMPLEMENTED
+error never selects a dedicated RPC. This preserves per-call credential validation for
 the standard authenticated path; deployments adding custom call-level
-interceptors/credentials must assess them before enabling transport reuse.
-`--query-stream-reuse=false` (or `MT_QUERY_STREAM_REUSE=false`) disables reuse
-on gateway restart, without reverting the worker improvements.
+interceptors/credentials must assess their compatibility with transport reuse.
+
+Outgoing metadata, unsupported propagation, or an explicit server requirement
+for per-call authorization selects a dedicated RPC before submission. Successful fallback
+operations behave normally, but an in-flight statement timeout closes the client
+session with FATAL SQLSTATE 08006 because cleanup cannot be acknowledged.
+The `legacy_*` transport metrics below identify which fallback is being used.
 
 ## Interceptor audit
 
@@ -118,11 +125,11 @@ transport instead of once per statement. The multipooler server registers
 exactly two such hooks (`servenv/grpc_server.go`); nothing in
 `go/services/multipooler` adds interceptors of its own.
 
-| Hook                          | Scope                                 | Effect under reuse                                                                                                                                                                                                        |
-| ----------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth interceptor, mTLS plugin | Peer certificate, connection-scoped   | Identity is a property of the TLS connection carrying the stream; validating it once per transport is equivalent to once per call.                                                                                        |
-| Auth interceptor, JWT plugin  | `authorization` metadata, call-scoped | Token expiry would otherwise widen to the stream lifetime. `Serve` refuses reuse with `UNIMPLEMENTED` before the ready frame, so the gateway falls back to a dedicated RPC and the token is validated per call as before. |
-| `otelgrpc` stats handler      | Per RPC                               | Produces one transport span and `rpc.*` measurements per stream. `Serve` reconstructs a per-operation server span from the request's propagation fields so SQL traces stay per statement.                                 |
+| Hook                          | Scope                                 | Effect under reuse                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth interceptor, mTLS plugin | Peer certificate, connection-scoped   | Identity is a property of the TLS connection carrying the stream; validating it once per transport is equivalent to once per call.                                                                                                             |
+| Auth interceptor, JWT plugin  | `authorization` metadata, call-scoped | Token expiry would otherwise widen to the stream lifetime. `Serve` refuses reuse before the ready frame with `UNIMPLEMENTED` and a structured authorization requirement; the gateway selects a dedicated RPC so tokens are validated per call. |
+| `otelgrpc` stats handler      | Per RPC                               | Produces one transport span and `rpc.*` measurements per stream. `Serve` reconstructs a per-operation server span from the request's propagation fields so SQL traces stay per statement.                                                      |
 
 Admission, fencing, reservation ownership, session settings and diagnostics are
 not interceptor concerns: they live inside the existing query-service handlers,
@@ -155,13 +162,13 @@ The gateway pool exports its own low-cardinality instruments. Attribute values
 come from fixed vocabularies; SQL text, reservation, caller and stream
 identifiers are never labels.
 
-`legacy_rpc_unsupported` means the peer does not implement `ExecuteStream`.
-`legacy_operation_unsupported` means the peer supports `ExecuteStream` but does
-not advertise support for the requested operation.
+`legacy_authorization` means the server requires per-call authorization.
+`legacy_metadata` and `legacy_propagation` preserve request metadata and context
+that cannot be carried in the operation envelope.
 
-| Instrument                           | Attributes                                                                                                         | Meaning                                                                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `mg.gateway.query_stream.operations` | `transport=new\|reused\|legacy_rpc_unsupported\|legacy_operation_unsupported\|legacy_metadata\|legacy_propagation` | Operations by transport; `new` counts submitted operations on new streams, `legacy_*` counts dedicated-RPC fallbacks and why. |
-| `mg.gateway.query_stream.discards`   | `reason=cancelled\|incomplete\|transport\|retired\|idle_full\|idle_expired\|closed`                                | Streams closed, by cause. Normal retirement appears here, not as a failure.                                                   |
-| `mg.gateway.query_stream.active`     | none                                                                                                               | Streams currently leased to an operation.                                                                                     |
-| `mg.gateway.query_stream.idle`       | none                                                                                                               | Streams retained idle for reuse.                                                                                              |
+| Instrument                           | Attributes                                                                          | Meaning                                                                                                                       |
+| ------------------------------------ | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `mg.gateway.query_stream.operations` | `transport=new\|reused\|legacy_authorization\|legacy_metadata\|legacy_propagation`  | Operations by transport; `new` counts submitted operations on new streams, `legacy_*` counts dedicated-RPC fallbacks and why. |
+| `mg.gateway.query_stream.discards`   | `reason=cancelled\|incomplete\|transport\|retired\|idle_full\|idle_expired\|closed` | Streams closed, by cause. Normal retirement appears here, not as a failure.                                                   |
+| `mg.gateway.query_stream.active`     | none                                                                                | Streams currently leased to an operation.                                                                                     |
+| `mg.gateway.query_stream.idle`       | none                                                                                | Streams retained idle for reuse.                                                                                              |

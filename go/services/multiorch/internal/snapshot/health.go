@@ -18,7 +18,6 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -75,7 +74,7 @@ const DefaultLeaderWriteFreshness = 15 * time.Second
 // write", not direct proof of it — the strongest signal would be a recent
 // successful heartbeat write, which isn't surfaced through health today.
 // Tighten this once that signal exists.
-func LeaderWritesProgressing(leader *multiorchdatapb.PoolerHealthState, intendedRule *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
+func LeaderWritesProgressing(leader *multiorchdatapb.PoolerHealthState, intendedRule commonconsensus.RuleTransition, now time.Time, freshness time.Duration) bool {
 	if leader == nil {
 		return false
 	}
@@ -86,5 +85,5 @@ func LeaderWritesProgressing(leader *multiorchdatapb.PoolerHealthState, intended
 	if leader.GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
 		return false
 	}
-	return commonconsensus.IsRuleDecided(intendedRule)
+	return intendedRule.IsDecided()
 }

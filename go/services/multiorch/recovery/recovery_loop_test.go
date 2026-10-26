@@ -1447,11 +1447,6 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	// Set up store state: dead primary, healthy replicas
 
-	// Record initial LastCheckAttempted times
-	initialPrimaryCheck := time.Now().Add(-5 * time.Minute)
-	initialReplica1Check := time.Now().Add(-4 * time.Minute)
-	initialReplica2Check := time.Now().Add(-3 * time.Minute)
-
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
@@ -1459,9 +1454,8 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
-		StreamConnected:    false, // Primary is dead
-		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
-		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
+		StreamConnected: false, // Primary is dead
+		LastSeen:        timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: primaryID,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -1483,8 +1477,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
-		LastSeen:           timestamppb.Now(),
-		LastCheckAttempted: timestamppb.New(initialReplica1Check),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
@@ -1495,8 +1488,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
-		LastSeen:           timestamppb.Now(),
-		LastCheckAttempted: timestamppb.New(initialReplica2Check),
+		LastSeen: timestamppb.Now(),
 	}
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica2Pooler, nil))
 
@@ -1524,11 +1516,6 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	// ASSERTION: Recovery should be executed
 	assert.True(t, primaryRecovery.executed.Load(), "recovery should be executed")
-
-	// Poolers push their own updated state via ManagerHealthStream after a role
-	// change, so there is no need to force-poll them post-recovery.
-	_ = initialReplica1Check
-	_ = initialReplica2Check
 }
 
 // TestRecoveryLoop_FullCycle tests the complete recovery cycle end-to-end:

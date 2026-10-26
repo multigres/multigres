@@ -424,11 +424,9 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 
 // markConnected records that the stream is connected in the pooler store.
 func (hs *HealthStream) markConnected() {
-	now := timestamppb.Now()
 	cb := func(existing *Pooler) *Pooler {
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.StreamConnected = true
-			h.StreamConnectedSince = now
 		})
 		return existing
 	}

@@ -70,13 +70,8 @@ Things to know:
   [Bootstrap and the rule store](#bootstrap-and-the-rule-store)).
 - **Status pages:** `/` is an index linking to `/multigateway` and
   `/multipooler`.
-- **Configuration files are not supported yet.** Settings come from flags and
-  `MT_*` environment variables. A config file (`--config-file`, or one found
-  through `--config-name` and `--config-path`) makes `minigres` refuse to start:
-  each half keeps its own settings registry, because both define keys such as
-  `pg-port` with different meanings, so component settings in a file would
-  otherwise be silently ignored. Separate configuration namespaces for the two
-  halves are planned.
+- **Settings** come from flags, `MT_*` environment variables and a config
+  file (see [Configuration file](#configuration-file)).
 
 ### Flags
 
@@ -89,7 +84,42 @@ Things to know:
 | `--service-map grpc-consensus`                              | Has no effect: the consensus service is never registered (see [The static leader](#the-static-leader))                  |
 
 A flag that both halves define is rejected at startup, so a new flag that
-collides fails loudly instead of silently shadowing another.
+collides fails loudly instead of silently shadowing another. Likewise, an `MT_*`
+environment variable that both halves read is rejected at startup unless it
+belongs to a shared setting.
+
+### Configuration file
+
+One file configures the process and both halves (`--config-file`, or one found
+through `--config-name` and `--config-path`). The process's settings and the
+shared settings sit at the top level; each half's own settings are written
+behind the half's name, with the same names as in a Multigres component's file:
+
+```yaml
+grpc-port: 15100
+log-level: info
+topo-global-server-addresses: localhost:2379
+cell: zone1 # shared: applied to both halves
+service-id: mg-1 # shared
+multigateway.pg-port: 15432
+multigateway.statement-timeout: 30s
+multipooler.pgctld-addr: localhost:15200
+multipooler.database: postgres
+```
+
+- **Nested sections** (`multigateway:` with `pg-port: 15432` indented under it)
+  are read as the same settings.
+- **Shared settings** (`cell`, `service-id`, `enable-slot-based-replication`)
+  are written once at the top level and applied to both halves, as their flags
+  are. Inside a section they are accepted only with the top-level value.
+- **Priority** is the same as in Multigres: flag, then environment variable,
+  then the file, then the default.
+- **Settings nothing reads are rejected.** A typo, a half's setting without its
+  prefix (the message suggests the prefixed name) or `multipooler.pg-port`
+  makes `minigres` refuse to start.
+- **Changes while running:** dynamic settings follow edits to the file. An edit
+  with a setting nothing reads is rejected as a whole; the previous settings
+  stay and an error is logged.
 
 ## How it is wired
 
@@ -104,8 +134,11 @@ resources themselves, and they never register the process flags, call
 `main` also passes the settings registry each half configures its own settings
 on. `cmd/multigateway` and `cmd/multipooler` pass the registry their servenv
 uses, so a configuration file sets the half's settings too. `cmd/minigres`
-gives each half its own registry, because both define keys such as `pg-port`
-with different meanings; that is why it refuses configuration files for now.
+passes each half a view of its registry behind the half's name
+(`Registry.WithPrefix`): both define keys such as `pg-port` with different
+meanings, and the view stores the gateway's as `multigateway.pg-port` and the
+pooler's as `multipooler.pg-port`. The halves' code is unchanged; the config
+file's rules are in `cmd/minigres/config.go`.
 
 `cmd/multigateway` and `cmd/multipooler` do this for one half each, and
 `cmd/minigres` does it once for both. `cmd/minigres` opens the store, calls

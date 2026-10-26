@@ -44,11 +44,16 @@ func (p AtLeastNPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
 // ignores its own entry; num_sync = N-1 already accounts for the primary's
 // local write counting as 1).
 //
-// Errors when the cohort is too small to satisfy num_sync.
+// Errors when the primary is not in the cohort, or when the cohort has fewer than
+// num_sync standbys besides the primary.
 func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 	cohort []*clustermetadatapb.ID,
 	primary *clustermetadatapb.ID,
 ) (*SyncReplicationConfig, error) {
+	if err := requirePrimaryInCohort(cohort, primary); err != nil {
+		return nil, err
+	}
+
 	// N==1 means the primary alone satisfies durability — return an explicit
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
@@ -63,10 +68,10 @@ func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 
 	// num_sync = required_count - 1: the primary's own write counts as 1 ack.
 	requiredNumSync := p.N - 1
-	if requiredNumSync > len(cohort) {
+	if standbys := len(normalizeIDs(cohort)) - 1; requiredNumSync > standbys {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("cannot establish synchronous replication: insufficient cohort members (required %d standbys, available %d)",
-				requiredNumSync, len(cohort)))
+				requiredNumSync, standbys))
 	}
 
 	return &SyncReplicationConfig{

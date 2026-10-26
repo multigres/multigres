@@ -484,7 +484,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 						"entity_id", entityID,
 						"problem_code", problem.Code,
 					)
-					return &types.RecheckedProblem{Problem: p, HighestKnownRule: rule}, nil
+					return &types.RecheckedProblem{Problem: p, HighestIntendedRule: rule}, nil
 				}
 			}
 

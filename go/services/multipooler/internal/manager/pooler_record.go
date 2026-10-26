@@ -253,7 +253,7 @@ func poolerTypeFromRoutingRole(role clustermetadatapb.RoutingRole) clustermetada
 //     publish-only field, kept for the external operator until it migrates to
 //     routing_state.
 //   - The writable PRIMARY's routing_state (role + rule) is persisted as-is.
-//     Replicas publish role only, with rule dropped: a replica's highest-known
+//     Replicas publish role only, with rule dropped: a replica's highest intended
 //     rule bumps frequently and carries no external meaning, so publishing it
 //     would churn etcd on every bump. Dropping just the rule field (rather than
 //     the whole routing_state, as before) lets external readers key off
@@ -395,7 +395,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	}
 	// Reduce to the etcd form (rule kept only for the writable PRIMARY), then
 	// dedup against the last published form: a replica's frequent
-	// highest-known-rule bumps reduce to an identical form and never churn etcd.
+	// highest-intended-rule bumps reduce to an identical form and never churn etcd.
 	pub := routingStateForPublish(desired)
 	if proto.Equal(pub, r.lastPublished.Load()) {
 		return

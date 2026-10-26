@@ -104,3 +104,22 @@ func TestFlagExplicitlySet_ConfigFile(t *testing.T) {
 	// Through the resolver: the TCP dial is preserved despite a pooler-dir.
 	assert.Equal(t, "", resolveSocketFilePath("", mp.flagExplicitlySet("socket-file"), "/data/pooler-1", 5432))
 }
+
+// TestFlagExplicitlySet_ConfigFileInView covers minigres, where the pooler's
+// settings sit behind its name in a shared registry.
+func TestFlagExplicitlySet_ConfigFileInView(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	mp := &Multipooler{reg: reg.WithPrefix("multipooler")}
+	viperutil.Configure(mp.reg, "socket-file", viperutil.Options[string]{FlagName: "socket-file"})
+	path := filepath.Join(t.TempDir(), "mtconfig.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("multipooler.socket-file: \"\"\n"), 0o644))
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	vc := viperutil.NewViperConfig(reg)
+	vc.RegisterFlags(fs)
+	require.NoError(t, fs.Set("config-file", path))
+	cancel, err := vc.LoadConfig(reg)
+	require.NoError(t, err)
+	t.Cleanup(cancel)
+
+	assert.True(t, mp.flagExplicitlySet("socket-file"))
+}

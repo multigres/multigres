@@ -215,10 +215,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// conn; the defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
-	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
+	// Execute the query - the regular.Conn.StatelessQuery returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated.
-	// Uses retry variant since this is a stateless pool query.
-	results, err := conn.Conn.QueryWithRetry(ctx, sql)
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	results, err := conn.Conn.StatelessQuery(ctx, sql)
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
@@ -355,12 +356,12 @@ func (e *Executor) StreamExecute(
 	}
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
-	// the retry-on-connection-error variant of QueryStreaming: reconnect wipes
-	// per-connection prepared-statement state (regular_conn.go Reconnect:
-	// "Prepared statements don't survive reconnection"), so after a silent
-	// reconnect the materialized EXECUTE would fail with "prepared statement
-	// does not exist". Skip the retry for this rare path; the caller can reissue
-	// the query at the application level on transient failures.
+	// StatelessQueryStreaming: the materialized EXECUTE depends on the statement
+	// just prepared on this session, and a reconnect wipes per-connection
+	// prepared-statement state (regular_conn.go Reconnect: "Prepared statements
+	// don't survive reconnection"), so after a silent reconnect it would fail
+	// with "prepared statement does not exist". Use plain QueryStreaming for
+	// this rare path.
 	if executeSQLPreparedStmt != nil {
 		querySQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn.Conn, executeSQLPreparedStmt)
 		if err != nil {
@@ -372,8 +373,9 @@ func (e *Executor) StreamExecute(
 		return nil, nil
 	}
 
-	// Use streaming query execution with retry since this is a stateless pool query.
-	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	if err := conn.Conn.StatelessQueryStreaming(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
 

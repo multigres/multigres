@@ -50,8 +50,9 @@ var omittedPoolerFlags = []string{"pg-port"}
 
 // minigres holds the pieces both halves share and the two halves themselves.
 type minigres struct {
-	// reg is the process registry, which holds the settings of the shared
-	// servenv, gRPC server and topology configuration.
+	// reg is the process registry. It holds the settings of the shared
+	// servenv, gRPC server and topology configuration, and, through a view
+	// per half, each half's settings behind the half's name (see config.go).
 	reg        *viperutil.Registry
 	senv       *servenv.ServEnv
 	grpcServer *servenv.GrpcServer
@@ -89,11 +90,11 @@ func newMinigres() *minigres {
 		QueryGrpcServer: m.queryGrpcServer,
 	}
 	// The only pooler of its shard leads it without consensus.
-	// Each half configures its settings on its own registry: both define keys
-	// such as pg-port with different meanings, so they cannot share one.
-	// Configuration files are refused until the halves have separate namespaces
-	// (MUL-1663).
-	m.pooler = multipooler.NewMultipooler(tel, viperutil.NewRegistry(), resources, "/"+constants.ServiceMultipooler, true)
+	// Each half configures its settings on a view of the process registry
+	// behind its own name: both define keys such as pg-port with different
+	// meanings, so one config file sets them as multigateway.pg-port and
+	// multipooler.pg-port.
+	m.pooler = multipooler.NewMultipooler(tel, reg.WithPrefix(constants.ServiceMultipooler), resources, "/"+constants.ServiceMultipooler, true)
 	// The multigateway uses only the multipooler in this process: it reads the
 	// pooler's record in memory instead of through the topology, and reaches
 	// it through the in-memory server. It is the only gateway in front
@@ -103,7 +104,7 @@ func newMinigres() *minigres {
 		DialOptions: m.queryGrpcServer.DialOptions(),
 		Record:      m.pooler.Record,
 	}
-	m.gateway = multigateway.NewMultigateway(viperutil.NewRegistry(), resources, "/"+constants.ServiceMultigateway, localPooler)
+	m.gateway = multigateway.NewMultigateway(reg.WithPrefix(constants.ServiceMultigateway), resources, "/"+constants.ServiceMultigateway, localPooler)
 	return m
 }
 
@@ -171,6 +172,10 @@ func (m *minigres) preRun(cmd *cobra.Command) error {
 	if err := copySharedFlags(fs, m.poolerFlags); err != nil {
 		return err
 	}
+	if err := checkEnvClashes(m.reg); err != nil {
+		return err
+	}
+	m.reg.SetConfigPreparer(prepareConfig(m.reg))
 	if err := m.gateway.CobraPreRunE(cmd); err != nil {
 		return err
 	}
@@ -179,13 +184,6 @@ func (m *minigres) preRun(cmd *cobra.Command) error {
 	// own servenv, so there is nothing for it to suppress here.
 	if err := m.senv.CobraPreRunE(cmd); err != nil {
 		return err
-	}
-	// A config file is read only into the process registry: each half keeps its
-	// own registry, because both define keys such as pg-port with different
-	// meanings. Component settings in a file would be silently ignored, so refuse
-	// the file until the halves have separate configuration namespaces.
-	if file := m.reg.ConfigFileLoaded(); file != "" {
-		return fmt.Errorf("config file %s: minigres does not support configuration files yet (MUL-1663); use flags or MT_* environment variables", file)
 	}
 	return ensureServiceID(fs, m.poolerFlags, m.pooler.ServiceIdentity().ServiceInstanceID)
 }

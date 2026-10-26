@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -119,9 +120,9 @@ func (s *operationTestServer) ReleaseReservedConnection(ctx context.Context, req
 	return response.(*pb.ReleaseReservedConnectionResponse), err
 }
 
-func queryServiceForOperations(t *testing.T, s *operationTestServer) *grpcQueryService {
+func queryServiceForOperations(t *testing.T, s *operationTestServer, dialOptions ...grpc.DialOption) *grpcQueryService {
 	t.Helper()
-	client, pool := connectStreamPool(t, s)
+	client, pool := connectStreamPool(t, s, dialOptions...)
 	return &grpcQueryService{client: client, executeStreams: pool, logger: slog.Default(), copyStreams: make(map[uint64]pb.MultipoolerService_CopyBidiExecuteClient)}
 }
 
@@ -223,42 +224,20 @@ func TestUnaryCompletionPreservesErrorDetailsAndDoesNotReplay(t *testing.T) {
 	require.Equal(t, int32(1), s.streams.Load())
 }
 
-func TestNewOperationsFallbackBeforeSubmission(t *testing.T) {
-	for _, outgoingMetadata := range []bool{false, true} {
-		name := "old peer"
-		if outgoingMetadata {
-			name = "metadata"
+func TestMetadataFallbackBeforeSubmission(t *testing.T) {
+	s := &operationTestServer{call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
+		md, _ := metadata.FromIncomingContext(ctx)
+		if got := md.Get("x-test"); len(got) != 1 || got[0] != "value" {
+			return nil, status.Error(codes.InvalidArgument, "metadata not forwarded")
 		}
-		t.Run(name, func(t *testing.T) {
-			s := &operationTestServer{call: func(_ context.Context, req proto.Message) (proto.Message, error) {
-				return &pb.ExecuteQueryResponse{Result: &querypb.QueryResult{CommandTag: "SELECT 1"}}, nil
-			}}
-			var submitted atomic.Bool
-			s.custom = func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-				if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
-					return err
-				}
-				if _, err := stream.Recv(); err == nil {
-					submitted.Store(true)
-				}
-				return nil
-			}
-			qs := queryServiceForOperations(t, s)
-			ctx := t.Context()
-			if outgoingMetadata {
-				ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-test", "value"))
-			}
-			response, _, err := qs.ExecuteQuery(ctx, nil, "query", nil)
-			require.NoError(t, err)
-			require.Equal(t, "SELECT 1", response.CommandTag)
-			require.False(t, submitted.Load(), "fallback must precede submission")
-			if outgoingMetadata {
-				require.Zero(t, s.streams.Load())
-			} else {
-				require.Equal(t, int32(1), s.streams.Load())
-			}
-		})
-	}
+		return &pb.ExecuteQueryResponse{Result: &querypb.QueryResult{CommandTag: "SELECT 1"}}, nil
+	}}
+	qs := queryServiceForOperations(t, s)
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-test", "value"))
+	response, _, err := qs.ExecuteQuery(ctx, nil, "query", nil)
+	require.NoError(t, err)
+	require.Equal(t, "SELECT 1", response.CommandTag)
+	require.Zero(t, s.streams.Load(), "metadata must select the dedicated RPC before submission")
 }
 
 func TestUnaryWaitsForCompletionAndRejectsMalformedReplies(t *testing.T) {
@@ -409,5 +388,62 @@ func TestUnaryResultDoesNotReleaseLeaseBeforeCompletion(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("completion was not received")
+	}
+}
+
+// Incompatible peers fail before submission; a dedicated RPC must never replay
+// the operation, even when UNIMPLEMENTED resembles an authorization refusal.
+func TestUnsupportedQueryStreamsDoNotFallback(t *testing.T) {
+	for _, peer := range []string{"rpc", "operation", "no_capabilities"} {
+		for _, operation := range []string{"sql", "portal", "unary", "copy"} {
+			t.Run(peer+"/"+operation, func(t *testing.T) {
+				var calls atomic.Int32
+				s := &operationTestServer{
+					call: func(context.Context, proto.Message) (proto.Message, error) {
+						calls.Add(1)
+						return nil, status.Error(codes.Internal, "unexpected dedicated call")
+					},
+					copy: func(pb.MultipoolerService_CopyBidiExecuteServer) error {
+						calls.Add(1)
+						return status.Error(codes.Internal, "unexpected dedicated COPY")
+					},
+					custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
+						if peer == "rpc" {
+							return status.Error(codes.Unimplemented, "per-call authorization requires a dedicated RPC")
+						}
+						ready := &pb.ExecuteStreamResponse{Ready: true}
+						if peer == "operation" {
+							ready.SupportedOperations = []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_DESCRIBE}
+						}
+						if err := stream.Send(ready); err != nil {
+							return err
+						}
+						if _, err := stream.Recv(); err == nil {
+							calls.Add(1)
+						}
+						return nil
+					},
+				}
+				g := queryServiceForOperations(t, s)
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				for range 2 {
+					var err error
+					switch operation {
+					case "sql":
+						_, err = g.StreamExecute(ctx, nil, "SELECT 1", nil, nil, noopStreamCallback)
+					case "portal":
+						_, err = g.PortalStreamExecute(ctx, nil, &querypb.PreparedStatement{}, &querypb.Portal{}, nil, nil, nil, noopStreamCallback)
+					case "unary":
+						_, _, err = g.ExecuteQuery(ctx, nil, "SELECT 1", nil)
+					case "copy":
+						_, _, _, err = g.CopyReady(ctx, &querypb.Target{}, "COPY t FROM STDIN", nil, nil)
+					}
+					require.Equal(t, codes.Unimplemented, status.Code(mterrors.ToGRPC(err)))
+				}
+				require.Zero(t, calls.Load())
+				require.False(t, g.executeStreams.perCallAuthorization.Load())
+			})
+		}
 	}
 }

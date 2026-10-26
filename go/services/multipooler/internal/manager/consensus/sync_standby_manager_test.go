@@ -30,9 +30,12 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
+// ssmTestPrimary is the local pooler in sync standby manager tests.
+var ssmTestPrimary = &clustermetadatapb.ID{Cell: "zone1", Name: "primary"}
+
 // newTestSSM creates a postgresqlSyncStandbyManager backed by the given mock query service.
 func newTestSSM(mockQS *mock.QueryService) *postgresqlSyncStandbyManager {
-	return NewSyncStandbyManager(slog.New(slog.DiscardHandler), mockQS, nil)
+	return NewSyncStandbyManager(slog.New(slog.DiscardHandler), mockQS, ssmTestPrimary)
 }
 
 // withTestActionLock returns a context that satisfies actionlock.AssertActionLockHeld.
@@ -45,15 +48,19 @@ func withTestActionLock(t *testing.T) context.Context {
 	return ctx
 }
 
-// ssmTestCohort returns a single standby ID for use in sync standby manager tests.
+// ssmTestStandbyNames is the synchronous_standby_names value for ssmTestPolicyWithCohort.
+// It lists the primary too; postgres ignores its own entry.
+const ssmTestStandbyNames = `ANY 1 ("zone1_primary", "zone1_standby-1")`
+
+// ssmTestCohort returns the primary and one standby for use in sync standby manager tests.
 func ssmTestCohort() []*clustermetadatapb.ID {
-	return []*clustermetadatapb.ID{{Cell: "zone1", Name: "standby-1"}}
+	return []*clustermetadatapb.ID{ssmTestPrimary, {Cell: "zone1", Name: "standby-1"}}
 }
 
 // ssmTestPolicyWithCohort returns a PolicyWithCohort that produces:
 //
 //	synchronous_commit = 'on'
-//	synchronous_standby_names = 'ANY 1 ("zone1_standby-1")'
+//	synchronous_standby_names = 'ANY 1 ("zone1_primary", "zone1_standby-1")'
 func ssmTestPolicyWithCohort() commonconsensus.PolicyWithCohort {
 	return commonconsensus.PolicyWithCohort{
 		Policy: commonconsensus.AtLeastNPolicy{N: 2},
@@ -73,7 +80,7 @@ func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
 
 	// Pre-seed cache with the exact values ssmTestPolicy() + ssmTestCohort() would produce.
 	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	ssm.lastStandbyNames = ssmTestStandbyNames
 
 	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
@@ -92,7 +99,7 @@ func TestSetPolicy_AppliesWhenCacheMisses(t *testing.T) {
 	require.NoError(t, mockQS.ExpectationsWereMet())
 
 	assert.Equal(t, "on", ssm.lastSyncCommit)
-	assert.Equal(t, `ANY 1 ("zone1_standby-1")`, ssm.lastStandbyNames)
+	assert.Equal(t, ssmTestStandbyNames, ssm.lastStandbyNames)
 }
 
 func TestSetPolicy_SecondCallHitsCache(t *testing.T) {
@@ -135,7 +142,7 @@ func TestClear_ResetsAndInvalidatesCache(t *testing.T) {
 
 	// Pre-seed cache to verify it gets cleared.
 	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	ssm.lastStandbyNames = ssmTestStandbyNames
 
 	require.NoError(t, ssm.Clear(withTestActionLock(t)))
 	require.NoError(t, mockQS.ExpectationsWereMet())
@@ -313,7 +320,7 @@ func TestNeedsApply_FalseWhenPostgresMatchesPolicy(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
 		[]string{"current_setting", "current_setting"},
-		[][]any{{"on", `ANY 1 ("zone1_standby-1")`}},
+		[][]any{{"on", ssmTestStandbyNames}},
 	))
 	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
 	require.NoError(t, err)
@@ -327,14 +334,14 @@ func TestNeedsApply_WarmsCacheWhenPostgresAlreadyCorrect(t *testing.T) {
 	// Cache is cold; postgres already has the desired values.
 	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
 		[]string{"current_setting", "current_setting"},
-		[][]any{{"on", `ANY 1 ("zone1_standby-1")`}},
+		[][]any{{"on", ssmTestStandbyNames}},
 	))
 	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	assert.False(t, needs)
 	// Cache should now be warm so SetPolicy can skip ALTER SYSTEM.
 	assert.Equal(t, "on", ssm.lastSyncCommit)
-	assert.Equal(t, `ANY 1 ("zone1_standby-1")`, ssm.lastStandbyNames)
+	assert.Equal(t, ssmTestStandbyNames, ssm.lastStandbyNames)
 	require.NoError(t, mockQS.ExpectationsWereMet())
 }
 
@@ -343,7 +350,7 @@ func TestNeedsApply_TrueAndUpdatesCacheOnDrift(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	// Cache agrees with policy; postgres has been reset behind our back.
 	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	ssm.lastStandbyNames = ssmTestStandbyNames
 	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
 		[]string{"current_setting", "current_setting"},
 		[][]any{{"on", ""}},
@@ -375,7 +382,7 @@ func TestNeedsApply_FallsBackToCacheOnQueryError(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	ssm := newTestSSM(mockQS)
 	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	ssm.lastStandbyNames = ssmTestStandbyNames
 	mockQS.AddQueryPatternOnceWithError("SELECT current_setting", errors.New("postgres down"))
 	// Cache matches policy, so fallback returns false (no apply needed).
 	needs, err := ssm.NeedsApply(t.Context(), ssmTestPolicyWithCohort())
@@ -391,7 +398,7 @@ func TestNeedsApply_FallsBackToCacheOnScanError(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	ssm := newTestSSM(mockQS)
 	ssm.lastSyncCommit = "on"
-	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
+	ssm.lastStandbyNames = ssmTestStandbyNames
 	// Return one column instead of the expected two — ScanSingleRow rejects.
 	mockQS.AddQueryPatternOnce("SELECT current_setting", mock.MakeQueryResult(
 		[]string{"current_setting"},

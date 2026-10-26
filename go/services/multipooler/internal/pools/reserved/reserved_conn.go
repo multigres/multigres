@@ -459,7 +459,7 @@ func (c *Conn) AddReservationReason(reason uint32) {
 // latch is not transactional), but that recycled residue is deliberately not
 // tainted here — it is repaired lazily, only when it actually bites, by the
 // pool's checkout-time recovery (connpool.applySettingsWithReconnect and the
-// regular pool's QueryStreamingWithRetry, both keyed on
+// regular pool's StatelessQueryStreaming, both keyed on
 // mterrors.IsTempBuffersFreeze). Tainting on failure would instead close a
 // healthy backend for every rejected temp statement, mostly unfrozen ones.
 func (c *Conn) MarkTempTainted() {
