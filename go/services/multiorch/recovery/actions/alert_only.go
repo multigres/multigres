@@ -70,8 +70,3 @@ func (a *AlertOnlyAction) Metadata() types.RecoveryMetadata {
 func (a *AlertOnlyAction) RequiresHealthyLeader() bool {
 	return false
 }
-
-// GracePeriod is nil: there is nothing to defer for an alert.
-func (a *AlertOnlyAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
-}

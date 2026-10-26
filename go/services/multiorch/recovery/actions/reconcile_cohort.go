@@ -247,7 +247,3 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		Retryable:   true,
 	}
 }
-
-func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
-}

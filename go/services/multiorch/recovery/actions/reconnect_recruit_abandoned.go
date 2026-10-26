@@ -166,7 +166,3 @@ func (a *ReconnectRecruitAbandonedAction) Metadata() types.RecoveryMetadata {
 		Retryable:   true,
 	}
 }
-
-func (a *ReconnectRecruitAbandonedAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
-}

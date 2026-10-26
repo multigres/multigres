@@ -430,11 +430,6 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {
-	// No grace period needed, execute immediately
-	return nil
-}
-
 // =============================================================================
 // TODO: Future replication problem handlers
 // =============================================================================
