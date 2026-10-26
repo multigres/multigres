@@ -214,10 +214,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// conn; the defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
-	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
+	// Execute the query - the regular.Conn.StatelessQuery returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated.
-	// Uses retry variant since this is a stateless pool query.
-	results, err := conn.Conn.QueryWithRetry(ctx, sql)
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	results, err := conn.Conn.StatelessQuery(ctx, sql)
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
@@ -341,8 +342,9 @@ func (e *Executor) StreamExecute(
 		return nil, errors.New("eager parse requires a reserved transaction")
 	}
 
-	// Use streaming query execution with retry since this is a stateless pool query.
-	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	if err := conn.Conn.StatelessQueryStreaming(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
 

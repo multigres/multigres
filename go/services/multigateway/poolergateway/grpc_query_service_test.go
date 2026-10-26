@@ -233,11 +233,16 @@ var _ multipoolerservice.MultipoolerServiceClient = (*mockMultipoolerServiceClie
 
 // newTestGRPCQueryService creates a grpcQueryService with a mock client for testing.
 func newTestGRPCQueryService(client multipoolerservice.MultipoolerServiceClient) *grpcQueryService {
+	// These unit tests exercise dedicated RPC adapters. Model a connection that
+	// has negotiated per-call authorization rather than a disabled stream pool.
+	pool := newStreamPool(client, nil)
+	pool.perCallAuthorization.Store(true)
 	return &grpcQueryService{
-		client:      client,
-		logger:      slog.Default(),
-		poolerID:    "test-pooler",
-		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
+		executeStreams: pool,
+		client:         client,
+		logger:         slog.Default(),
+		poolerID:       "test-pooler",
+		copyStreams:    make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 

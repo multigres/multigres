@@ -142,8 +142,8 @@ var _ InternalQueryService = (*Executor)(nil)
 // regular and admin query methods share the run* helpers below and differ only
 // in the borrower they pass.
 type pooledQueryConn interface {
-	QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error)
-	QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+	StatelessQuery(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	StatelessQueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
 }
 
 // connBorrower acquires a pool connection and returns it with a release function
@@ -179,7 +179,7 @@ func runSingleQuery(ctx context.Context, borrow connBorrower, queryStr string) (
 	}
 	defer release()
 
-	results, err := conn.QueryWithRetry(ctx, queryStr)
+	results, err := conn.StatelessQuery(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func runSingleQueryNoQueryText(ctx context.Context, borrow connBorrower, querySt
 	}
 	defer release()
 
-	results, err := conn.QueryWithRetry(ctx, queryStr)
+	results, err := conn.StatelessQuery(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func runSingleQueryArgs(ctx context.Context, borrow connBorrower, sql string, ar
 	}
 	defer release()
 
-	results, err := conn.QueryArgsWithRetry(ctx, sql, args...)
+	results, err := conn.StatelessQueryArgs(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func runMultiStatement(ctx context.Context, borrow connBorrower, queryStr string
 	}
 	defer release()
 
-	_, err = conn.QueryWithRetry(ctx, queryStr)
+	_, err = conn.StatelessQuery(ctx, queryStr)
 	return err
 }
 

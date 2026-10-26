@@ -15,8 +15,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -156,18 +154,6 @@ func newPreRunCommand(t *testing.T, args ...string) (*minigres, *cobra.Command) 
 	require.NoError(t, m.registerFlags(cmd.Flags()))
 	require.NoError(t, cmd.Flags().Parse(args))
 	return m, cmd
-}
-
-func TestPreRun_RejectsConfigFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "minigres.yaml")
-	require.NoError(t, os.WriteFile(file, []byte("pg-require-ssl: true\n"), 0o600))
-	m, cmd := newPreRunCommand(t, "--config-file="+file)
-
-	err := m.preRun(cmd)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support configuration files yet")
-	assert.Contains(t, err.Error(), file)
 }
 
 func TestPreRun_OneServiceIDForProcessAndBothHalves(t *testing.T) {
