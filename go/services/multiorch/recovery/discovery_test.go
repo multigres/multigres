@@ -402,8 +402,6 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	now := timestamppb.Now()
 	poolerInfo.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 		h.LastSeen = now
-		h.LastCheckAttempted = now
-		h.LastCheckSuccessful = now
 	})
 	store.SeedCache(t, engine.poolerCache, poolerInfo)
 
@@ -430,8 +428,6 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 
 	// Timestamps and computed fields should be preserved (exact equality)
 	require.True(t, now.AsTime().Equal(uh.LastSeen.AsTime()), "LastSeen should be preserved")
-	require.True(t, now.AsTime().Equal(uh.LastCheckAttempted.AsTime()), "LastCheckAttempted should be preserved")
-	require.True(t, now.AsTime().Equal(uh.LastCheckSuccessful.AsTime()), "LastCheckSuccessful should be preserved")
 }
 
 func TestDiscovery_MultipleWatchTargets(t *testing.T) {
