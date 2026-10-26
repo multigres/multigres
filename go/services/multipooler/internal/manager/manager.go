@@ -258,13 +258,17 @@ type MultipoolerManager struct {
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
 
-	// migrationImportHold is the migration serving gate: true when an active
-	// migration on this shard is in the IMPORT direction, so this pooler must not
-	// serve client queries until it is activated. Refreshed from the replicated
-	// multigres.migration table by the postgres monitor, so it holds on primary
-	// and standbys alike and survives failover, and read by the serving-state
-	// drift check. Atomic so the monitor reads it without pm.mu.
-	migrationImportHold atomic.Bool
+	// migrationImportHold is the migration serving gate, stored as a
+	// migrationHoldState: held when an active migration on this shard is in
+	// the IMPORT direction, so this pooler must not serve client queries
+	// until it is activated. The zero value is migrationHoldUnknown, distinct
+	// from migrationHoldNotHeld, so callers can tell "never successfully
+	// read" from "confirmed clear" instead of conflating the two into a
+	// single false. Refreshed from the replicated multigres.migration table
+	// by the postgres monitor, so it holds on primary and standbys alike and
+	// survives failover, and read by the serving-state drift check. Atomic so
+	// the monitor reads it without pm.mu.
+	migrationImportHold atomic.Int32
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -618,12 +622,14 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	}
 
 	// Seed the migration serving gate from the replicated multigres.migration
-	// table before publishing the target status: without this synchronous read,
-	// a pooler restarting mid-IMPORT would publish targetServingStatus
-	// unreconciled, and only self-correct on the next postgres-monitor tick,
-	// briefly serving a partially copied target. Mirrors the same
-	// synchronous-refresh-then-reconcile pattern releaseForMigrationExport uses;
-	// safe to call here since openConnectionsLocked has already run.
+	// table before publishing the target status: without this, a pooler
+	// restarting mid-IMPORT would publish targetServingStatus unreconciled,
+	// based solely on migrationImportHold's zero value (migrationHoldUnknown,
+	// which reads as not-held). A single attempt here gives the read a chance
+	// to land before that first publish; if it does not (or there is genuinely
+	// no migration), the gate stays unresolved and the next postgres-monitor
+	// tick corrects it, same as any other ambiguous read failure. Safe to call
+	// here since openConnectionsLocked has already run.
 	pm.refreshMigrationHold(ctx)
 
 	// Start health heartbeat goroutine and transition to the target status.
