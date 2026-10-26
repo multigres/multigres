@@ -625,12 +625,14 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// table before publishing the target status: without this, a pooler
 	// restarting mid-IMPORT would publish targetServingStatus unreconciled,
 	// based solely on migrationImportHold's zero value (migrationHoldUnknown,
-	// which reads as not-held). A single attempt here gives the read a chance
-	// to land before that first publish; if it does not (or there is genuinely
-	// no migration), the gate stays unresolved and the next postgres-monitor
-	// tick corrects it, same as any other ambiguous read failure. Safe to call
-	// here since openConnectionsLocked has already run.
-	pm.refreshMigrationHold(ctx)
+	// which reads as not-held), and only self-correct on the next
+	// postgres-monitor tick — which can't run any earlier than this anyway,
+	// since its first step requires manager readiness that hasn't been
+	// reached yet at this point in startup. A few quick, local retries give
+	// this first read a real chance to land rather than leaving the gate
+	// unresolved on a single transient hiccup; safe to call here since
+	// openConnectionsLocked has already run.
+	pm.resolveMigrationHoldBeforeServing(ctx)
 
 	// Start health heartbeat goroutine and transition to the target status.
 	// Mutate notifies all components (query service, heartbeat, health streamer)
