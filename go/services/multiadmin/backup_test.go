@@ -339,6 +339,26 @@ func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
 	require.ErrorContains(t, err, "has a static leader (multipooler-cell1-static-leader) and 1 other pooler(s)")
 }
 
+// TestFindPoolerForBackup_StaticLeaderWithUnreadableCell fails closed: a cell
+// that cannot be read could hide another pooler of the static leader's shard.
+func TestFindPoolerForBackup_StaticLeaderWithUnreadableCell(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	// cell2 is listed in the global topology but its topology server cannot
+	// be reached.
+	require.NoError(t, server.ts.CreateCell(ctx, "cell2", &clustermetadatapb.Cell{ServerAddresses: []string{"unreachable"}, Root: "/cell2"}))
+
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "cannot confirm static leader multipooler-cell1-static-leader is the only pooler")
+	require.ErrorContains(t, err, "[cell2]")
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")

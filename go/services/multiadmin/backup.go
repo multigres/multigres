@@ -130,6 +130,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 	// The shard's static leader, if any, and its other poolers, serving or not.
 	var staticLeader *clustermetadatapb.Multipooler
 	var others int
+	var unreadCells []string
 	for _, cellName := range allCells {
 		opts := &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
@@ -142,6 +143,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		poolerInfos, err := s.ts.GetMultipoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.DebugContext(ctx, "failed to get poolers for cell", "cell", cellName, "error", err)
+			unreadCells = append(unreadCells, cellName)
 			continue
 		}
 		for _, info := range poolerInfos {
@@ -163,6 +165,13 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 	// operation runs on it, whatever forceLeader says. A shard with a static
 	// leader and other poolers is misconfigured: refuse rather than guess.
 	if staticLeader != nil {
+		// A static leader takes no backup lease, so a pooler hidden in an
+		// unreadable cell could back up the same shard concurrently: fail
+		// closed instead.
+		if len(unreadCells) > 0 {
+			return nil, fmt.Errorf("cannot confirm static leader %s is the only pooler of database=%s, table_group=%s, shard=%s: cells %v could not be read",
+				topoclient.ComponentIDString(staticLeader.Id), database, tableGroup, shard, unreadCells)
+		}
 		if others > 0 {
 			return nil, fmt.Errorf("database=%s, table_group=%s, shard=%s has a static leader (%s) and %d other pooler(s); a static leader must be the only pooler of its shard",
 				database, tableGroup, shard, topoclient.ComponentIDString(staticLeader.Id), others)
