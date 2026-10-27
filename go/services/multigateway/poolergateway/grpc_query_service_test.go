@@ -298,6 +298,30 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 	require.Len(t, svc.copyStreams, 0)
 }
 
+// TestCopyReady_SendInitiateEOFUsesStreamStatus tests that when the server ends
+// the stream before INITIATE is sent, the status from Recv replaces Send's io.EOF.
+func TestCopyReady_SendInitiateEOFUsesStreamStatus(t *testing.T) {
+	mockStream := &mockBidiStream{
+		sendErr: io.EOF,
+		recvErr: status.Error(codes.DeadlineExceeded, "remote deadline"),
+	}
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
+
+	_, _, _, err := svc.CopyReady(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		"COPY t FROM STDIN",
+		&query.ExecuteOptions{},
+		nil,
+	)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diagnostic)
+	require.Equal(t, "FATAL", diagnostic.Severity)
+	require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
+	require.Len(t, svc.copyStreams, 0)
+}
+
 // TestCopyReady_RecvReadyError tests that when Recv() fails after Send succeeds,
 // the stream is properly cleaned up via defer.
 func TestCopyReady_RecvReadyError(t *testing.T) {
