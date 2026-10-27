@@ -106,16 +106,37 @@ func figureColnameInternal(node ast.Node, name *string) int {
 			return 2
 		case ast.EXPR_SUBLINK:
 			// Get column name of the subquery's single target. Upstream reads
-			// the transformed subquery's resname; on a raw tree that is the
-			// target's alias, else its own figured name.
-			if sel, ok := n.Subselect.(*ast.SelectStmt); ok && sel.TargetList != nil && sel.TargetList.Len() > 0 {
-				if rt, ok := sel.TargetList.Items[0].(*ast.ResTarget); ok {
-					if rt.Name != "" {
-						*name = rt.Name
+			// the first resname of the already transformed subquery; this
+			// port sees the raw SelectStmt and reproduces what the transform
+			// would have named it:
+			//   - a set operation takes its names from the leftmost leaf
+			//     (analyze.c transformSetOperationStmt);
+			//   - a VALUES list is named column1, column2, ...
+			//     (parse_relation.c addRangeTableEntryForValues);
+			//   - a plain SELECT uses the target's alias, else its figured
+			//     name, where the "?column?" fallback is still a name and so
+			//     wins over an outer cast or CASE, as upstream's does.
+			// Not reproduced: `*` and `t.*`, whose names come from the range
+			// table (a table's columns need the catalog); they fall through
+			// to the raw ColumnRef's figured name. The gateway never serves a
+			// SubLink, so nothing a client sees depends on this.
+			if sel, ok := n.Subselect.(*ast.SelectStmt); ok {
+				for sel.Op != ast.SETOP_NONE && sel.Larg != nil {
+					sel = sel.Larg
+				}
+				if sel.ValuesLists != nil && sel.ValuesLists.Len() > 0 {
+					*name = "column1"
+					return 2
+				}
+				if sel.TargetList != nil && sel.TargetList.Len() > 0 {
+					if rt, ok := sel.TargetList.Items[0].(*ast.ResTarget); ok {
+						if rt.Name != "" {
+							*name = rt.Name
+							return 2
+						}
+						*name = FigureColname(rt.Val)
 						return 2
 					}
-					*name = FigureColname(rt.Val)
-					return 2
 				}
 			}
 		}

@@ -69,42 +69,74 @@ func TestFigureColname(t *testing.T) {
 		"(SELECT 1)":                             "?column?",
 		"(SELECT abs(1))":                        "abs",
 		"(SELECT 1 AS n)":                        "n",
-		"1 = ANY (SELECT 1)":                     "?column?",
-		"current_date":                           "current_date",
-		"current_time":                           "current_time",
-		"current_timestamp(3)":                   "current_timestamp",
-		"localtime":                              "localtime",
-		"localtimestamp":                         "localtimestamp",
-		"current_role":                           "current_role",
-		"current_user":                           "current_user",
-		"user":                                   "user",
-		"session_user":                           "session_user",
-		"current_catalog":                        "current_catalog",
-		"current_schema":                         "current_schema",
-		"xmlconcat('<a/>')":                      "xmlconcat",
-		"xmlelement(name a)":                     "xmlelement",
-		"xmlforest(1 AS a)":                      "xmlforest",
-		"xmlparse(content '<a/>')":               "xmlparse",
-		"xmlpi(name a)":                          "xmlpi",
-		"xmlroot('<a/>', version '1.0')":         "xmlroot",
-		"xmlserialize(content '<a/>' AS text)":   "xmlserialize",
-		"'<a/>' IS DOCUMENT":                     "?column?",
-		"json('{}')":                             "json",
-		"json_scalar(1)":                         "json_scalar",
-		"json_serialize('{}')":                   "json_serialize",
-		"json_object('a': 1)":                    "json_object",
-		"json_array(1, 2)":                       "json_array",
-		"json_array(SELECT 1)":                   "json_array",
-		"json_objectagg('a': 1)":                 "json_objectagg",
-		"json_arrayagg(1)":                       "json_arrayagg",
-		"json_exists('{}', '$')":                 "json_exists",
-		"json_query('{}', '$')":                  "json_query",
-		"json_value('{}', '$')":                  "json_value",
-		"grouping(1)":                            "grouping",
-		"merge_action()":                         "merge_action",
+		"(SELECT 1)::int8":                       "?column?",
+		"(SELECT 1 FROM t WHERE false)":          "?column?",
+		"(SELECT x FROM t)":                      "x",
+		"(SELECT t.x FROM t)":                    "x",
+		"(SELECT abs(1) UNION SELECT 2 LIMIT 1)": "abs",
+		"(SELECT 1 AS n UNION ALL SELECT 2)":     "n",
+		"((SELECT abs(1) UNION SELECT 2) INTERSECT SELECT 3)": "abs",
+		"(SELECT 1 EXCEPT SELECT abs(2))":                     "?column?",
+		"(SELECT abs(1) UNION SELECT 2)::int8":                "abs",
+		"(VALUES (1))":                                        "column1",
+		"(VALUES (1), (2) LIMIT 1)":                           "column1",
+		"(VALUES (abs(1)))":                                   "column1",
+		"(VALUES (1) UNION SELECT abs(2))":                    "column1",
+		"(SELECT abs(1) UNION VALUES (2))":                    "abs",
+		"(WITH c AS (SELECT 1) SELECT abs(2))":                "abs",
+		"(WITH c AS (SELECT 1) SELECT 2 UNION SELECT 3)":      "?column?",
+		"1 = ANY (SELECT 1)":                                  "?column?",
+		"current_date":                                        "current_date",
+		"current_time":                                        "current_time",
+		"current_timestamp(3)":                                "current_timestamp",
+		"localtime":                                           "localtime",
+		"localtimestamp":                                      "localtimestamp",
+		"current_role":                                        "current_role",
+		"current_user":                                        "current_user",
+		"user":                                                "user",
+		"session_user":                                        "session_user",
+		"current_catalog":                                     "current_catalog",
+		"current_schema":                                      "current_schema",
+		"xmlconcat('<a/>')":                                   "xmlconcat",
+		"xmlelement(name a)":                                  "xmlelement",
+		"xmlforest(1 AS a)":                                   "xmlforest",
+		"xmlparse(content '<a/>')":                            "xmlparse",
+		"xmlpi(name a)":                                       "xmlpi",
+		"xmlroot('<a/>', version '1.0')":                      "xmlroot",
+		"xmlserialize(content '<a/>' AS text)":                "xmlserialize",
+		"'<a/>' IS DOCUMENT":                                  "?column?",
+		"json('{}')":                                          "json",
+		"json_scalar(1)":                                      "json_scalar",
+		"json_serialize('{}')":                                "json_serialize",
+		"json_object('a': 1)":                                 "json_object",
+		"json_array(1, 2)":                                    "json_array",
+		"json_array(SELECT 1)":                                "json_array",
+		"json_objectagg('a': 1)":                              "json_objectagg",
+		"json_arrayagg(1)":                                    "json_arrayagg",
+		"json_exists('{}', '$')":                              "json_exists",
+		"json_query('{}', '$')":                               "json_query",
+		"json_value('{}', '$')":                               "json_value",
+		"grouping(1)":                                         "grouping",
+		"merge_action()":                                      "merge_action",
 	}
 	for sql, want := range cases {
 		assert.Equal(t, want, analyze.FigureColname(parseExpr(t, sql)), sql)
 	}
 	assert.Equal(t, "?column?", analyze.FigureColname(nil))
+}
+
+// TestFigureColname_StarIsNotExpanded records the one place the port reads
+// the raw tree where upstream has already expanded it: a scalar subquery
+// whose first target is `*`. PostgreSQL names it after the first column of
+// the range table entry (inner_name, column1, or a table's first column,
+// which needs the catalog); the port returns the raw ColumnRef's figured
+// name. The gateway never serves a SubLink, so no client sees this.
+func TestFigureColname_StarIsNotExpanded(t *testing.T) {
+	for sql, port := range map[string]string{
+		"(SELECT * FROM (SELECT 1 AS inner_name) s)": "?column?", // PostgreSQL: inner_name
+		"(SELECT * FROM (VALUES (1)) v)":             "?column?", // PostgreSQL: column1
+		"(SELECT t.* FROM t)":                        "t",        // PostgreSQL: t's first column
+	} {
+		assert.Equal(t, port, analyze.FigureColname(parseExpr(t, sql)), sql)
+	}
 }

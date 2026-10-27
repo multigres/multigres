@@ -120,6 +120,14 @@ func expressionCorpus() []expressionCase {
 		"true", "'x'", "1::integer", "CAST(1 AS int)", "(1)", "CASE WHEN true THEN 1 ELSE abs(2) END",
 		"CASE WHEN true THEN 1 ELSE 2::int8 END", "ROW(1, 2)", "current_date", "current_user", "(SELECT 1)",
 		"(SELECT 1 AS n)", "EXISTS (SELECT 1)", "ARRAY(SELECT 1)", "abs(1)::int8", "int4 '1'", "pg_catalog.abs(1)::int8",
+		// Scalar subqueries whose name the transform stage would have
+		// produced: set operations (leftmost leaf), VALUES (column1), the
+		// "?column?" fallback winning over an outer cast, and WITH.
+		"(SELECT 1)::int8", "(SELECT abs(1) UNION SELECT 2 LIMIT 1)", "(SELECT 1 AS n UNION ALL SELECT 2)",
+		"((SELECT abs(1) UNION SELECT 2) INTERSECT SELECT 3)", "(SELECT 1 EXCEPT SELECT abs(2))",
+		"(SELECT abs(1) UNION SELECT 2)::int8", "(VALUES (1))", "(VALUES (1), (2) LIMIT 1)", "(VALUES (abs(1)))",
+		"(VALUES (1) UNION SELECT abs(2))", "(SELECT abs(1) UNION VALUES (2))", "(WITH c AS (SELECT 1) SELECT abs(2))",
+		"(WITH c AS (SELECT 1) SELECT 2 UNION SELECT 3)",
 	} {
 		add(sql)
 	}
