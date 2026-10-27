@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,6 +186,27 @@ func TestCatalogTables_IdempotentInDependencyOrder(t *testing.T) {
 			assert.True(t, created[ref[1]], "%s references %s before it is created", match[1], ref[1])
 		}
 		created[match[1]] = true
+	}
+}
+
+// TestCatalogTables_NoTypeNameClash guards against a catalog table sharing a
+// name with a composite type another multigres component creates: a table's
+// row type takes the table's name, so either the CREATE TABLE fails or the
+// other component's existence check finds the row type and skips creating its
+// own.
+func TestCatalogTables_NoTypeNameClash(t *testing.T) {
+	createRE := regexp.MustCompile(`^CREATE TABLE IF NOT EXISTS multigres\.(\w+)`)
+	var tables []string
+	for _, stmt := range catalogTables {
+		if match := createRE.FindStringSubmatch(stmt); match != nil {
+			tables = append(tables, match[1])
+		}
+	}
+	require.NotEmpty(t, tables)
+
+	for _, typeName := range []string{migration.MigrationShardKeyTypeName} {
+		assert.NotContains(t, tables, typeName,
+			"catalog table multigres.%s collides with a composite type of the same name", typeName)
 	}
 }
 

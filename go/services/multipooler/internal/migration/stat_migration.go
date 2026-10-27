@@ -35,8 +35,9 @@ import (
 // revised multiple times during this design.
 
 // CreateStatMigrationViewSQL defines multigres.stat_migration. CREATE OR
-// REPLACE VIEW is itself idempotent; shard_key, which migration_target is
-// stored as, is not and must exist before multigres.migration itself does.
+// REPLACE VIEW is itself idempotent; migration_shard_key, which
+// migration_target is stored as, is not and must exist before
+// multigres.migration itself does.
 //
 // total_relations/ready_relations and lag_bytes/lag_seconds are both read from
 // whichever side of the replication link is locally visible to this target
