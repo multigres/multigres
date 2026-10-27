@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -109,10 +110,21 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*Multipoole
 	return pm, mockQueryService
 }
 
+// addShardRefEnsure registers the queries shardref.Ensure runs on a shard with
+// neither the legacy multigres.shard_key composite nor multigres.shard_ref.
+// They are not consumed, since createSidecarSchema ensures shard_ref twice
+// (createMigrationTable and ensureSidecarSchemas); the mock reports the type
+// as absent both times.
+func addShardRefEnsure(m *mock.QueryService, record func(string)) {
+	m.AddQueryPatternWithCallback(regexp.QuoteMeta(shardref.CheckLegacyTypeSQL),
+		mock.MakeQueryResult([]string{"legacy", "current"}, [][]any{{false, false}}), record)
+	m.AddQueryPatternWithCallback(regexp.QuoteMeta(shardref.CheckTypeSQL), mock.MakeQueryResult(nil, nil), record)
+	m.AddQueryPatternWithCallback(regexp.QuoteMeta(shardref.CreateTypeSQL), mock.MakeQueryResult(nil, nil), record)
+}
+
 // addMigrationTableCreate registers the migration coordinator's state DDL that
 // createSidecarSchema runs on every shard (createMigrationTable).
 func addMigrationTableCreate(m *mock.QueryService) {
-	m.AddQueryPatternOnce("CREATE TYPE multigres.shard_key", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_connection", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE UNIQUE INDEX IF NOT EXISTS migration_connection_name_key", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration ", mock.MakeQueryResult(nil, nil))
@@ -141,6 +153,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
 				addFreshCatalogEnsure(m)
+				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 			},
 			expectError: false,
@@ -224,6 +237,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
@@ -244,6 +258,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 			},
 			expectError: false,
@@ -304,6 +319,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 
 			var queries []string
 			record := func(q string) { queries = append(queries, q) }
+			addShardRefEnsure(mockQueryService, record)
 			mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
 				mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
 			mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)

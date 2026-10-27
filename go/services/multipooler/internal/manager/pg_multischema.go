@@ -24,6 +24,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
+	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
 )
 
 // ============================================================================
@@ -112,11 +113,18 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is backend_vpid on every shard, plus the versioned sharding
-// catalog on the catalog shard (ensureCatalogSchema, which is idempotent via
-// its format version rather than IF NOT EXISTS); add future late-added sidecar
-// tables here as they arise.
+// Currently this is the shared multigres.shard_ref type and backend_vpid on
+// every shard, plus the versioned sharding catalog on the catalog shard
+// (ensureCatalogSchema, which is idempotent via its format version rather than
+// IF NOT EXISTS); add future late-added sidecar tables here as they arise.
 func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
+	// shard_ref goes first: ensuring it renames a legacy multigres.shard_key
+	// composite, which must happen before the catalog ensure creates its
+	// multigres.shard_key table on the catalog shard.
+	if err := pm.ensureShardRefType(ctx); err != nil {
+		return err
+	}
+
 	// backend_vpid maps live backend pids to gateway virtual pids.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
@@ -205,6 +213,12 @@ func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
+	// migration_target is typed multigres.shard_ref. ensureSidecarSchemas
+	// also ensures it, but runs after this step, so ensure it here too.
+	if err := pm.ensureShardRefType(execCtx); err != nil {
+		return err
+	}
+
 	// Order matters: each statement depends on types or tables created by the
 	// one before it. This runs once on a genuinely fresh shard, so no
 	// existence check is needed.
@@ -212,7 +226,6 @@ func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 		label string
 		sql   string
 	}{
-		{"shard_key type", migration.CreateMigrationShardKeyTypeSQL},
 		{"migration_connection table", migration.CreateMigrationConnectionSQL},
 		{"migration_connection name index", migration.MigrationConnectionNameUniqueIndexSQL},
 		{"migration table", migration.CreateMigrationSQL},
@@ -224,6 +237,28 @@ func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 		if err := pm.adminExec(execCtx, s.sql); err != nil {
 			return mterrors.Wrap(err, "failed to create "+s.label)
 		}
+	}
+	return nil
+}
+
+// ensureShardRefType ensures the shared multigres.shard_ref composite type
+// (see package shardref), renaming the legacy multigres.shard_key composite
+// that clusters built from main between the migration-coordinator wiring and
+// the rename to shard_ref may have. It is idempotent.
+func (pm *MultipoolerManager) ensureShardRefType(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for shard_ref type")
+	}
+	legacy, err := shardref.Ensure(ctx, queryService)
+	switch legacy {
+	case shardref.LegacyRenamed:
+		pm.logger.InfoContext(ctx, "renamed legacy type multigres.shard_key to multigres.shard_ref")
+	case shardref.LegacyConflict:
+		pm.logger.WarnContext(ctx, "legacy type multigres.shard_key and multigres.shard_ref both exist; leaving them unchanged")
+	}
+	if err != nil {
+		return mterrors.Wrap(err, "failed to ensure shard_ref type")
 	}
 	return nil
 }

@@ -1034,6 +1034,7 @@ func TestOpen_EnsuresBackendVpidTableWhenAlreadyPrimary(t *testing.T) {
 	// not promoted).
 	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	addShardRefEnsure(mockQS, nil)
 	var ensured bool
 	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
 		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })
@@ -1083,6 +1084,7 @@ func TestOpen_SkipsBackendVpidTableWhenStandby(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	addShardRefEnsure(mockQS, nil)
 	var ensured bool
 	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
 		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })
