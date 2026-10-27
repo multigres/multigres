@@ -600,13 +600,22 @@ func TestPgCtldServiceRestart(t *testing.T) {
 		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
 		require.NoError(t, err)
 
+		// AsStandby is how the demote and rewind paths restart, and the variant
+		// that writes standby.signal.
 		_, err = service.Restart(context.Background(), &pb.RestartRequest{
-			Mode:    "fast",
-			Timeout: durationpb.New(30 * time.Second),
-			Port:    5432,
+			Mode:      "fast",
+			Timeout:   durationpb.New(30 * time.Second),
+			Port:      5432,
+			AsStandby: true,
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "restore sentinel")
+
+		// The refusal comes before anything is touched: postgres is not stopped
+		// (the mock pg_ctl stop removes postmaster.pid) and standby.signal is
+		// left as it was.
+		assert.FileExists(t, filepath.Join(dataDir, constants.PostmasterPIDFile), "postgres must not be stopped")
+		assert.NoFileExists(t, filepath.Join(dataDir, constants.StandbySignalFile), "standby.signal must be left as it was")
 	})
 }
 

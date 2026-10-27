@@ -568,7 +568,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 
 	// Refuse during an incomplete restore before the standby.signal change and
 	// crash recovery below touch the data directory. StartPostgreSQLWithResult
-	// checks again for the start command and restarts.
+	// checks again for the start command.
 	if err := checkNoIncompleteRestore(s.pgConfig.PoolerDir); err != nil {
 		return nil, err
 	}
