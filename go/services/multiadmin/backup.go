@@ -153,6 +153,11 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 			if poolerShard := info.Multipooler.GetShardKey().GetShard(); poolerShard != "" && poolerShard != shard {
 				continue
 			}
+			// A pooler that shut down is gone; its record stays in topology,
+			// for example after a restart under a new service ID.
+			if info.Multipooler.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN {
+				continue
+			}
 			if info.Multipooler.GetLeadershipMode() == clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC && staticLeader == nil {
 				staticLeader = info.Multipooler
 			} else {

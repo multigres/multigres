@@ -339,6 +339,28 @@ func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
 	require.ErrorContains(t, err, "has a static leader (multipooler-cell1-static-leader) and 1 other pooler(s)")
 }
 
+// TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers: a static leader
+// restarted under a new service ID leaves its old record, shut down, behind.
+func TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	old := makeRoutedPooler("cell1", "old-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN)
+	old.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	old.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	old.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
+	require.NoError(t, server.ts.CreateMultipooler(ctx, old))
+	leader := makeRoutedPooler("cell1", "new-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.NoError(t, err, "the shut-down record is not another pooler")
+	require.Equal(t, leader.Id.Name, got.Id.Name)
+}
+
 // TestFindPoolerForBackup_StaticLeaderWithUnreadableCell fails closed: a cell
 // that cannot be read could hide another pooler of the static leader's shard.
 func TestFindPoolerForBackup_StaticLeaderWithUnreadableCell(t *testing.T) {
