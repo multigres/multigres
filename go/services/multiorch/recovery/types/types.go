@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -225,12 +226,6 @@ func (p Problem) EntityID() string {
 	return string(commontypes.FormatShardKey(p.ShardKey))
 }
 
-// GracePeriodConfig holds grace period settings for recovery actions.
-type GracePeriodConfig struct {
-	BaseDelay time.Duration
-	MaxJitter time.Duration
-}
-
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
 // pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
@@ -239,11 +234,11 @@ type GracePeriodConfig struct {
 // silently disagree. Passing them as independent parameters would let a
 // caller pass a mismatched pair and still compile; this makes that
 // structurally impossible — the only way to obtain one is from a successful
-// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck. HighestIntendedRule is empty if no rule was known for the shard at
 // recheck time; actions that don't mutate the consensus rule can ignore it.
 type RecheckedProblem struct {
 	Problem
-	HighestKnownRule *clustermetadatapb.RulePosition
+	HighestIntendedRule commonconsensus.RuleTransition
 }
 
 // RecoveryAction is a function that fixes a problem.
@@ -260,10 +255,6 @@ type RecoveryAction interface {
 	// This provides an extra guardrail to avoid accidental operations on replicas
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
-
-	// GracePeriod returns the grace period configuration for this action.
-	// Returns nil if no grace period is needed (action executes immediately).
-	GracePeriod() *GracePeriodConfig
 }
 
 // RecoveryMetadata describes the recovery action.

@@ -41,6 +41,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
@@ -242,6 +243,32 @@ type MultipoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// migrationEnabled records whether the service layer opted this manager into
+	// the Multigres Migrator migration coordinator. When set, openLocked launches
+	// the reconcile poller on the fresh context so it survives Pause/resume;
+	// tests that never opt in leave it false and spin up no background migration
+	// work. Guarded by pm.mu.
+	migrationEnabled bool
+
+	// migrationCoord is the lazily-constructed Multigres Migrator coordinator,
+	// built from the admin query service on first use. It is active only on the
+	// primary; callers gate via MigrationCoordinatorIfPrimary. Both fields
+	// guarded by pm.mu.
+	migrationCoord         *migration.Coordinator
+	migrationSchemaEnsured bool
+
+	// migrationImportHold is the migration serving gate, stored as a
+	// migrationHoldState: held when an active migration on this shard is in
+	// the IMPORT direction, so this pooler must not serve client queries
+	// until it is activated. The zero value is migrationHoldUnknown, distinct
+	// from migrationHoldNotHeld, so callers can tell "never successfully
+	// read" from "confirmed clear" instead of conflating the two into a
+	// single false. Refreshed from the replicated multigres.migration table
+	// by the postgres monitor, so it holds on primary and standbys alike and
+	// survives failover, and read by the serving-state drift check. Atomic so
+	// the monitor reads it without pm.mu.
+	migrationImportHold atomic.Int32
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -588,6 +615,26 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		pm.startBackupHealthPollerLocked()
 	}
 
+	// Relaunch the migration reconcile poller on the fresh context when the
+	// service layer has opted in. It is a no-op on standbys and drives in-flight
+	// migrations on the primary.
+	if pm.migrationEnabled {
+		pm.startMigrationReconcilePollerLocked()
+	}
+
+	// Seed the migration serving gate from the replicated multigres.migration
+	// table before publishing the target status: without this, a pooler
+	// restarting mid-IMPORT would publish targetServingStatus unreconciled,
+	// based solely on migrationImportHold's zero value (migrationHoldUnknown,
+	// which reads as not-held), and only self-correct on the next
+	// postgres-monitor tick — which can't run any earlier than this anyway,
+	// since its first step requires manager readiness that hasn't been
+	// reached yet at this point in startup. A few quick, local retries give
+	// this first read a real chance to land rather than leaving the gate
+	// unresolved on a single transient hiccup; safe to call here since
+	// openConnectionsLocked has already run.
+	pm.resolveMigrationHoldBeforeServing(ctx)
+
 	// Start health heartbeat goroutine and transition to the target status.
 	// Mutate notifies all components (query service, heartbeat, health streamer)
 	// and Mutates the record. The publisher (if running, started by
@@ -595,7 +642,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = targetServingStatus
+		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}

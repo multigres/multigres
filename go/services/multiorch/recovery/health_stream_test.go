@@ -159,7 +159,6 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 
 	updated, _ := poolerStore.GetRider(key)
 	require.NotNil(t, updated.Health().LastSeen)
-	require.NotNil(t, updated.Health().LastCheckSuccessful)
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType())
 	require.NotNil(t, updated.Health().GetStatus().GetPrimaryStatus())
 	require.Equal(t, "0/123ABC", updated.Health().GetStatus().GetPrimaryStatus().GetLsn())

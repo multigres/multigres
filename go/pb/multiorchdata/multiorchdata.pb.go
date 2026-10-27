@@ -52,10 +52,9 @@ type PoolerHealthState struct {
 	// This contains: id, database, table_group, shard, key_range, type,
 	// serving_status, hostname, port_map.
 	Multipooler *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=multipooler,proto3" json:"multipooler,omitempty"`
-	// Timestamps for staleness detection
-	LastCheckAttempted  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_check_attempted,json=lastCheckAttempted,proto3" json:"last_check_attempted,omitempty"`
-	LastCheckSuccessful *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_check_successful,json=lastCheckSuccessful,proto3" json:"last_check_successful,omitempty"`
-	LastSeen            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	// When multiorch last received a successful health snapshot from the pooler,
+	// for staleness detection.
+	LastSeen *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
 	// Consensus status from ConsensusStatus RPC (for divergence detection)
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,14,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	// Timestamp of the last time PostgreSQL specifically responded as healthy
@@ -68,8 +67,6 @@ type PoolerHealthState struct {
 	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,17,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
 	// Whether a ManagerHealthStream stream is currently active for this pooler.
 	StreamConnected bool `protobuf:"varint,20,opt,name=stream_connected,json=streamConnected,proto3" json:"stream_connected,omitempty"`
-	// The time at which the current stream was established.
-	StreamConnectedSince *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=stream_connected_since,json=streamConnectedSince,proto3" json:"stream_connected_since,omitempty"`
 	// Full health status from the most recent successful Status RPC or
 	// ManagerHealthStream snapshot. Nil until the first successful check.
 	Status *multipoolermanagerdata.Status `protobuf:"bytes,22,opt,name=status,proto3" json:"status,omitempty"`
@@ -116,20 +113,6 @@ func (x *PoolerHealthState) GetMultipooler() *clustermetadata.Multipooler {
 	return nil
 }
 
-func (x *PoolerHealthState) GetLastCheckAttempted() *timestamppb.Timestamp {
-	if x != nil {
-		return x.LastCheckAttempted
-	}
-	return nil
-}
-
-func (x *PoolerHealthState) GetLastCheckSuccessful() *timestamppb.Timestamp {
-	if x != nil {
-		return x.LastCheckSuccessful
-	}
-	return nil
-}
-
 func (x *PoolerHealthState) GetLastSeen() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastSeen
@@ -165,13 +148,6 @@ func (x *PoolerHealthState) GetStreamConnected() bool {
 	return false
 }
 
-func (x *PoolerHealthState) GetStreamConnectedSince() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StreamConnectedSince
-	}
-	return nil
-}
-
 func (x *PoolerHealthState) GetStatus() *multipoolermanagerdata.Status {
 	if x != nil {
 		return x.Status
@@ -190,19 +166,16 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xad\x06\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xa3\x04\n" +
 	"\x11PoolerHealthState\x12>\n" +
-	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x12L\n" +
-	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
-	"\x15last_check_successful\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x13lastCheckSuccessful\x127\n" +
+	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x127\n" +
 	"\tlast_seen\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12K\n" +
 	"\x10consensus_status\x18\x0e \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\x12S\n" +
 	"\x18last_postgres_ready_time\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\x15lastPostgresReadyTime\x12T\n" +
 	"\x13availability_status\x18\x11 \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\x12)\n" +
-	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x12P\n" +
-	"\x16stream_connected_since\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x14streamConnectedSince\x126\n" +
+	"\x10stream_connected\x18\x14 \x01(\bR\x0fstreamConnected\x126\n" +
 	"\x06status\x18\x16 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12:\n" +
-	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceivedJ\x04\b\x18\x10\x19R\x12pooler_captured_atB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceivedB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once
@@ -227,19 +200,16 @@ var file_multiorchdata_proto_goTypes = []any{
 }
 var file_multiorchdata_proto_depIdxs = []int32{
 	1, // 0: multiorchdata.PoolerHealthState.multipooler:type_name -> clustermetadata.Multipooler
-	2, // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
-	2, // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
-	2, // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
-	3, // 4: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	2, // 5: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
-	4, // 6: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	2, // 7: multiorchdata.PoolerHealthState.stream_connected_since:type_name -> google.protobuf.Timestamp
-	5, // 8: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	2, // 1: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
+	3, // 2: multiorchdata.PoolerHealthState.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	2, // 3: multiorchdata.PoolerHealthState.last_postgres_ready_time:type_name -> google.protobuf.Timestamp
+	4, // 4: multiorchdata.PoolerHealthState.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	5, // 5: multiorchdata.PoolerHealthState.status:type_name -> multipoolermanagerdata.Status
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }

@@ -98,7 +98,8 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*Multipoole
 		record:          newRecordFromProto(multipooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
-		consensusMgr: consensus.NewManagerForTesting(t, svcID,
+		consensusMgr: consensus.NewManagerForTesting(
+			t, svcID,
 			consensus.NewConsensusPromises("", svcID),
 			consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}),
 			nil,
@@ -106,6 +107,18 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*Multipoole
 	}
 
 	return pm, mockQueryService
+}
+
+// addMigrationTableCreate registers the migration coordinator's state DDL that
+// createSidecarSchema runs on every shard (createMigrationTable).
+func addMigrationTableCreate(m *mock.QueryService) {
+	m.AddQueryPatternOnce("CREATE TYPE multigres.shard_key", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_connection", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE UNIQUE INDEX IF NOT EXISTS migration_connection_name_key", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration ", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_tables", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_journal", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS migration_journal_migration_id_idx", mock.MakeQueryResult(nil, nil))
 }
 
 func TestCreateSidecarSchema(t *testing.T) {
@@ -128,6 +141,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
 				addFreshCatalogEnsure(m)
+				addMigrationTableCreate(m)
 			},
 			expectError: false,
 		},
@@ -210,6 +224,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addMigrationTableCreate(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
@@ -229,6 +244,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addMigrationTableCreate(m)
 			},
 			expectError: false,
 		},

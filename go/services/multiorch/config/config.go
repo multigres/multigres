@@ -356,8 +356,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
-	fs.Duration("leader-failover-grace-period-base", c.DefaultLeaderFailoverGracePeriodBase(), "base grace period before executing leader failover")
-	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
+	fs.Duration("leader-failover-grace-period-base", c.DefaultLeaderFailoverGracePeriodBase(), "base of the window within which a leader failover is expected to complete; a revocation older than the window is treated as abandoned")
+	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader-failover-grace-period-base")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
 	fs.Bool("allow-unsafe-initial-cohort", c.DefaultAllowUnsafeInitialCohort(), "allow bootstrapping a cohort that satisfies the durability policy but can't survive losing any single member (test use only)")
@@ -379,12 +379,12 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 // Test helper functions
 
 // NewTestConfig creates a Config for testing with optional custom values.
-// Sets safe defaults for grace period (0 base, 0 jitter) so tests execute immediately.
+// Sets the failover window (base and jitter) to zero, so a revocation counts as aged immediately.
 func NewTestConfig(opts ...func(*Config)) *Config {
 	reg := viperutil.NewRegistry()
 	cfg := NewConfig(reg)
 
-	// Set safe defaults for tests - no grace period by default
+	// Set safe defaults for tests - no failover window by default
 	cfg.leaderFailoverGracePeriodBase.Set(0)
 	cfg.leaderFailoverGracePeriodMaxJitter.Set(0)
 

@@ -52,6 +52,11 @@ type Viper struct {
 
 	setCh chan struct{}
 
+	// prepare, if set, checks the config file each time it is loaded and
+	// returns settings to add to it; an error rejects the file (see
+	// SetPrepare).
+	prepare func() (map[string]any, error)
+
 	// for testing purposes only
 	onConfigWrite func()
 }
@@ -173,15 +178,35 @@ func (v *Viper) Watch(ctx context.Context, static *viper.Viper, minWaitInterval 
 		return nil, err
 	}
 
+	extra, err := v.prepareConfig()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
+	// The added settings join the file's, so flags and environment variables
+	// still win over them.
+	_ = v.disk.MergeConfigMap(extra)
+
 	v.watchingConfig = true
 	v.loadFromDisk()
 	v.disk.OnConfigChange(func(in fsnotify.Event) {
+		extra, err := v.prepareConfig()
+		if err != nil {
+			// A running process cannot stop over a bad edit: keep the
+			// previous settings until the file is fixed.
+			slog.ErrorContext(ctx, "config file change rejected; keeping the previous settings",
+				"file", v.disk.ConfigFileUsed(), "error", err)
+			return
+		}
+
 		for _, m := range v.keys {
 			m.Lock()
 			// This won't fire until after the config has been updated on v.live.
 			defer m.Unlock()
 		}
 
+		_ = v.disk.MergeConfigMap(extra)
 		v.loadFromDisk()
 		v.notifySubscribers()
 	})
@@ -287,6 +312,24 @@ func (v *Viper) AllSettings() map[string]any {
 	defer v.m.Unlock()
 
 	return v.live.AllSettings()
+}
+
+// SetPrepare sets a step run each time the config file is loaded, before its
+// settings go live: prepare returns settings to add to the file's, or an error
+// to reject it. At Watch the error is returned; on a later change the change is
+// skipped and the previous settings stay. Must be called before Watch.
+func (v *Viper) SetPrepare(prepare func() (map[string]any, error)) {
+	if v.watchingConfig {
+		panic("cannot set a prepare step on a synchronized viper which is already watching a config")
+	}
+	v.prepare = prepare
+}
+
+func (v *Viper) prepareConfig() (map[string]any, error) {
+	if v.prepare == nil {
+		return nil, nil
+	}
+	return v.prepare()
 }
 
 func (v *Viper) loadFromDisk() {

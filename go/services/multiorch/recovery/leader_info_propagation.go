@@ -34,7 +34,7 @@ import (
 // leaderInfoPropagationInterval is deliberately much shorter than a recovery
 // cycle: telling a pooler who the leader is (or that it's rewind-ready) is
 // always safe (SetPrimary no-ops when the pooler is already current), so
-// this doesn't need recovery's grace periods or backoff.
+// this doesn't need recovery's backoff.
 const leaderInfoPropagationInterval = 1 * time.Second
 
 const setPrimaryPropagationTimeout = 5 * time.Second
@@ -83,7 +83,7 @@ func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {
 func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey) {
 	members := store.FindShardMembers(re.poolerCache, shardKey)
 	leader := members.Leader
-	if leader == nil || members.HighestKnownPosition == nil {
+	if leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return
 	}
 
@@ -112,7 +112,7 @@ func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clu
 		wg.Add(1)
 		go func(pooler *store.Pooler) {
 			defer wg.Done()
-			re.propagateLeaderInfoToPooler(ctx, pooler, leaderAddress, leaderRewindReady, members.HighestKnownPosition)
+			re.propagateLeaderInfoToPooler(ctx, pooler, leaderAddress, leaderRewindReady, members.HighestIntendedRule)
 		}(pooler)
 	}
 	wg.Wait()
@@ -148,12 +148,12 @@ func shouldPropagateLeaderInfo(
 	now time.Time,
 	leaderAddress *clustermetadatapb.PoolerAddress,
 	leaderRewindReady bool,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	intendedRule commonconsensus.RuleTransition,
 ) bool {
 	if now.Sub(lastSeen.AsTime()) > leaderInfoStaleHealthThreshold {
 		return false // likely unreachable; don't let it stall the poolers behind it
 	}
-	positionMatches := commonconsensus.ReplicationPrimaryMatches(rp, leaderAddress, highestKnownPosition)
+	positionMatches := commonconsensus.ReplicationPrimaryMatches(rp, leaderAddress, intendedRule.Position())
 	// rewind_ready only ever goes false -> true within a coordinator term (see
 	// RecordTermPrimary), so never tell a pooler that already believes true
 	// otherwise — even if our own cached view of the leader is stale-false.
@@ -170,16 +170,16 @@ func (re *Engine) propagateLeaderInfoToPooler(
 	pooler *store.Pooler,
 	leaderAddress *clustermetadatapb.PoolerAddress,
 	leaderRewindReady bool,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	intendedRule commonconsensus.RuleTransition,
 ) {
 	health := pooler.Health()
 	rp := commonconsensus.ReplicationPrimaryOrNil(health.GetConsensusStatus())
-	if !shouldPropagateLeaderInfo(rp, health.GetLastSeen(), time.Now(), leaderAddress, leaderRewindReady, highestKnownPosition) {
+	if !shouldPropagateLeaderInfo(rp, health.GetLastSeen(), time.Now(), leaderAddress, leaderRewindReady, intendedRule) {
 		return
 	}
 
 	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
-		Position:    highestKnownPosition,
+		Position:    intendedRule.Position(),
 		Primary:     leaderAddress,
 		RewindReady: leaderRewindReady,
 	}

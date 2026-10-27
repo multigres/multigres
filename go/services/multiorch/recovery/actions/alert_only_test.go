@@ -37,5 +37,4 @@ func TestAlertOnlyAction(t *testing.T) {
 
 	require.Equal(t, "AlertOnly", a.Metadata().Name)
 	require.False(t, a.RequiresHealthyLeader())
-	require.Nil(t, a.GracePeriod(), "an alert has nothing to defer")
 }

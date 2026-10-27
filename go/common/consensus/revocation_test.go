@@ -290,6 +290,43 @@ func TestValidateRevocation(t *testing.T) {
 	}
 }
 
+func TestValidateRevocation_StoredOutgoingRuleNotWeakened(t *testing.T) {
+	rev := func(term, outgoingTerm, outgoingSubterm int64) *clustermetadatapb.TermRevocation {
+		return &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       term,
+			AcceptedCoordinatorId:  coordA,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: outgoingTerm, LeaderSubterm: outgoingSubterm},
+		}
+	}
+	tests := []struct {
+		name       string
+		stored     *clustermetadatapb.TermRevocation
+		revocation *clustermetadatapb.TermRevocation
+		wantErr    string
+	}{
+		{"LowerScopeHigherTerm_Refused", rev(6, 4, 0), rev(7, 3, 0), "outgoing_rule 3.0 is below already accepted outgoing_rule 4.0"},
+		{"LowerSubterm_Refused", rev(6, 3, 2), rev(7, 3, 1), "outgoing_rule 3.1 is below already accepted outgoing_rule 3.2"},
+		{"EqualScopeHigherTerm_Accepted", rev(6, 3, 0), rev(7, 3, 0), ""},
+		{"AdvancingScope_Accepted", rev(6, 3, 0), rev(7, 4, 0), ""},
+		{"ExactRetry_Idempotent", rev(7, 3, 0), rev(7, 3, 0), ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status := &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: positionAtCoordTerm(3),
+				TermRevocation:  tc.stored,
+			}
+			err := ValidateRevocation(status, tc.revocation)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, "cannot accept revocation: "+tc.wantErr)
+			}
+		})
+	}
+}
+
 // positionAtCoordTerm builds a PoolerPosition whose recorded rule is at the
 // given coordinator term.
 func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
