@@ -1,0 +1,318 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package manager
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/multigres/multigres/go/common/mterrors"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+)
+
+// ============================================================================
+// Sharding Catalog Schema (catalog shard only)
+//
+// The sharding catalog (tablegroups, shards, tables, shard indexes and keys,
+// operations) lives in the multigres schema on the catalog shard (see
+// constants.IsCatalogShard). ensureCatalogSchema keeps it current on every
+// primary open from three lists:
+//
+//   - catalogMigrations: breaking changes (drop or rename a table or column,
+//     change a type or constraint, backfill data), numbered and applied once,
+//     in order. multigres.catalog_state.format_version counts how many have
+//     been applied.
+//   - catalogTables: every catalog table, declared idempotently and re-run on
+//     every open. Additive changes (a new table, a new nullable or defaulted
+//     column) are appended here and need no format bump.
+//   - catalogSeed: the initial rows, inserted idempotently on every open.
+// ============================================================================
+
+// catalogSchemaLockKey is the pg_advisory_xact_lock key that serializes
+// concurrent ensureCatalogSchema runs (e.g. bootstrap and an open). The value
+// is the ASCII bytes of "multigrs", to keep it distinctive.
+const catalogSchemaLockKey int64 = 0x6d756c7469677273
+
+// catalogSchemaTimeout bounds a whole ensureCatalogSchema transaction,
+// including the wait for the advisory lock.
+const catalogSchemaTimeout = 10 * time.Second
+
+// catalogMigration upgrades the catalog from format version-1 to version.
+// Its statements run in order inside ensureCatalogSchema's transaction.
+type catalogMigration struct {
+	version    int
+	statements []string
+}
+
+// catalogMigrations lists the breaking catalog changes, in order. Entry i
+// upgrades format i to format i+1. Append new formats; never edit or reorder
+// an existing entry, since deployed catalogs have already applied it.
+//
+// Migrations run before catalogTables, so on a fresh shard they run against
+// tables that do not exist yet and must be no-ops there (IF EXISTS); a fresh
+// shard gets the current shape from catalogTables directly. A migration that
+// changes the shape of something catalogTables declares must also edit or
+// remove that catalogTables statement in the same change, or the next open
+// recreates the old shape; the golden test in pg_catalog_schema_test.go allows
+// such an edit only together with a new migration.
+var catalogMigrations = []catalogMigration{
+	{
+		// Format 1 drops the legacy catalog tables (tablegroup,
+		// tablegroup_table, shard), which only ever held the default/0-inf
+		// rows and were never read, so dropping them loses nothing. On a fresh
+		// shard it is a no-op. catalogTables then creates the current tables
+		// under the same names.
+		version: 1,
+		statements: []string{
+			`DROP TABLE IF EXISTS multigres.shard, multigres.tablegroup_table, multigres.tablegroup`,
+		},
+	},
+}
+
+// catalogTables declares every catalog table, in foreign-key dependency
+// order. Every statement is idempotent and runs on every open, which is how an
+// existing catalog picks up tables added by a later release.
+//
+// Additive changes are appended: a new table as CREATE TABLE IF NOT EXISTS, a
+// new nullable or defaulted column as ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+// after its table's CREATE. Never edit an existing statement on its own:
+// existing catalogs already have the table, so CREATE ... IF NOT EXISTS skips
+// it and they would never see the edit. A changed shape needs a numbered
+// migration in catalogMigrations (see its comment).
+//
+// CREATE INDEX IF NOT EXISTS takes a ShareLock on its table before finding
+// the index already exists, so every open briefly blocks writes to shard_key
+// until ensureCatalogSchema commits.
+var catalogTables = []string{
+	`CREATE TABLE IF NOT EXISTS multigres.catalog_state (
+	singleton       boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+	format_version  integer NOT NULL,
+	routing_version bigint  NOT NULL DEFAULT 0,
+	plan_epoch      bigint  NOT NULL DEFAULT 0
+)`,
+	// A tablegroup is sharded exactly when it has more than one shard;
+	// that is derived from shard rows, never stored.
+	`CREATE TABLE IF NOT EXISTS multigres.tablegroup (
+	tablegroup_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	name          text NOT NULL UNIQUE,
+	state         text NOT NULL CHECK (state IN ('creating', 'active', 'dropping')),
+	created_at    timestamptz NOT NULL DEFAULT now()
+)`,
+	// range_start NULL = start of keyspace; range_end NULL = end
+	// (exclusive). shard_name must equal keyrange.ShardName of the
+	// range, which is enforced in Go rather than SQL.
+	`CREATE TABLE IF NOT EXISTS multigres.shard (
+	shard_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	shard_name    text   NOT NULL,
+	range_start   bytea,
+	range_end     bytea,
+	state         text   NOT NULL CHECK (state IN ('preparing', 'active', 'retired')),
+	UNIQUE (tablegroup_id, shard_name)
+)`,
+	// Table names are unique within their schema regardless of
+	// tablegroup. Whether a table is sharded comes from its tablegroup.
+	`CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
+	table_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	schema_name   text   NOT NULL,
+	table_name    text   NOT NULL,
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	UNIQUE (schema_name, table_name)
+)`,
+	// A shard index is a database-wide, named way to compute a routing
+	// identifier. type is unconstrained in SQL: besides the built-in types
+	// (hash, range, lookup, multicol), users can define their own shard
+	// index types. params holds the per-type settings, e.g. multicol
+	// components or the lookup backing table/tablegroup/owner/uniqueness.
+	`CREATE TABLE IF NOT EXISTS multigres.shard_index (
+	shard_index_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	name           text  NOT NULL UNIQUE,
+	type           text  NOT NULL,
+	params         jsonb NOT NULL DEFAULT '{}',
+	state          text  NOT NULL CHECK (state IN ('preparing', 'active', 'retired'))
+)`,
+	// A shard key binds a table's columns to a shard index.
+	`CREATE TABLE IF NOT EXISTS multigres.shard_key (
+	shard_key_id   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	table_id       bigint NOT NULL REFERENCES multigres.tablegroup_table (table_id),
+	shard_index_id bigint NOT NULL REFERENCES multigres.shard_index (shard_index_id),
+	name           text   NOT NULL,
+	role           text   NOT NULL CHECK (role IN ('primary', 'secondary')),
+	state          text   NOT NULL CHECK (state IN ('preparing', 'active', 'retired')),
+	UNIQUE (table_id, name)
+)`,
+	// At most one active primary shard key per table.
+	`CREATE UNIQUE INDEX IF NOT EXISTS shard_key_one_active_primary
+	ON multigres.shard_key (table_id) WHERE role = 'primary' AND state = 'active'`,
+	`CREATE TABLE IF NOT EXISTS multigres.shard_key_column (
+	shard_key_id bigint  NOT NULL REFERENCES multigres.shard_key (shard_key_id),
+	position     integer NOT NULL,
+	column_name  text    NOT NULL,
+	PRIMARY KEY (shard_key_id, position)
+)`,
+	`CREATE TABLE IF NOT EXISTS multigres.operation (
+	operation_id     uuid PRIMARY KEY,
+	kind             text NOT NULL,
+	state            text NOT NULL,
+	request          jsonb NOT NULL DEFAULT '{}',
+	initiating_role  text,
+	cancel_requested boolean NOT NULL DEFAULT false,
+	last_error       text,
+	created_at       timestamptz NOT NULL DEFAULT now(),
+	updated_at       timestamptz NOT NULL DEFAULT now()
+)`,
+}
+
+// catalogSeed inserts the catalog's initial rows. Every insert is idempotent
+// and runs on every open after catalogTables, so a row that already exists is
+// never changed. The same append-only rule as catalogTables applies.
+//
+// Rows in a table with an identity key are guarded by WHERE NOT EXISTS, not
+// just ON CONFLICT DO NOTHING: INSERT evaluates the identity default before it
+// detects the conflict, so an unguarded insert would consume an id on every
+// open. ON CONFLICT stays as a backstop.
+var catalogSeed = []string{
+	// format_version starts at 0; ensureCatalogSchema sets the real format
+	// right after the seed.
+	`INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING`,
+	`INSERT INTO multigres.tablegroup (name, state)
+	SELECT 'default', 'active'
+	WHERE NOT EXISTS (SELECT 1 FROM multigres.tablegroup WHERE name = 'default')
+	ON CONFLICT (name) DO NOTHING`,
+	`INSERT INTO multigres.shard (tablegroup_id, shard_name, state)
+	SELECT tg.tablegroup_id, '0-inf', 'active' FROM multigres.tablegroup tg
+	WHERE tg.name = 'default'
+	  AND NOT EXISTS (SELECT 1 FROM multigres.shard s WHERE s.tablegroup_id = tg.tablegroup_id AND s.shard_name = '0-inf')
+	ON CONFLICT (tablegroup_id, shard_name) DO NOTHING`,
+}
+
+// latestCatalogFormat returns the newest catalog format this binary knows.
+func latestCatalogFormat() int {
+	return catalogMigrations[len(catalogMigrations)-1].version
+}
+
+// ensureCatalogSchema brings the catalog shard's catalog up to date in one
+// transaction: it applies the missing catalogMigrations in order, then runs
+// catalogTables and catalogSeed, then records latestCatalogFormat. Steps after
+// the migrations run on every call, including when the format is already
+// current; they are idempotent, and they are how an existing catalog picks up
+// tables added by a later release.
+//
+// A catalog at a format newer than this binary knows (written by a newer
+// pooler) is left untouched, including catalogTables and catalogSeed: a newer
+// format may have dropped or renamed something this binary would recreate.
+// The catalog is never downgraded.
+//
+// It runs under a transaction-scoped advisory lock, so concurrent callers
+// serialize and the loser sees the winner's format once it acquires the lock.
+func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for catalog schema")
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
+	defer cancel()
+
+	tx, err := queryService.BeginAdmin(execCtx)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to begin catalog schema transaction")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.QueryArgs(execCtx, "SELECT pg_advisory_xact_lock($1)", catalogSchemaLockKey); err != nil {
+		return mterrors.Wrap(err, "failed to lock catalog schema")
+	}
+
+	current, err := readCatalogFormat(execCtx, tx)
+	if err != nil {
+		return err
+	}
+
+	latest := latestCatalogFormat()
+	if current > latest {
+		pm.logger.WarnContext(ctx, "catalog format is newer than this binary knows; leaving it unchanged",
+			"format_version", current, "latest_known_format_version", latest)
+		return nil
+	}
+
+	if current < latest {
+		pm.logger.InfoContext(ctx, "upgrading catalog schema",
+			"from_format_version", current, "to_format_version", latest)
+		for _, m := range catalogMigrations[current:] {
+			for _, stmt := range m.statements {
+				if _, err := tx.Query(execCtx, stmt); err != nil {
+					return mterrors.Wrap(err, fmt.Sprintf("failed to apply catalog format %d migration", m.version))
+				}
+			}
+		}
+	}
+
+	for _, stmt := range catalogTables {
+		if _, err := tx.Query(execCtx, stmt); err != nil {
+			return mterrors.Wrap(err, "failed to ensure catalog tables")
+		}
+	}
+	for _, stmt := range catalogSeed {
+		if _, err := tx.Query(execCtx, stmt); err != nil {
+			return mterrors.Wrap(err, "failed to seed catalog")
+		}
+	}
+
+	// Skip the write when the format is already current, so a routine open
+	// does not rewrite the catalog_state row.
+	if _, err := tx.QueryArgs(execCtx,
+		"UPDATE multigres.catalog_state SET format_version = $1 WHERE format_version IS DISTINCT FROM $1", latest); err != nil {
+		return mterrors.Wrap(err, "failed to record catalog format version")
+	}
+
+	if err := tx.Commit(execCtx); err != nil {
+		return mterrors.Wrap(err, "failed to commit catalog schema")
+	}
+
+	if current < latest {
+		pm.logger.InfoContext(ctx, "successfully upgraded catalog schema", "format_version", latest)
+	}
+	return nil
+}
+
+// readCatalogFormat returns the catalog's current format version. A missing
+// multigres.catalog_state means format 0: either a fresh shard or the legacy
+// (pre-versioning) catalog tables.
+func readCatalogFormat(ctx context.Context, tx executor.InternalTx) (int, error) {
+	result, err := tx.Query(ctx, "SELECT to_regclass('multigres.catalog_state') IS NOT NULL")
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to check for catalog_state table")
+	}
+	var exists bool
+	if err := executor.ScanSingleRow(result, &exists); err != nil {
+		return 0, mterrors.Wrap(err, "failed to check for catalog_state table")
+	}
+	if !exists {
+		return 0, nil
+	}
+
+	result, err = tx.Query(ctx, "SELECT format_version FROM multigres.catalog_state")
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to read catalog format version")
+	}
+	var version int
+	if err := executor.ScanSingleRow(result, &version); err != nil {
+		return 0, mterrors.Wrap(err, "failed to read catalog format version")
+	}
+	return version, nil
+}

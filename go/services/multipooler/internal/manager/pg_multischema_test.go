@@ -127,9 +127,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("CREATE TABLE multigres.tablegroup", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("CREATE TABLE multigres.tablegroup_table", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("CREATE TABLE multigres.shard", mock.MakeQueryResult(nil, nil))
+				addFreshCatalogEnsure(m)
 			},
 			expectError: false,
 		},
@@ -203,7 +201,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			errorContains: "failed to create rule_history table",
 		},
 		{
-			name:       "tablegroup table creation fails",
+			name:       "catalog schema ensure fails",
 			tableGroup: constants.DefaultTableGroup,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
@@ -212,10 +210,27 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE TABLE multigres.tablegroup", errors.New("table creation failed"))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
+				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS multigres.shard", errors.New("drop failed"))
 			},
 			expectError:   true,
-			errorContains: "failed to create tablegroup table",
+			errorContains: "failed to apply catalog format 1 migration",
+		},
+		{
+			name:       "non-catalog shard skips catalog schema",
+			tableGroup: "commerce",
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
 		},
 	}
 
@@ -243,7 +258,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 // TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard verifies that every
 // shard gets the shard-local sidecar tables, but only the catalog shard
-// (default/0-inf) gets the multischema catalog tables.
+// (default/0-inf) runs the catalog schema ensure, and that it runs as part of
+// ensureSidecarSchemas, after every other bootstrap step.
 func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 	shardLocal := []string{
 		"CREATE SCHEMA multigres",
@@ -254,12 +270,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 		"CREATE TABLE multigres.rule_history",
 		"CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
 	}
-	catalog := []string{
-		"CREATE TABLE multigres.tablegroup (",
-		"CREATE TABLE multigres.tablegroup_table",
-		"CREATE TABLE multigres.shard",
-	}
-	catalogRef := regexp.MustCompile(`multigres\.(tablegroup|tablegroup_table|shard)\b`)
+	catalogRef := regexp.MustCompile(`multigres\.(catalog_state|tablegroup|tablegroup_table|shard|shard_index|shard_key|shard_key_column|operation)\b|pg_advisory_xact_lock`)
 
 	tests := []struct {
 		name        string
@@ -276,30 +287,39 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, tt.shard)
 
 			var queries []string
-			mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) {
-				queries = append(queries, q)
-			})
+			record := func(q string) { queries = append(queries, q) }
+			mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
+				mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
+			mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
 			require.NoError(t, pm.createSidecarSchema(context.Background(), testBootstrapPolicy()))
 
-			// Every shard runs the shard-local statements, in order, with
-			// backend_vpid (ensureSidecarSchemas) last.
+			indexOf := func(want string) int {
+				return slices.IndexFunc(queries, func(q string) bool { return strings.Contains(q, want) })
+			}
 			for _, want := range shardLocal {
-				assert.True(t, slices.ContainsFunc(queries, func(q string) bool { return strings.Contains(q, want) }),
-					"expected shard-local statement %q", want)
+				assert.GreaterOrEqual(t, indexOf(want), 0, "expected shard-local statement %q", want)
 			}
-			require.NotEmpty(t, queries)
-			assert.Contains(t, queries[len(queries)-1], "multigres.backend_vpid", "ensureSidecarSchemas must run last")
+			// backend_vpid (ensureSidecarSchemas) runs after every other
+			// bootstrap step.
+			vpid := indexOf("multigres.backend_vpid")
+			for _, want := range shardLocal[:len(shardLocal)-1] {
+				assert.Less(t, indexOf(want), vpid, "ensureSidecarSchemas must run after %q", want)
+			}
 
-			for _, want := range catalog {
-				got := slices.ContainsFunc(queries, func(q string) bool { return strings.Contains(q, want) })
-				assert.Equal(t, tt.wantCatalog, got, "catalog statement %q", want)
-			}
+			firstCatalog := slices.IndexFunc(queries, catalogRef.MatchString)
 			if !tt.wantCatalog {
-				for _, q := range queries {
-					assert.False(t, catalogRef.MatchString(q), "non-catalog shard must not touch catalog tables: %s", q)
-				}
+				assert.Equal(t, -1, firstCatalog, "non-catalog shard must not touch catalog tables: %v", queries)
+				return
 			}
+			// The catalog ensure runs inside ensureSidecarSchemas, after
+			// backend_vpid, and applies the format 1 migration, every catalog
+			// table and the seed rows.
+			assert.Greater(t, firstCatalog, vpid, "catalog ensure must run as part of ensureSidecarSchemas")
+			for _, stmt := range slices.Concat(catalogMigrations[0].statements, catalogTables, catalogSeed) {
+				assert.Contains(t, queries, stmt)
+			}
+			assert.Equal(t, "COMMIT", queries[len(queries)-1])
 		})
 	}
 }
@@ -343,82 +363,4 @@ func TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls(t *testing.T) {
 		assert.NoError(t, pm.createBackendVpidTable(context.Background()))
 	}
 	assert.Equal(t, 3, calls, "repeated calls across Open/resume cycles must all succeed, not just the first")
-}
-
-func TestInitializeMultischemaData(t *testing.T) {
-	tests := []struct {
-		name          string
-		tableGroup    string
-		shard         string
-		setupMock     func(m *mock.QueryService)
-		expectError   bool
-		errorContains string
-	}{
-		{
-			name:       "successful data initialization",
-			tableGroup: constants.DefaultTableGroup,
-			shard:      constants.DefaultShard,
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
-				m.AddQueryPatternOnce("INSERT INTO multigres.shard", mock.MakeQueryResult(nil, nil))
-			},
-			expectError: false,
-		},
-		{
-			name:       "tablegroup insert fails",
-			tableGroup: constants.DefaultTableGroup,
-			shard:      constants.DefaultShard,
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.tablegroup", errors.New("insert failed"))
-			},
-			expectError:   true,
-			errorContains: "failed to insert tablegroup",
-		},
-		{
-			name:       "shard insert fails",
-			tableGroup: constants.DefaultTableGroup,
-			shard:      constants.DefaultShard,
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.shard", errors.New("insert failed"))
-			},
-			expectError:   true,
-			errorContains: "failed to insert shard",
-		},
-		{
-			name:       "idempotent insert (conflict)",
-			tableGroup: constants.DefaultTableGroup,
-			shard:      constants.DefaultShard,
-			setupMock: func(m *mock.QueryService) {
-				// ON CONFLICT DO NOTHING still succeeds
-				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
-				m.AddQueryPatternOnce("INSERT INTO multigres.shard", mock.MakeQueryResult(nil, nil))
-			},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, tt.shard)
-
-			tt.setupMock(mockQueryService)
-
-			ctx := context.Background()
-			err := pm.initializeMultischemaData(ctx)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
-		})
-	}
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 )
 
@@ -41,9 +40,11 @@ import (
 // createSidecarSchema creates the multigres sidecar schema and all its tables.
 //
 // Every shard gets the shard-local tables (heartbeat, pgBackRest repos,
-// consensus rules, and the ensureSidecarSchemas tables). Only the catalog shard
-// (see constants.IsCatalogShard) also gets the multischema catalog tables
-// (tablegroup, tablegroup_table, shard).
+// consensus rules, and the ensureSidecarSchemas tables). The catalog shard
+// (see constants.IsCatalogShard) also gets the sharding catalog, created by
+// ensureSidecarSchemas's ensureCatalogSchema step rather than here, so a fresh
+// shard and one bootstrapped by an older binary go through the same upgrade
+// path.
 func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "creating multigres sidecar schema")
 
@@ -56,16 +57,6 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		func(ctx context.Context) error {
 			return pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID)
 		},
-	}
-	if pm.isCatalogShard() {
-		createFuncs = append(createFuncs,
-			func(ctx context.Context) error {
-				pm.logger.InfoContext(ctx, "creating multischema catalog tables on the catalog shard")
-				return pm.createTablegroup(ctx)
-			},
-			pm.createTablegroupTable,
-			pm.createShard,
-		)
 	}
 	// ensureSidecarSchemas goes last, deliberately: it also runs alone
 	// (without the rest of createSidecarSchema) from openLocked's
@@ -88,7 +79,7 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 }
 
 // isCatalogShard reports whether this pooler serves the shard that hosts the
-// multischema catalog tables.
+// sharding catalog.
 func (pm *MultipoolerManager) isCatalogShard() bool {
 	return constants.IsCatalogShard(pm.record.ShardKey().GetTableGroup(), pm.record.ShardKey().GetShard())
 }
@@ -113,40 +104,22 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is just backend_vpid; add future late-added sidecar tables
-// here as they arise.
+// Currently this is backend_vpid on every shard, plus the versioned sharding
+// catalog on the catalog shard (ensureCatalogSchema, which is idempotent via
+// its format version rather than IF NOT EXISTS); add future late-added sidecar
+// tables here as they arise.
 func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	// backend_vpid maps live backend pids to gateway virtual pids.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// initializeMultischemaData inserts this shard's tablegroup and shard records
-// into the catalog tables. Only called on the catalog shard, which is the only
-// shard that has them.
-//
-// TODO: In the future, tablegroup and shard insertion should be done via a
-// dedicated RPC, so that the catalog shard records every tablegroup and shard,
-// not just its own.
-func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) error {
-	tableGroup := pm.record.ShardKey().GetTableGroup()
-	shard := pm.record.ShardKey().GetShard()
-
-	pm.logger.InfoContext(ctx, "initializing multischema data",
-		"tablegroup", tableGroup, "shard", shard)
-
-	if err := pm.insertTablegroup(ctx, tableGroup); err != nil {
-		return err
+	if pm.isCatalogShard() {
+		if err := pm.ensureCatalogSchema(ctx); err != nil {
+			return err
+		}
 	}
 
-	if err := pm.insertShard(ctx, tableGroup, shard); err != nil {
-		return err
-	}
-
-	pm.logger.InfoContext(ctx, "successfully initialized multischema data")
 	return nil
 }
 
@@ -213,107 +186,5 @@ REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
 GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create backend_vpid table")
 	}
-	return nil
-}
-
-// ----------------------------------------------------------------------------
-// Multischema Catalog Tables (catalog shard only)
-// ----------------------------------------------------------------------------
-
-// createTablegroup creates the tablegroup table for tracking table groups
-func (pm *MultipoolerManager) createTablegroup(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.tablegroup (
-		oid BIGSERIAL PRIMARY KEY,
-		name TEXT NOT NULL UNIQUE,
-		type TEXT NOT NULL
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create tablegroup table")
-	}
-	return nil
-}
-
-// createTablegroupTable creates the tablegroup_table table for tracking tables within tablegroups
-func (pm *MultipoolerManager) createTablegroupTable(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.tablegroup_table (
-		oid BIGSERIAL PRIMARY KEY,
-		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
-		name TEXT NOT NULL,
-		UNIQUE (tablegroup_oid, name)
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create tablegroup_table table")
-	}
-	return nil
-}
-
-// createShard creates the shard table for tracking shards within tablegroups
-func (pm *MultipoolerManager) createShard(ctx context.Context) error {
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.shard (
-		oid BIGSERIAL PRIMARY KEY,
-		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
-		shard_name TEXT NOT NULL,
-		key_range_start BYTEA NULL,
-		key_range_end BYTEA NULL,
-		UNIQUE (tablegroup_oid, shard_name)
-	)`); err != nil {
-		return mterrors.Wrap(err, "failed to create shard table")
-	}
-	return nil
-}
-
-// ----------------------------------------------------------------------------
-// Data Operations
-// ----------------------------------------------------------------------------
-
-// insertTablegroup inserts a tablegroup record into the tablegroup table.
-// Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
-// The type is hardcoded to "unsharded" for the MVP.
-func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string) error {
-	pm.logger.InfoContext(ctx, "inserting tablegroup", "name", name)
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	err := pm.adminExecArgs(execCtx, `INSERT INTO multigres.tablegroup (name, type)
-		VALUES ($1, 'unsharded')
-		ON CONFLICT (name) DO NOTHING`, name)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to insert tablegroup")
-	}
-	return nil
-}
-
-// insertShard inserts a shard record into the shard table.
-// Returns an error if the tablegroup doesn't exist.
-// Uses ON CONFLICT DO NOTHING on (tablegroup_oid, shard_name) to handle concurrent insertions gracefully.
-func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
-	pm.logger.InfoContext(ctx, "inserting shard", "tablegroup", tablegroupName, "shard", shardName)
-
-	// First, fetch the tablegroup oid
-	queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer queryCancel()
-	result, err := pm.adminQueryArgs(queryCtx, "SELECT oid FROM multigres.tablegroup WHERE name = $1", tablegroupName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to find tablegroup: "+tablegroupName)
-	}
-
-	var tablegroupOid int64
-	if err := executor.ScanSingleRow(result, &tablegroupOid); err != nil {
-		return mterrors.Wrap(err, "failed to find tablegroup: "+tablegroupName)
-	}
-
-	// Insert the shard
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-	err = pm.adminExecArgs(execCtx, `INSERT INTO multigres.shard (tablegroup_oid, shard_name)
-		VALUES ($1, $2)
-		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING`, tablegroupOid, shardName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to insert shard")
-	}
-
 	return nil
 }

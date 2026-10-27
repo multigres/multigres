@@ -1,0 +1,90 @@
+# Golden copy of catalogTables and catalogSeed (pg_catalog_schema.go),
+# checked by TestCatalogSchema_Golden. Appending entries is fine; editing or
+# removing one needs a new numbered migration in catalogMigrations. Rewrite with
+# CATALOG_SCHEMA_REWRITE=1.
+format 1
+== table
+CREATE TABLE IF NOT EXISTS multigres.catalog_state (
+	singleton       boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+	format_version  integer NOT NULL,
+	routing_version bigint  NOT NULL DEFAULT 0,
+	plan_epoch      bigint  NOT NULL DEFAULT 0
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.tablegroup (
+	tablegroup_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	name          text NOT NULL UNIQUE,
+	state         text NOT NULL CHECK (state IN ('creating', 'active', 'dropping')),
+	created_at    timestamptz NOT NULL DEFAULT now()
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.shard (
+	shard_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	shard_name    text   NOT NULL,
+	range_start   bytea,
+	range_end     bytea,
+	state         text   NOT NULL CHECK (state IN ('preparing', 'active', 'retired')),
+	UNIQUE (tablegroup_id, shard_name)
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
+	table_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	schema_name   text   NOT NULL,
+	table_name    text   NOT NULL,
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	UNIQUE (schema_name, table_name)
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.shard_index (
+	shard_index_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	name           text  NOT NULL UNIQUE,
+	type           text  NOT NULL,
+	params         jsonb NOT NULL DEFAULT '{}',
+	state          text  NOT NULL CHECK (state IN ('preparing', 'active', 'retired'))
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.shard_key (
+	shard_key_id   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	table_id       bigint NOT NULL REFERENCES multigres.tablegroup_table (table_id),
+	shard_index_id bigint NOT NULL REFERENCES multigres.shard_index (shard_index_id),
+	name           text   NOT NULL,
+	role           text   NOT NULL CHECK (role IN ('primary', 'secondary')),
+	state          text   NOT NULL CHECK (state IN ('preparing', 'active', 'retired')),
+	UNIQUE (table_id, name)
+)
+== table
+CREATE UNIQUE INDEX IF NOT EXISTS shard_key_one_active_primary
+	ON multigres.shard_key (table_id) WHERE role = 'primary' AND state = 'active'
+== table
+CREATE TABLE IF NOT EXISTS multigres.shard_key_column (
+	shard_key_id bigint  NOT NULL REFERENCES multigres.shard_key (shard_key_id),
+	position     integer NOT NULL,
+	column_name  text    NOT NULL,
+	PRIMARY KEY (shard_key_id, position)
+)
+== table
+CREATE TABLE IF NOT EXISTS multigres.operation (
+	operation_id     uuid PRIMARY KEY,
+	kind             text NOT NULL,
+	state            text NOT NULL,
+	request          jsonb NOT NULL DEFAULT '{}',
+	initiating_role  text,
+	cancel_requested boolean NOT NULL DEFAULT false,
+	last_error       text,
+	created_at       timestamptz NOT NULL DEFAULT now(),
+	updated_at       timestamptz NOT NULL DEFAULT now()
+)
+== seed
+INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING
+== seed
+INSERT INTO multigres.tablegroup (name, state)
+	SELECT 'default', 'active'
+	WHERE NOT EXISTS (SELECT 1 FROM multigres.tablegroup WHERE name = 'default')
+	ON CONFLICT (name) DO NOTHING
+== seed
+INSERT INTO multigres.shard (tablegroup_id, shard_name, state)
+	SELECT tg.tablegroup_id, '0-inf', 'active' FROM multigres.tablegroup tg
+	WHERE tg.name = 'default'
+	  AND NOT EXISTS (SELECT 1 FROM multigres.shard s WHERE s.tablegroup_id = tg.tablegroup_id AND s.shard_name = '0-inf')
+	ON CONFLICT (tablegroup_id, shard_name) DO NOTHING

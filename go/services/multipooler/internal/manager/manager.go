@@ -561,7 +561,8 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 
 	// Ensure sidecar tables that a shard bootstrapped by an older pooler
 	// version may be missing (see ensureSidecarSchemas) exist on every
-	// open/resume, not just on promotion.
+	// open/resume, not just on promotion. On the catalog shard this also
+	// upgrades the sharding catalog to this binary's catalog format.
 	//
 	// The function createSidecarSchema only ever runs once, at genuine shard
 	// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
