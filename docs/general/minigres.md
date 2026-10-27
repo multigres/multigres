@@ -274,7 +274,9 @@ it, locally (`pg1` only):
   `leadership_mode: LEADERSHIP_MODE_STATIC` in its topology record. For a shard
   whose pooler is a static leader, Multiadmin sends backups, listing, expiry,
   verification and job status to it, whatever "force primary" says
-  (`findPoolerForBackup`); other shards still use a replica.
+  (`findPoolerForBackup`); other shards still use a replica. A shard with a
+  static leader and any other pooler is misconfigured, and Multiadmin refuses
+  its backup operations rather than guess.
 - **No etcd lease.** The backup, expire and first-backup leases exist so that
   only one pooler of a shard works on its repository at a time. A static leader
   is the only one, and the action lock already serializes its own operations,

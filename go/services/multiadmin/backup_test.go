@@ -314,15 +314,29 @@ func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
 	defer server.Stop()
 
 	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
-	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
 	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "is not serving", "a static leader is never replaced by a guess")
 
+	_, err = server.ts.UpdateMultipoolerFields(ctx, leader.Id, func(p *clustermetadatapb.Multipooler) error {
+		p.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		return nil
+	})
+	require.NoError(t, err)
 	for _, forceLeader := range []bool{false, true} {
 		got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", forceLeader)
 		require.NoError(t, err, "a static leader is chosen with forceLeader=%v", forceLeader)
 		require.Equal(t, leader.Id.Name, got.Id.Name)
 	}
+
+	// A stopped consensus pooler in the same shard makes it mixed.
+	replica := makeRoutedPooler("cell1", "consensus-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	replica.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	require.NoError(t, server.ts.CreateMultipooler(ctx, replica))
+	_, err = server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "has a static leader (multipooler-cell1-static-leader) and 1 other pooler(s)")
 }
 
 func TestBackup_ForcePrimary(t *testing.T) {
