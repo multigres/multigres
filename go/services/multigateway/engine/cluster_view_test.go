@@ -69,7 +69,7 @@ const gatewaysColDefs = `_ (name TEXT, cell TEXT, pid_prefix INT, is_self BOOLEA
 func TestContainsClusterView(t *testing.T) {
 	for sql, want := range map[string]bool{
 		"SELECT * FROM multigres.multipoolers":                                                 true,
-		"SELECT * FROM MULTIGRES.MultiGateways g":                                              true, // unquoted: the parser lowercases
+		"SELECT * FROM MULTIGRES.MultigateWays g":                                              true, // unquoted: the parser lowercases
 		"SELECT * FROM t JOIN multigres.multipoolers p ON p.name = t.n":                        true,
 		"SELECT (SELECT count(*) FROM multigres.multigateways)":                                true,
 		"EXPLAIN SELECT * FROM multigres.multipoolers":                                         true,
@@ -81,7 +81,7 @@ func TestContainsClusterView(t *testing.T) {
 		"SELECT * FROM multipoolers":                                                           false, // unqualified: search_path unknown
 		"SELECT * FROM other.multipoolers":                                                     false,
 		"SELECT * FROM multigres.backend_vpid":                                                 false, // a real sidecar table
-		`SELECT * FROM multigres."MultiPoolers"`:                                               false, // quoted: a different relation
+		`SELECT * FROM multigres."MultipoolerS"`:                                               false, // quoted: a different relation
 		"INSERT INTO multigres.multipoolers VALUES (1)":                                        false, // not a FROM position
 		"CREATE TABLE multigres.multipoolers (a int)":                                          false,
 		"TRUNCATE multigres.multipoolers":                                                      false,
