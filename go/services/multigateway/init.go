@@ -135,7 +135,10 @@ type Multigateway struct {
 	// ts is set from Init's ts argument. Owned by whoever constructed this
 	// Multigateway (cmd/multigateway standalone, or cmd/minigres sharing it
 	// with a multipooler): they open it and close it, never Shutdown.
-	ts           topoclient.Store
+	ts topoclient.Store
+	// gatewayID is this gateway's topology ID, set once its record is built
+	// in Init. multigres.multigateways uses it to flag the serving gateway.
+	gatewayID    *clustermetadatapb.ID
 	tr           *toporeg.TopoReg
 	serverStatus Status
 	// prefixLost is set when a re-assertion finds this gateway's PID
@@ -463,6 +466,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	mg.executor.SetClusterViewSource(mg)
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
 	// can't start any earlier.
@@ -505,6 +509,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// Build the full gateway record. All info (hostname, ports) is available
 	// after servenv.Init(). PidPrefix is assigned during registration below.
 	multigateway := topoclient.NewMultigateway(serviceID, cell, mg.senv.GetHostname())
+	mg.gatewayID = multigateway.Id
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
@@ -859,20 +864,14 @@ func (mg *Multigateway) registerWithPrefix(multigateway *clustermetadatapb.Multi
 // atomic claim regardless.
 func (mg *Multigateway) claimUnusedPrefix(ctx context.Context, id *clustermetadatapb.ID) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
-	cells, err := mg.ts.GetCellNames(ctx)
+	// A cell may not have gateways yet: skip it.
+	gateways, err := listMultigateways(ctx, mg.ts, func(string, error) error { return nil })
 	if err != nil {
 		return 0, fmt.Errorf("getting cell names: %w", err)
 	}
-
-	for _, c := range cells {
-		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
-		if err != nil {
-			continue // Cell may not have gateways yet.
-		}
-		for _, gw := range gateways {
-			if p := gw.GetPidPrefix(); p > 0 {
-				usedPrefixes[p] = true
-			}
+	for _, gw := range gateways {
+		if p := gw.GetPidPrefix(); p > 0 {
+			usedPrefixes[p] = true
 		}
 	}
 
