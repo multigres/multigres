@@ -180,11 +180,11 @@ func (g *GatewayEval) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	formats, err := g.resultFormats(portalInfo.Portal)
+	params, err := g.decodeParams(portalInfo, portalInfo.PreparedStatementInfo.GetName())
 	if err != nil {
 		return err
 	}
-	params, err := g.decodeParams(portalInfo, portalInfo.PreparedStatementInfo.GetName())
+	formats, err := g.resultFormats(portalInfo.Portal)
 	if err != nil {
 		return err
 	}
@@ -203,17 +203,19 @@ func (g *GatewayEval) PortalStreamExecute(
 }
 
 // ValidateBind makes the checks exec_bind_message makes before a portal
-// exists: parameter count and formats, result formats, and the decoding of
-// every parameter. A statement the gateway answers never reaches a backend,
-// so the handler runs this at Bind, where PostgreSQL reports these errors,
-// instead of leaving them to Execute; a rejected Bind creates no portal.
-// stmtName is the name the client gave the statement, which the messages
-// quote (the portal carries the gateway's consolidated name).
+// exists, in its order: parameter count and formats, the decoding of every
+// parameter, and only then the result formats, so a Bind with several faults
+// reports the one PostgreSQL would. A statement the gateway answers never
+// reaches a backend, so the handler runs this at Bind, where PostgreSQL
+// reports these errors, instead of leaving them to Execute; a rejected Bind
+// creates no portal. stmtName is the name the client gave the statement,
+// which the messages quote (the portal carries the gateway's consolidated
+// name).
 func (g *GatewayEval) ValidateBind(portalInfo *preparedstatement.PortalInfo, stmtName string) error {
-	if _, err := g.resultFormats(portalInfo.Portal); err != nil {
+	if _, err := g.decodeParams(portalInfo, stmtName); err != nil {
 		return err
 	}
-	_, err := g.decodeParams(portalInfo, stmtName)
+	_, err := g.resultFormats(portalInfo.Portal)
 	return err
 }
 

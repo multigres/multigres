@@ -204,6 +204,11 @@ func TestGatewayEval_PortalStreamExecute(t *testing.T) {
 		sqlstate(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
 	})
 
+	t.Run("invalid text parameter wins over result format count mismatch", func(t *testing.T) {
+		_, err := runPortal(t, g, evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("abc"), []byte("4")}, nil, []int16{0, 0, 0}), false)
+		sqlstate(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
+	})
+
 	t.Run("binary parameter with trailing bytes", func(t *testing.T) {
 		pi := evalPortal(t, sql, []uint32{int4, int4}, [][]byte{be4(0, 0, 0, 3, 0), be4(0, 0, 0, 4)}, []int16{1}, nil)
 		_, err := runPortal(t, g, pi, false)
@@ -270,6 +275,10 @@ func TestGatewayEval_ValidateBind(t *testing.T) {
 
 	err = g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("3"), []byte("4")}, nil, []int16{0, 0, 0}), "client")
 	sqlstate(t, err, mterrors.PgSSProtocolViolation, "bind message has 3 result formats but query has 2 columns")
+
+	// exec_bind_message decodes the parameters before it checks the result formats.
+	err = g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("abc"), []byte("4")}, nil, []int16{0, 0, 0}), "client")
+	sqlstate(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
 
 	div := gatewayEvalFor(t, "SELECT 1 / $1", []uint32{int4})
 	require.NoError(t, div.ValidateBind(evalPortal(t, "SELECT 1 / $1", []uint32{int4}, [][]byte{[]byte("0")}, nil, nil), "client"),
