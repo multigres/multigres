@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "Regression",
-  "message": "221/222 passed",
-  "color": "yellow"
+  "message": "222/222 passed",
+  "color": "brightgreen"
 }
