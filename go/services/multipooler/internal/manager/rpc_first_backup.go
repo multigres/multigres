@@ -187,7 +187,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
 	var fnStarted bool
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+	err = pm.withBackupLease(ctx, false /* steal */, "create-first-backup", func(leaseCtx context.Context) error {
 		fnStarted = true
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease. A read error means

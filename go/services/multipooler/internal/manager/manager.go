@@ -485,8 +485,9 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// supplied later (SetConfigPath / SetPgpassPath / SetBackupConfig) once
 	// topology and the backup location have loaded.
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
-		PgpassPath: pm.pgpassPath,
-		PgDataDir:  postgresDataDir(),
+		PgpassPath:    pm.pgpassPath,
+		PgDataDir:     postgresDataDir(),
+		NoBackupLease: config.StaticLeader,
 	})
 	// Wire the backup-health poller to the manager's pg connection: role
 	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and

@@ -545,6 +545,10 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.PoolerDir = adopted.poolerDir
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
+	multipooler.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS
+	if mp.staticLeader {
+		multipooler.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	}
 
 	minAttempts := mp.postgresUnrecoverableMinAttempts.Get()
 	if err := validateUnrecoverableMinAttempts(minAttempts); err != nil {

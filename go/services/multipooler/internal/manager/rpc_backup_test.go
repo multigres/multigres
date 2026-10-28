@@ -222,6 +222,7 @@ func TestBackup_Validation(t *testing.T) {
 		backupType   string
 		poolerType   clustermetadatapb.PoolerType
 		forcePrimary bool
+		staticLeader bool
 		expectError  bool
 		errorMsg     string
 	}{
@@ -251,6 +252,15 @@ func TestBackup_Validation(t *testing.T) {
 			errorMsg:     "not allowed unless ForcePrimary",
 		},
 		{
+			name:         "Static leader without force flag",
+			poolerDir:    "/tmp/test",
+			backupType:   "full",
+			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
+			staticLeader: true,
+			expectError:  true,                       // Will fail on pgbackrest execution but validation passes
+			errorMsg:     "pgbackrest backup failed", // Execution error, not validation
+		},
+		{
 			name:         "Primary with force flag",
 			poolerDir:    "/tmp/test",
 			backupType:   "full",
@@ -276,6 +286,14 @@ func TestBackup_Validation(t *testing.T) {
 			backupLocation := "/tmp/test-backups"
 			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
 			pm := createTestManagerWithBackupLocation(t, tt.poolerDir, "", "", tt.poolerType, backupLocation)
+			if tt.staticLeader {
+				// A static leader's engine runs backups without the etcd lease.
+				pm.config.StaticLeader = true
+				backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
+				require.NoError(t, err)
+				pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: tt.poolerDir, NoBackupLease: true})
+				pm.backup.SetBackupConfig(backupConfig)
+			}
 			pm.backup.SetConfigPath(configPath)
 
 			// Setup primary info for replica poolers (required for backup)
@@ -1225,6 +1243,42 @@ func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to acquire backup lease")
 	assert.True(t, errors.Is(err, context.DeadlineExceeded),
 		"expected the lease-acquisition timeout to surface as context.DeadlineExceeded, got: %v", err)
+}
+
+// TestBackup_StaticLeaderTakesNoLease shows that a static leader backs up
+// without the shard's etcd backup lease: another pooler holding it does not
+// stop the backup, which proceeds to pgbackrest.
+func TestBackup_StaticLeaderTakesNoLease(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	defer ts.Close()
+	shardKey := &clustermetadatapb.ShardKey{
+		Database:   "test-database",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+	_, otherUnlock, err := ts.TryLockBackup(t.Context(), shardKey, "other-pooler-backup")
+	require.NoError(t, err)
+	var otherErr error
+	defer otherUnlock(&otherErr)
+
+	poolerDir := t.TempDir()
+	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-multipooler"}
+	pm := &MultipoolerManager{
+		config:     &Config{StaticLeader: true},
+		state:      ManagerStateReady,
+		topoClient: ts,
+		actionLock: actionlock.NewActionLock(),
+		logger:     slog.Default(),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{Id: id, PoolerDir: poolerDir, ShardKey: shardKey}),
+	}
+	pm.stateManager = newTestStateManagerForPoolerType(pm, id, clustermetadatapb.PoolerType_PRIMARY)
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{NoBackupLease: true})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err = pm.Backup(ctx, false, "full", "test-job-id", nil)
+	require.Error(t, err, "no backup configuration is set, so the backup itself fails")
+	assert.NotContains(t, err.Error(), "lease")
 }
 
 // TestRestoreFromBackupLocked_FailedRestoreRemovesPartialDataDir is a
