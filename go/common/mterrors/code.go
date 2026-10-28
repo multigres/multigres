@@ -57,6 +57,7 @@ const (
 	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
 	PgSSDivisionByZero                  = "22012" // division_by_zero
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
+	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
 )
 
 // SQLSTATEs raised by expression analysis (postgres src/backend/parser).

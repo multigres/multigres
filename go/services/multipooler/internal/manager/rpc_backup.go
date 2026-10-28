@@ -58,7 +58,7 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	var backupID string
 	var fnStarted bool
 	health := pm.backup.Health()
-	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
+	err = pm.withBackupLease(ctx, true /* steal */, "backup", func(ctx context.Context) error {
 		// The lease is held for the duration of this function.
 		fnStarted = true
 		health.SetLeaseHeld(true)
@@ -86,6 +86,27 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 	return backupID, nil
+}
+
+// withBackupLease runs fn under the shard's etcd backup lease, stealing it from
+// another pooler when steal is set. A static leader is the only pooler of its
+// shard, so the action lock its caller holds already excludes every other
+// backup: it runs fn without the lease, and without etcd.
+func (pm *MultipoolerManager) withBackupLease(ctx context.Context, steal bool, action string, fn func(ctx context.Context) error) error {
+	switch {
+	case pm.staticLeader():
+		return fn(ctx)
+	case steal:
+		return pm.topoClient.WithStolenBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, action, pm.logger, fn)
+	default:
+		return pm.topoClient.WithBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, action, pm.logger, fn)
+	}
+}
+
+// staticLeader reports whether the pooler is its shard's static leader
+// (Config.StaticLeader).
+func (pm *MultipoolerManager) staticLeader() bool {
+	return pm.config != nil && pm.config.StaticLeader
 }
 
 // recordLeaseLossIfApplicable records a lost-lease event + counter when a backup
@@ -156,7 +177,9 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
 	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
-	if isPrimary && !forcePrimary {
+	// A static leader is the only pooler of its shard: its backups can only
+	// be taken on it.
+	if isPrimary && !forcePrimary && !pm.staticLeader() {
 		slog.WarnContext(ctx, "backup requested on primary database without ForcePrimary flag")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"backups from primary databases are not allowed unless ForcePrimary is set")
@@ -327,20 +350,46 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup. A partial restore can leave PG_VERSION on disk,
 	// which hasDataDirectory() would misread as "already initialized" next
-	// tick - clean up so it retries instead of starting postgres on unverified
-	// data. Scoped to this call only: later steps run after a successful
-	// restore, so their failures shouldn't discard good data.
+	// tick. Two layers guard against starting postgres on unverified data:
 	//
-	// TODO: doesn't cover a process crash mid-restore (no defer runs then) -
-	// a crash-surviving sentinel, like hasBootstrapSentinel/hasRewindSentinel,
-	// would close that gap.
+	//   - The restore sentinel is written before pgbackrest touches PGDATA, so
+	//     a process crash mid-restore (when no cleanup can run) leaves a
+	//     durable marker; restoreAndStartPostgres uses it to remove the partial
+	//     data directory and restore again.
+	//   - A restore that fails without the process dying is cleaned up here,
+	//     so the next tick retries.
+	//
+	// Both are scoped to the restore itself: later steps run after a
+	// successful restore, so their failures shouldn't discard good data.
+	if err := pm.restoreSentinel().write(); err != nil {
+		return mterrors.Wrap(err, "failed to write restore sentinel")
+	}
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
 		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
+		// Ordering matters: only clear the sentinel after the data directory is
+		// gone, to preserve the "partial data dir present ⇒ sentinel present"
+		// invariant. If removal fails, the sentinel stays so the next attempt
+		// removes the partial directory instead of starting postgres on it.
 		if removeErr := pm.removeDataDirectory(); removeErr != nil {
 			pm.logger.WarnContext(ctx, "failed to remove partial data directory after failed restore", "error", removeErr)
+			return err
+		}
+		if removeErr := pm.restoreSentinel().remove(); removeErr != nil {
+			pm.logger.WarnContext(ctx, "failed to remove restore sentinel after failed restore", "error", removeErr)
 		}
 		return err
+	}
+
+	// PGDATA now holds a complete restore. Clear the sentinel before the steps
+	// below so a failure in one of them can't get the restored data discarded.
+	// If it can't be cleared, fail the restore: with the sentinel still on disk
+	// the next attempt redoes it from scratch, which is wasteful but safe. If only
+	// the directory fsync failed after the unlink, the sentinel is gone and the
+	// next tick starts postgres on the restored data, as after a failure in one
+	// of the steps below.
+	if err := pm.restoreSentinel().remove(); err != nil {
+		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
 	}
 
 	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
@@ -556,7 +605,7 @@ func (pm *MultipoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
 	// not preempt an in-progress backup — it can wait or fail fast.
 	var expiredIDs []string
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
+	err = pm.withBackupLease(ctx, false /* steal */, "expire", func(ctx context.Context) error {
 		var expireErr error
 		expiredIDs, expireErr = pm.backup.Expire(ctx, overrides)
 		return expireErr

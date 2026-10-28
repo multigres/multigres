@@ -242,6 +242,43 @@ proto3.util.setEnumType(QuorumType, "clustermetadata.QuorumType", [
 ]);
 
 /**
+ * LeadershipMode is how a pooler gets its leadership.
+ *
+ * @generated from enum clustermetadata.LeadershipMode
+ */
+export enum LeadershipMode {
+  /**
+   * LEADERSHIP_MODE_UNSPECIFIED is the proto3 zero value, published by
+   * poolers predating this field. Treated as LEADERSHIP_MODE_CONSENSUS.
+   *
+   * @generated from enum value: LEADERSHIP_MODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * LEADERSHIP_MODE_CONSENSUS: leadership is decided by consensus, coordinated
+   * by multiorch, among the shard's poolers.
+   *
+   * @generated from enum value: LEADERSHIP_MODE_CONSENSUS = 1;
+   */
+  CONSENSUS = 1,
+
+  /**
+   * LEADERSHIP_MODE_STATIC: the pooler is the only pooler of its shard and
+   * leads it without consensus (minigres).
+   *
+   * @generated from enum value: LEADERSHIP_MODE_STATIC = 2;
+   */
+  STATIC = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(LeadershipMode)
+proto3.util.setEnumType(LeadershipMode, "clustermetadata.LeadershipMode", [
+  { no: 0, name: "LEADERSHIP_MODE_UNSPECIFIED" },
+  { no: 1, name: "LEADERSHIP_MODE_CONSENSUS" },
+  { no: 2, name: "LEADERSHIP_MODE_STATIC" },
+]);
+
+/**
  * RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
  * WRITABILITY, not consensus: PRIMARY means this pooler is the writable leader,
  * REPLICA means it is not. This is deliberately distinct from consensus
@@ -986,6 +1023,16 @@ export class Multipooler extends Message<Multipooler> {
    */
   routingState?: RoutingState;
 
+  /**
+   * leadership_mode is how this pooler gets its leadership. It is fixed for
+   * the life of the process. A static leader (minigres) is the only pooler of
+   * its shard: callers such as multiadmin use it for work they would
+   * otherwise send to a replica, such as backups.
+   *
+   * @generated from field: clustermetadata.LeadershipMode leadership_mode = 14;
+   */
+  leadershipMode = LeadershipMode.UNSPECIFIED;
+
   constructor(data?: PartialMessage<Multipooler>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1005,6 +1052,7 @@ export class Multipooler extends Message<Multipooler> {
     { no: 11, name: "pg_data_dir", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "lifecycle_status", kind: "message", T: PoolerLifecycle },
     { no: 13, name: "routing_state", kind: "message", T: RoutingState },
+    { no: 14, name: "leadership_mode", kind: "enum", T: proto3.getEnumType(LeadershipMode) },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {

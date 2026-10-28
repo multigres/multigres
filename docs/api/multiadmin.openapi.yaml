@@ -1286,6 +1286,14 @@ components:
           type: string
       title: KeyRange
       type: object
+    clustermetadata.LeadershipMode:
+      description: LeadershipMode is how a pooler gets its leadership.
+      enum:
+        - LEADERSHIP_MODE_UNSPECIFIED
+        - LEADERSHIP_MODE_CONSENSUS
+        - LEADERSHIP_MODE_STATIC
+      title: LeadershipMode
+      type: string
     clustermetadata.LsnPosition:
       additionalProperties: false
       description: |-
@@ -1366,6 +1374,14 @@ components:
           $ref: '#/components/schemas/clustermetadata.KeyRange'
           description: If range based sharding is used, range for the pooler's shard.
           title: key_range
+        leadershipMode:
+          $ref: '#/components/schemas/clustermetadata.LeadershipMode'
+          description: |-
+            leadership_mode is how this pooler gets its leadership. It is fixed for
+             the life of the process. A static leader (minigres) is the only pooler of
+             its shard: callers such as multiadmin use it for work they would
+             otherwise send to a replica, such as backups.
+          title: leadership_mode
         lifecycleStatus:
           $ref: '#/components/schemas/clustermetadata.PoolerLifecycle'
           description: |-

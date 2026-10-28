@@ -506,6 +506,67 @@ func TestDetermineRemedialAction(t *testing.T) {
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
 		},
+		{
+			// Sentinel from a prior interrupted restore must override the
+			// dirInitialized=true signal (a partial restore can already contain
+			// PG_VERSION), so the partial directory is removed and the restore
+			// retried instead of a doomed start.
+			name: "restore_sentinel_present_forces_restore_path",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         true,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			// With both sentinels present the bootstrap sentinel wins: bootstrap
+			// removes its stale data directory and clears the restore sentinel
+			// itself, so the restore sentinel cannot block it.
+			name: "bootstrap_sentinel_wins_over_restore_sentinel",
+			state: postgresState{
+				pgctldAvailable:          true,
+				postgresRunning:          false,
+				dirInitialized:           true,
+				bootstrapSentinelPresent: true,
+				restoreSentinelPresent:   true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionCreateFirstBackup,
+		},
+		{
+			// The repository is readable but holds no complete backup. The
+			// sentinel must still pick the restore path, which itself waits for a
+			// backup before touching the data, rather than starting postgres on
+			// the partial restore.
+			name: "restore_sentinel_without_backups_still_restores",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         true,
+				backupsAvailable:       false,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			// An interrupted restore means this shard already had a backup, so
+			// even with no data directory and no backup visible right now, the
+			// node must retry the restore rather than bootstrap a new shard.
+			name: "restore_sentinel_without_data_dir_or_backups_does_not_bootstrap",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         false,
+				backupsAvailable:       false,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1702,6 +1763,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
 		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
+		{"restoreSentinelPresent", func() postgresState { s := base; s.restoreSentinelPresent = true; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {

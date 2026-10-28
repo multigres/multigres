@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,12 +29,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	adminserver "github.com/multigres/multigres/go/services/multiadmin"
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/testpoll"
@@ -239,4 +245,56 @@ func TestMinigres_ConfigFile(t *testing.T) {
 	var timeout string
 	require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&timeout))
 	assert.Equal(t, "7s", timeout, "the gateway's statement timeout comes from the config file")
+}
+
+// TestMinigres_BackupAndRestore backs up a static leader through multiadmin
+// without "force primary", lists and verifies the backup, then restores it
+// into an empty data directory.
+func TestMinigres_BackupAndRestore(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE backup_check (v text); INSERT INTO backup_check VALUES ('kept')")
+	require.NoError(t, err)
+
+	admin := adminserver.NewMultiadminServer(setup.TopoServer, slog.Default(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer admin.Stop()
+	shard := &multiadminpb.BackupRequest{Database: database, TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Type: "full"}
+
+	resp, err := admin.Backup(t.Context(), shard)
+	require.NoError(t, err, "a static leader is backed up without force primary")
+	var backupID string
+	require.Eventually(t, func() bool {
+		status, err := admin.GetBackupJobStatus(t.Context(), &multiadminpb.GetBackupJobStatusRequest{JobId: resp.JobId})
+		require.NoError(t, err)
+		require.NotEqual(t, multiadminpb.JobStatus_JOB_STATUS_FAILED, status.Status, status.ErrorMessage)
+		backupID = status.BackupId
+		return status.Status == multiadminpb.JobStatus_JOB_STATUS_COMPLETED
+	}, 5*time.Minute, time.Second)
+
+	backups, err := admin.GetBackups(t.Context(), &multiadminpb.GetBackupsRequest{Database: database, TableGroup: shard.TableGroup, Shard: shard.Shard, Limit: 10})
+	require.NoError(t, err)
+	var ids []string
+	for _, b := range backups.Backups {
+		ids = append(ids, b.BackupId)
+	}
+	assert.Contains(t, ids, backupID)
+	_, err = admin.VerifyBackups(t.Context(), &multiadminpb.VerifyBackupsRequest{Database: database, TableGroup: shard.TableGroup, Shard: shard.Shard})
+	require.NoError(t, err)
+
+	// Lose the data directory: the static leader restores the latest backup
+	// and promotes itself.
+	setup.Minigres.TerminateGracefully(t.Logf, 10*time.Second)
+	setup.Pgctld.StopPostgres(t)
+	require.NoError(t, os.RemoveAll(filepath.Join(setup.Pgctld.PoolerDir, "pg_data")))
+	require.NoError(t, setup.Minigres.Start(t.Context(), t))
+	setup.WaitForQueryServing(t)
+
+	var v string
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT v FROM backup_check").Scan(&v))
+	assert.Equal(t, "kept", v)
 }

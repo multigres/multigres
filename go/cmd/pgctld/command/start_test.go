@@ -67,6 +67,17 @@ func TestRunStart(t *testing.T) {
 			setupBinaries: true,
 			expectError:   false, // Should succeed but report already running
 		},
+		{
+			name: "start refused while a restore sentinel is present",
+			setupDataDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+				return dataDir
+			},
+			setupBinaries: true,
+			expectError:   true,
+			errorContains: "restore sentinel",
+		},
 	}
 
 	for _, tt := range tests {
@@ -114,6 +125,30 @@ func TestRunStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckNoIncompleteRestore(t *testing.T) {
+	t.Run("no sentinel", func(t *testing.T) {
+		require.NoError(t, checkNoIncompleteRestore(t.TempDir()))
+	})
+
+	t.Run("sentinel present", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(poolerDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+		err := checkNoIncompleteRestore(poolerDir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "refusing to start PostgreSQL")
+	})
+
+	t.Run("sentinel unreadable", func(t *testing.T) {
+		// A pooler dir that is a regular file makes the stat fail with ENOTDIR,
+		// which must not be mistaken for "no sentinel".
+		poolerDir := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(poolerDir, []byte("x"), 0o644))
+		err := checkNoIncompleteRestore(poolerDir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to check restore sentinel")
+	})
 }
 
 func TestIsDataDirInitialized(t *testing.T) {

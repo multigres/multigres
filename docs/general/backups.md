@@ -213,6 +213,12 @@ competing with production writes. Forcing a primary-side backup is
 supported (e.g. single-node shards with no replica yet, or during
 bootstrap) but is the exception, not the default.
 
+A static leader (Minigres) is the exception to the exception: it is the only
+pooler of its shard, so it backs itself up without being forced, multiadmin
+sends its shard's backup operations to it, and it takes no etcd backup lease.
+It publishes this as `leadership_mode: LEADERSHIP_MODE_STATIC` in its topology
+record. See [Minigres](minigres.md#backups).
+
 ## Encryption
 
 Multigres relies entirely on pgBackRest's own repository encryption

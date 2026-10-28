@@ -241,6 +241,9 @@ type Store interface {
 	// Connection provider for accessing cell-specific connections
 	ConnProvider
 
+	// Recovery signals for cell connections
+	ConnRecoveryProvider
+
 	// LockShard acquires a lock on the specified shard.
 	// See shard_lock.go for full documentation.
 	LockShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string, opts ...LockOption) (context.Context, func(*error), error)
@@ -287,6 +290,17 @@ type ConnProvider interface {
 
 	// Status returns the connection status for all cells
 	Status() map[string]string
+}
+
+// ConnRecoveryProvider reports when the connection to a cell's topology
+// server was lost and regained. See ConnRecovery.
+type ConnRecoveryProvider interface {
+	// ConnRecoveries returns the recovery channel of the connection for cell.
+	// The channel is closed when that connection is replaced or closed, for
+	// example after the cell's server addresses change. The caller then calls
+	// ConnRecoveries again to follow the new connection. A connection that
+	// cannot report recoveries yields a channel that never fires.
+	ConnRecoveries(ctx context.Context, cell string) (<-chan struct{}, error)
 }
 
 // store is the main topology store implementation. It supports two ways of creation:
@@ -606,6 +620,18 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		conn: conn,
 	}
 	return conn, nil
+}
+
+// ConnRecoveries is part of the ConnRecoveryProvider interface.
+func (ts *store) ConnRecoveries(ctx context.Context, cell string) (<-chan struct{}, error) {
+	conn, err := ts.ConnForCell(ctx, cell)
+	if err != nil {
+		return nil, err
+	}
+	if rc, ok := conn.(ConnRecovery); ok {
+		return rc.Recoveries(), nil
+	}
+	return nil, nil
 }
 
 // cellsEqual compares two Cell protos for equality.
