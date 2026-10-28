@@ -106,8 +106,17 @@ func TestWrapperConn_RecoveriesCoalesce(t *testing.T) {
 		inner.recoveries <- struct{}{}
 		require.Eventually(t, func() bool { return len(wrapper.Recoveries()) == 1 }, time.Second, time.Millisecond)
 	}
+
+	// The loop above can return before the forwarder has relayed every signal,
+	// because len == 1 is already true after the first one. Waiting for silence
+	// with a timeout would be racy, so close the wrapper instead: Close takes the
+	// lock the forwarder holds while relaying, so afterwards nothing more can
+	// arrive, and the buffered signal is still readable from the closed channel.
+	require.NoError(t, wrapper.Close())
+
 	expectRecovery(t, wrapper.Recoveries())
-	expectNoRecovery(t, wrapper.Recoveries())
+	_, ok := <-wrapper.Recoveries()
+	assert.False(t, ok, "signals must have coalesced into a single pending recovery")
 }
 
 func TestWrapperConn_CloseClosesRecoveries(t *testing.T) {
