@@ -63,6 +63,7 @@ type fakeMigrator struct {
 	create     *migratorpb.CreateMigrationRequest
 	direction  *migratorpb.SetMigrationDirectionRequest
 	drop       *migratorpb.DropMigrationRequest
+	reseed     *migratorpb.ReseedReverseLinkRequest
 	get        *migratorpb.GetMigrationRequest
 	list       *migratorpb.ListMigrationsRequest
 	getJournal *migratorpb.GetMigrationJournalRequest
@@ -118,6 +119,11 @@ func (f *fakeMigrator) SetMigrationDirection(_ context.Context, in *migratorpb.S
 func (f *fakeMigrator) DropMigration(_ context.Context, in *migratorpb.DropMigrationRequest, _ ...grpc.CallOption) (*migratorpb.DropMigrationResponse, error) {
 	f.drop = in
 	return &migratorpb.DropMigrationResponse{}, nil
+}
+
+func (f *fakeMigrator) ReseedReverseLink(_ context.Context, in *migratorpb.ReseedReverseLinkRequest, _ ...grpc.CallOption) (*migratorpb.ReseedReverseLinkResponse, error) {
+	f.reseed = in
+	return &migratorpb.ReseedReverseLinkResponse{}, nil
 }
 
 func (f *fakeMigrator) GetMigrationJournal(_ context.Context, in *migratorpb.GetMigrationJournalRequest, _ ...grpc.CallOption) (*migratorpb.GetMigrationJournalResponse, error) {
