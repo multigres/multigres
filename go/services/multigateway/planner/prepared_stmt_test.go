@@ -135,6 +135,10 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 	return nil, nil
 }
 
+func (m *mockHandlerExecutor) ValidateBind(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, *preparedstatement.PortalInfo) error {
+	return nil
+}
+
 func (m *mockHandlerExecutor) PrepareInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
 	return nil
 }

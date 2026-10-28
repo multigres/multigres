@@ -266,3 +266,34 @@ func TestGatewayEval_UnsafeConnectionRoutes(t *testing.T) {
 	assert.Equal(t, engine.PlanTypeRoute, res.PlanType)
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load())
 }
+
+// ValidateBind rejects at Bind what PostgreSQL rejects at Bind for a portal
+// the gateway will evaluate; a portal the planner would route is left to the
+// backend, which sees its Bind at Describe or Execute.
+func TestGatewayEval_ValidateBind(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+
+	err := exec.ValidateBind(ctx, conn, nil, "s", boundPortal(t, "SELECT $1::int4", []uint32{0}, [][]byte{[]byte("abc")}, nil))
+	require.Error(t, err)
+	assert.Equal(t, mterrors.PgSSInvalidTextRepresentation, mterrors.ExtractSQLSTATE(err))
+
+	err = exec.ValidateBind(ctx, conn, nil, "s", boundPortal(t, "SELECT $1::int4", []uint32{0}, [][]byte{[]byte("1\x00")}, nil))
+	require.Error(t, err)
+	assert.Equal(t, mterrors.PgSSCharacterNotInRepertoire, mterrors.ExtractSQLSTATE(err))
+
+	require.NoError(t, exec.ValidateBind(ctx, conn, nil, "s", boundPortal(t, "SELECT $1::int4", []uint32{0}, [][]byte{[]byte("7")}, nil)))
+	require.NoError(t, exec.ValidateBind(ctx, conn, nil, "s", boundPortal(t, "SELECT $1::text", []uint32{0}, [][]byte{[]byte("abc")}, nil)),
+		"routed: text I/O is not ported, so the backend checks the Bind")
+
+	inTxn := testConn()
+	inTxn.SetTxnStatus(protocol.TxnStatusInBlock)
+	require.NoError(t, exec.ValidateBind(ctx, inTxn, nil, "s", boundPortal(t, "SELECT $1::int4", []uint32{0}, [][]byte{[]byte("abc")}, nil)),
+		"routed inside a transaction block")
+
+	assert.Zero(t, mock.streamExecuteCalls.Load())
+	assert.Zero(t, mock.portalStreamExecuteCalls.Load())
+}

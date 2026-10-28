@@ -17,6 +17,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -64,6 +66,12 @@ import (
 //     escapes parse differently under a session's changed setting is
 //     different here; one that becomes invalid input declines at analysis
 //     and routes.
+//   - Client encoding. Text parameters are verified as UTF-8 before their
+//     input function runs, as pg_client_to_server does for a UTF8 client of a
+//     UTF8 server, and results are UTF-8 (ASCII for the ported types). A
+//     session whose client_encoding is anything else is declined by the
+//     planner (SessionAllowsGatewayEval), so its conversions stay on the
+//     backend.
 //   - Observability. The backend's log and pg_stat_statements never see the
 //     statement; the gateway's query log records plan type GatewayEval.
 //
@@ -176,7 +184,7 @@ func (g *GatewayEval) PortalStreamExecute(
 	if err != nil {
 		return err
 	}
-	params, err := g.decodeParams(portalInfo)
+	params, err := g.decodeParams(portalInfo, portalInfo.PreparedStatementInfo.GetName())
 	if err != nil {
 		return err
 	}
@@ -192,6 +200,21 @@ func (g *GatewayEval) PortalStreamExecute(
 		result.Fields = g.fields(formats)
 	}
 	return callback(ctx, result)
+}
+
+// ValidateBind makes the checks exec_bind_message makes before a portal
+// exists: parameter count and formats, result formats, and the decoding of
+// every parameter. A statement the gateway answers never reaches a backend,
+// so the handler runs this at Bind, where PostgreSQL reports these errors,
+// instead of leaving them to Execute; a rejected Bind creates no portal.
+// stmtName is the name the client gave the statement, which the messages
+// quote (the portal carries the gateway's consolidated name).
+func (g *GatewayEval) ValidateBind(portalInfo *preparedstatement.PortalInfo, stmtName string) error {
+	if _, err := g.resultFormats(portalInfo.Portal); err != nil {
+		return err
+	}
+	_, err := g.decodeParams(portalInfo, stmtName)
+	return err
 }
 
 // evaluate runs every column and renders it in its format (text when
@@ -252,13 +275,13 @@ func (g *GatewayEval) resultFormats(portal *query.Portal) ([]int16, error) {
 // exec_bind_message (postgres.c). A text value goes through the type's input
 // function, a binary one through its receive function, which must consume
 // the value exactly.
-func (g *GatewayEval) decodeParams(portalInfo *preparedstatement.PortalInfo) ([]exec.ExternParam, error) {
+func (g *GatewayEval) decodeParams(portalInfo *preparedstatement.PortalInfo, stmtName string) ([]exec.ExternParam, error) {
 	portal := portalInfo.Portal
 	values := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 	if len(values) != len(g.paramTypes) {
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
 			fmt.Sprintf("bind message supplies %d parameters, but prepared statement \"%s\" requires %d",
-				len(values), portalInfo.PreparedStatementInfo.GetName(), len(g.paramTypes)), "")
+				len(values), stmtName, len(g.paramTypes)), "")
 	}
 	if n := len(portal.ParamFormats); n > 1 && n != len(values) {
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
@@ -300,6 +323,9 @@ func (g *GatewayEval) decodeParams(portalInfo *preparedstatement.PortalInfo) ([]
 					fmt.Sprintf("incorrect binary data format in bind parameter %d", i+1), "")
 			}
 		} else {
+			if verr := verifyClientText(raw); verr != nil {
+				return nil, verr
+			}
 			flinfo, ferr := fmgr.FmgrInfoFor(typ.Input)
 			if ferr != nil {
 				return nil, ferr
@@ -314,6 +340,51 @@ func (g *GatewayEval) decodeParams(portalInfo *preparedstatement.PortalInfo) ([]
 		}
 	}
 	return params, nil
+}
+
+// verifyClientText is pg_client_to_server for a UTF8 client of a UTF8 server
+// (mbutils.c): the bytes are verified before the input function sees them,
+// and an invalid sequence, NUL included, is a 22021 naming the offending
+// bytes. The input functions take the value as a cstring, so without this a
+// NUL would silently end the value (funcs.cstringArg).
+func verifyClientText(b []byte) error {
+	for i := 0; i < len(b); {
+		if b[i] == 0 {
+			return invalidByteSequence(b[i:])
+		}
+		if b[i] < utf8.RuneSelf {
+			i++
+			continue
+		}
+		r, n := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && n <= 1 {
+			return invalidByteSequence(b[i:])
+		}
+		i += n
+	}
+	return nil
+}
+
+// invalidByteSequence is report_invalid_encoding (wchar.c): the message shows
+// the bytes of the character the first byte announces (pg_utf_mblen), as many
+// of them as the value has.
+func invalidByteSequence(at []byte) error {
+	n := 1
+	switch c := at[0]; {
+	case c&0xe0 == 0xc0:
+		n = 2
+	case c&0xf0 == 0xe0:
+		n = 3
+	case c&0xf8 == 0xf0:
+		n = 4
+	}
+	n = min(n, len(at))
+	parts := make([]string, n)
+	for i := range n {
+		parts[i] = fmt.Sprintf("0x%02x", at[i])
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSCharacterNotInRepertoire,
+		`invalid byte sequence for encoding "UTF8": `+strings.Join(parts, " "), "")
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.

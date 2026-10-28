@@ -216,11 +216,64 @@ func TestGatewayEval_PortalStreamExecute(t *testing.T) {
 		sqlstate(t, err, mterrors.PgSSProtocolViolation, "insufficient data left in message")
 	})
 
+	// pg_client_to_server verifies a text parameter's bytes before the input
+	// function runs; the input functions themselves stop at a NUL.
+	t.Run("text parameter with embedded NUL", func(t *testing.T) {
+		_, err := runPortal(t, g, evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("1\x00junk"), []byte("4")}, nil, nil), false)
+		sqlstate(t, err, mterrors.PgSSCharacterNotInRepertoire, `invalid byte sequence for encoding "UTF8": 0x00`)
+	})
+
+	t.Run("text parameter with invalid UTF-8", func(t *testing.T) {
+		for _, tc := range []struct {
+			in   []byte
+			want string
+		}{
+			{[]byte{0xff}, "0xff"},                       // not a lead byte
+			{[]byte{0xc3, 0x28}, "0xc3 0x28"},            // bad continuation byte
+			{[]byte{'4', 0xe2, 0x82}, "0xe2 0x82"},       // value ends inside the character
+			{[]byte{0xed, 0xa0, 0x80}, "0xed 0xa0 0x80"}, // UTF-16 surrogate
+		} {
+			_, err := runPortal(t, g, evalPortal(t, sql, []uint32{int4, int4}, [][]byte{tc.in, []byte("4")}, nil, nil), false)
+			sqlstate(t, err, mterrors.PgSSCharacterNotInRepertoire, `invalid byte sequence for encoding "UTF8": `+tc.want)
+		}
+	})
+
+	t.Run("valid non-ASCII text reaches the input function", func(t *testing.T) {
+		_, err := runPortal(t, g, evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("é"), []byte("4")}, nil, nil), false)
+		sqlstate(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "é"`)
+	})
+
 	t.Run("evaluation error", func(t *testing.T) {
 		g := gatewayEvalFor(t, "SELECT 1 / $1", []uint32{int4})
 		_, err := runPortal(t, g, evalPortal(t, "SELECT 1 / $1", []uint32{int4}, [][]byte{[]byte("0")}, nil, nil), false)
 		sqlstate(t, err, mterrors.PgSSDivisionByZero, "division by zero")
 	})
+}
+
+// ValidateBind is what Bind runs for a portal the gateway will evaluate: the
+// checks exec_bind_message makes, and nothing of Execute's.
+func TestGatewayEval_ValidateBind(t *testing.T) {
+	const sql = "SELECT $1::int4 + $2 AS sum, $2 > 3"
+	g := gatewayEvalFor(t, sql, []uint32{0, 0})
+	int4 := uint32(pgoid.INT4OID)
+
+	require.NoError(t, g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("3"), []byte("4")}, nil, nil), "client"))
+
+	err := g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("abc"), []byte("4")}, nil, nil), "client")
+	sqlstate(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
+
+	err = g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("1\x00"), []byte("4")}, nil, nil), "client")
+	sqlstate(t, err, mterrors.PgSSCharacterNotInRepertoire, `invalid byte sequence for encoding "UTF8": 0x00`)
+
+	err = g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("3")}, nil, nil), "client")
+	sqlstate(t, err, mterrors.PgSSProtocolViolation, `bind message supplies 1 parameters, but prepared statement "client" requires 2`)
+
+	err = g.ValidateBind(evalPortal(t, sql, []uint32{int4, int4}, [][]byte{[]byte("3"), []byte("4")}, nil, []int16{0, 0, 0}), "client")
+	sqlstate(t, err, mterrors.PgSSProtocolViolation, "bind message has 3 result formats but query has 2 columns")
+
+	div := gatewayEvalFor(t, "SELECT 1 / $1", []uint32{int4})
+	require.NoError(t, div.ValidateBind(evalPortal(t, "SELECT 1 / $1", []uint32{int4}, [][]byte{[]byte("0")}, nil, nil), "client"),
+		"evaluation errors belong to Execute")
 }
 
 func TestGatewayEval_Description(t *testing.T) {

@@ -79,6 +79,14 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
+	// ValidateBind checks a Bind for a statement the gateway will answer itself,
+	// which never reaches a backend: parameter count and formats, result
+	// formats and parameter decoding fail here, as they do in PostgreSQL's
+	// Bind, rather than at Execute. A routed statement returns nil.
+	// stmtName is the client's name for the statement, as PostgreSQL's
+	// messages quote it.
+	ValidateBind(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, stmtName string, portalInfo *preparedstatement.PortalInfo) error
+
 	// PrepareInTransaction sends a backend Parse for PREPARE/Parse issued inside
 	// an explicit transaction, so PostgreSQL acquires relation locks at prepare time.
 	PrepareInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
@@ -573,6 +581,11 @@ func (h *MultigatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 
 	// Create portal using protoutil helper.
 	portal := protoutil.NewPortal(portalName, psi.Name, params, paramFormats, resultFormats)
+	// A statement the gateway answers itself is validated here, where
+	// PostgreSQL reports a bad Bind, and a rejected Bind creates no portal.
+	if err := h.executor.ValidateBind(ctx, conn, state, stmtName, preparedstatement.NewPortalInfo(psi, portal)); err != nil {
+		return err
+	}
 	state.StorePortalInfo(portal, psi)
 
 	return nil

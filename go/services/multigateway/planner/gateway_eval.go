@@ -15,6 +15,9 @@
 package planner
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
 	"github.com/multigres/multigres/go/common/pgcatalog"
@@ -51,9 +54,11 @@ func IsTargetListOnlySelect(stmt ast.Stmt) bool {
 
 // SessionAllowsGatewayEval reports whether a session's state permits the
 // gateway to answer a statement without a backend: it is idle (no
-// transaction block), not an unsafe connection, and holds no reserved
-// backend. The executor uses the same predicate to keep such statements off
-// the plan cache, so a plan the planner could answer locally is never cached
+// transaction block), not an unsafe connection, holds no reserved backend,
+// and has not asked for a client_encoding other than UTF8 (the engine reads
+// and writes UTF-8 only; another encoding's conversions stay on the backend).
+// The executor uses the same predicate to keep such statements off the plan
+// cache, so a plan the planner could answer locally is never cached
 // and a cached plan was never built for a session that could (see
 // IsTargetListOnlySelect).
 func SessionAllowsGatewayEval(conn *server.Conn) bool {
@@ -63,10 +68,28 @@ func SessionAllowsGatewayEval(conn *server.Conn) bool {
 	if conn.TxnStatus() != protocol.TxnStatusIdle || conn.UnsafeConnection() {
 		return false
 	}
-	if st, ok := conn.GetConnectionState().(*handler.MultigatewayConnectionState); ok && st != nil && st.HasReservedConnection() {
-		return false
+	if st, ok := conn.GetConnectionState().(*handler.MultigatewayConnectionState); ok && st != nil {
+		if st.HasReservedConnection() {
+			return false
+		}
+		if enc, set := st.GetSessionSettings()["client_encoding"]; set && !isUTF8Encoding(enc) {
+			return false
+		}
 	}
 	return true
+}
+
+// isUTF8Encoding matches an encoding name the way pg_char_to_encoding does
+// (encnames.c): case and non-alphanumerics are ignored, and UNICODE is the
+// alias of UTF8.
+func isUTF8Encoding(name string) bool {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String() == "utf8" || b.String() == "unicode"
 }
 
 // GatewayEvalFor is the Describe entry point: it returns the primitive that

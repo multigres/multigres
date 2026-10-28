@@ -175,6 +175,25 @@ func TestPlan_GatewayEvalSessionState(t *testing.T) {
 	plan, err = p.Plan("SELECT 1", parseOne(t, "SELECT 1"), reserved.Conn, PlanOptions{})
 	require.NoError(t, err)
 	assert.IsType(t, &engine.GatewayEval{}, plan.Primitive, "released")
+
+	// The engine speaks UTF-8 only; a session on another client encoding
+	// keeps its conversions on the backend. Spellings follow encnames.c.
+	for enc, want := range map[string]engine.Primitive{
+		"LATIN1":    &engine.Route{},
+		"SQL_ASCII": &engine.Route{},
+		"UTF8":      &engine.GatewayEval{},
+		"'utf-8'":   &engine.GatewayEval{},
+		"unicode":   &engine.GatewayEval{},
+	} {
+		st.SetSessionVariable("client_encoding", enc)
+		plan, err = p.Plan("SELECT 1", parseOne(t, "SELECT 1"), reserved.Conn, PlanOptions{})
+		require.NoError(t, err)
+		assert.IsType(t, want, plan.Primitive, "client_encoding = %s", enc)
+	}
+	st.ResetSessionVariable("client_encoding")
+	plan, err = p.Plan("SELECT 1", parseOne(t, "SELECT 1"), reserved.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.IsType(t, &engine.GatewayEval{}, plan.Primitive, "client_encoding reset")
 }
 
 // Extended protocol: parameters are typed from the client's Parse

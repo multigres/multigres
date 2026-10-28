@@ -297,6 +297,55 @@ func TestGatewayEval(t *testing.T) {
 	})
 
 	// What the engine declines still works through the backend.
+	// PostgreSQL checks a Bind when it arrives: parameter count, formats, and
+	// every value's decoding. The gateway does the same for a statement it
+	// answers itself, so a client that sends Bind and Describe without Execute
+	// gets the error, not BindComplete and a RowDescription, and a rejected
+	// Bind leaves no portal. Text values are verified as UTF-8 first, as
+	// pg_client_to_server does, so a NUL cannot silently end a value.
+	t.Run("invalid bind fails at Bind", func(t *testing.T) {
+		require.NoError(t, conn.Parse(ctx, "gb", "SELECT $1::int4", nil))
+		_, err := conn.BindAndDescribe(ctx, "gb", [][]byte{[]byte("abc")}, nil, nil)
+		pgError(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
+		_, err = conn.BindAndDescribe(ctx, "gb", [][]byte{[]byte("1\x00junk")}, nil, nil)
+		pgError(t, err, mterrors.PgSSCharacterNotInRepertoire, `invalid byte sequence for encoding "UTF8": 0x00`)
+		_, err = conn.BindAndDescribe(ctx, "gb", [][]byte{{0xc3, 0x28}}, nil, nil)
+		pgError(t, err, mterrors.PgSSCharacterNotInRepertoire, `invalid byte sequence for encoding "UTF8": 0xc3 0x28`)
+		_, err = conn.BindAndDescribe(ctx, "gb", nil, nil, nil)
+		pgError(t, err, mterrors.PgSSProtocolViolation, `bind message supplies 0 parameters, but prepared statement "gb" requires 1`)
+
+		desc, err := conn.BindAndDescribe(ctx, "gb", [][]byte{[]byte("7")}, nil, nil)
+		require.NoError(t, err, "the session is usable after the rejected Binds")
+		require.Len(t, desc.Fields, 1)
+		var results []*sqltypes.Result
+		_, err = conn.Execute(ctx, "gb", 0, func(_ context.Context, r *sqltypes.Result) error {
+			results = append(results, r)
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, [][]byte{[]byte("7")}, rowValues(results))
+		require.NoError(t, conn.CloseStatement(ctx, "gb"))
+	})
+
+	// The engine reads and writes UTF-8 only, so a session that asked for
+	// another client encoding keeps every statement on the backend.
+	t.Run("client_encoding routes", func(t *testing.T) {
+		_, err := conn.Query(ctx, "SET client_encoding = 'LATIN1'")
+		require.NoError(t, err)
+		before := gatewayEvalEntries("simple")
+		results, err := conn.Query(ctx, "SELECT 1 + 1")
+		require.NoError(t, err)
+		assert.Equal(t, [][]byte{[]byte("2")}, rowValues(results))
+		_, err = conn.Query(ctx, "RESET client_encoding")
+		require.NoError(t, err)
+		assert.Equal(t, before, gatewayEvalEntries("simple"), "routed while client_encoding was LATIN1")
+
+		before = gatewayEvalEntries("simple")
+		_, err = conn.Query(ctx, "SELECT 1 + 1")
+		require.NoError(t, err)
+		waitForGatewayEvalEntry(t, "simple", before)
+	})
+
 	t.Run("declined statements route", func(t *testing.T) {
 		for _, sql := range []string{"SELECT 'x'", "SELECT now() > '2000-01-01'", "SELECT ARRAY[1, 2]", "SELECT GREATEST(1, 2)"} {
 			_, err := conn.Query(ctx, sql)

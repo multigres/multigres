@@ -497,6 +497,29 @@ func clusterViewPrepareSQL(sql string) (string, error) {
 	return engine.ClusterViewDescribeSQL(stmts[0])
 }
 
+// ValidateBind implements handler.Executor: a portal the gateway will
+// evaluate itself is checked the way exec_bind_message checks a Bind; a
+// portal the planner would route is left to the backend, which sees the Bind
+// at Describe or Execute.
+func (e *Executor) ValidateBind(
+	_ context.Context,
+	conn *server.Conn,
+	_ *handler.MultigatewayConnectionState,
+	stmtName string,
+	portalInfo *preparedstatement.PortalInfo,
+) error {
+	stmt := portalInfo.AstStmt()
+	if stmt == nil {
+		return nil
+	}
+	psi := portalInfo.PreparedStatementInfo
+	ge := e.planner.GatewayEvalFor(psi.GetQuery(), stmt, conn, psi.GetParamTypes())
+	if ge == nil {
+		return nil
+	}
+	return ge.ValidateBind(portalInfo, stmtName)
+}
+
 // describeAST returns the parsed statement being described, from whichever of
 // the portal or prepared-statement info the caller supplied (exactly one is
 // non-nil: portal for Describe('P'), statement for Describe('S')). Returns nil

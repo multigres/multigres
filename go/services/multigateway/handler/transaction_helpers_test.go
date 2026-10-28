@@ -89,6 +89,10 @@ func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *Multigat
 	return nil, nil
 }
 
+func (m *trackingMockExecutor) ValidateBind(context.Context, *server.Conn, *MultigatewayConnectionState, string, *preparedstatement.PortalInfo) error {
+	return nil
+}
+
 func (m *trackingMockExecutor) PrepareInTransaction(context.Context, *server.Conn, *MultigatewayConnectionState, string, []uint32) error {
 	return nil
 }

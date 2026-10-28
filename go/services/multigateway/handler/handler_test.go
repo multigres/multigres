@@ -46,6 +46,8 @@ type mockExecutor struct {
 	portalStreamExecuteCalls int
 	describeCalls            int
 	describedStatement       *preparedstatement.PreparedStatementInfo
+	validateBindErr          error
+	validateBindCalls        int
 }
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
@@ -105,6 +107,11 @@ func parameterOIDs(parameters []*query.ParameterDescription) []uint32 {
 		oids[i] = parameter.DataTypeOid
 	}
 	return oids
+}
+
+func (m *mockExecutor) ValidateBind(context.Context, *server.Conn, *MultigatewayConnectionState, string, *preparedstatement.PortalInfo) error {
+	m.validateBindCalls++
+	return m.validateBindErr
 }
 
 func (m *mockExecutor) PrepareInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
@@ -929,4 +936,24 @@ func TestConnectionClosed_CleansPreparedStatements(t *testing.T) {
 	require.Nil(t, psi)
 	psi = h.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), "stmt2")
 	require.Nil(t, psi)
+}
+
+// TestHandleBind_ValidateBind verifies that a Bind the executor rejects (a
+// statement the gateway evaluates itself, bound to a value PostgreSQL refuses
+// at Bind) returns that error and creates no portal, as PostgreSQL does.
+func TestHandleBind_ValidateBind(t *testing.T) {
+	executor := &mockExecutor{validateBindErr: mterrors.NewPgError("ERROR", mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`, "")}
+	h := NewMultigatewayHandler(executor, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s1", "SELECT $1::int4", nil))
+
+	err := h.HandleBind(t.Context(), conn, "p1", "s1", [][]byte{[]byte("abc")}, nil, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidTextRepresentation))
+	require.Equal(t, 1, executor.validateBindCalls)
+	require.Nil(t, h.getConnectionState(conn).GetPortalInfo("p1"), "a rejected Bind creates no portal")
+
+	executor.validateBindErr = nil
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p1", "s1", [][]byte{[]byte("7")}, nil, nil))
+	require.NotNil(t, h.getConnectionState(conn).GetPortalInfo("p1"))
 }
