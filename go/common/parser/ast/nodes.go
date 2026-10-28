@@ -349,6 +349,10 @@ const (
 	T_String    // String literal - postgres/src/include/nodes/value.h:63-69
 	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
 	T_Null      // NULL literal
+
+	// Multigres tablegroup DDL (go/common/parser/ast/sharding.go)
+	T_CreateTableGroupStmt
+	T_AlterTableGroupStmt
 )
 
 // String returns the string representation of a NodeTag.
@@ -910,6 +914,10 @@ func (nt NodeTag) String() string {
 		return "T_TableFunc"
 	case T_IntoClause:
 		return "T_IntoClause"
+	case T_CreateTableGroupStmt:
+		return "T_CreateTableGroupStmt"
+	case T_AlterTableGroupStmt:
+		return "T_AlterTableGroupStmt"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

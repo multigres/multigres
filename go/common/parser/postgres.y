@@ -214,6 +214,8 @@ type ImportQual struct {
 %token <keyword> ORDER
 /* Missing tokens that are used in keyword rules */
 %token <keyword> ANY BOTH CAST CHECK COLUMN
+/* Multigres tablegroup DDL keywords (docs/sharding/ddl.md) */
+%token <keyword> RESHARD SHARDS TABLEGROUP
 %token           COLON_EQUALS EQUALS_GREATER
 
 /*
@@ -344,6 +346,8 @@ type ImportQual struct {
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens select_clause simple_select
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt CreateAsStmt CreateAssertionStmt RuleStmt
+%type <stmt>         CreateTableGroupStmt AlterTableGroupStmt
+%type <list>         opt_tablegroup_shards shard_range_list
 %type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
 %type <stmt>         DeclareCursorStmt FetchStmt ClosePortalStmt PrepareStmt ExecuteStmt DeallocateStmt
 %type <stmt>         ListenStmt UnlistenStmt NotifyStmt LoadStmt LockStmt TruncateStmt
@@ -655,6 +659,8 @@ stmt:
 		|	CreateStmt								{ $$ = $1 }
 		|	IndexStmt								{ $$ = $1 }
 		|	AlterTableStmt							{ $$ = $1 }
+		|	AlterTableGroupStmt						{ $$ = $1 }
+		|	CreateTableGroupStmt					{ $$ = $1 }
 		|	DropStmt								{ $$ = $1 }
 		|	RenameStmt								{ $$ = $1 }
 		|	CreateFunctionStmt						{ $$ = $1 }
@@ -1275,6 +1281,7 @@ unreserved_keyword:
 			| REPLACE										{ $$ = "replace" }
 			| REPLICA										{ $$ = "replica" }
 			| RESET										{ $$ = "reset" }
+			| RESHARD										{ $$ = "reshard" }
 			| RESTART										{ $$ = "restart" }
 			| RESTRICT									{ $$ = "restrict" }
 			| RETURN										{ $$ = "return" }
@@ -1302,6 +1309,7 @@ unreserved_keyword:
 			| SESSION										{ $$ = "session" }
 			| SET										{ $$ = "set" }
 			| SETS										{ $$ = "sets" }
+			| SHARDS										{ $$ = "shards" }
 			| SHARE										{ $$ = "share" }
 			| SHOW										{ $$ = "show" }
 			| SIMPLE										{ $$ = "simple" }
@@ -1325,6 +1333,7 @@ unreserved_keyword:
 			| SUPPORT										{ $$ = "support" }
 			| SYSID										{ $$ = "sysid" }
 			| SYSTEM_P									{ $$ = "system" }
+			| TABLEGROUP										{ $$ = "tablegroup" }
 			| TABLES										{ $$ = "tables" }
 			| TABLESPACE									{ $$ = "tablespace" }
 			| TARGET										{ $$ = "target" }
@@ -1904,6 +1913,7 @@ bare_label_keyword:
 			| REPLACE										{ $$ = "replace" }
 			| REPLICA										{ $$ = "replica" }
 			| RESET										{ $$ = "reset" }
+			| RESHARD										{ $$ = "reshard" }
 			| RESTART										{ $$ = "restart" }
 			| RESTRICT										{ $$ = "restrict" }
 			| RETURN										{ $$ = "return" }
@@ -1935,6 +1945,7 @@ bare_label_keyword:
 			| SET										{ $$ = "set" }
 			| SETOF										{ $$ = "setof" }
 			| SETS										{ $$ = "sets" }
+			| SHARDS										{ $$ = "shards" }
 			| SHARE										{ $$ = "share" }
 			| SHOW										{ $$ = "show" }
 			| SIMILAR										{ $$ = "similar" }
@@ -1965,6 +1976,7 @@ bare_label_keyword:
 			| SYSTEM_P										{ $$ = "system" }
 			| SYSTEM_USER										{ $$ = "system_user" }
 			| TABLE										{ $$ = "table" }
+			| TABLEGROUP										{ $$ = "tablegroup" }
 			| TABLES										{ $$ = "tables" }
 			| TABLESAMPLE										{ $$ = "tablesample" }
 			| TABLESPACE										{ $$ = "tablespace" }
@@ -7705,6 +7717,60 @@ OptTableSpace:
 		|	/* EMPTY */					{ $$ = "" }
 		;
 
+/*****************************************************************************
+ *
+ *		Multigres tablegroup DDL (docs/sharding/ddl.md)
+ *
+ *		CREATE TABLEGROUP [IF NOT EXISTS] name [SHARDS ('range', ...)]
+ *		ALTER TABLEGROUP name RENAME TO name
+ *		ALTER TABLEGROUP name RESHARD ('range', ...) INTO ('range', ...)
+ *		DROP TABLEGROUP is an alternative of DropStmt.
+ *
+ *****************************************************************************/
+
+CreateTableGroupStmt:
+			CREATE TABLEGROUP name opt_tablegroup_shards
+				{
+					$$ = ast.NewCreateTableGroupStmt($3, $4, false)
+				}
+		|	CREATE TABLEGROUP IF_P NOT EXISTS name opt_tablegroup_shards
+				{
+					$$ = ast.NewCreateTableGroupStmt($6, $7, true)
+				}
+		;
+
+opt_tablegroup_shards:
+			SHARDS '(' shard_range_list ')'	{ $$ = $3 }
+		|	/* EMPTY */						{ $$ = nil }
+		;
+
+AlterTableGroupStmt:
+			ALTER TABLEGROUP name RENAME TO name
+				{
+					$$ = ast.NewAlterTableGroupRename($3, $6)
+				}
+		|	ALTER TABLEGROUP name RESHARD '(' shard_range_list ')' INTO '(' shard_range_list ')'
+				{
+					$$ = ast.NewAlterTableGroupReshard($3, $6, $10)
+				}
+		;
+
+/*
+ * Shard ranges are 'lower-upper' string literals. Their shape (hex bounds,
+ * inf, coverage) is checked by the implementation, not the grammar.
+ */
+shard_range_list:
+			Sconst
+				{
+					$$ = ast.NewNodeList(ast.NewString($1))
+				}
+		|	shard_range_list ',' Sconst
+				{
+					$1.Append(ast.NewString($3))
+					$$ = $1
+				}
+		;
+
 OptConsTableSpace:
 			USING INDEX TABLESPACE name	{ $$ = $4 }
 		|	/* EMPTY */					{ $$ = "" }
@@ -8483,6 +8549,27 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.Objects = $5
 					n.Behavior = $6
 					n.Concurrent = false
+					$$ = n
+				}
+			| DROP TABLEGROUP name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+					n.RemoveType = ast.OBJECT_TABLEGROUP
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($3)))
+					n.Behavior = $4
+					$$ = n
+				}
+			| DROP TABLEGROUP IF_P EXISTS name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+					n.RemoveType = ast.OBJECT_TABLEGROUP
+					n.MissingOk = true
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($5)))
+					n.Behavior = $6
 					$$ = n
 				}
 			| DROP object_type_any_name any_name_list opt_drop_behavior

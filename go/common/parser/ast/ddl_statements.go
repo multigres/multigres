@@ -85,6 +85,7 @@ const (
 	OBJECT_TABCONSTRAINT
 	OBJECT_TABLE
 	OBJECT_TABLESPACE
+	OBJECT_TABLEGROUP // Multigres tablegroup (sharding.go)
 	OBJECT_TRANSFORM
 	OBJECT_TRIGGER
 	OBJECT_TSCONFIGURATION
@@ -184,6 +185,8 @@ func (o ObjectType) String() string {
 		return "TABLE"
 	case OBJECT_TABLESPACE:
 		return "TABLESPACE"
+	case OBJECT_TABLEGROUP:
+		return "TABLEGROUP"
 	case OBJECT_TRANSFORM:
 		return "TRANSFORM"
 	case OBJECT_TRIGGER:
