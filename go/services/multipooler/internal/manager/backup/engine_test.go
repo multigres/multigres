@@ -36,11 +36,11 @@ import (
 // pooler ID/shard.
 type fakeIdentity struct {
 	id       *clustermetadatapb.ID
-	shardKey *clustermetadatapb.ShardKey
+	shardRef *clustermetadatapb.ShardRef
 }
 
 func (f *fakeIdentity) Id() *clustermetadatapb.ID             { return f.id }
-func (f *fakeIdentity) ShardKey() *clustermetadatapb.ShardKey { return f.shardKey }
+func (f *fakeIdentity) ShardRef() *clustermetadatapb.ShardRef { return f.shardRef }
 
 // newTestEngine builds a backup engine with a fake identity, optionally
 // resolving a repo config from the given backup location.
@@ -62,7 +62,7 @@ func newTestEngine(t *testing.T, poolerDir, tableGroup, shard, backupLocation st
 	}
 	fid := &fakeIdentity{
 		id: id,
-		shardKey: &clustermetadatapb.ShardKey{
+		shardRef: &clustermetadatapb.ShardRef{
 			TableGroup: tableGroup,
 			Shard:      shard,
 			Database:   database,

@@ -125,7 +125,7 @@ func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *Mul
 	t.Helper()
 	mp := &clustermetadatapb.Multipooler{
 		Id:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "test-pooler"},
-		ShardKey:  &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
+		ShardRef:  &clustermetadatapb.ShardRef{TableGroup: "default", Shard: "0-inf"},
 		PoolerDir: t.TempDir(),
 	}
 	pm, err := NewMultipoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
@@ -1305,7 +1305,7 @@ func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryS
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,

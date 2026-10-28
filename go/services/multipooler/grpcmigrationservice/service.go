@@ -298,7 +298,7 @@ func migToProto(p *migration.Projection) *migratorpb.MigrationRecord {
 		Id:             p.ID,
 		Name:           p.Name,
 		ConnectionName: p.ConnectionName,
-		Target: &clustermetadatapb.ShardKey{
+		Target: &clustermetadatapb.ShardRef{
 			Database:   p.TargetDatabase,
 			TableGroup: p.TargetTableGroup,
 			Shard:      p.TargetShard,

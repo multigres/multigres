@@ -92,7 +92,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// topology once, and stanza-create below fixes the repo cipher forever —
 	// a requirement added to topology after startup must still block an
 	// unencrypted bootstrap.
-	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardRef().GetDatabase())
 	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load database record")
 	}
@@ -187,7 +187,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
 	var fnStarted bool
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		fnStarted = true
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease. A read error means
@@ -268,14 +268,14 @@ func (pm *MultipoolerManager) removeBootstrapSentinel() error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultipoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardRef().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardRef().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
+			"database %s has no durability_policy configured", pm.record.ShardRef().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

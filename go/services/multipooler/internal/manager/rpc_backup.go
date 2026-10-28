@@ -58,7 +58,7 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	var backupID string
 	var fnStarted bool
 	health := pm.backup.Health()
-	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
+	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
 		// The lease is held for the duration of this function.
 		fnStarted = true
 		health.SetLeaseHeld(true)
@@ -556,7 +556,7 @@ func (pm *MultipoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
 	// not preempt an in-progress backup — it can wait or fail fast.
 	var expiredIDs []string
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
 		var expireErr error
 		expiredIDs, expireErr = pm.backup.Expire(ctx, overrides)
 		return expireErr

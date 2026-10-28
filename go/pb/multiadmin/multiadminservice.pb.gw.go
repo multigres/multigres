@@ -709,29 +709,29 @@ func request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Context, m
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := client.ApplyCertifiedRuleChange(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -746,29 +746,29 @@ func local_request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Cont
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := server.ApplyCertifiedRuleChange(ctx, &protoReq)
 	return msg, metadata, err
@@ -786,29 +786,29 @@ func request_MultiadminService_SwitchPrimary_0(ctx context.Context, marshaler ru
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := client.SwitchPrimary(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -823,29 +823,29 @@ func local_request_MultiadminService_SwitchPrimary_0(ctx context.Context, marsha
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := server.SwitchPrimary(ctx, &protoReq)
 	return msg, metadata, err
@@ -1183,7 +1183,7 @@ func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1203,7 +1203,7 @@ func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1533,7 +1533,7 @@ func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1550,7 +1550,7 @@ func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1583,8 +1583,8 @@ var (
 	pattern_MultiadminService_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-restarts"}, ""))
 	pattern_MultiadminService_GetGatewayQueries_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "queries"}, ""))
 	pattern_MultiadminService_GetGatewayConsolidator_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "consolidator"}, ""))
-	pattern_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "rule-change"}, ""))
-	pattern_MultiadminService_SwitchPrimary_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "switch-primary"}, ""))
+	pattern_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_ref.database", "shard_ref.table_group", "shard_ref.shard", "rule-change"}, ""))
+	pattern_MultiadminService_SwitchPrimary_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_ref.database", "shard_ref.table_group", "shard_ref.shard", "switch-primary"}, ""))
 )
 
 var (

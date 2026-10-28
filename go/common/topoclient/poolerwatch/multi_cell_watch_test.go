@@ -142,7 +142,7 @@ func newPoolerProto(cell, name, tableGroup, shard string) *clustermetadatapb.Mul
 			Cell:      cell,
 			Name:      name,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "db",
 			TableGroup: tableGroup,
 			Shard:      shard,

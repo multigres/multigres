@@ -64,7 +64,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 			Code:      types.ProblemLeaderUnhealthy,
 			CheckName: "PrimaryIsDead",
 			Scope:     types.ScopePooler,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -79,7 +79,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 			Code:      types.ProblemReplicaNotReplicating,
 			CheckName: "ReplicaNotReplicating",
 			Scope:     types.ScopePooler,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard2",
@@ -212,7 +212,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 		{
 			CheckName: "PrimaryIsDead",
 			Scope:     types.ScopePooler,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -231,7 +231,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 		{
 			CheckName: "ReplicaNotReplicating",
 			Scope:     types.ScopePooler,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "shard2",
@@ -280,7 +280,7 @@ func TestEngine_DetectedProblems_ThreadSafety(t *testing.T) {
 				problems := []types.Problem{
 					{
 						CheckName: "PrimaryIsDead",
-						ShardKey: &clustermetadatapb.ShardKey{
+						ShardRef: &clustermetadatapb.ShardRef{
 							Database:   "testdb",
 							TableGroup: "tg1",
 							Shard:      "shard1",
@@ -390,7 +390,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database: "testdb",
 				Shard:    "shard1",
 			},
@@ -401,7 +401,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database: "testdb",
 				Shard:    "shard1",
 			},

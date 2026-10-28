@@ -54,23 +54,23 @@ const leaderInfoStaleHealthThreshold = 1 * time.Minute
 // rewind-ready. This loop runs on its own short interval so that information
 // reaches standbys promptly regardless of what the recovery cycle is doing.
 func (re *Engine) runLeaderInfoPropagation(ctx context.Context) {
-	for _, shardKey := range distinctShardKeys(re.poolerCache) {
-		re.propagateLeaderInfoForShard(ctx, shardKey)
+	for _, shardRef := range distinctShardRefs(re.poolerCache) {
+		re.propagateLeaderInfoForShard(ctx, shardRef)
 	}
 }
 
-// distinctShardKeys returns one ShardKey per shard currently represented in
+// distinctShardRefs returns one ShardRef per shard currently represented in
 // the pooler cache. Deliberately cheaper than store.SnapshotShards,
 // which freezes every pooler's health, more than this loop needs —
 // it only cares which shards exist, then re-derives everything else itself
 // via store.FindShardMembers.
-func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {
-	seen := make(map[commontypes.ShardKeyString]*clustermetadatapb.ShardKey)
+func distinctShardRefs(cache *store.PoolerCache) []*clustermetadatapb.ShardRef {
+	seen := make(map[commontypes.ShardRefString]*clustermetadatapb.ShardRef)
 	for _, entry := range cache.All() {
-		key := entry.Pooler.GetShardKey()
-		seen[commontypes.FormatShardKey(key)] = key
+		key := entry.Pooler.GetShardRef()
+		seen[commontypes.FormatShardRef(key)] = key
 	}
-	keys := make([]*clustermetadatapb.ShardKey, 0, len(seen))
+	keys := make([]*clustermetadatapb.ShardRef, 0, len(seen))
 	for _, key := range seen {
 		keys = append(keys, key)
 	}
@@ -80,8 +80,8 @@ func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {
 // propagateLeaderInfoForShard tells every non-leader pooler in the shard
 // about the current leader and its rewind-readiness, skipping any pooler
 // that already knows both.
-func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey) {
-	members := store.FindShardMembers(re.poolerCache, shardKey)
+func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef) {
+	members := store.FindShardMembers(re.poolerCache, shardRef)
 	leader := members.Leader
 	if leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return

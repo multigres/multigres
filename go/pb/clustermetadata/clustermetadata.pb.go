@@ -1153,12 +1153,12 @@ type Multipooler struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the unique identifier of the multipooler in the cluster.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// shard_key identifies which shard this pooler belongs to. It is used for
+	// shard_ref identifies which shard this pooler belongs to. It is used for
 	// routing requests to the correct pooler and for displaying metadata about
 	// the shard in dashboards. It is not expected to change for the lifetime of
 	// the pooler, but it is not immutable either — if the pooler moves to a
 	// different shard, this field should be updated to reflect the new shard.
-	ShardKey *ShardKey `protobuf:"bytes,2,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"` //
+	ShardRef *ShardRef `protobuf:"bytes,2,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	// If range based sharding is used, range for the pooler's shard.
 	KeyRange *KeyRange `protobuf:"bytes,5,opt,name=key_range,json=keyRange,proto3" json:"key_range,omitempty"`
 	// PoolerType is the kind of pooler: PRIMARY or REPLICA.
@@ -1247,9 +1247,9 @@ func (x *Multipooler) GetId() *ID {
 	return nil
 }
 
-func (x *Multipooler) GetShardKey() *ShardKey {
+func (x *Multipooler) GetShardRef() *ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -1392,9 +1392,12 @@ func (x *Multigateway) GetPidPrefix() uint32 {
 	return 0
 }
 
-// ShardKey uniquely identifies a shard in the cluster.
+// ShardRef uniquely identifies a shard in the cluster.
 // This is a centralized message used across all services to identify shards.
-type ShardKey struct {
+// It is a shard's identity, not a table's shard key (the routing columns a
+// table declares with PRIMARY SHARD KEY). Its SQL mirror is the
+// multigres.shard_ref composite type.
+type ShardRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Database name.
 	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
@@ -1406,20 +1409,20 @@ type ShardKey struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ShardKey) Reset() {
-	*x = ShardKey{}
+func (x *ShardRef) Reset() {
+	*x = ShardRef{}
 	mi := &file_clustermetadata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ShardKey) String() string {
+func (x *ShardRef) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ShardKey) ProtoMessage() {}
+func (*ShardRef) ProtoMessage() {}
 
-func (x *ShardKey) ProtoReflect() protoreflect.Message {
+func (x *ShardRef) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1431,26 +1434,26 @@ func (x *ShardKey) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ShardKey.ProtoReflect.Descriptor instead.
-func (*ShardKey) Descriptor() ([]byte, []int) {
+// Deprecated: Use ShardRef.ProtoReflect.Descriptor instead.
+func (*ShardRef) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ShardKey) GetDatabase() string {
+func (x *ShardRef) GetDatabase() string {
 	if x != nil {
 		return x.Database
 	}
 	return ""
 }
 
-func (x *ShardKey) GetTableGroup() string {
+func (x *ShardRef) GetTableGroup() string {
 	if x != nil {
 		return x.TableGroup
 	}
 	return ""
 }
 
-func (x *ShardKey) GetShard() string {
+func (x *ShardRef) GetShard() string {
 	if x != nil {
 		return x.Shard
 	}
@@ -3049,7 +3052,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x92\x05\n" +
 	"\vMultipooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
-	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
+	"\tshard_ref\x18\x02 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x126\n" +
 	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x123\n" +
 	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeB\x02\x18\x01R\x04type\x12K\n" +
 	"\x0eserving_status\x18\a \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12\x1a\n" +
@@ -3073,7 +3076,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"]\n" +
-	"\bShardKey\x12\x1a\n" +
+	"\bShardRef\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -3240,7 +3243,7 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*PoolerAddress)(nil),                 // 15: clustermetadata.PoolerAddress
 	(*Multipooler)(nil),                   // 16: clustermetadata.Multipooler
 	(*Multigateway)(nil),                  // 17: clustermetadata.Multigateway
-	(*ShardKey)(nil),                      // 18: clustermetadata.ShardKey
+	(*ShardRef)(nil),                      // 18: clustermetadata.ShardRef
 	(*Multiorch)(nil),                     // 19: clustermetadata.Multiorch
 	(*ID)(nil),                            // 20: clustermetadata.ID
 	(*KeyRange)(nil),                      // 21: clustermetadata.KeyRange
@@ -3276,7 +3279,7 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	14, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
 	20, // 6: clustermetadata.PoolerAddress.id:type_name -> clustermetadata.ID
 	20, // 7: clustermetadata.Multipooler.id:type_name -> clustermetadata.ID
-	18, // 8: clustermetadata.Multipooler.shard_key:type_name -> clustermetadata.ShardKey
+	18, // 8: clustermetadata.Multipooler.shard_ref:type_name -> clustermetadata.ShardRef
 	21, // 9: clustermetadata.Multipooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 10: clustermetadata.Multipooler.type:type_name -> clustermetadata.PoolerType
 	2,  // 11: clustermetadata.Multipooler.serving_status:type_name -> clustermetadata.PoolerServingStatus

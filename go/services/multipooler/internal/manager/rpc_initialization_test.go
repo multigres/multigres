@@ -48,7 +48,7 @@ func NewTestMultipoolerManager(t *testing.T) *MultipoolerManager {
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: "default",
 			Shard:      "0-inf",
 		},
@@ -165,7 +165,7 @@ func TestHelperMethods(t *testing.T) {
 
 		multipooler := &clustermetadatapb.Multipooler{
 			Id: serviceID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testgroup",
 				Shard:      "shard-123",

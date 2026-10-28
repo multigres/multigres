@@ -63,7 +63,7 @@ func TestConfirmSwitchPrimary_Success(t *testing.T) {
 	cmd, out := makeConfirmCmd("0-inf\n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "db1",
 			TableGroup: "default",
 			Shard:      "0-inf",
@@ -84,7 +84,7 @@ func TestConfirmSwitchPrimary_WrongShard(t *testing.T) {
 	cmd, _ := makeConfirmCmd("wrong-shard\n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Shard: "0-inf"},
 	}
 	err := confirmSwitchPrimary(cmd, req)
 	require.Error(t, err)
@@ -95,7 +95,7 @@ func TestConfirmSwitchPrimary_EOF(t *testing.T) {
 	cmd, _ := makeConfirmCmd("")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Shard: "0-inf"},
 	}
 	err := confirmSwitchPrimary(cmd, req)
 	require.Error(t, err)
@@ -106,7 +106,7 @@ func TestConfirmSwitchPrimary_Whitespace(t *testing.T) {
 	cmd, _ := makeConfirmCmd("  0-inf  \n")
 
 	req := &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Shard: "0-inf"},
 	}
 	err := confirmSwitchPrimary(cmd, req)
 	require.NoError(t, err, "leading/trailing whitespace should be trimmed")

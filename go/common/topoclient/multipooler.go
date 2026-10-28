@@ -29,7 +29,7 @@ import (
 )
 
 // NewMultipooler creates a new Multipooler record with the given name, cell,
-// and hostname. The caller is responsible for setting ShardKey before
+// and hostname. The caller is responsible for setting ShardRef before
 // registering the record — leaving it partially filled here invited subtle
 // bugs (a missing Database lets two databases collide on the same
 // tableGroup/shard pair).
@@ -223,7 +223,7 @@ func (ts *store) GetMultipoolersByCell(ctx context.Context, cellName string, opt
 			continue
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
-			sk := multipooler.GetShardKey()
+			sk := multipooler.GetShardRef()
 			// Database must match
 			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue

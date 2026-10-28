@@ -432,7 +432,7 @@ func TestMultiadminServerGetPoolersMultiCell(t *testing.T) {
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 2) // pool1 and pool2
 		for _, pooler := range resp.Poolers {
-			assert.Equal(t, "db1", pooler.GetShardKey().GetDatabase())
+			assert.Equal(t, "db1", pooler.GetShardRef().GetDatabase())
 		}
 	})
 
@@ -447,7 +447,7 @@ func TestMultiadminServerGetPoolersMultiCell(t *testing.T) {
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 1) // only pool2
 		assert.Equal(t, "cell2", resp.Poolers[0].Id.Cell)
-		assert.Equal(t, "db1", resp.Poolers[0].GetShardKey().GetDatabase())
+		assert.Equal(t, "db1", resp.Poolers[0].GetShardRef().GetDatabase())
 	})
 
 	t.Run("get poolers filtered by non-existent database", func(t *testing.T) {
@@ -470,7 +470,7 @@ func TestMultiadminServerGetPoolersMultiCell(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 1) // only pool3
-		assert.Equal(t, "db2", resp.Poolers[0].GetShardKey().GetDatabase())
+		assert.Equal(t, "db2", resp.Poolers[0].GetShardRef().GetDatabase())
 		assert.Equal(t, "pool3", resp.Poolers[0].Id.Name)
 	})
 
@@ -633,7 +633,7 @@ func TestMultiadminServerGetPoolerStatus(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -684,7 +684,7 @@ func TestMultiadminServerGetPoolerStatus(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -791,7 +791,7 @@ func TestMultiadminServerSetPostgresRestartsEnabled(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -822,7 +822,7 @@ func TestMultiadminServerSetPostgresRestartsEnabled(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -930,7 +930,7 @@ func TestMultiadminServerSetPostgresRestartsDisabled(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -961,7 +961,7 @@ func TestMultiadminServerSetPostgresRestartsDisabled(t *testing.T) {
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "0-inf",

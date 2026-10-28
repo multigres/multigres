@@ -68,7 +68,7 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
-	if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardKey()); err != nil {
+	if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardRef()); err != nil {
 		return "", mterrors.Wrap(err, "backup lease not held")
 	}
 
@@ -85,8 +85,8 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 		return "", err
 	}
 
-	tableGroup := e.id.ShardKey().GetTableGroup()
-	shard := e.id.ShardKey().GetShard()
+	tableGroup := e.id.ShardRef().GetTableGroup()
+	shard := e.id.ShardRef().GetShard()
 	multipoolerName := e.id.Id().Name
 
 	// Use provided job_id or generate one (same format as multiadmin)

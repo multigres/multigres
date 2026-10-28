@@ -82,8 +82,8 @@ func TestAppointLeader_AppointsOnlyOutgoingCohortMembers(t *testing.T) {
 			require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 			shard = append(shard, mp)
 		}
-		shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
-		return fakeClient, c.AppointLeader(ctx, shardKey, shard, "test_cohort_candidates")
+		shardRef := &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+		return fakeClient, c.AppointLeader(ctx, shardRef, shard, "test_cohort_candidates")
 	}
 	promoted := func(fakeClient *rpcclient.FakeClient, name string) bool {
 		_, ok := fakeClient.PromoteRequests[topoclient.ComponentIDString(ids[name])]

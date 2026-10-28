@@ -90,7 +90,7 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 // isCatalogShard reports whether this pooler serves the shard that hosts the
 // sharding catalog.
 func (pm *MultipoolerManager) isCatalogShard() bool {
-	return constants.IsCatalogShard(pm.record.ShardKey().GetTableGroup(), pm.record.ShardKey().GetShard())
+	return constants.IsCatalogShard(pm.record.ShardRef().GetTableGroup(), pm.record.ShardRef().GetShard())
 }
 
 // ensureSidecarSchemas idempotently (re-)creates the sidecar tables that a

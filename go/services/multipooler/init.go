@@ -531,7 +531,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(adopted.pgPort)
 	multipooler.PortMap["pgbackrest"] = int32(adopted.pgBackRestPort)
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{
 		Database:   mp.database.Get(),
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),

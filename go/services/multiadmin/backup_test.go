@@ -140,7 +140,7 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -247,7 +247,7 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default"},
 		Type:     clustermetadatapb.PoolerType_REPLICA,
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
@@ -325,7 +325,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "primary-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -343,7 +343,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -419,7 +419,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			},
 			Hostname: "primary-only.cell2",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},
@@ -514,7 +514,7 @@ func TestVerifyBackups(t *testing.T) {
 			},
 			Hostname: "replica-pooler.cell1",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},

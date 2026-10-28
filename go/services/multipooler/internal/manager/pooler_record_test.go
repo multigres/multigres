@@ -249,7 +249,7 @@ func TestPoolerRecord_ImmutableAccessors(t *testing.T) {
 	initial.PgDataDir = "/tmp/pgdata"
 	initial.Hostname = "host.example.com"
 	initial.PortMap = map[string]int32{"grpc": 15300, "postgres": 5432}
-	initial.ShardKey = &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	initial.ShardRef = &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	r := mustNewPoolerRecord(t, ts, initial)
 
@@ -259,8 +259,8 @@ func TestPoolerRecord_ImmutableAccessors(t *testing.T) {
 	assert.Equal(t, int32(15300), r.Port("grpc"))
 	assert.Equal(t, int32(5432), r.Port("postgres"))
 	assert.Equal(t, int32(0), r.Port("unknown"))
-	require.NotNil(t, r.ShardKey())
-	assert.Equal(t, "tg", r.ShardKey().TableGroup)
+	require.NotNil(t, r.ShardRef())
+	assert.Equal(t, "tg", r.ShardRef().TableGroup)
 	require.NotNil(t, r.Id())
 	assert.Equal(t, "test-pooler", r.Id().Name)
 }

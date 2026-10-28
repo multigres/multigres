@@ -185,7 +185,7 @@ func activatedMigration(t *testing.T, ctx context.Context, mt migratorpb.Migrato
 	t.Helper()
 	createResp, err := mt.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{
 		Migration: &migratorpb.MigrationRecord{
-			Target:         &clustermetadatapb.ShardKey{Database: targetDB},
+			Target:         &clustermetadatapb.ShardRef{Database: targetDB},
 			ConnectionName: createTestConnection(t, ctx, mt, sourceDSN(srcPort)),
 			Objects:        objs("public.orders"),
 		},

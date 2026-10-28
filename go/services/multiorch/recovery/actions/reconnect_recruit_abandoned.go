@@ -73,7 +73,7 @@ func NewReconnectRecruitAbandonedAction(
 func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing reconnect recruit-abandoned action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", problem.ShardRef.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
@@ -82,11 +82,11 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked
 		return mterrors.Wrap(err, "failed to find stranded follower")
 	}
 
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardRef)
 	leader := members.Leader
 	if leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", problem.ShardKey)
+			"no consensus leader known for shard %s", problem.ShardRef)
 	}
 
 	revocation := follower.Health().GetConsensusStatus().GetTermRevocation()
@@ -103,7 +103,7 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, rechecked
 		// later cycle rather than erroring.
 		if !advanced.IsDecided() {
 			return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"shard %s has an undecided proposal; cannot advance rule yet", problem.ShardKey)
+				"shard %s has an undecided proposal; cannot advance rule yet", problem.ShardRef)
 		}
 		req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 			Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,

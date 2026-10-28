@@ -415,7 +415,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	// Add poolers to topology BEFORE starting engine
 	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		ShardKey: &clustermetadata.ShardKey{
+		ShardRef: &clustermetadata.ShardRef{
 			Database:   "mydb",
 			TableGroup: "tg1",
 			Shard:      "0",
@@ -423,7 +423,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	}))
 	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		ShardKey: &clustermetadata.ShardKey{
+		ShardRef: &clustermetadata.ShardRef{
 			Database:   "mydb",
 			TableGroup: "tg1",
 			Shard:      "1",
@@ -431,7 +431,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	}))
 	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		ShardKey: &clustermetadata.ShardKey{
+		ShardRef: &clustermetadata.ShardRef{
 			Database:   "mydb",
 			TableGroup: "tg2",
 			Shard:      "0",

@@ -452,12 +452,12 @@ type MigrationRecord struct {
 	// effect on the migration's very next action, not just at create time.
 	ConnectionName string `protobuf:"bytes,3,opt,name=connection_name,json=connectionName,proto3" json:"connection_name,omitempty"`
 	// target identifies the destination shard (database, table_group, shard).
-	// Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+	// Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
 	// same across the topology and routing layers (see query.Target, which
 	// reuses it for the same reason) — a database can have multiple
 	// tablegroups, each with its own shard namespace, so database+shard alone
 	// do not uniquely identify a shard.
-	Target  *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	Target  *clustermetadata.ShardRef `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
 	Objects *SelectionObject          `protobuf:"bytes,6,opt,name=objects,proto3" json:"objects,omitempty"`
 	// sequence_margin is added past each sequence's max at a direction switch.
 	// Set at create time; not currently changeable afterward.
@@ -517,7 +517,7 @@ func (x *MigrationRecord) GetConnectionName() string {
 	return ""
 }
 
-func (x *MigrationRecord) GetTarget() *clustermetadata.ShardKey {
+func (x *MigrationRecord) GetTarget() *clustermetadata.ShardRef {
 	if x != nil {
 		return x.Target
 	}
@@ -2267,7 +2267,7 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
 	"\x0fconnection_name\x18\x03 \x01(\tR\x0econnectionName\x121\n" +
-	"\x06target\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\x06target\x123\n" +
+	"\x06target\x18\x04 \x01(\v2\x19.clustermetadata.ShardRefR\x06target\x123\n" +
 	"\aobjects\x18\x06 \x01(\v2\x19.migrator.SelectionObjectR\aobjects\x12'\n" +
 	"\x0fsequence_margin\x18\a \x01(\x03R\x0esequenceMargin\"\xec\x04\n" +
 	"\x0fMigrationStatus\x12\x0e\n" +
@@ -2480,13 +2480,13 @@ var file_migratorservice_proto_goTypes = []any{
 	(*ListConnectionsResponse)(nil),       // 30: migrator.ListConnectionsResponse
 	(*DropConnectionRequest)(nil),         // 31: migrator.DropConnectionRequest
 	(*DropConnectionResponse)(nil),        // 32: migrator.DropConnectionResponse
-	(*clustermetadata.ShardKey)(nil),      // 33: clustermetadata.ShardKey
+	(*clustermetadata.ShardRef)(nil),      // 33: clustermetadata.ShardRef
 	(*timestamppb.Timestamp)(nil),         // 34: google.protobuf.Timestamp
 }
 var file_migratorservice_proto_depIdxs = []int32{
 	3,  // 0: migrator.SelectionObject.table:type_name -> migrator.TableSpec
 	4,  // 1: migrator.SelectionObject.schema:type_name -> migrator.SchemaSpec
-	33, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardKey
+	33, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardRef
 	5,  // 3: migrator.MigrationRecord.objects:type_name -> migrator.SelectionObject
 	0,  // 4: migrator.MigrationStatus.phase:type_name -> migrator.MigrationPhase
 	34, // 5: migrator.MigrationStatus.created_at:type_name -> google.protobuf.Timestamp

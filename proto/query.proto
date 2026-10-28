@@ -259,10 +259,10 @@ enum Mode {
 // what mode (writability / consistency) the caller needs. The gateway
 // translates the mode into a specific pooler at routing time.
 message Target {
-  // shard_key identifies the destination shard (database, table_group, shard).
-  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // shard_ref identifies the destination shard (database, table_group, shard).
+  // Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
   // same across the topology and routing layers.
-  clustermetadata.ShardKey shard_key = 4;
+  clustermetadata.ShardRef shard_ref = 4;
 
   // mode expresses the caller's writability / consistency needs.
   // See Mode for the semantics of each value.

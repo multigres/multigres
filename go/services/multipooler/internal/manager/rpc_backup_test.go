@@ -70,7 +70,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 		Id:        multipoolerID,
 		Type:      poolerType,
 		PoolerDir: poolerDir,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: tableGroup,
 			Shard:      shard,
 			Database:   database,
@@ -796,7 +796,7 @@ exit 0
 					Id:        multipoolerID,
 					Type:      clustermetadatapb.PoolerType_PRIMARY,
 					PoolerDir: poolerDir,
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						TableGroup: tt.tableGroup,
 						Shard:      tt.shard,
 						Database:   "test-database",
@@ -1184,7 +1184,7 @@ func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{
+	shardRef := &clustermetadatapb.ShardRef{
 		Database:   "test-database",
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,
@@ -1194,7 +1194,7 @@ func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
 	// wait out BackupLeaseStealGracePeriod (5s) before reacquiring — Backup()
 	// below is given a context expiring in 50ms, well before that, so the
 	// grace-period wait aborts via ctx.Done() and the callback never runs.
-	_, otherUnlock, err := ts.TryLockBackup(t.Context(), shardKey, "other-pooler-backup")
+	_, otherUnlock, err := ts.TryLockBackup(t.Context(), shardRef, "other-pooler-backup")
 	require.NoError(t, err)
 	var otherErr error
 	defer otherUnlock(&otherErr)
@@ -1212,7 +1212,7 @@ func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
 				Name:      "test-multipooler",
 			},
 			PoolerDir: poolerDir,
-			ShardKey:  shardKey,
+			ShardRef:  shardRef,
 		}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})

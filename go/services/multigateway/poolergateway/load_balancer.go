@@ -33,18 +33,18 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// shardKey identifies a shard for leader tracking. Database is included
+// shardRef identifies a shard for leader tracking. Database is included
 // so two databases that share a (tableGroup, shard) name don't collide in
 // lb.shards — see commit history for the cross-database bug this fixes.
-type shardKey struct {
+type shardRef struct {
 	database   string
 	tableGroup string
 	shard      string
 }
 
-// shardKeyOf builds an internal shardKey from a clustermetadata.ShardKey.
-func shardKeyOf(sk *clustermetadatapb.ShardKey) shardKey {
-	return shardKey{
+// shardRefOf builds an internal shardRef from a clustermetadata.ShardRef.
+func shardRefOf(sk *clustermetadatapb.ShardRef) shardRef {
+	return shardRef{
 		database:   sk.GetDatabase(),
 		tableGroup: sk.GetTableGroup(),
 		shard:      sk.GetShard(),
@@ -68,10 +68,10 @@ func shardKeyOf(sk *clustermetadatapb.ShardKey) shardKey {
 // writable) or leaves — so a stale primary retracts rather than sticking.
 //
 // Concurrency: primaries is protected by mu. Read the elected leader via
-// leader(), mutate via setPrimary/clearPrimary. shardKey is immutable.
+// leader(), mutate via setPrimary/clearPrimary. shardRef is immutable.
 type shardSummary struct {
-	// shardKey identifies the shard — database, tablegroup, shard.
-	shardKey *clustermetadatapb.ShardKey
+	// shardRef identifies the shard — database, tablegroup, shard.
+	shardRef *clustermetadatapb.ShardRef
 
 	mu        sync.Mutex
 	primaries primarySet
@@ -204,14 +204,14 @@ type loadBalancer struct {
 	// mu protects shards.
 	mu sync.Mutex
 
-	// shards maps shard key to the gateway's per-shard summary — the set of
+	// shards maps shard ref to the gateway's per-shard summary — the set of
 	// poolers currently claiming to be the writable routing primary for that
 	// shard. Populated solely from LeaderObservation messages on health streams
 	// (via onPoolerHealthUpdate); the elected leader (highest-rule claimant) may
 	// name a pooler we are not currently connected to — GetConnection handles
 	// that at read time by consulting the cache. Entries are auto-cleared by
 	// onPoolerGone once no poolers remain in the shard.
-	shards map[shardKey]*shardSummary
+	shards map[shardRef]*shardSummary
 
 	// cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Supplied at construction via loadBalancerOpts.Cache; callers
@@ -222,7 +222,7 @@ type loadBalancer struct {
 	// onLeaderServing is called when a new consensus leader is observed
 	// serving via its health stream. Used to stop failover buffering for
 	// the shard. May be nil.
-	onLeaderServing func(*clustermetadatapb.ShardKey)
+	onLeaderServing func(*clustermetadatapb.ShardRef)
 
 	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
 	grpcDialOpt grpc.DialOption
@@ -261,9 +261,9 @@ type loadBalancerOpts struct {
 
 	// OnLeaderServing fires when a new consensus leader is observed
 	// serving on its health stream; used to drain the failover buffer.
-	// Optional. The ShardKey carries database + tableGroup + shard so the
+	// Optional. The ShardRef carries database + tableGroup + shard so the
 	// buffer can scope failover state correctly across databases.
-	OnLeaderServing func(*clustermetadatapb.ShardKey)
+	OnLeaderServing func(*clustermetadatapb.ShardRef)
 
 	// Cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Callers construct the cache without hooks, pass it here, then
@@ -279,7 +279,7 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 		localCell:                     opts.LocalCell,
 		logger:                        opts.Logger,
 		ctx:                           opts.Ctx,
-		shards:                        make(map[shardKey]*shardSummary),
+		shards:                        make(map[shardRef]*shardSummary),
 		grpcDialOpt:                   opts.DialOpt,
 		onLeaderServing:               opts.OnLeaderServing,
 		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
@@ -294,12 +294,12 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 // returning, so callers can freely invoke summary methods without nesting
 // locks.
 func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.Multipooler) *shardSummary {
-	key := shardKeyOf(p.GetShardKey())
+	key := shardRefOf(p.GetShardRef())
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	summary, ok := lb.shards[key]
 	if !ok {
-		summary = &shardSummary{shardKey: p.GetShardKey()}
+		summary = &shardSummary{shardRef: p.GetShardRef()}
 		lb.shards[key] = summary
 	}
 	return summary
@@ -330,7 +330,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if health.RoutingState.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return
 	}
-	lb.onLeaderServing(summary.shardKey)
+	lb.onLeaderServing(summary.shardRef)
 }
 
 // getConnection returns a poolerConnection matching the target specification.
@@ -354,8 +354,8 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 		return nil, errors.New("target cannot be nil")
 	}
 
-	sk := target.GetShardKey()
-	key := shardKeyOf(sk)
+	sk := target.GetShardRef()
+	key := shardRefOf(sk)
 
 	// Look up the shard summary under lb.mu, release it, then read the elected
 	// leader id via the summary's own lock.
@@ -405,7 +405,7 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 	// (tableGroup, shard) name.
 	//
 	// TODO: switch to cache.GetByShard once gateway routing populates
-	// Target.ShardKey.Shard for every request.
+	// Target.ShardRef.Shard for every request.
 	var candidates []*poolerConnection
 	if lb.cache != nil {
 		for _, entry := range lb.cache.All() {
@@ -430,7 +430,7 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 		// All replicas exceeded the replication lag threshold.
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"no replica with acceptable replication lag for target: tablegroup=%s, shard=%s",
-			target.GetShardKey().GetTableGroup(), target.GetShardKey().GetShard())
+			target.GetShardRef().GetTableGroup(), target.GetShardRef().GetShard())
 	}
 	return selected, nil
 }
@@ -616,15 +616,15 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	if live && rs.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		if summary.setPrimary(poolerID, rs) {
 			lb.logger.Debug("routing primary recorded",
-				"tablegroup", summary.shardKey.GetTableGroup(),
-				"shard", summary.shardKey.GetShard(),
+				"tablegroup", summary.shardRef.GetTableGroup(),
+				"shard", summary.shardRef.GetShard(),
 				"leader_id", poolerID,
 				"rule", commonconsensus.FormatRuleNumber(rs.GetRule()))
 		}
 	} else if summary.clearPrimary(poolerID) {
 		lb.logger.Debug("routing primary retracted",
-			"tablegroup", summary.shardKey.GetTableGroup(),
-			"shard", summary.shardKey.GetShard(),
+			"tablegroup", summary.shardRef.GetTableGroup(),
+			"shard", summary.shardRef.GetShard(),
 			"pooler_id", poolerID,
 			"stale_stream", !live,
 			"last_error", health.LastError)
@@ -648,8 +648,8 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 // within the matched (database, tableGroup) — the unsharded-routing
 // fallback used while the gateway does not yet populate shard.
 func matchesShardTarget(conn *poolerConnection, target *query.Target) bool {
-	poolerKey := conn.PoolerInfo().GetShardKey()
-	targetKey := target.GetShardKey()
+	poolerKey := conn.PoolerInfo().GetShardRef()
+	targetKey := target.GetShardRef()
 
 	if targetKey.GetDatabase() != poolerKey.GetDatabase() {
 		return false
@@ -701,7 +701,7 @@ func (lb *loadBalancer) claimsPrimary(conn *poolerConnection) bool {
 	if conn == nil {
 		return false
 	}
-	key := shardKeyOf(conn.PoolerInfo().GetShardKey())
+	key := shardRefOf(conn.PoolerInfo().GetShardRef())
 	lb.mu.Lock()
 	summary := lb.shards[key]
 	lb.mu.Unlock()
@@ -739,7 +739,7 @@ func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 		return leadershipFollower
 	}
 	info := conn.PoolerInfo()
-	key := shardKeyOf(info.GetShardKey())
+	key := shardRefOf(info.GetShardRef())
 
 	lb.mu.Lock()
 	summary := lb.shards[key]
@@ -775,18 +775,18 @@ func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 // a shardSummary one cycle longer; the next onPoolerGone (or first
 // observation for a re-added pooler) will reconcile it.
 //
-// TODO: shardKey is currently database-agnostic — if two databases share a
+// TODO: shardRef is currently database-agnostic — if two databases share a
 // (tableGroup, shard) name, draining poolers from one database can drop the
 // summary used by another. The next observation from the other database
 // will re-populate it. Tolerable in practice but resolves cleanly once
-// query.Target carries a Database field and shardKey gains a database
+// query.Target carries a Database field and shardRef gains a database
 // component.
 func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.Multipooler) {
 	if p == nil || lb.cache == nil {
 		return
 	}
-	sk := p.GetShardKey()
-	key := shardKeyOf(sk)
+	sk := p.GetShardRef()
+	key := shardRefOf(sk)
 
 	lb.mu.Lock()
 	summary := lb.shards[key]

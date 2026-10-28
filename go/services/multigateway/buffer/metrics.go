@@ -140,17 +140,17 @@ func newStats() *stats {
 	return s
 }
 
-func (s *stats) recordBuffered(ctx context.Context, shardKey string) {
-	s.requestsBuffered.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardKey)))
+func (s *stats) recordBuffered(ctx context.Context, shardRef string) {
+	s.requestsBuffered.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardRef)))
 }
 
-func (s *stats) recordDrained(ctx context.Context, shardKey string) {
-	s.requestsDrained.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardKey)))
+func (s *stats) recordDrained(ctx context.Context, shardRef string) {
+	s.requestsDrained.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardRef)))
 }
 
-func (s *stats) recordEvicted(ctx context.Context, shardKey string, reason string) {
+func (s *stats) recordEvicted(ctx context.Context, shardRef string, reason string) {
 	s.requestsEvicted.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("shard_key", shardKey),
+		attribute.String("shard_key", shardRef),
 		attribute.String("reason", reason),
 	))
 }
@@ -163,8 +163,8 @@ func (s *stats) recordFailedUnbuffered(ctx context.Context, code string) {
 	s.failedUnbuffered.Add(ctx, 1, metric.WithAttributes(attribute.String("code", code)))
 }
 
-func (s *stats) recordFailover(ctx context.Context, shardKey string) {
-	s.failoverCount.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardKey)))
+func (s *stats) recordFailover(ctx context.Context, shardRef string) {
+	s.failoverCount.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardRef)))
 }
 
 func (s *stats) recordWaitDuration(ctx context.Context, seconds float64) {
@@ -175,6 +175,6 @@ func (s *stats) addQueueDepth(ctx context.Context, delta int64) {
 	s.queueDepth.Add(ctx, delta)
 }
 
-func (s *stats) recordFailoverDuration(ctx context.Context, shardKey string, seconds float64) {
-	s.failoverDuration.Record(ctx, seconds, metric.WithAttributes(attribute.String("shard_key", shardKey)))
+func (s *stats) recordFailoverDuration(ctx context.Context, shardRef string, seconds float64) {
+	s.failoverDuration.Record(ctx, seconds, metric.WithAttributes(attribute.String("shard_key", shardRef)))
 }

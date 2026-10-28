@@ -2125,7 +2125,7 @@ func (x *GetGatewayConsolidatorResponse) GetStats() *multigatewaymanagerdata.Con
 type ApplyCertifiedRuleChangeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to apply the rule change to.
-	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef *clustermetadata.ShardRef `protobuf:"bytes,1,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	// The transition to install. The caller must populate proposal's leader_id,
 	// cohort_members, and durability_policy. The caller may also populate
 	// proposal's rule_number, coordinator_id, and creation_time; if any of
@@ -2184,9 +2184,9 @@ func (*ApplyCertifiedRuleChangeRequest) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{33}
 }
 
-func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKey {
+func (x *ApplyCertifiedRuleChangeRequest) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -2366,7 +2366,7 @@ func (x *ApplyCertifiedRuleChangeResponse) GetCertUsed() *clustermetadata.Extern
 type SwitchPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to perform the switchover on (required).
-	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef *clustermetadata.ShardRef `protobuf:"bytes,1,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	// Free-text reason recorded in rule_history for audit.
 	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2403,9 +2403,9 @@ func (*SwitchPrimaryRequest) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{36}
 }
 
-func (x *SwitchPrimaryRequest) GetShardKey() *clustermetadata.ShardKey {
+func (x *SwitchPrimaryRequest) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -2599,7 +2599,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x1eGetGatewayConsolidatorResponse\x12@\n" +
 	"\x05stats\x18\x01 \x01(\v2*.multigatewaymanagerdata.ConsolidatorStatsR\x05stats\"\xbe\x03\n" +
 	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12N\n" +
+	"\tshard_ref\x18\x01 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x12N\n" +
 	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12D\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationH\x00R\x04cert\x12S\n" +
 	"\x12unsafe_derive_cert\x18\x04 \x01(\v2#.multiadmin.UnsafeDeriveCertOptionsH\x00R\x10unsafeDeriveCert\x12\x16\n" +
@@ -2619,7 +2619,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x0einstalled_rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\rinstalledRule\x12K\n" +
 	"\tcert_used\x18\x02 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\bcertUsed\"f\n" +
 	"\x14SwitchPrimaryRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12\x16\n" +
+	"\tshard_ref\x18\x01 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"P\n" +
 	"\x15SwitchPrimaryResponse\x127\n" +
 	"\rold_leader_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\voldLeaderId*J\n" +
@@ -2859,7 +2859,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x03401\x12#\x12!\n" +
 	"\x1f#/components/responses/RPCError\x12*\n" +
 	"\x03404\x12#\x12!\n" +
-	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02^:\x01*\"Y/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change\x12\x9b\x03\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02^:\x01*\"Y/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change\x12\x9b\x03\n" +
 	"\rSwitchPrimary\x12 .multiadmin.SwitchPrimaryRequest\x1a!.multiadmin.SwitchPrimaryResponse\"\xc4\x02\xbaG\xd9\x01\n" +
 	"\x06shards\x12\x18Switch the shard primaryB\xb4\x01\x12.\n" +
 	"\adefault\x12#\x12!\n" +
@@ -2869,7 +2869,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x03401\x12#\x12!\n" +
 	"\x1f#/components/responses/RPCError\x12*\n" +
 	"\x03404\x12#\x12!\n" +
-	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primaryB\xcc\x17\xbaG\x97\x17\x12\xbb\x10\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02a:\x01*\"\\/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primaryB\xcc\x17\xbaG\x97\x17\x12\xbb\x10\n" +
 	"\x1dMultigres Multiadmin REST API\x12\xd5\x0fAdministrative REST API for open-source Multigres clusters, served by the Vanguard transcoder. Use the HTTP address of your multiadmin instance as the base URL. Bearer JWT authentication is enforced when multiadmin runs with --enable-auth. JSON uses camelCase field names, string enum names, decimal strings for 64-bit integers, RFC 3339 timestamps, and protobuf durations such as 1.500s. Default-valued fields may be omitted.\n" +
 	"\n" +
 	"Errors use google.rpc.Status JSON: code is a numeric gRPC code (not the HTTP status), message is diagnostic text, and details contains typed objects with an @type field. Use the numeric code together with the operation's error and recovery guidance; current handlers do not consistently preserve dependency failures. The Connect adapter currently discards gRPC status details, including mtrpc.RPCError application codes. Clients must tolerate missing details and must not parse diagnostic messages as stable error identifiers. HTTP mappings: 400 InvalidArgument/FailedPrecondition/OutOfRange; 401 Unauthenticated; 403 PermissionDenied; 404 NotFound; 409 AlreadyExists/Aborted; 429 ResourceExhausted; 499 Canceled; 500 Unknown/Internal/DataLoss; 501 Unimplemented; 503 Unavailable; 504 DeadlineExceeded. Proxy or routing errors can have non-JSON bodies; inspect Content-Type.\n" +
@@ -2974,7 +2974,7 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*clustermetadata.ConsensusStatus)(nil),               // 52: clustermetadata.ConsensusStatus
 	(*multigatewaymanagerdata.QueryRegistrySnapshot)(nil), // 53: multigatewaymanagerdata.QueryRegistrySnapshot
 	(*multigatewaymanagerdata.ConsolidatorStats)(nil),     // 54: multigatewaymanagerdata.ConsolidatorStats
-	(*clustermetadata.ShardKey)(nil),                      // 55: clustermetadata.ShardKey
+	(*clustermetadata.ShardRef)(nil),                      // 55: clustermetadata.ShardRef
 	(*clustermetadata.RulePosition)(nil),                  // 56: clustermetadata.RulePosition
 	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 57: clustermetadata.ExternallyCertifiedRevocation
 	(*clustermetadata.ShardRule)(nil),                     // 58: clustermetadata.ShardRule
@@ -3002,13 +3002,13 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	53, // 19: multiadmin.GetGatewayQueriesResponse.snapshot:type_name -> multigatewaymanagerdata.QueryRegistrySnapshot
 	50, // 20: multiadmin.GetGatewayConsolidatorRequest.gateway_id:type_name -> clustermetadata.ID
 	54, // 21: multiadmin.GetGatewayConsolidatorResponse.stats:type_name -> multigatewaymanagerdata.ConsolidatorStats
-	55, // 22: multiadmin.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
+	55, // 22: multiadmin.ApplyCertifiedRuleChangeRequest.shard_ref:type_name -> clustermetadata.ShardRef
 	56, // 23: multiadmin.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
 	57, // 24: multiadmin.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	37, // 25: multiadmin.ApplyCertifiedRuleChangeRequest.unsafe_derive_cert:type_name -> multiadmin.UnsafeDeriveCertOptions
 	58, // 26: multiadmin.ApplyCertifiedRuleChangeResponse.installed_rule:type_name -> clustermetadata.ShardRule
 	57, // 27: multiadmin.ApplyCertifiedRuleChangeResponse.cert_used:type_name -> clustermetadata.ExternallyCertifiedRevocation
-	55, // 28: multiadmin.SwitchPrimaryRequest.shard_key:type_name -> clustermetadata.ShardKey
+	55, // 28: multiadmin.SwitchPrimaryRequest.shard_ref:type_name -> clustermetadata.ShardRef
 	50, // 29: multiadmin.SwitchPrimaryResponse.old_leader_id:type_name -> clustermetadata.ID
 	3,  // 30: multiadmin.MultiadminService.GetCell:input_type -> multiadmin.GetCellRequest
 	5,  // 31: multiadmin.MultiadminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest

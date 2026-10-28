@@ -61,7 +61,7 @@ func TestStatMigrationView(t *testing.T) {
 	createResp, err := mt.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{
 		Migration: &migratorpb.MigrationRecord{
 			Name:           "statview",
-			Target:         &clustermetadatapb.ShardKey{Database: targetDB},
+			Target:         &clustermetadatapb.ShardRef{Database: targetDB},
 			ConnectionName: connName,
 			Objects:        objs("public.orders"),
 		},

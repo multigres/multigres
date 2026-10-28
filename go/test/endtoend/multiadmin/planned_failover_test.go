@@ -84,7 +84,7 @@ func TestPlannedFailoverAutoSelectStandby(t *testing.T) {
 
 	t.Log("Calling SwitchPrimary...")
 	resp, err := adminClient.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",
@@ -159,7 +159,7 @@ func TestPlannedFailoverNoPgRewind(t *testing.T) {
 	defer cancel()
 
 	resp, err := adminClient.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",

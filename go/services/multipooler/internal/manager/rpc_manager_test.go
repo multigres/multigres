@@ -200,7 +200,7 @@ func TestPrimaryPosition(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          tt.poolerType,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   database,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,
@@ -284,7 +284,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
 		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -430,7 +430,7 @@ func TestReplicationStatus(t *testing.T) {
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
 			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -521,7 +521,7 @@ func TestReplicationStatus(t *testing.T) {
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -609,7 +609,7 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -698,7 +698,7 @@ func TestReplicationStatus(t *testing.T) {
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
 			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -783,7 +783,7 @@ func TestReplicationStatus(t *testing.T) {
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
 			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -858,7 +858,7 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -949,7 +949,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
 		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1065,7 +1065,7 @@ func TestUpdateConsensusRule_RejectsWhenSelfRevoked(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1171,7 +1171,7 @@ func TestRestartAsStandby_ManagerReopenedOnError(t *testing.T) {
 		PortMap: map[string]int32{
 			"postgres": 5432,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1273,7 +1273,7 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 		PortMap: map[string]int32{
 			"postgres": 5432,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1419,7 +1419,7 @@ func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		PortMap: map[string]int32{
 			"postgres": 5432,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1557,7 +1557,7 @@ func newRestartAsStandbyTestManager(t *testing.T, mockQueryService *mock.QuerySe
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
 		PortMap:   map[string]int32{"postgres": 5432},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,

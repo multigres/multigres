@@ -21,7 +21,7 @@ package migration
 // through the gateway's gRPC path.
 //
 // migration_target is stored as a genuine structured composite
-// (multigres.shard_ref, mirroring clustermetadata.ShardKey), so this view
+// (multigres.shard_ref, mirroring clustermetadata.ShardRef), so this view
 // passes it through unchanged.
 // migration_phase/active_direction stay plain text rather than native Postgres
 // ENUMs: enums have real friction for an evolving value set (can't remove or

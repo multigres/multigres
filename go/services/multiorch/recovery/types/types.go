@@ -195,7 +195,7 @@ type Problem struct {
 	Code           ProblemCode                 // Category of problem
 	CheckName      CheckName                   // Which check detected it
 	PoolerID       *clustermetadatapb.ID       // Affected pooler; can be nil for shard-scoped problems
-	ShardKey       *clustermetadatapb.ShardKey // Identifies the affected shard
+	ShardRef       *clustermetadatapb.ShardRef // Identifies the affected shard
 	Description    string                      // Human-readable description
 	Priority       Priority                    // Priority of this problem
 	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
@@ -218,12 +218,12 @@ func (p Problem) IsShardWide() bool {
 
 // EntityID returns a stable string identifying the affected entity.
 // For pooler-scoped problems this is the pooler ID string; for shard-scoped
-// problems it is the shard key string. Safe to call when PoolerID is nil.
+// problems it is the shard ref string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
 		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
-	return string(commontypes.FormatShardKey(p.ShardKey))
+	return string(commontypes.FormatShardRef(p.ShardRef))
 }
 
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
