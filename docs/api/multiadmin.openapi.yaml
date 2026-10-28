@@ -971,6 +971,57 @@ paths:
       summary: Set a migration's direction
       tags:
         - migrations
+  /api/v1/migrations/{ref.id}/reseed-reverse-link:
+    post:
+      description: |-
+        ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+         operator-triggered full-copy reseed.
+      operationId: multiadmin.MultiadminService.ReseedReverseLink
+      parameters:
+        - in: path
+          name: ref.id
+          required: true
+          schema:
+            pattern: ^-?[0-9]+$
+            title: id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                ReseedReverseLinkRequest is addressed by ref (id or name). ReseedReverseLink
+                 is an operator-only repair for a degraded EXPORT reverse link: unlike the
+                 automatic, no-copy ensureReverseExportLink path that only detects and
+                 records degradation, this drops the broken subscription, recreates the
+                 slot fresh, and resubscribes with a full copy — the only
+                 correctness-preserving recovery once the old slot's position is gone.
+              properties:
+                ref:
+                  $ref: '#/components/schemas/migrator.MigrationRef'
+                  title: ref
+              title: ReseedReverseLinkRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/migrator.ReseedReverseLinkResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Reseed a migration's reverse export link
+      tags:
+        - migrations
   /api/v1/orchs:
     get:
       description: |-
@@ -2989,6 +3040,17 @@ components:
           title: total_relations
           type: string
       title: MigrationStatus
+      type: object
+    migrator.ReseedReverseLinkResponse:
+      additionalProperties: false
+      properties:
+        migration:
+          $ref: '#/components/schemas/migrator.MigrationRecord'
+          title: migration
+        status:
+          $ref: '#/components/schemas/migrator.MigrationStatus'
+          title: status
+      title: ReseedReverseLinkResponse
       type: object
     migrator.SchemaSpec:
       additionalProperties: false

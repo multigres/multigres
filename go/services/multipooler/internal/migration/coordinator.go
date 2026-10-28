@@ -1332,10 +1332,9 @@ func (c *Coordinator) markReverseLinkDegraded(ctx context.Context, m *Migration,
 // else already fixed it, or the detection was transient), it is a no-op
 // beyond clearing a stale degraded marker.
 //
-// Currently has no caller: the gRPC/CLI/multiadmin exposure of this RPC has
-// been pulled out of the migrator stack pending a design decision (see PR
-// #1535 review discussion) and will land as its own commit later. Remove
-// this method too if that exposure ends up not coming back.
+// Exposed as an operator-only RPC through grpcmigrationservice, multiadmin,
+// and the CLI (reseed-reverse-link), mirroring the other ref-addressed
+// migration RPCs.
 func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

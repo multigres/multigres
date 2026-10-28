@@ -283,7 +283,6 @@ func (m *Migration) quiesceRolesToRestoreConnect() []string {
 	return restore
 }
 
-
 // CreateMigrationSQL is the DDL for the sidecar migration table, idempotent so
 // it can run both at shard bootstrap and on first use against an
 // already-bootstrapped shard. Created through the admin pool with no PUBLIC

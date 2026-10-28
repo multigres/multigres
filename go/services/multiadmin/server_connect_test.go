@@ -249,4 +249,7 @@ func TestConnectAdapterMigrationForwarders(t *testing.T) {
 
 	_, err = adapter.DropMigration(ctx, connect.NewRequest(&migratorpb.DropMigrationRequest{}))
 	assert.ErrorContains(t, err, "no leader pooler")
+
+	_, err = adapter.ReseedReverseLink(ctx, connect.NewRequest(&migratorpb.ReseedReverseLinkRequest{}))
+	assert.ErrorContains(t, err, "no leader pooler")
 }

@@ -271,6 +271,10 @@ func TestMigrationService_PrimaryGateError(t *testing.T) {
 			_, err := svc.DropMigration(ctx, &migratorpb.DropMigrationRequest{})
 			return err
 		},
+		"ReseedReverseLink": func() error {
+			_, err := svc.ReseedReverseLink(ctx, &migratorpb.ReseedReverseLinkRequest{})
+			return err
+		},
 		"SetMigrationDirection": func() error {
 			_, err := svc.SetMigrationDirection(ctx, &migratorpb.SetMigrationDirectionRequest{})
 			return err

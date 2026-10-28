@@ -57,6 +57,10 @@ func (failMigrator) DropMigration(context.Context, *migratorpb.DropMigrationRequ
 	return nil, errBackend
 }
 
+func (failMigrator) ReseedReverseLink(context.Context, *migratorpb.ReseedReverseLinkRequest, ...grpc.CallOption) (*migratorpb.ReseedReverseLinkResponse, error) {
+	return nil, errBackend
+}
+
 func (failMigrator) GetMigrationJournal(context.Context, *migratorpb.GetMigrationJournalRequest, ...grpc.CallOption) (*migratorpb.GetMigrationJournalResponse, error) {
 	return nil, errBackend
 }

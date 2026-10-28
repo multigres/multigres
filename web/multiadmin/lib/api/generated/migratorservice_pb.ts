@@ -1423,6 +1423,93 @@ export class DropMigrationResponse extends Message<DropMigrationResponse> {
 }
 
 /**
+ * ReseedReverseLinkRequest is addressed by ref (id or name). ReseedReverseLink
+ * is an operator-only repair for a degraded EXPORT reverse link: unlike the
+ * automatic, no-copy ensureReverseExportLink path that only detects and
+ * records degradation, this drops the broken subscription, recreates the
+ * slot fresh, and resubscribes with a full copy — the only
+ * correctness-preserving recovery once the old slot's position is gone.
+ *
+ * @generated from message migrator.ReseedReverseLinkRequest
+ */
+export class ReseedReverseLinkRequest extends Message<ReseedReverseLinkRequest> {
+  /**
+   * @generated from field: migrator.MigrationRef ref = 1;
+   */
+  ref?: MigrationRef;
+
+  constructor(data?: PartialMessage<ReseedReverseLinkRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "migrator.ReseedReverseLinkRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "ref", kind: "message", T: MigrationRef },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReseedReverseLinkRequest {
+    return new ReseedReverseLinkRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReseedReverseLinkRequest {
+    return new ReseedReverseLinkRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReseedReverseLinkRequest {
+    return new ReseedReverseLinkRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReseedReverseLinkRequest | PlainMessage<ReseedReverseLinkRequest> | undefined, b: ReseedReverseLinkRequest | PlainMessage<ReseedReverseLinkRequest> | undefined): boolean {
+    return proto3.util.equals(ReseedReverseLinkRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message migrator.ReseedReverseLinkResponse
+ */
+export class ReseedReverseLinkResponse extends Message<ReseedReverseLinkResponse> {
+  /**
+   * @generated from field: migrator.MigrationRecord migration = 1;
+   */
+  migration?: MigrationRecord;
+
+  /**
+   * @generated from field: migrator.MigrationStatus status = 2;
+   */
+  status?: MigrationStatus;
+
+  constructor(data?: PartialMessage<ReseedReverseLinkResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "migrator.ReseedReverseLinkResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "migration", kind: "message", T: MigrationRecord },
+    { no: 2, name: "status", kind: "message", T: MigrationStatus },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReseedReverseLinkResponse {
+    return new ReseedReverseLinkResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReseedReverseLinkResponse {
+    return new ReseedReverseLinkResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReseedReverseLinkResponse {
+    return new ReseedReverseLinkResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReseedReverseLinkResponse | PlainMessage<ReseedReverseLinkResponse> | undefined, b: ReseedReverseLinkResponse | PlainMessage<ReseedReverseLinkResponse> | undefined): boolean {
+    return proto3.util.equals(ReseedReverseLinkResponse, a, b);
+  }
+}
+
+/**
  * Connection is a stored, named source conninfo. It is scoped to the shard
  * whose Migrator created it — its row lives only in that shard's own
  * multigres.migration_connection, so which shard it belongs to is implied by

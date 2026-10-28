@@ -58,6 +58,7 @@ const (
 	MultiadminService_GetMigrationJournal_FullMethodName        = "/multiadmin.MultiadminService/GetMigrationJournal"
 	MultiadminService_SetMigrationDirection_FullMethodName      = "/multiadmin.MultiadminService/SetMigrationDirection"
 	MultiadminService_DropMigration_FullMethodName              = "/multiadmin.MultiadminService/DropMigration"
+	MultiadminService_ReseedReverseLink_FullMethodName          = "/multiadmin.MultiadminService/ReseedReverseLink"
 	MultiadminService_CreateConnection_FullMethodName           = "/multiadmin.MultiadminService/CreateConnection"
 	MultiadminService_GetConnection_FullMethodName              = "/multiadmin.MultiadminService/GetConnection"
 	MultiadminService_ListConnections_FullMethodName            = "/multiadmin.MultiadminService/ListConnections"
@@ -251,6 +252,9 @@ type MultiadminServiceClient interface {
 	SetMigrationDirection(ctx context.Context, in *migrator.SetMigrationDirectionRequest, opts ...grpc.CallOption) (*migrator.SetMigrationDirectionResponse, error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(ctx context.Context, in *migrator.DropMigrationRequest, opts ...grpc.CallOption) (*migrator.DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(ctx context.Context, in *migrator.ReseedReverseLinkRequest, opts ...grpc.CallOption) (*migrator.ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(ctx context.Context, in *migrator.CreateConnectionRequest, opts ...grpc.CallOption) (*migrator.CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -509,6 +513,16 @@ func (c *multiadminServiceClient) DropMigration(ctx context.Context, in *migrato
 	return out, nil
 }
 
+func (c *multiadminServiceClient) ReseedReverseLink(ctx context.Context, in *migrator.ReseedReverseLinkRequest, opts ...grpc.CallOption) (*migrator.ReseedReverseLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.ReseedReverseLinkResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_ReseedReverseLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiadminServiceClient) CreateConnection(ctx context.Context, in *migrator.CreateConnectionRequest, opts ...grpc.CallOption) (*migrator.CreateConnectionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(migrator.CreateConnectionResponse)
@@ -736,6 +750,9 @@ type MultiadminServiceServer interface {
 	SetMigrationDirection(context.Context, *migrator.SetMigrationDirectionRequest) (*migrator.SetMigrationDirectionResponse, error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(context.Context, *migrator.ReseedReverseLinkRequest) (*migrator.ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *migrator.CreateConnectionRequest) (*migrator.CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -825,6 +842,9 @@ func (UnimplementedMultiadminServiceServer) SetMigrationDirection(context.Contex
 }
 func (UnimplementedMultiadminServiceServer) DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DropMigration not implemented")
+}
+func (UnimplementedMultiadminServiceServer) ReseedReverseLink(context.Context, *migrator.ReseedReverseLinkRequest) (*migrator.ReseedReverseLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReseedReverseLink not implemented")
 }
 func (UnimplementedMultiadminServiceServer) CreateConnection(context.Context, *migrator.CreateConnectionRequest) (*migrator.CreateConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConnection not implemented")
@@ -1291,6 +1311,24 @@ func _MultiadminService_DropMigration_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_ReseedReverseLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.ReseedReverseLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).ReseedReverseLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_ReseedReverseLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).ReseedReverseLink(ctx, req.(*migrator.ReseedReverseLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiadminService_CreateConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(migrator.CreateConnectionRequest)
 	if err := dec(in); err != nil {
@@ -1465,6 +1503,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DropMigration",
 			Handler:    _MultiadminService_DropMigration_Handler,
+		},
+		{
+			MethodName: "ReseedReverseLink",
+			Handler:    _MultiadminService_ReseedReverseLink_Handler,
 		},
 		{
 			MethodName: "CreateConnection",
