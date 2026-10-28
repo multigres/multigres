@@ -185,6 +185,18 @@ func (s *migrationService) DropMigration(ctx context.Context, req *migratorpb.Dr
 	return &migratorpb.DropMigrationResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
 }
 
+func (s *migrationService) ReseedReverseLink(ctx context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	proj, err := coord.ReseedReverseLink(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	return &migratorpb.ReseedReverseLinkResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
+}
+
 func (s *migrationService) SetMigrationDirection(ctx context.Context, req *migratorpb.SetMigrationDirectionRequest) (*migratorpb.SetMigrationDirectionResponse, error) {
 	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
 	if err != nil {

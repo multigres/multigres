@@ -328,6 +328,20 @@ message DropMigrationResponse {
   MigrationStatus status = 2;
 }
 
+// ReseedReverseLinkRequest is addressed by ref (id or name). ReseedReverseLink
+// is an operator-only repair for a degraded EXPORT reverse link: unlike the
+// automatic, no-copy ensureReverseExportLink path that only detects and
+// records degradation, this drops the broken subscription, recreates the
+// slot fresh, and resubscribes with a full copy — the only
+// correctness-preserving recovery once the old slot's position is gone.
+message ReseedReverseLinkRequest {
+  MigrationRef ref = 1;
+}
+message ReseedReverseLinkResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
 // Connection is a stored, named source conninfo: a row of
 // multigres.connections, the catalog table the Migrator shares with the other
 // users of named connections. The table exists on the catalog shard only, so
@@ -438,6 +452,10 @@ service Migrator {
   // DropMigration tears down the subscription/publication/slot and removes
   // the workflow (default drains first; wait/force modify that).
   rpc DropMigration(DropMigrationRequest) returns (DropMigrationResponse);
+
+  // ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+  // operator-triggered full-copy reseed, addressed by ref (id or name).
+  rpc ReseedReverseLink(ReseedReverseLinkRequest) returns (ReseedReverseLinkResponse);
 
   // CreateConnection stores a named source conninfo, shard-scoped.
   rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse);
