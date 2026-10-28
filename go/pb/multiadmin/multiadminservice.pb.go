@@ -3055,7 +3055,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15BACKUP_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18BACKUP_STATUS_INCOMPLETE\x10\x01\x12\x1a\n" +
 	"\x16BACKUP_STATUS_COMPLETE\x10\x02\x12\x18\n" +
-	"\x14BACKUP_STATUS_FAILED\x10\x032\xbec\n" +
+	"\x14BACKUP_STATUS_FAILED\x10\x032\xcbf\n" +
 	"\x11MultiadminService\x12\xaf\x02\n" +
 	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\"\xea\x01\xbaG\xca\x01\n" +
 	"\x05cells\x12\n" +
@@ -3363,7 +3363,18 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x03401\x12#\x12!\n" +
 	"\x1f#/components/responses/RPCError\x12*\n" +
 	"\x03404\x12#\x12!\n" +
-	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1d*\x1b/api/v1/migrations/{ref.id}\x12\xd7\x02\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x02\x1d*\x1b/api/v1/migrations/{ref.id}\x12\x8a\x03\n" +
+	"\x11ReseedReverseLink\x12\".migrator.ReseedReverseLinkRequest\x1a#.migrator.ReseedReverseLinkResponse\"\xab\x02\xbaG\xed\x01\n" +
+	"\n" +
+	"migrations\x12(Reseed a migration's reverse export linkB\xb4\x01\x12.\n" +
+	"\adefault\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03400\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03401\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x12*\n" +
+	"\x03404\x12#\x12!\n" +
+	"\x1f#/components/responses/RPCError\x82\xd3\xe4\x93\x024:\x01*\"//api/v1/migrations/{ref.id}/reseed-reverse-link\x12\xd7\x02\n" +
 	"\x10CreateConnection\x12!.migrator.CreateConnectionRequest\x1a\".migrator.CreateConnectionResponse\"\xfb\x01\xbaG\xd9\x01\n" +
 	"\vconnections\x12\x13Create a connectionB\xb4\x01\x12.\n" +
 	"\adefault\x12#\x12!\n" +
@@ -3561,24 +3572,26 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*migrator.GetMigrationJournalRequest)(nil),               // 71: migrator.GetMigrationJournalRequest
 	(*migrator.SetMigrationDirectionRequest)(nil),             // 72: migrator.SetMigrationDirectionRequest
 	(*migrator.DropMigrationRequest)(nil),                     // 73: migrator.DropMigrationRequest
-	(*migrator.CreateConnectionRequest)(nil),                  // 74: migrator.CreateConnectionRequest
-	(*migrator.GetConnectionRequest)(nil),                     // 75: migrator.GetConnectionRequest
-	(*migrator.ListConnectionsRequest)(nil),                   // 76: migrator.ListConnectionsRequest
-	(*migrator.DropConnectionRequest)(nil),                    // 77: migrator.DropConnectionRequest
-	(*multipoolermanagerdata.SetRoutingRulesRequest)(nil),     // 78: multipoolermanagerdata.SetRoutingRulesRequest
-	(*multipoolermanagerdata.DeleteRoutingRulesRequest)(nil),  // 79: multipoolermanagerdata.DeleteRoutingRulesRequest
-	(*migrator.CreateMigrationResponse)(nil),                  // 80: migrator.CreateMigrationResponse
-	(*migrator.GetMigrationResponse)(nil),                     // 81: migrator.GetMigrationResponse
-	(*migrator.ListMigrationsResponse)(nil),                   // 82: migrator.ListMigrationsResponse
-	(*migrator.GetMigrationJournalResponse)(nil),              // 83: migrator.GetMigrationJournalResponse
-	(*migrator.SetMigrationDirectionResponse)(nil),            // 84: migrator.SetMigrationDirectionResponse
-	(*migrator.DropMigrationResponse)(nil),                    // 85: migrator.DropMigrationResponse
-	(*migrator.CreateConnectionResponse)(nil),                 // 86: migrator.CreateConnectionResponse
-	(*migrator.GetConnectionResponse)(nil),                    // 87: migrator.GetConnectionResponse
-	(*migrator.ListConnectionsResponse)(nil),                  // 88: migrator.ListConnectionsResponse
-	(*migrator.DropConnectionResponse)(nil),                   // 89: migrator.DropConnectionResponse
-	(*multipoolermanagerdata.SetRoutingRulesResponse)(nil),    // 90: multipoolermanagerdata.SetRoutingRulesResponse
-	(*multipoolermanagerdata.DeleteRoutingRulesResponse)(nil), // 91: multipoolermanagerdata.DeleteRoutingRulesResponse
+	(*migrator.ReseedReverseLinkRequest)(nil),                 // 74: migrator.ReseedReverseLinkRequest
+	(*migrator.CreateConnectionRequest)(nil),                  // 75: migrator.CreateConnectionRequest
+	(*migrator.GetConnectionRequest)(nil),                     // 76: migrator.GetConnectionRequest
+	(*migrator.ListConnectionsRequest)(nil),                   // 77: migrator.ListConnectionsRequest
+	(*migrator.DropConnectionRequest)(nil),                    // 78: migrator.DropConnectionRequest
+	(*multipoolermanagerdata.SetRoutingRulesRequest)(nil),     // 79: multipoolermanagerdata.SetRoutingRulesRequest
+	(*multipoolermanagerdata.DeleteRoutingRulesRequest)(nil),  // 80: multipoolermanagerdata.DeleteRoutingRulesRequest
+	(*migrator.CreateMigrationResponse)(nil),                  // 81: migrator.CreateMigrationResponse
+	(*migrator.GetMigrationResponse)(nil),                     // 82: migrator.GetMigrationResponse
+	(*migrator.ListMigrationsResponse)(nil),                   // 83: migrator.ListMigrationsResponse
+	(*migrator.GetMigrationJournalResponse)(nil),              // 84: migrator.GetMigrationJournalResponse
+	(*migrator.SetMigrationDirectionResponse)(nil),            // 85: migrator.SetMigrationDirectionResponse
+	(*migrator.DropMigrationResponse)(nil),                    // 86: migrator.DropMigrationResponse
+	(*migrator.ReseedReverseLinkResponse)(nil),                // 87: migrator.ReseedReverseLinkResponse
+	(*migrator.CreateConnectionResponse)(nil),                 // 88: migrator.CreateConnectionResponse
+	(*migrator.GetConnectionResponse)(nil),                    // 89: migrator.GetConnectionResponse
+	(*migrator.ListConnectionsResponse)(nil),                  // 90: migrator.ListConnectionsResponse
+	(*migrator.DropConnectionResponse)(nil),                   // 91: migrator.DropConnectionResponse
+	(*multipoolermanagerdata.SetRoutingRulesResponse)(nil),    // 92: multipoolermanagerdata.SetRoutingRulesResponse
+	(*multipoolermanagerdata.DeleteRoutingRulesResponse)(nil), // 93: multipoolermanagerdata.DeleteRoutingRulesResponse
 }
 var file_multiadminservice_proto_depIdxs = []int32{
 	5,  // 0: multiadmin.GetRoutingRulesResponse.rules:type_name -> multiadmin.RoutingRule
@@ -3641,47 +3654,49 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	71, // 57: multiadmin.MultiadminService.GetMigrationJournal:input_type -> migrator.GetMigrationJournalRequest
 	72, // 58: multiadmin.MultiadminService.SetMigrationDirection:input_type -> migrator.SetMigrationDirectionRequest
 	73, // 59: multiadmin.MultiadminService.DropMigration:input_type -> migrator.DropMigrationRequest
-	74, // 60: multiadmin.MultiadminService.CreateConnection:input_type -> migrator.CreateConnectionRequest
-	75, // 61: multiadmin.MultiadminService.GetConnection:input_type -> migrator.GetConnectionRequest
-	76, // 62: multiadmin.MultiadminService.ListConnections:input_type -> migrator.ListConnectionsRequest
-	77, // 63: multiadmin.MultiadminService.DropConnection:input_type -> migrator.DropConnectionRequest
-	3,  // 64: multiadmin.MultiadminService.GetRoutingRules:input_type -> multiadmin.GetRoutingRulesRequest
-	78, // 65: multiadmin.MultiadminService.SetRoutingRules:input_type -> multipoolermanagerdata.SetRoutingRulesRequest
-	79, // 66: multiadmin.MultiadminService.DeleteRoutingRules:input_type -> multipoolermanagerdata.DeleteRoutingRulesRequest
-	8,  // 67: multiadmin.MultiadminService.GetCell:output_type -> multiadmin.GetCellResponse
-	10, // 68: multiadmin.MultiadminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
-	12, // 69: multiadmin.MultiadminService.ListDesiredTableGroups:output_type -> multiadmin.ListDesiredTableGroupsResponse
-	14, // 70: multiadmin.MultiadminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
-	16, // 71: multiadmin.MultiadminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
-	18, // 72: multiadmin.MultiadminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
-	20, // 73: multiadmin.MultiadminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
-	22, // 74: multiadmin.MultiadminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
-	24, // 75: multiadmin.MultiadminService.Backup:output_type -> multiadmin.BackupResponse
-	26, // 76: multiadmin.MultiadminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
-	28, // 77: multiadmin.MultiadminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
-	30, // 78: multiadmin.MultiadminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
-	32, // 79: multiadmin.MultiadminService.VerifyBackups:output_type -> multiadmin.VerifyBackupsResponse
-	35, // 80: multiadmin.MultiadminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
-	37, // 81: multiadmin.MultiadminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
-	39, // 82: multiadmin.MultiadminService.GetGatewayQueries:output_type -> multiadmin.GetGatewayQueriesResponse
-	41, // 83: multiadmin.MultiadminService.GetGatewayConsolidator:output_type -> multiadmin.GetGatewayConsolidatorResponse
-	44, // 84: multiadmin.MultiadminService.ApplyCertifiedRuleChange:output_type -> multiadmin.ApplyCertifiedRuleChangeResponse
-	46, // 85: multiadmin.MultiadminService.SwitchPrimary:output_type -> multiadmin.SwitchPrimaryResponse
-	80, // 86: multiadmin.MultiadminService.CreateMigration:output_type -> migrator.CreateMigrationResponse
-	81, // 87: multiadmin.MultiadminService.GetMigration:output_type -> migrator.GetMigrationResponse
-	82, // 88: multiadmin.MultiadminService.ListMigrations:output_type -> migrator.ListMigrationsResponse
-	83, // 89: multiadmin.MultiadminService.GetMigrationJournal:output_type -> migrator.GetMigrationJournalResponse
-	84, // 90: multiadmin.MultiadminService.SetMigrationDirection:output_type -> migrator.SetMigrationDirectionResponse
-	85, // 91: multiadmin.MultiadminService.DropMigration:output_type -> migrator.DropMigrationResponse
-	86, // 92: multiadmin.MultiadminService.CreateConnection:output_type -> migrator.CreateConnectionResponse
-	87, // 93: multiadmin.MultiadminService.GetConnection:output_type -> migrator.GetConnectionResponse
-	88, // 94: multiadmin.MultiadminService.ListConnections:output_type -> migrator.ListConnectionsResponse
-	89, // 95: multiadmin.MultiadminService.DropConnection:output_type -> migrator.DropConnectionResponse
-	4,  // 96: multiadmin.MultiadminService.GetRoutingRules:output_type -> multiadmin.GetRoutingRulesResponse
-	90, // 97: multiadmin.MultiadminService.SetRoutingRules:output_type -> multipoolermanagerdata.SetRoutingRulesResponse
-	91, // 98: multiadmin.MultiadminService.DeleteRoutingRules:output_type -> multipoolermanagerdata.DeleteRoutingRulesResponse
-	67, // [67:99] is the sub-list for method output_type
-	35, // [35:67] is the sub-list for method input_type
+	74, // 60: multiadmin.MultiadminService.ReseedReverseLink:input_type -> migrator.ReseedReverseLinkRequest
+	75, // 61: multiadmin.MultiadminService.CreateConnection:input_type -> migrator.CreateConnectionRequest
+	76, // 62: multiadmin.MultiadminService.GetConnection:input_type -> migrator.GetConnectionRequest
+	77, // 63: multiadmin.MultiadminService.ListConnections:input_type -> migrator.ListConnectionsRequest
+	78, // 64: multiadmin.MultiadminService.DropConnection:input_type -> migrator.DropConnectionRequest
+	3,  // 65: multiadmin.MultiadminService.GetRoutingRules:input_type -> multiadmin.GetRoutingRulesRequest
+	79, // 66: multiadmin.MultiadminService.SetRoutingRules:input_type -> multipoolermanagerdata.SetRoutingRulesRequest
+	80, // 67: multiadmin.MultiadminService.DeleteRoutingRules:input_type -> multipoolermanagerdata.DeleteRoutingRulesRequest
+	8,  // 68: multiadmin.MultiadminService.GetCell:output_type -> multiadmin.GetCellResponse
+	10, // 69: multiadmin.MultiadminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
+	12, // 70: multiadmin.MultiadminService.ListDesiredTableGroups:output_type -> multiadmin.ListDesiredTableGroupsResponse
+	14, // 71: multiadmin.MultiadminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
+	16, // 72: multiadmin.MultiadminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
+	18, // 73: multiadmin.MultiadminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
+	20, // 74: multiadmin.MultiadminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
+	22, // 75: multiadmin.MultiadminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
+	24, // 76: multiadmin.MultiadminService.Backup:output_type -> multiadmin.BackupResponse
+	26, // 77: multiadmin.MultiadminService.GetBackupJobStatus:output_type -> multiadmin.GetBackupJobStatusResponse
+	28, // 78: multiadmin.MultiadminService.GetBackups:output_type -> multiadmin.GetBackupsResponse
+	30, // 79: multiadmin.MultiadminService.ExpireBackups:output_type -> multiadmin.ExpireBackupsResponse
+	32, // 80: multiadmin.MultiadminService.VerifyBackups:output_type -> multiadmin.VerifyBackupsResponse
+	35, // 81: multiadmin.MultiadminService.GetPoolerStatus:output_type -> multiadmin.GetPoolerStatusResponse
+	37, // 82: multiadmin.MultiadminService.SetPostgresRestartsEnabled:output_type -> multiadmin.SetPostgresRestartsEnabledResponse
+	39, // 83: multiadmin.MultiadminService.GetGatewayQueries:output_type -> multiadmin.GetGatewayQueriesResponse
+	41, // 84: multiadmin.MultiadminService.GetGatewayConsolidator:output_type -> multiadmin.GetGatewayConsolidatorResponse
+	44, // 85: multiadmin.MultiadminService.ApplyCertifiedRuleChange:output_type -> multiadmin.ApplyCertifiedRuleChangeResponse
+	46, // 86: multiadmin.MultiadminService.SwitchPrimary:output_type -> multiadmin.SwitchPrimaryResponse
+	81, // 87: multiadmin.MultiadminService.CreateMigration:output_type -> migrator.CreateMigrationResponse
+	82, // 88: multiadmin.MultiadminService.GetMigration:output_type -> migrator.GetMigrationResponse
+	83, // 89: multiadmin.MultiadminService.ListMigrations:output_type -> migrator.ListMigrationsResponse
+	84, // 90: multiadmin.MultiadminService.GetMigrationJournal:output_type -> migrator.GetMigrationJournalResponse
+	85, // 91: multiadmin.MultiadminService.SetMigrationDirection:output_type -> migrator.SetMigrationDirectionResponse
+	86, // 92: multiadmin.MultiadminService.DropMigration:output_type -> migrator.DropMigrationResponse
+	87, // 93: multiadmin.MultiadminService.ReseedReverseLink:output_type -> migrator.ReseedReverseLinkResponse
+	88, // 94: multiadmin.MultiadminService.CreateConnection:output_type -> migrator.CreateConnectionResponse
+	89, // 95: multiadmin.MultiadminService.GetConnection:output_type -> migrator.GetConnectionResponse
+	90, // 96: multiadmin.MultiadminService.ListConnections:output_type -> migrator.ListConnectionsResponse
+	91, // 97: multiadmin.MultiadminService.DropConnection:output_type -> migrator.DropConnectionResponse
+	4,  // 98: multiadmin.MultiadminService.GetRoutingRules:output_type -> multiadmin.GetRoutingRulesResponse
+	92, // 99: multiadmin.MultiadminService.SetRoutingRules:output_type -> multipoolermanagerdata.SetRoutingRulesResponse
+	93, // 100: multiadmin.MultiadminService.DeleteRoutingRules:output_type -> multipoolermanagerdata.DeleteRoutingRulesResponse
+	68, // [68:101] is the sub-list for method output_type
+	35, // [35:68] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
 	35, // [35:35] is the sub-list for extension extendee
 	0,  // [0:35] is the sub-list for field type_name

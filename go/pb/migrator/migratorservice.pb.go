@@ -1772,6 +1772,108 @@ func (x *DropMigrationResponse) GetStatus() *MigrationStatus {
 	return nil
 }
 
+// ReseedReverseLinkRequest is addressed by ref (id or name). ReseedReverseLink
+// is an operator-only repair for a degraded EXPORT reverse link: unlike the
+// automatic, no-copy ensureReverseExportLink path that only detects and
+// records degradation, this drops the broken subscription, recreates the
+// slot fresh, and resubscribes with a full copy — the only
+// correctness-preserving recovery once the old slot's position is gone.
+type ReseedReverseLinkRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *MigrationRef          `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReseedReverseLinkRequest) Reset() {
+	*x = ReseedReverseLinkRequest{}
+	mi := &file_migratorservice_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReseedReverseLinkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReseedReverseLinkRequest) ProtoMessage() {}
+
+func (x *ReseedReverseLinkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_migratorservice_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReseedReverseLinkRequest.ProtoReflect.Descriptor instead.
+func (*ReseedReverseLinkRequest) Descriptor() ([]byte, []int) {
+	return file_migratorservice_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ReseedReverseLinkRequest) GetRef() *MigrationRef {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+type ReseedReverseLinkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Migration     *MigrationRecord       `protobuf:"bytes,1,opt,name=migration,proto3" json:"migration,omitempty"`
+	Status        *MigrationStatus       `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReseedReverseLinkResponse) Reset() {
+	*x = ReseedReverseLinkResponse{}
+	mi := &file_migratorservice_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReseedReverseLinkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReseedReverseLinkResponse) ProtoMessage() {}
+
+func (x *ReseedReverseLinkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_migratorservice_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReseedReverseLinkResponse.ProtoReflect.Descriptor instead.
+func (*ReseedReverseLinkResponse) Descriptor() ([]byte, []int) {
+	return file_migratorservice_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ReseedReverseLinkResponse) GetMigration() *MigrationRecord {
+	if x != nil {
+		return x.Migration
+	}
+	return nil
+}
+
+func (x *ReseedReverseLinkResponse) GetStatus() *MigrationStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
 // Connection is a stored, named source conninfo: a row of
 // multigres.connections, the catalog table the Migrator shares with the other
 // users of named connections. The table exists on the catalog shard only, so
@@ -1808,7 +1910,7 @@ type Connection struct {
 
 func (x *Connection) Reset() {
 	*x = Connection{}
-	mi := &file_migratorservice_proto_msgTypes[20]
+	mi := &file_migratorservice_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1820,7 +1922,7 @@ func (x *Connection) String() string {
 func (*Connection) ProtoMessage() {}
 
 func (x *Connection) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[20]
+	mi := &file_migratorservice_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1833,7 +1935,7 @@ func (x *Connection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Connection.ProtoReflect.Descriptor instead.
 func (*Connection) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{20}
+	return file_migratorservice_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Connection) GetId() int64 {
@@ -1885,7 +1987,7 @@ type ConnectionRef struct {
 
 func (x *ConnectionRef) Reset() {
 	*x = ConnectionRef{}
-	mi := &file_migratorservice_proto_msgTypes[21]
+	mi := &file_migratorservice_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1897,7 +1999,7 @@ func (x *ConnectionRef) String() string {
 func (*ConnectionRef) ProtoMessage() {}
 
 func (x *ConnectionRef) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[21]
+	mi := &file_migratorservice_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1910,7 +2012,7 @@ func (x *ConnectionRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionRef.ProtoReflect.Descriptor instead.
 func (*ConnectionRef) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{21}
+	return file_migratorservice_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ConnectionRef) GetRef() isConnectionRef_Ref {
@@ -1972,7 +2074,7 @@ type CreateConnectionRequest struct {
 
 func (x *CreateConnectionRequest) Reset() {
 	*x = CreateConnectionRequest{}
-	mi := &file_migratorservice_proto_msgTypes[22]
+	mi := &file_migratorservice_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1984,7 +2086,7 @@ func (x *CreateConnectionRequest) String() string {
 func (*CreateConnectionRequest) ProtoMessage() {}
 
 func (x *CreateConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[22]
+	mi := &file_migratorservice_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1997,7 +2099,7 @@ func (x *CreateConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateConnectionRequest.ProtoReflect.Descriptor instead.
 func (*CreateConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{22}
+	return file_migratorservice_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CreateConnectionRequest) GetConnection() *Connection {
@@ -2023,7 +2125,7 @@ type CreateConnectionResponse struct {
 
 func (x *CreateConnectionResponse) Reset() {
 	*x = CreateConnectionResponse{}
-	mi := &file_migratorservice_proto_msgTypes[23]
+	mi := &file_migratorservice_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2035,7 +2137,7 @@ func (x *CreateConnectionResponse) String() string {
 func (*CreateConnectionResponse) ProtoMessage() {}
 
 func (x *CreateConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[23]
+	mi := &file_migratorservice_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2048,7 +2150,7 @@ func (x *CreateConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateConnectionResponse.ProtoReflect.Descriptor instead.
 func (*CreateConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{23}
+	return file_migratorservice_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CreateConnectionResponse) GetConnection() *Connection {
@@ -2081,7 +2183,7 @@ type GetConnectionRequest struct {
 
 func (x *GetConnectionRequest) Reset() {
 	*x = GetConnectionRequest{}
-	mi := &file_migratorservice_proto_msgTypes[24]
+	mi := &file_migratorservice_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2093,7 +2195,7 @@ func (x *GetConnectionRequest) String() string {
 func (*GetConnectionRequest) ProtoMessage() {}
 
 func (x *GetConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[24]
+	mi := &file_migratorservice_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2106,7 +2208,7 @@ func (x *GetConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnectionRequest.ProtoReflect.Descriptor instead.
 func (*GetConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{24}
+	return file_migratorservice_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetConnectionRequest) GetRef() *ConnectionRef {
@@ -2132,7 +2234,7 @@ type GetConnectionResponse struct {
 
 func (x *GetConnectionResponse) Reset() {
 	*x = GetConnectionResponse{}
-	mi := &file_migratorservice_proto_msgTypes[25]
+	mi := &file_migratorservice_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2144,7 +2246,7 @@ func (x *GetConnectionResponse) String() string {
 func (*GetConnectionResponse) ProtoMessage() {}
 
 func (x *GetConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[25]
+	mi := &file_migratorservice_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2157,7 +2259,7 @@ func (x *GetConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnectionResponse.ProtoReflect.Descriptor instead.
 func (*GetConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{25}
+	return file_migratorservice_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetConnectionResponse) GetConnection() *Connection {
@@ -2188,7 +2290,7 @@ type ListConnectionsRequest struct {
 
 func (x *ListConnectionsRequest) Reset() {
 	*x = ListConnectionsRequest{}
-	mi := &file_migratorservice_proto_msgTypes[26]
+	mi := &file_migratorservice_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2200,7 +2302,7 @@ func (x *ListConnectionsRequest) String() string {
 func (*ListConnectionsRequest) ProtoMessage() {}
 
 func (x *ListConnectionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[26]
+	mi := &file_migratorservice_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2213,7 +2315,7 @@ func (x *ListConnectionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConnectionsRequest.ProtoReflect.Descriptor instead.
 func (*ListConnectionsRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{26}
+	return file_migratorservice_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ListConnectionsRequest) GetCallerRole() string {
@@ -2232,7 +2334,7 @@ type ListConnectionsResponse struct {
 
 func (x *ListConnectionsResponse) Reset() {
 	*x = ListConnectionsResponse{}
-	mi := &file_migratorservice_proto_msgTypes[27]
+	mi := &file_migratorservice_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2244,7 +2346,7 @@ func (x *ListConnectionsResponse) String() string {
 func (*ListConnectionsResponse) ProtoMessage() {}
 
 func (x *ListConnectionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[27]
+	mi := &file_migratorservice_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2257,7 +2359,7 @@ func (x *ListConnectionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConnectionsResponse.ProtoReflect.Descriptor instead.
 func (*ListConnectionsResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{27}
+	return file_migratorservice_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListConnectionsResponse) GetConnections() []*Connection {
@@ -2294,7 +2396,7 @@ type DropConnectionRequest struct {
 
 func (x *DropConnectionRequest) Reset() {
 	*x = DropConnectionRequest{}
-	mi := &file_migratorservice_proto_msgTypes[28]
+	mi := &file_migratorservice_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2306,7 +2408,7 @@ func (x *DropConnectionRequest) String() string {
 func (*DropConnectionRequest) ProtoMessage() {}
 
 func (x *DropConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[28]
+	mi := &file_migratorservice_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2319,7 +2421,7 @@ func (x *DropConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropConnectionRequest.ProtoReflect.Descriptor instead.
 func (*DropConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{28}
+	return file_migratorservice_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *DropConnectionRequest) GetRef() *ConnectionRef {
@@ -2351,7 +2453,7 @@ type DropConnectionResponse struct {
 
 func (x *DropConnectionResponse) Reset() {
 	*x = DropConnectionResponse{}
-	mi := &file_migratorservice_proto_msgTypes[29]
+	mi := &file_migratorservice_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2363,7 +2465,7 @@ func (x *DropConnectionResponse) String() string {
 func (*DropConnectionResponse) ProtoMessage() {}
 
 func (x *DropConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_migratorservice_proto_msgTypes[29]
+	mi := &file_migratorservice_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2376,7 +2478,7 @@ func (x *DropConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropConnectionResponse.ProtoReflect.Descriptor instead.
 func (*DropConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_migratorservice_proto_rawDescGZIP(), []int{29}
+	return file_migratorservice_proto_rawDescGZIP(), []int{31}
 }
 
 var File_migratorservice_proto protoreflect.FileDescriptor
@@ -2492,6 +2594,11 @@ const file_migratorservice_proto_rawDesc = "" +
 	"callerRole\"\x83\x01\n" +
 	"\x15DropMigrationResponse\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
+	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"D\n" +
+	"\x18ReseedReverseLinkRequest\x12(\n" +
+	"\x03ref\x18\x01 \x01(\v2\x16.migrator.MigrationRefR\x03ref\"\x87\x01\n" +
+	"\x19ReseedReverseLinkResponse\x127\n" +
+	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
 	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"\x9c\x01\n" +
 	"\n" +
 	"Connection\x12\x0e\n" +
@@ -2562,14 +2669,15 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x18MIGRATION_EVENT_ACTIVATE\x10\x04\x12\x1e\n" +
 	"\x1aMIGRATION_EVENT_DEACTIVATE\x10\x05\x12\x18\n" +
 	"\x14MIGRATION_EVENT_DROP\x10\x06\x12\x1a\n" +
-	"\x16MIGRATION_EVENT_FAILED\x10\a2\x80\a\n" +
+	"\x16MIGRATION_EVENT_FAILED\x10\a2\xde\a\n" +
 	"\bMigrator\x12V\n" +
 	"\x0fCreateMigration\x12 .migrator.CreateMigrationRequest\x1a!.migrator.CreateMigrationResponse\x12M\n" +
 	"\fGetMigration\x12\x1d.migrator.GetMigrationRequest\x1a\x1e.migrator.GetMigrationResponse\x12S\n" +
 	"\x0eListMigrations\x12\x1f.migrator.ListMigrationsRequest\x1a .migrator.ListMigrationsResponse\x12b\n" +
 	"\x13GetMigrationJournal\x12$.migrator.GetMigrationJournalRequest\x1a%.migrator.GetMigrationJournalResponse\x12h\n" +
 	"\x15SetMigrationDirection\x12&.migrator.SetMigrationDirectionRequest\x1a'.migrator.SetMigrationDirectionResponse\x12P\n" +
-	"\rDropMigration\x12\x1e.migrator.DropMigrationRequest\x1a\x1f.migrator.DropMigrationResponse\x12Y\n" +
+	"\rDropMigration\x12\x1e.migrator.DropMigrationRequest\x1a\x1f.migrator.DropMigrationResponse\x12\\\n" +
+	"\x11ReseedReverseLink\x12\".migrator.ReseedReverseLinkRequest\x1a#.migrator.ReseedReverseLinkResponse\x12Y\n" +
 	"\x10CreateConnection\x12!.migrator.CreateConnectionRequest\x1a\".migrator.CreateConnectionResponse\x12P\n" +
 	"\rGetConnection\x12\x1e.migrator.GetConnectionRequest\x1a\x1f.migrator.GetConnectionResponse\x12V\n" +
 	"\x0fListConnections\x12 .migrator.ListConnectionsRequest\x1a!.migrator.ListConnectionsResponse\x12S\n" +
@@ -2588,7 +2696,7 @@ func file_migratorservice_proto_rawDescGZIP() []byte {
 }
 
 var file_migratorservice_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_migratorservice_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_migratorservice_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_migratorservice_proto_goTypes = []any{
 	(MigrationPhase)(0),                   // 0: migrator.MigrationPhase
 	(MigrationDirection)(0),               // 1: migrator.MigrationDirection
@@ -2613,29 +2721,31 @@ var file_migratorservice_proto_goTypes = []any{
 	(*ListMigrationsResponse)(nil),        // 20: migrator.ListMigrationsResponse
 	(*DropMigrationRequest)(nil),          // 21: migrator.DropMigrationRequest
 	(*DropMigrationResponse)(nil),         // 22: migrator.DropMigrationResponse
-	(*Connection)(nil),                    // 23: migrator.Connection
-	(*ConnectionRef)(nil),                 // 24: migrator.ConnectionRef
-	(*CreateConnectionRequest)(nil),       // 25: migrator.CreateConnectionRequest
-	(*CreateConnectionResponse)(nil),      // 26: migrator.CreateConnectionResponse
-	(*GetConnectionRequest)(nil),          // 27: migrator.GetConnectionRequest
-	(*GetConnectionResponse)(nil),         // 28: migrator.GetConnectionResponse
-	(*ListConnectionsRequest)(nil),        // 29: migrator.ListConnectionsRequest
-	(*ListConnectionsResponse)(nil),       // 30: migrator.ListConnectionsResponse
-	(*DropConnectionRequest)(nil),         // 31: migrator.DropConnectionRequest
-	(*DropConnectionResponse)(nil),        // 32: migrator.DropConnectionResponse
-	(*clustermetadata.ShardRef)(nil),      // 33: clustermetadata.ShardRef
-	(*timestamppb.Timestamp)(nil),         // 34: google.protobuf.Timestamp
+	(*ReseedReverseLinkRequest)(nil),      // 23: migrator.ReseedReverseLinkRequest
+	(*ReseedReverseLinkResponse)(nil),     // 24: migrator.ReseedReverseLinkResponse
+	(*Connection)(nil),                    // 25: migrator.Connection
+	(*ConnectionRef)(nil),                 // 26: migrator.ConnectionRef
+	(*CreateConnectionRequest)(nil),       // 27: migrator.CreateConnectionRequest
+	(*CreateConnectionResponse)(nil),      // 28: migrator.CreateConnectionResponse
+	(*GetConnectionRequest)(nil),          // 29: migrator.GetConnectionRequest
+	(*GetConnectionResponse)(nil),         // 30: migrator.GetConnectionResponse
+	(*ListConnectionsRequest)(nil),        // 31: migrator.ListConnectionsRequest
+	(*ListConnectionsResponse)(nil),       // 32: migrator.ListConnectionsResponse
+	(*DropConnectionRequest)(nil),         // 33: migrator.DropConnectionRequest
+	(*DropConnectionResponse)(nil),        // 34: migrator.DropConnectionResponse
+	(*clustermetadata.ShardRef)(nil),      // 35: clustermetadata.ShardRef
+	(*timestamppb.Timestamp)(nil),         // 36: google.protobuf.Timestamp
 }
 var file_migratorservice_proto_depIdxs = []int32{
 	3,  // 0: migrator.SelectionObject.table:type_name -> migrator.TableSpec
 	4,  // 1: migrator.SelectionObject.schema:type_name -> migrator.SchemaSpec
-	33, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardRef
+	35, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardRef
 	5,  // 3: migrator.MigrationRecord.objects:type_name -> migrator.SelectionObject
 	0,  // 4: migrator.MigrationStatus.phase:type_name -> migrator.MigrationPhase
-	34, // 5: migrator.MigrationStatus.created_at:type_name -> google.protobuf.Timestamp
+	36, // 5: migrator.MigrationStatus.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 6: migrator.MigrationStatus.active_direction:type_name -> migrator.MigrationDirection
-	34, // 7: migrator.MigrationStatus.streaming_since:type_name -> google.protobuf.Timestamp
-	34, // 8: migrator.MigrationJournalEntry.created_at:type_name -> google.protobuf.Timestamp
+	36, // 7: migrator.MigrationStatus.streaming_since:type_name -> google.protobuf.Timestamp
+	36, // 8: migrator.MigrationJournalEntry.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 9: migrator.MigrationJournalEntry.event:type_name -> migrator.MigrationEvent
 	0,  // 10: migrator.MigrationJournalEntry.phase:type_name -> migrator.MigrationPhase
 	1,  // 11: migrator.MigrationJournalEntry.direction:type_name -> migrator.MigrationDirection
@@ -2654,38 +2764,43 @@ var file_migratorservice_proto_depIdxs = []int32{
 	14, // 24: migrator.DropMigrationRequest.ref:type_name -> migrator.MigrationRef
 	6,  // 25: migrator.DropMigrationResponse.migration:type_name -> migrator.MigrationRecord
 	7,  // 26: migrator.DropMigrationResponse.status:type_name -> migrator.MigrationStatus
-	34, // 27: migrator.Connection.created_at:type_name -> google.protobuf.Timestamp
-	23, // 28: migrator.CreateConnectionRequest.connection:type_name -> migrator.Connection
-	23, // 29: migrator.CreateConnectionResponse.connection:type_name -> migrator.Connection
-	24, // 30: migrator.GetConnectionRequest.ref:type_name -> migrator.ConnectionRef
-	23, // 31: migrator.GetConnectionResponse.connection:type_name -> migrator.Connection
-	23, // 32: migrator.ListConnectionsResponse.connections:type_name -> migrator.Connection
-	24, // 33: migrator.DropConnectionRequest.ref:type_name -> migrator.ConnectionRef
-	12, // 34: migrator.Migrator.CreateMigration:input_type -> migrator.CreateMigrationRequest
-	17, // 35: migrator.Migrator.GetMigration:input_type -> migrator.GetMigrationRequest
-	19, // 36: migrator.Migrator.ListMigrations:input_type -> migrator.ListMigrationsRequest
-	10, // 37: migrator.Migrator.GetMigrationJournal:input_type -> migrator.GetMigrationJournalRequest
-	15, // 38: migrator.Migrator.SetMigrationDirection:input_type -> migrator.SetMigrationDirectionRequest
-	21, // 39: migrator.Migrator.DropMigration:input_type -> migrator.DropMigrationRequest
-	25, // 40: migrator.Migrator.CreateConnection:input_type -> migrator.CreateConnectionRequest
-	27, // 41: migrator.Migrator.GetConnection:input_type -> migrator.GetConnectionRequest
-	29, // 42: migrator.Migrator.ListConnections:input_type -> migrator.ListConnectionsRequest
-	31, // 43: migrator.Migrator.DropConnection:input_type -> migrator.DropConnectionRequest
-	13, // 44: migrator.Migrator.CreateMigration:output_type -> migrator.CreateMigrationResponse
-	18, // 45: migrator.Migrator.GetMigration:output_type -> migrator.GetMigrationResponse
-	20, // 46: migrator.Migrator.ListMigrations:output_type -> migrator.ListMigrationsResponse
-	11, // 47: migrator.Migrator.GetMigrationJournal:output_type -> migrator.GetMigrationJournalResponse
-	16, // 48: migrator.Migrator.SetMigrationDirection:output_type -> migrator.SetMigrationDirectionResponse
-	22, // 49: migrator.Migrator.DropMigration:output_type -> migrator.DropMigrationResponse
-	26, // 50: migrator.Migrator.CreateConnection:output_type -> migrator.CreateConnectionResponse
-	28, // 51: migrator.Migrator.GetConnection:output_type -> migrator.GetConnectionResponse
-	30, // 52: migrator.Migrator.ListConnections:output_type -> migrator.ListConnectionsResponse
-	32, // 53: migrator.Migrator.DropConnection:output_type -> migrator.DropConnectionResponse
-	44, // [44:54] is the sub-list for method output_type
-	34, // [34:44] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	14, // 27: migrator.ReseedReverseLinkRequest.ref:type_name -> migrator.MigrationRef
+	6,  // 28: migrator.ReseedReverseLinkResponse.migration:type_name -> migrator.MigrationRecord
+	7,  // 29: migrator.ReseedReverseLinkResponse.status:type_name -> migrator.MigrationStatus
+	36, // 30: migrator.Connection.created_at:type_name -> google.protobuf.Timestamp
+	25, // 31: migrator.CreateConnectionRequest.connection:type_name -> migrator.Connection
+	25, // 32: migrator.CreateConnectionResponse.connection:type_name -> migrator.Connection
+	26, // 33: migrator.GetConnectionRequest.ref:type_name -> migrator.ConnectionRef
+	25, // 34: migrator.GetConnectionResponse.connection:type_name -> migrator.Connection
+	25, // 35: migrator.ListConnectionsResponse.connections:type_name -> migrator.Connection
+	26, // 36: migrator.DropConnectionRequest.ref:type_name -> migrator.ConnectionRef
+	12, // 37: migrator.Migrator.CreateMigration:input_type -> migrator.CreateMigrationRequest
+	17, // 38: migrator.Migrator.GetMigration:input_type -> migrator.GetMigrationRequest
+	19, // 39: migrator.Migrator.ListMigrations:input_type -> migrator.ListMigrationsRequest
+	10, // 40: migrator.Migrator.GetMigrationJournal:input_type -> migrator.GetMigrationJournalRequest
+	15, // 41: migrator.Migrator.SetMigrationDirection:input_type -> migrator.SetMigrationDirectionRequest
+	21, // 42: migrator.Migrator.DropMigration:input_type -> migrator.DropMigrationRequest
+	23, // 43: migrator.Migrator.ReseedReverseLink:input_type -> migrator.ReseedReverseLinkRequest
+	27, // 44: migrator.Migrator.CreateConnection:input_type -> migrator.CreateConnectionRequest
+	29, // 45: migrator.Migrator.GetConnection:input_type -> migrator.GetConnectionRequest
+	31, // 46: migrator.Migrator.ListConnections:input_type -> migrator.ListConnectionsRequest
+	33, // 47: migrator.Migrator.DropConnection:input_type -> migrator.DropConnectionRequest
+	13, // 48: migrator.Migrator.CreateMigration:output_type -> migrator.CreateMigrationResponse
+	18, // 49: migrator.Migrator.GetMigration:output_type -> migrator.GetMigrationResponse
+	20, // 50: migrator.Migrator.ListMigrations:output_type -> migrator.ListMigrationsResponse
+	11, // 51: migrator.Migrator.GetMigrationJournal:output_type -> migrator.GetMigrationJournalResponse
+	16, // 52: migrator.Migrator.SetMigrationDirection:output_type -> migrator.SetMigrationDirectionResponse
+	22, // 53: migrator.Migrator.DropMigration:output_type -> migrator.DropMigrationResponse
+	24, // 54: migrator.Migrator.ReseedReverseLink:output_type -> migrator.ReseedReverseLinkResponse
+	28, // 55: migrator.Migrator.CreateConnection:output_type -> migrator.CreateConnectionResponse
+	30, // 56: migrator.Migrator.GetConnection:output_type -> migrator.GetConnectionResponse
+	32, // 57: migrator.Migrator.ListConnections:output_type -> migrator.ListConnectionsResponse
+	34, // 58: migrator.Migrator.DropConnection:output_type -> migrator.DropConnectionResponse
+	48, // [48:59] is the sub-list for method output_type
+	37, // [37:48] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_migratorservice_proto_init() }
@@ -2703,7 +2818,7 @@ func file_migratorservice_proto_init() {
 		(*MigrationRef_Name)(nil),
 	}
 	file_migratorservice_proto_msgTypes[12].OneofWrappers = []any{}
-	file_migratorservice_proto_msgTypes[21].OneofWrappers = []any{
+	file_migratorservice_proto_msgTypes[23].OneofWrappers = []any{
 		(*ConnectionRef_Id)(nil),
 		(*ConnectionRef_Name)(nil),
 	}
@@ -2713,7 +2828,7 @@ func file_migratorservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_migratorservice_proto_rawDesc), len(file_migratorservice_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   30,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -40,6 +40,7 @@ type fakeMigratorServer struct {
 	journal    *migratorpb.GetMigrationJournalRequest
 	list       *migratorpb.ListMigrationsRequest
 	drop       *migratorpb.DropMigrationRequest
+	reseed     *migratorpb.ReseedReverseLinkRequest
 	createConn *migratorpb.CreateConnectionRequest
 	getConn    *migratorpb.GetConnectionRequest
 	listConn   *migratorpb.ListConnectionsRequest
@@ -74,6 +75,11 @@ func (f *fakeMigratorServer) ListMigrations(_ context.Context, in *migratorpb.Li
 func (f *fakeMigratorServer) DropMigration(_ context.Context, in *migratorpb.DropMigrationRequest) (*migratorpb.DropMigrationResponse, error) {
 	f.drop = in
 	return &migratorpb.DropMigrationResponse{Migration: &migratorpb.MigrationRecord{Id: in.GetRef().GetId()}}, nil
+}
+
+func (f *fakeMigratorServer) ReseedReverseLink(_ context.Context, in *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	f.reseed = in
+	return &migratorpb.ReseedReverseLinkResponse{Migration: &migratorpb.MigrationRecord{Id: in.GetRef().GetId()}}, nil
 }
 
 func (f *fakeMigratorServer) CreateConnection(_ context.Context, in *migratorpb.CreateConnectionRequest) (*migratorpb.CreateConnectionResponse, error) {
@@ -168,6 +174,11 @@ func TestMultiadminMigrationForwarders(t *testing.T) {
 		_, err := server.DropMigration(ctx, &migratorpb.DropMigrationRequest{Ref: idRef(1)})
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), fake.drop.GetRef().GetId())
+	})
+	t.Run("ReseedReverseLink", func(t *testing.T) {
+		_, err := server.ReseedReverseLink(ctx, &migratorpb.ReseedReverseLinkRequest{Ref: idRef(1)})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), fake.reseed.GetRef().GetId())
 	})
 	t.Run("CreateConnection", func(t *testing.T) {
 		resp, err := server.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{Connection: &migratorpb.Connection{Name: "c1"}})
@@ -273,6 +284,7 @@ func callAllForwarders(ctx context.Context, s *MultiadminServer) []error {
 		firstErr(s.GetMigrationJournal(ctx, &migratorpb.GetMigrationJournalRequest{Id: 1})),
 		firstErr(s.ListMigrations(ctx, &migratorpb.ListMigrationsRequest{})),
 		firstErr(s.DropMigration(ctx, &migratorpb.DropMigrationRequest{Ref: idRef(1)})),
+		firstErr(s.ReseedReverseLink(ctx, &migratorpb.ReseedReverseLinkRequest{Ref: idRef(1)})),
 		firstErr(s.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{Connection: &migratorpb.Connection{Name: "c1"}})),
 		firstErr(s.GetConnection(ctx, &migratorpb.GetConnectionRequest{Ref: connIDRef(1)})),
 		firstErr(s.ListConnections(ctx, &migratorpb.ListConnectionsRequest{})),
