@@ -99,6 +99,13 @@ func (s *PgCtldService) RestartPostgreSQLWithResult(ctx context.Context, mode st
 	logger := s.logger
 	config := s.pgConfig
 
+	// Refuse during an incomplete restore before stopping postgres and writing
+	// standby.signal below. StartPostgreSQLWithResult would refuse the start too,
+	// but only after both had already happened.
+	if err := checkNoIncompleteRestore(config.PoolerDir); err != nil {
+		return nil, err
+	}
+
 	if asStandby {
 		logger.InfoContext(ctx, "restarting Postgres server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
 	} else {

@@ -308,6 +308,79 @@ func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
 	require.Equal(t, serving.Id.Name, got.Id.Name)
 }
 
+func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "is not serving", "a static leader is never replaced by a guess")
+
+	_, err = server.ts.UpdateMultipoolerFields(ctx, leader.Id, func(p *clustermetadatapb.Multipooler) error {
+		p.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		return nil
+	})
+	require.NoError(t, err)
+	for _, forceLeader := range []bool{false, true} {
+		got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", forceLeader)
+		require.NoError(t, err, "a static leader is chosen with forceLeader=%v", forceLeader)
+		require.Equal(t, leader.Id.Name, got.Id.Name)
+	}
+
+	// A stopped consensus pooler in the same shard makes it mixed.
+	replica := makeRoutedPooler("cell1", "consensus-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	replica.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	require.NoError(t, server.ts.CreateMultipooler(ctx, replica))
+	_, err = server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "has a static leader (multipooler-cell1-static-leader) and 1 other pooler(s)")
+}
+
+// TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers: a static leader
+// restarted under a new service ID leaves its old record, shut down, behind.
+func TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	old := makeRoutedPooler("cell1", "old-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN)
+	old.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	old.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	old.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
+	require.NoError(t, server.ts.CreateMultipooler(ctx, old))
+	leader := makeRoutedPooler("cell1", "new-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.NoError(t, err, "the shut-down record is not another pooler")
+	require.Equal(t, leader.Id.Name, got.Id.Name)
+}
+
+// TestFindPoolerForBackup_StaticLeaderWithUnreadableCell fails closed: a cell
+// that cannot be read could hide another pooler of the static leader's shard.
+func TestFindPoolerForBackup_StaticLeaderWithUnreadableCell(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	// cell2 is listed in the global topology but its topology server cannot
+	// be reached.
+	require.NoError(t, server.ts.CreateCell(ctx, "cell2", &clustermetadatapb.Cell{ServerAddresses: []string{"unreachable"}, Root: "/cell2"}))
+
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "cannot confirm static leader multipooler-cell1-static-leader is the only pooler")
+	require.ErrorContains(t, err, "[cell2]")
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
