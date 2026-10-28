@@ -198,9 +198,12 @@ func TestMultigateway_StartupParamForwarding(t *testing.T) {
 				require.NoError(t, err, "connection with invalid startup parameter should succeed")
 				defer conn.Close(ctx)
 
-				// Queries should fail because the invalid GUC is sent as a SET SESSION command.
+				// Queries should fail because the invalid GUC is sent as a SET SESSION
+				// command when a backend is checked out. A constant-only SELECT such as
+				// `SELECT 1` is answered by the gateway itself and never reaches a
+				// backend, so use a statement that must be routed.
 				var result string
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+				err = conn.QueryRow(ctx, "SELECT current_user").Scan(&result)
 				require.Error(t, err, "query should fail due to invalid startup parameter")
 			})
 		})

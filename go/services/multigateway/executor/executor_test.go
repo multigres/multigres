@@ -235,7 +235,10 @@ func TestSetSlotBasedReplicationEnabled_ReloadInvalidatesStaleAdmission(t *testi
 	enabled := true
 	exec.SetSlotBasedReplicationEnabled(func() bool { return enabled })
 
-	const sql = "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true)"
+	// A SELECT of only constant expressions is never cached (the gateway may
+	// evaluate it itself), so give the statement a WHERE clause to keep it on
+	// the cached path this test is about.
+	const sql = "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false, false, true) WHERE true"
 	stmt := parseOne(t, sql)
 
 	// Admitted while the flag is on, and cached.

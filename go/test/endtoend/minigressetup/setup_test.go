@@ -135,13 +135,15 @@ func TestMinigres_QueriesStayInProcess(t *testing.T) {
 	_, err = managerClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "the pooler manager service stays on the external port")
 
-	// Queries still reach the multipooler, through the gateway.
+	// Queries still reach the multipooler, through the gateway. A constant
+	// SELECT would be answered by the gateway itself, so ask the backend for
+	// its pid.
 	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
 	require.NoError(t, err)
 	defer db.Close()
-	var one int
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
-	assert.Equal(t, 1, one)
+	var pid int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid))
+	assert.Positive(t, pid)
 }
 
 // TestMinigres_GatewayIgnoresOtherPoolers registers another pooler for the same
@@ -200,13 +202,14 @@ func TestMinigres_GatewayIgnoresOtherPoolers(t *testing.T) {
 		return strings.Contains(statusPage(), "other-instance-pooler")
 	}, 3*time.Second, 100*time.Millisecond, "the gateway must not learn of other processes' poolers")
 
-	// Queries still go to the own pooler.
+	// Queries still go to the own pooler (a constant SELECT never leaves the
+	// gateway, so ask the backend for its pid).
 	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
 	require.NoError(t, err)
 	defer db.Close()
-	var one int
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
-	assert.Equal(t, 1, one)
+	var pid int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid))
+	assert.Positive(t, pid)
 }
 
 // TestMinigres_ServesWithoutEtcd checks that Minigres keeps serving when etcd

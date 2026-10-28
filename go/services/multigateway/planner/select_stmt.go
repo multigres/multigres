@@ -72,6 +72,12 @@ func (p *Planner) planSelectStmt(
 		return p.planResolveSetConfig(sql, stmt, opts)
 	}
 	if len(setConfigs) == 0 {
+		// A SELECT of only constant expressions that the gateway's expression
+		// engine can answer never reaches a backend (see gatewayEval for the
+		// admission rules); anything it declines routes as before.
+		if ge := p.gatewayEval(sql, stmt, conn, opts); ge != nil {
+			return engine.NewPlan(sql, ge), nil
+		}
 		return p.planDefault(sql, stmt, conn, opts)
 	}
 

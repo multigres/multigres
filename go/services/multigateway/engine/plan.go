@@ -34,6 +34,7 @@ const (
 	PlanTypeResolveTrackSetConfig       = "ResolveTrackSetConfig"
 	PlanTypeGatewaySessionState         = "GatewaySessionState"
 	PlanTypeGatewayShowVariable         = "GatewayShowVariable"
+	PlanTypeGatewayEval                 = "GatewayEval"
 	PlanTypeListenNotify                = "ListenNotify"
 	PlanTypeSequence                    = "Sequence"
 	PlanTypeTempTableRoute              = "TempTableRoute"

@@ -197,6 +197,20 @@ func (e *Executor) resolvePlan(
 		bindVars = normResult.BindValues
 	}
 
+	// A SELECT of only constant expressions may be answered by the gateway's
+	// expression engine, and whether it can depends on the literals' types:
+	// `SELECT 1 + 2` and `SELECT 1 + true` both normalize to `SELECT $1 + $2`,
+	// so neither the GatewayEval nor the Route the engine declines into may be
+	// cached under that key. Such a statement is planned from its literal AST
+	// on every call; the fingerprint above still identifies its shape for logs
+	// and metrics. When the session does not allow a local answer (a
+	// transaction block, a reserved backend) the planner always routes it, so
+	// there it stays on the cached path.
+	if planner.IsTargetListOnlySelect(astStmt) && planner.SessionAllowsGatewayEval(conn) {
+		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
+		return plan, nil, false, normalizedSQL, fingerprint, err
+	}
+
 	// Cache hit
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "plan cache hit",
@@ -338,8 +352,10 @@ func (e *Executor) resolvePortalPlan(
 	// must never enter the shared cache where a normal connection could receive it
 	// as a database-wide hit — that would bypass analyzeStatement's function
 	// blocklist (e.g. a cached SELECT dblink(...) served to another client).
+	portalOpts := planner.PlanOptions{IsPortal: true, ParamTypes: portalInfo.PreparedStatementInfo.GetParamTypes()}
 	if !isCacheable(astStmt) || conn.UnsafeConnection() {
-		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
+		portalOpts.State = state
+		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, portalOpts)
 		if err != nil {
 			return nil, false, "", "", err
 		}
@@ -350,6 +366,13 @@ func (e *Executor) resolvePortalPlan(
 
 	normalizedSQL, fingerprint := portalInfo.PreparedStatementInfo.CanonicalSQLAndFingerprint()
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
+
+	// A constant-only SELECT is planned per call with the client's declared
+	// parameter types, never cached; see the matching branch in resolvePlan.
+	if planner.IsTargetListOnlySelect(astStmt) && planner.SessionAllowsGatewayEval(conn) {
+		plan, err := e.planner.Plan(normalizedSQL, astStmt, conn, portalOpts)
+		return plan, false, normalizedSQL, fingerprint, err
+	}
 
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
@@ -404,14 +427,26 @@ func (e *Executor) Describe(
 		return engine.MultigresServerVersionShowDescription(), nil
 	}
 
+	psi := preparedStatementInfo
+	var portal *query.Portal
+	if portalInfo != nil {
+		psi, portal = portalInfo.PreparedStatementInfo, portalInfo.Portal
+	}
+
+	// A constant-only SELECT the gateway will evaluate itself is described
+	// by the same primitive Execute will run, so the parameter types and
+	// columns match what the client later receives; a statement the
+	// planner would route is described by the backend as before.
+	if stmt != nil {
+		if ge := e.planner.GatewayEvalFor(psi.GetQuery(), stmt, conn, psi.GetParamTypes()); ge != nil {
+			return ge.Description(portal)
+		}
+	}
+
 	// A statement reading a cluster view (multigres.multipoolers, ...) names a
 	// relation the backend doesn't have. Describe the statement with each view
 	// folded to its empty, typed subquery instead: same columns, no data, and
 	// the backend can describe it. Execute folds the live rows separately.
-	psi := preparedStatementInfo
-	if portalInfo != nil {
-		psi = portalInfo.PreparedStatementInfo
-	}
 	if stmt != nil && e.planner.ClusterViewsEnabled() && engine.MayReferenceClusterView(psi.GetQuery()) && engine.ContainsClusterView(stmt) {
 		stubSQL, err := engine.ClusterViewDescribeSQL(stmt)
 		if err != nil {
