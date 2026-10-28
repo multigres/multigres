@@ -54,7 +54,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 	)
 
 	// Test with empty problems
-	engine.updateDetectedProblems(nil)
+	engine.problems.reconcile(nil, time.Now())
 	data := engine.collectDetectedProblemsData()
 	assert.Empty(t, data)
 
@@ -92,7 +92,7 @@ func TestEngine_UpdateDetectedProblems(t *testing.T) {
 		},
 	}
 
-	engine.updateDetectedProblems(problems)
+	engine.problems.reconcile(problems, time.Now())
 	data = engine.collectDetectedProblemsData()
 
 	require.Len(t, data, 2)
@@ -224,7 +224,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 			},
 		},
 	}
-	engine.updateDetectedProblems(initialProblems)
+	engine.problems.reconcile(initialProblems, time.Now())
 
 	// Replace with different problems
 	newProblems := []types.Problem{
@@ -243,7 +243,7 @@ func TestEngine_UpdateDetectedProblems_Replacement(t *testing.T) {
 			},
 		},
 	}
-	engine.updateDetectedProblems(newProblems)
+	engine.problems.reconcile(newProblems, time.Now())
 
 	// Verify old problems are gone, new problems are present
 	data := engine.collectDetectedProblemsData()
@@ -292,7 +292,7 @@ func TestEngine_DetectedProblems_ThreadSafety(t *testing.T) {
 						},
 					},
 				}
-				engine.updateDetectedProblems(problems)
+				engine.problems.reconcile(problems, time.Now())
 				time.Sleep(time.Millisecond)
 			}
 		})

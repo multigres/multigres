@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -205,9 +206,8 @@ type Engine struct {
 	recoveryRunner    *timer.PeriodicRunner
 	leaderInfoRunner  *timer.PeriodicRunner
 
-	// Detected problems tracking (replaced each cycle)
-	detectedProblemsMu sync.Mutex
-	detectedProblems   []types.Problem // For metrics and gRPC diagnostics
+	// Problems currently detected, and since when. Reconciled once per cycle.
+	problems *problemTracker
 
 	// Metrics
 	metrics *Metrics
@@ -295,6 +295,8 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
+
+	engine.problems = newProblemTracker()
 
 	return engine
 }
@@ -418,11 +420,9 @@ func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 // This is called by the observable gauge callback. Converts types.Problem to
 // DetectedProblemData on-demand.
 func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
-
-	data := make([]DetectedProblemData, 0, len(re.detectedProblems))
-	for _, p := range re.detectedProblems {
+	active := re.problems.activeProblems()
+	data := make([]DetectedProblemData, 0, len(active))
+	for _, p := range active {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
 			ProblemCode:  string(p.Code),
@@ -455,25 +455,37 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 	return data
 }
 
-// updateDetectedProblems replaces the detected problems slice with current problems.
-// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
-// for simplicity.
-func (re *Engine) updateDetectedProblems(problems []types.Problem) {
-	re.detectedProblemsMu.Lock()
-	re.detectedProblems = problems
-	re.detectedProblemsMu.Unlock()
+// observeProblems reconciles the problem tracker with the problems detected this
+// cycle, then applies and logs the transitions. Call it once per cycle, after
+// every analyzer has run, with the full detected set.
+func (re *Engine) observeProblems(ctx context.Context, problems []types.Problem) {
+	transitions := re.problems.reconcile(problems, time.Now())
+	re.logProblemTransitions(ctx, transitions)
 }
 
-// GetDetectedProblems returns a snapshot of currently detected problems.
+// logProblemTransitions logs each problem once when it appears and once when it
+// clears, not on every cycle it persists.
+func (re *Engine) logProblemTransitions(ctx context.Context, transitions problemTransitions) {
+	for _, p := range transitions.appeared {
+		re.logger.InfoContext(ctx, "problem detected",
+			"problem_code", p.Code,
+			"entity_id", p.EntityID(),
+			"shard_key", commontypes.FormatShardKey(p.ShardKey),
+			"description", p.Description)
+	}
+	for _, c := range transitions.cleared {
+		re.logger.InfoContext(ctx, "problem cleared",
+			"problem_code", c.problem.Code,
+			"entity_id", c.problem.EntityID(),
+			"shard_key", commontypes.FormatShardKey(c.problem.ShardKey),
+			"duration", c.duration)
+	}
+}
+
+// GetDetectedProblems returns the currently detected problems.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetDetectedProblems() []types.Problem {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
-
-	// Return a copy to prevent external mutation
-	problems := make([]types.Problem, len(re.detectedProblems))
-	copy(problems, re.detectedProblems)
-	return problems
+	return re.problems.activeProblems()
 }
 
 // IsWatchingShard returns true if the engine is configured to watch the specified shard.

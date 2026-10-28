@@ -67,15 +67,17 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		}
 	}
 
-	// Update detected problems metric
-	re.updateDetectedProblems(problems)
+	span.SetAttributes(attribute.Int("problems.count", len(problems)))
+
+	// Record what appeared and cleared this cycle. This must run once per cycle,
+	// after all analyzers, with the full detected set.
+	re.observeProblems(ctx, problems)
 
 	if len(problems) == 0 {
 		return // no problems detected
 	}
 
-	span.SetAttributes(attribute.Int("problems.count", len(problems)))
-	re.logger.InfoContext(ctx, "problems detected", "count", len(problems))
+	re.logger.DebugContext(ctx, "problems detected", "count", len(problems))
 
 	// Group problems by shard
 	problemsByShard := re.groupProblemsByShard(problems)
@@ -132,7 +134,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
-			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
+			re.logger.DebugContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.ComponentIDString(problem.PoolerID),
 			)
