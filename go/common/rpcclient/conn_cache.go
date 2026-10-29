@@ -137,6 +137,12 @@ func (cc *ConnConfig) TransportCredentials(logger *slog.Logger) (grpc.DialOption
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
 
+// TLSConfigured reports whether TransportCredentials builds TLS credentials rather than
+// insecure ones: whether any of the client certificate, key and CA is set.
+func (cc *ConnConfig) TLSConfigured() bool {
+	return cc != nil && (cc.cert.Get() != "" || cc.key.Get() != "" || cc.ca.Get() != "")
+}
+
 // closeFunc allows a standalone function to implement io.Closer, similar to
 // how http.HandlerFunc allows standalone functions to implement http.Handler.
 type closeFunc func() error
