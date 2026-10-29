@@ -94,7 +94,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -129,7 +129,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -142,7 +142,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -189,7 +189,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -200,7 +200,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -219,7 +219,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaLagging, // Not yet supported
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -280,7 +280,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -298,7 +298,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -319,7 +319,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -403,7 +403,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -414,7 +414,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -433,7 +433,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -527,7 +527,7 @@ func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -538,7 +538,7 @@ func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 				Shard:      "0",
@@ -557,7 +557,7 @@ func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -711,7 +711,7 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	shardKey := &clustermetadatapb.ShardKey{
+	shardRef := &clustermetadatapb.ShardRef{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -719,14 +719,14 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       fixReplPrimaryID,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary.example.com",
 			PortMap:  map[string]int32{"postgres": 5432},
@@ -742,7 +742,7 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 
 	problem := types.Problem{
 		Code:     types.ProblemReplicaNotReplicating,
-		ShardKey: shardKey,
+		ShardRef: shardRef,
 		PoolerID: replicaID,
 	}
 
@@ -835,7 +835,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 	replica := &clustermetadatapb.Multipooler{
 		Id: replicaID,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -848,7 +848,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			Cell:      "cell1",
 			Name:      "primary",
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -880,7 +880,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",

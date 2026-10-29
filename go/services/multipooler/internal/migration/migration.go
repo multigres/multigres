@@ -217,18 +217,6 @@ func (m *Migration) PublicationName() string { return "mt_pub_" + strconv.Format
 // SubscriptionName is the subscription object name for a migration.
 func (m *Migration) SubscriptionName() string { return "mt_sub_" + strconv.FormatInt(m.ID, 10) }
 
-// CreateMigrationShardKeyTypeSQL defines the composite type mirroring
-// clustermetadata.ShardKey (database, table_group, shard) that
-// migration_target below is stored as, and multigres.stat_migration's own
-// migration_target column reuses verbatim. CREATE TYPE has no IF NOT EXISTS
-// clause, so this is only idempotent via the Store.EnsureSchema's own
-// existence check (ensureType) — never run this SQL directly.
-const CreateMigrationShardKeyTypeSQL = `CREATE TYPE multigres.shard_key AS (
-	database TEXT,
-	table_group TEXT,
-	shard TEXT
-)`
-
 // CreateMigrationSQL is the DDL for the sidecar migration table, idempotent so
 // it can run both at shard bootstrap and on first use against an
 // already-bootstrapped shard. Created through the admin pool with no PUBLIC
@@ -241,7 +229,7 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_name TEXT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	migration_phase TEXT NOT NULL,
-	migration_target multigres.shard_key NOT NULL,
+	migration_target multigres.shard_ref NOT NULL,
 	connection_id BIGINT NOT NULL REFERENCES multigres.migration_connection(connection_id),
 	sequence_margin BIGINT NOT NULL DEFAULT 0,
 	copy_data BOOLEAN NOT NULL DEFAULT true,

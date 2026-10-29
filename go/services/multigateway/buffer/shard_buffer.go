@@ -50,7 +50,7 @@ func (s bufferState) String() string {
 // State transitions: IDLE -> BUFFERING -> DRAINING -> IDLE
 type shardBuffer struct {
 	buf      *Buffer
-	shardKey *clustermetadatapb.ShardKey
+	shardRef *clustermetadatapb.ShardRef
 	logger   *slog.Logger
 
 	mu               sync.Mutex
@@ -62,10 +62,10 @@ type shardBuffer struct {
 	drainWg          sync.WaitGroup
 }
 
-func newShardBuffer(buf *Buffer, key *clustermetadatapb.ShardKey) *shardBuffer {
+func newShardBuffer(buf *Buffer, key *clustermetadatapb.ShardRef) *shardBuffer {
 	return &shardBuffer{
 		buf:      buf,
-		shardKey: key,
+		shardRef: key,
 		logger:   buf.logger.With("tablegroup", key.TableGroup, "shard", key.Shard),
 		state:    stateIdle,
 	}
@@ -79,7 +79,7 @@ func (sb *shardBuffer) waitIfAlreadyBuffering(ctx context.Context) (RetryDoneFun
 	switch sb.state {
 	case stateBuffering:
 		sb.mu.Unlock()
-		e, err := sb.buf.enqueue(sb.shardKey)
+		e, err := sb.buf.enqueue(sb.shardRef)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +125,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		gen := sb.generation
 		sb.lastStart = sb.buf.now()
 		sb.logger.InfoContext(ctx, "failover detected, starting buffering")
-		sb.buf.stats.recordFailover(ctx, string(commontypes.FormatShardKey(sb.shardKey)))
+		sb.buf.stats.recordFailover(ctx, string(commontypes.FormatShardRef(sb.shardRef)))
 
 		// Start max-duration timer. The generation is captured so that if
 		// the timer fires after this failover has already ended and a new
@@ -146,7 +146,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 	}
 
 	// Enqueue into the global queue.
-	e, err := sb.buf.enqueue(sb.shardKey)
+	e, err := sb.buf.enqueue(sb.shardRef)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 		// <-e.bufferCtx.Done(). If the entry was still in the queue,
 		// this is harmless (nobody is watching bufferCtx).
 		e.bufferCancel()
-		sb.buf.stats.recordEvicted(sb.buf.ctx, string(commontypes.FormatShardKey(sb.shardKey)), "context_canceled")
+		sb.buf.stats.recordEvicted(sb.buf.ctx, string(commontypes.FormatShardRef(sb.shardRef)), "context_canceled")
 		sb.buf.stats.recordWaitDuration(sb.buf.ctx, sb.buf.now().Sub(start).Seconds())
 		return nil, ctx.Err()
 	case <-e.done:
@@ -206,13 +206,13 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 	sb.logger.Info("stopping buffering, draining entries", "reason", reason)
 	sb.buf.stats.recordFailoverDuration(
 		sb.buf.ctx,
-		string(commontypes.FormatShardKey(sb.shardKey)),
+		string(commontypes.FormatShardRef(sb.shardRef)),
 		sb.lastEnd.Sub(sb.lastStart).Seconds(),
 	)
 	sb.mu.Unlock()
 
 	// Extract all entries for this shard from the global queue.
-	entries := sb.buf.drainEntriesForShard(sb.shardKey)
+	entries := sb.buf.drainEntriesForShard(sb.shardRef)
 	sb.logger.Info("draining entries", "count", len(entries))
 
 	if len(entries) == 0 {
@@ -256,7 +256,7 @@ func (sb *shardBuffer) drainEntry(e *entry) {
 	sb.buf.stats.addQueueDepth(sb.buf.ctx, -1)
 	// Signal the entry to retry by closing its done channel.
 	close(e.done)
-	sb.buf.stats.recordDrained(sb.buf.ctx, string(commontypes.FormatShardKey(sb.shardKey)))
+	sb.buf.stats.recordDrained(sb.buf.ctx, string(commontypes.FormatShardRef(sb.shardRef)))
 
 	// Wait for the retry to complete (caller invokes RetryDoneFunc which
 	// calls bufferCancel).

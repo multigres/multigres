@@ -17,7 +17,6 @@ package analysis
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -72,7 +71,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 
 	// Detect against proposals as well as decisions to ensure we surface a problem, but
 	// the action to resolve will defer taking action if a proposal is in progress.
-	intendedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
+	intendedRule := sa.HighestIntendedRule().PossiblyUndecidedRule()
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache
@@ -122,11 +121,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",
 					PoolerID:       id,
-					ShardKey:       sa.ShardKey,
+					ShardRef:       sa.ShardRef,
 					Description:    fmt.Sprintf("Cohort member %s self-reported INELIGIBLE", id.Name),
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler,
-					DetectedAt:     time.Now(),
+					DetectedAt:     sa.Now,
 					RecoveryAction: a.factory.NewReconcileCohortAction(),
 				})
 			}
@@ -142,11 +141,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 			Code:           types.ProblemPoolerNotInCohort,
 			CheckName:      "CohortMismatch",
 			PoolerID:       id,
-			ShardKey:       sa.ShardKey,
+			ShardRef:       sa.ShardRef,
 			Description:    fmt.Sprintf("Pooler %s is replicating and eligible but not in the cohort", id.Name),
 			Priority:       types.PriorityNormal,
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewReconcileCohortAction(),
 		})
 	}
@@ -196,11 +195,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 			Code:           types.ProblemCohortMemberIneligible,
 			CheckName:      "CohortMismatch",
 			PoolerID:       tombstoneRemove,
-			ShardKey:       sa.ShardKey,
+			ShardRef:       sa.ShardRef,
 			Description:    fmt.Sprintf("Cohort member %s is SHUTDOWN (cache tombstone); removing from cohort", tombstoneRemove.GetName()),
 			Priority:       types.PriorityNormal,
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewReconcileCohortAction(),
 		})
 	} else if missingRemove != nil {
@@ -208,11 +207,11 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, e
 			Code:           types.ProblemCohortMemberIneligible,
 			CheckName:      "CohortMismatch",
 			PoolerID:       missingRemove,
-			ShardKey:       sa.ShardKey,
+			ShardRef:       sa.ShardRef,
 			Description:    fmt.Sprintf("Cohort member %s is no longer tracked by the pooler cache; removing from cohort", missingRemove.GetName()),
 			Priority:       types.PriorityNormal,
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewReconcileCohortAction(),
 		})
 	}

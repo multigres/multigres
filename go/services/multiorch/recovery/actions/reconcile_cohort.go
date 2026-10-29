@@ -76,7 +76,7 @@ func NewReconcileCohortAction(
 	}
 }
 
-// Execute applies the cohort change on the shard leader. rechecked.HighestKnownRule
+// Execute applies the cohort change on the shard leader. rechecked.HighestIntendedRule
 // is the exact position the engine's recheck just re-verified this problem
 // against (recovery_loop.go's recheckProblem re-runs
 // CohortMismatchAnalyzer.Analyze against it). Because that analyzer only
@@ -89,9 +89,8 @@ func NewReconcileCohortAction(
 // one just proven safe.
 func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
-	rule := rechecked.HighestKnownRule
 	a.logger.InfoContext(ctx, "executing reconcile cohort action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", problem.ShardRef.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
@@ -106,9 +105,9 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
 	}
 
-	if rule == nil {
+	if rechecked.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus rule known for shard %s", problem.ShardKey)
+			"no consensus rule known for shard %s", problem.ShardRef)
 	}
 	// A cohort change is leader-led: it's meaningless to compute one from an
 	// outstanding, not-yet-decided proposal (no cohort is settled to add to
@@ -118,11 +117,11 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	// TODO: allow non-promotion rule changes to ride along with an
 	// outstanding proposal via propagation, instead of always waiting for
 	// decision.
-	if !commonconsensus.IsRuleDecided(rule) {
+	if !rechecked.HighestIntendedRule.IsDecided() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardKey)
+			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardRef)
 	}
-	decidedRule := rule.GetDecision()
+	decidedRule := rechecked.HighestIntendedRule.Decision()
 
 	// For ADD we need the pooler to be live in the cache (the cohort grows
 	// only if we have a healthy replica) and we use it afterward to clear the
@@ -151,9 +150,9 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 		return mterrors.Wrap(err, "failed to find leader named by consensus rule")
 	}
 
-	if !snapshot.LeaderWritesProgressing(leader.Health(), rule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
+	if !snapshot.LeaderWritesProgressing(leader.Health(), rechecked.HighestIntendedRule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
+			"leader for shard %s does not look able to commit writes right now", problem.ShardRef)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
@@ -166,7 +165,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{targetID},
-		ExpectedOutgoingRule: rule.GetDecision().GetRuleNumber(),
+		ExpectedOutgoingRule: decidedRule.GetRuleNumber(),
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {
@@ -213,16 +212,16 @@ func (a *ReconcileCohortAction) clearJoiningMemberArchive(ctx context.Context, l
 		return
 	}
 	// The leader's own rule store reflects the ADD synchronously (UpdateConsensusRule
-	// commits before returning), so HighestKnownRule here is the post-ADD rule.
-	postAddRule := commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()})
-	if postAddRule == nil {
+	// commits before returning), so its highest intended rule here is the post-ADD rule.
+	postAddRule := commonconsensus.NewRuleTransition(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()}))
+	if postAddRule.IsEmpty() {
 		a.logger.WarnContext(ctx, "reconcile cohort: leader reported no rule after ADD; relying on monitor backstop",
 			"target", target.Health().Multipooler.Id.Name)
 		return
 	}
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    postAddRule,
+			Position:    postAddRule.Position(),
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(statusResp.GetConsensusStatus()).GetRewindReady(),
 		},
@@ -247,8 +246,4 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
 }

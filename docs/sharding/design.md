@@ -169,8 +169,8 @@ message ColumnPart {
 ```
 
 `Shard.key_range` reuses the existing `clustermetadata.KeyRange`. Resolution
-produces `clustermetadata.ShardKey{database, table_group, shard}` — the
-identifier every `Multipooler` already advertises (`Multipooler.shard_key`) and
+produces `clustermetadata.ShardRef{database, table_group, shard}` — the
+identifier every `Multipooler` already advertises (`Multipooler.shard_ref`) and
 `query.Target` already carries — so a resolved target routes to poolers with no
 new wire types.
 

@@ -110,7 +110,7 @@ func (sc *ScatterConn) buildTarget(database, tableGroup, shard string, state *ha
 		mode = querypb.Mode_MODE_INCONSISTENT
 	}
 	return &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -1086,7 +1086,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 	defer span.End()
 
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
@@ -1168,7 +1168,7 @@ func (sc *ScatterConn) CopyOutStream(
 	defer span.End()
 
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
@@ -1251,7 +1251,7 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create target for routing - COPY always goes to PRIMARY
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
@@ -1345,7 +1345,7 @@ func (sc *ScatterConn) CopySendData(
 
 	// Create target for routing
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
@@ -1402,7 +1402,7 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Create target for routing
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
@@ -1475,7 +1475,7 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Create target for routing
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		ShardRef: &clustermetadatapb.ShardRef{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
 		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 

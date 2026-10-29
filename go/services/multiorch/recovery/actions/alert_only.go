@@ -50,9 +50,9 @@ func (a *AlertOnlyAction) Execute(ctx context.Context, rechecked types.Rechecked
 	problem := rechecked.Problem
 	a.logger.WarnContext(ctx, "non-actionable problem detected; human intervention required",
 		"problem_code", problem.Code,
-		"database", problem.ShardKey.GetDatabase(),
-		"tablegroup", problem.ShardKey.GetTableGroup(),
-		"shard", problem.ShardKey.GetShard(),
+		"database", problem.ShardRef.GetDatabase(),
+		"tablegroup", problem.ShardRef.GetTableGroup(),
+		"shard", problem.ShardRef.GetShard(),
 		"description", problem.Description,
 	)
 	return nil
@@ -69,9 +69,4 @@ func (a *AlertOnlyAction) Metadata() types.RecoveryMetadata {
 // RequiresHealthyLeader is false: alerting never touches the leader.
 func (a *AlertOnlyAction) RequiresHealthyLeader() bool {
 	return false
-}
-
-// GracePeriod is nil: there is nothing to defer for an alert.
-func (a *AlertOnlyAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
 }

@@ -120,7 +120,7 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 	}
 	return servingstate.RoutingState{
 		Role: servingstate.RoutingRoleReplica,
-		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
+		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
 }
 
@@ -192,7 +192,7 @@ func (ssm *StateManager) Unregister(component StateAware) {
 // sameFanout reports whether two states are equivalent for fan-out dedup. It
 // compares the full routing state (role + qualifying rule) and ServingStatus.
 // The rule is included because the health stream carries the full routing state
-// live: a replica's highest-known-rule bump should reach subscribers even with
+// live: a replica's highest-intended-rule bump should reach subscribers even with
 // the role unchanged (the gateway uses it to spot a stale routing primary). The
 // extra etcd churn this could cause is absorbed at the publish boundary —
 // routingStateForPublish drops a replica's routing_state, so successive replica
@@ -343,6 +343,27 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	return nil
 }
 
+// ForceMigrationHold synchronously drains this pooler to DRAINING for an
+// active migration IMPORT, blocking until in-flight writes finish, so
+// IMPORT setup can touch target tables without waiting for the monitor's
+// next tick. It only applies the hold; releasing it is left to the
+// monitor. Requires the action lock.
+func (ssm *StateManager) ForceMigrationHold(ctx context.Context) error {
+	return ssm.ReconcileMigrationHold(ctx, true)
+}
+
+// ReconcileMigrationHold synchronously applies or releases the migration
+// serving hold: hold=true drains to DRAINING for IMPORT, hold=false
+// restores SERVING for the EXPORT cutover. Used instead of waiting for the
+// monitor's tick so the EXPORT release is prompt enough for the gateway's
+// failover buffer to replay held queries in time. DISABLED is never
+// auto-reconciled. Requires the action lock.
+func (ssm *StateManager) ReconcileMigrationHold(ctx context.Context, hold bool) error {
+	return ssm.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, hold)
+	})
+}
+
 // hasDrift reports whether the effective state last fanned out to components is
 // stale relative to freshly-observed inputs — postgres recovery (pgMode)
 // and the live consensus snapshot, from which the routing role is derived, plus
@@ -353,10 +374,12 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // role from the same inputs, so a drift can never be detected but not corrected.
 //
 // DRAINING normally reports drift so reconciliation completes it to SERVING.
-// While divergence is suspected, DRAINING is the desired state and only role
-// drift is reconciled; this lets the monitor proceed to rewind on the next step
-// instead of repeatedly trying to serve the suspect node.
-func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) bool {
+// While a hold is active, from suspected divergence or an active IMPORT
+// migration, DRAINING is the desired state and only role drift is
+// reconciled. This lets the monitor proceed to rewind, or keeps the
+// migration target from serving a half-copied dataset until it switches
+// to EXPORT.
+func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence, migrationHold bool) bool {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	if ssm.lastFannedOut == nil {
@@ -364,7 +387,7 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) 
 	}
 	observed := servingstate.State{
 		Routing:       deriveRoutingState(pgMode, ssm.consensusStatus()),
-		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence),
+		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence || migrationHold),
 	}
 	// Compare with sameFanout (proto-aware), not raw struct equality: the routing
 	// state carries a *RuleNumber pointer that == would compare by identity, so a
@@ -372,24 +395,29 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence bool) 
 	return !sameFanout(*ssm.lastFannedOut, observed)
 }
 
-func reconciledServingStatus(status clustermetadatapb.PoolerServingStatus, suspectedDivergence bool) clustermetadatapb.PoolerServingStatus {
-	if suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_SERVING {
+// reconciledServingStatus applies a serving hold: a suspected divergence or
+// an active IMPORT migration on this shard. A hold forces SERVING to
+// DRAINING; releasing it completes a transient DRAINING back to SERVING.
+// DISABLED is sticky and never auto-reconciled here.
+func reconciledServingStatus(status clustermetadatapb.PoolerServingStatus, hold bool) clustermetadatapb.PoolerServingStatus {
+	if hold && status == clustermetadatapb.PoolerServingStatus_SERVING {
 		return clustermetadatapb.PoolerServingStatus_DRAINING
 	}
-	if !suspectedDivergence && status == clustermetadatapb.PoolerServingStatus_DRAINING {
+	if !hold && status == clustermetadatapb.PoolerServingStatus_DRAINING {
 		return clustermetadatapb.PoolerServingStatus_SERVING
 	}
 	return status
 }
 
 // fixDrift re-applies the effective state from a freshly-observed recovery flag
-// and live consensus snapshot. A divergence hold forces SERVING to DRAINING;
-// otherwise a transient DRAINING state completes to SERVING. DISABLED remains
-// unchanged. Requires the action lock (asserted by Mutate).
-func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspectedDivergence bool) error {
+// and live consensus snapshot. A hold, suspected divergence or an active
+// IMPORT migration on this shard, forces SERVING to DRAINING; with no hold a
+// transient DRAINING state completes to SERVING. DISABLED remains unchanged.
+// Requires the action lock (asserted by Mutate).
+func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspectedDivergence, migrationHold bool) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgMode
-		s.ServingStatus = reconciledServingStatus(s.ServingStatus, suspectedDivergence)
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, suspectedDivergence || migrationHold)
 	})
 }
 

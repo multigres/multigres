@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -36,19 +38,19 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// highestKnownRule returns the highest-numbered rule this pooler knows of,
+// highestIntendedRule returns the highest-numbered rule this pooler knows of,
 // combining the rule it has applied into its own position with the rule it was
 // most recently told to follow via SetPrimary/Promote (consensusPromises's
 // recorded ReplicationPrimary). A standby told of a newer leader before its own
 // position advances still reads the newer rule. Returns nil if neither source
 // carries a rule.
 //
-// "Known" is deliberately distinct from "committed": this ranks across both the
+// "Intended" is deliberately distinct from "committed": this ranks across both the
 // committed position and the replication primary, so it can name a leader whose
 // rule has not yet committed to local WAL.
 //
 // TODO: decisions that must be write-safe (e.g. admitting writes, advertising a
-// rewind source) need the committed rule, not the highest *known* rule — add a
+// rewind source) need the committed rule, not the highest *intended* rule — add a
 // highestCommittedRule companion that reads only the committed position's rule
 // so those callers don't act on not-yet-committed leadership.
 //
@@ -56,11 +58,11 @@ import (
 // (in-memory only — no postgres query, so this stays side-effect free for the
 // monitor's decision path; the cache is refreshed by discoverPostgresState's
 // ObservePosition earlier in the same iteration). Ranking is delegated to
-// commonconsensus.HighestKnownRule — the same method the orchestrator uses to
+// commonconsensus.HighestIntendedRule — the same method the orchestrator uses to
 // identify the shard leader — so the pooler and orch can never rank rules
 // differently.
-func (pm *MultipoolerManager) highestKnownPosition() *clustermetadatapb.RulePosition {
-	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
+func (pm *MultipoolerManager) highestIntendedRule() *clustermetadatapb.RulePosition {
+	return commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{
 		pm.consensusMgr.CachedConsensusStatus(),
 	})
 }
@@ -135,6 +137,12 @@ type postgresState struct {
 	// starting postgres on it, and to keep the unrecoverable classifier counting
 	// even when postgres appears "running" (the false-healthy waiting-for-WAL state).
 	rewindSentinelPresent bool
+	// restoreSentinelPresent is true when a restore sentinel is on disk, meaning a
+	// prior pgBackRest restore did not complete (see restore_sentinel.go). The
+	// data directory may be a partial restore that already contains PG_VERSION;
+	// the monitor uses the sentinel to force the restore path rather than starting
+	// postgres on it.
+	restoreSentinelPresent bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
 	// from. False on standbys and on a freshly promoted primary that has not yet
@@ -152,6 +160,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSentinelPresent == b.rewindSentinelPresent &&
+		a.restoreSentinelPresent == b.restoreSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
 
@@ -362,6 +371,13 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 		}
 		return postgresState{}, err
 	}
+
+	// Refresh the migration serving gate from the replicated multigres.migration
+	// table before the drift check reads it, so a shard still importing does not
+	// serve. Runs on primary and standbys; outside any lock. Uses the bounded
+	// discover context so the table read can't hang the tick.
+	pm.refreshMigrationHold(discoverCtx)
+
 	// Determine what remediation is needed
 	action := pm.determineRemedialAction(discoverCtx, currentState)
 	if action == remedialActionNone {
@@ -530,7 +546,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 			}
 		}
 		// Refresh the cached consensus position from postgres so this iteration's
-		// role decisions (highestKnownRule / SelfConsensusRole read the cache)
+		// role decisions (highestIntendedRule / SelfConsensusRole read the cache)
 		// converge on current state rather than lagging the periodic Status RPC that
 		// otherwise refreshes it. If the position can't be read — postgres or the
 		// multischema is unreadable (readCurrentRule errors when current_rule is
@@ -542,11 +558,23 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		}
 	}
 
-	// Check if backups are available (only if directory not initialized). A
-	// read failure here is unknown state, not "no backups" — surface it so the
-	// monitor skips this tick instead of bootstrapping a fresh stanza over a
-	// repository it cannot read (e.g. a cipher-key mismatch).
-	if !state.dirInitialized {
+	restoreSentinelPresent, err := pm.restoreSentinel().present()
+	if err != nil {
+		// An unreadable sentinel leaves the "was a restore interrupted?" question
+		// ambiguous, so skip the tick rather than risk starting postgres on a
+		// possibly partial restore.
+		return state, fmt.Errorf("check restore sentinel: %w", err)
+	}
+	state.restoreSentinelPresent = restoreSentinelPresent
+
+	// Check if backups are available: when the directory is not initialized, or
+	// when it holds an interrupted restore (restore sentinel present, postgres
+	// down), which takes the restore path too. A read failure here is unknown
+	// state, not "no backups" — surface it so the monitor skips this tick
+	// instead of bootstrapping a fresh stanza over a repository it cannot read
+	// (e.g. a cipher-key mismatch), or counting a restore that cannot reach the
+	// repository as a failed recovery attempt.
+	if !state.dirInitialized || (state.restoreSentinelPresent && !state.postgresRunning) {
 		available, err := pm.hasCompleteBackups(ctx)
 		if err != nil {
 			return state, fmt.Errorf("check for complete backups: %w", err)
@@ -554,7 +582,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		state.backupsAvailable = available
 	}
 
-	sentinelPresent, err := pm.hasBootstrapSentinel()
+	sentinelPresent, err := pm.bootstrapSentinel().present()
 	if err != nil {
 		// We can't tell whether a stale sentinel needs handling. Surface as an
 		// error so the monitor skips this tick; the operator should investigate.
@@ -562,7 +590,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	}
 	state.bootstrapSentinelPresent = sentinelPresent
 
-	rewindSentinelPresent, err := pm.hasRewindSentinel()
+	rewindSentinelPresent, err := pm.rewindSentinel().present()
 	if err != nil {
 		// Same reasoning as the bootstrap sentinel: an unreadable sentinel leaves
 		// the "was a rewind interrupted?" question ambiguous, so skip the tick
@@ -924,7 +952,7 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// committed rule landing after pg_promote, or a revocation) to the query
 	// server's write gate, and completes a transient DRAINING. hasDrift reads the
 	// consensus snapshot itself, so it and fixDrift derive from the same inputs.
-	if pm.stateManager.hasDrift(state.pgMode, pm.consensusMgr.SuspectedDivergence()) {
+	if pm.stateManager.hasDrift(state.pgMode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()) {
 		return remedialActionReconcileState
 	}
 
@@ -1050,7 +1078,7 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 	// role (determineRoleAction), then when the role needs no action
 	// reconcile the replication settings (determineReplicationSettingsAction).
 	if currentState.postgresRunning {
-		if pm.highestKnownPosition() == nil {
+		if pm.highestIntendedRule() == nil {
 			// No rule-bearing position observed yet; wait rather than act on the
 			// observed postgres state. This also defers DRAINING -> SERVING recovery:
 			// a node only re-enables serving once it knows its rule-derived role,
@@ -1252,6 +1280,13 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 	if state.bootstrapSentinelPresent {
 		return remedialActionCreateFirstBackup
 	}
+	// A sentinel from a prior restore attempt means the restore was interrupted
+	// and any on-disk pg_data is a partial restore that may already contain
+	// PG_VERSION, so it would look initialized. Force the restore path so
+	// restoreAndStartPostgres can remove it and restore again.
+	if state.restoreSentinelPresent {
+		return remedialActionRestoreFromBackup
+	}
 	// Postgres not running: start it (or restore/bootstrap below).
 	if state.dirInitialized {
 		return remedialActionStartPostgres
@@ -1317,7 +1352,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 		// Sync the physical standby role and re-enable reads only after the rewind
 		// path has cleared suspected divergence.
-		if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
@@ -1331,17 +1366,17 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode.String()) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		if err := pm.stateManager.fixDrift(ctx, state.pgMode, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		if err := pm.stateManager.fixDrift(ctx, state.pgMode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionResignLeadership:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		// The rule names us leader but postgres is running as a standby. Signal
-		// voluntary resignation at the highest-known rule's term so the coordinator
+		// voluntary resignation at the highest intended rule's term so the coordinator
 		// re-elects; this branch only fires when that rule names us, so the term is
 		// current. We do not self-promote.
-		highestPosition := pm.highestKnownPosition()
+		highestPosition := pm.highestIntendedRule()
 		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"position", commonconsensus.FormatRulePosition(highestPosition))
 		if commonconsensus.PossiblyUndecidedRule(highestPosition).GetRuleNumber().GetCoordinatorTerm() != 0 {
@@ -1659,7 +1694,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 			return fmt.Errorf("MonitorPostgres: failed to determine role after restart: %w", err)
 		}
 		if pm.stateManager != nil {
-			if err := pm.stateManager.fixDrift(ctx, mode, pm.consensusMgr.SuspectedDivergence()); err != nil {
+			if err := pm.stateManager.fixDrift(ctx, mode, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 				return fmt.Errorf("MonitorPostgres: failed to apply role after restart: %w", err)
 			}
 		}
@@ -1684,18 +1719,55 @@ func latestCompleteBackup(backups []*multipoolermanagerdatapb.BackupMetadata) *m
 // This is used by MonitorPostgres for auto-restore functionality.
 // Caller must hold the action lock.
 func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error {
+	// A restore sentinel means a prior restore was interrupted (e.g. the process
+	// was killed mid-restore), so any PGDATA is a partial restore that is removed
+	// below before restoring again. The sentinel itself stays until
+	// restoreFromBackupLocked completes a restore.
+	sentinelPresent, err := pm.restoreSentinel().present()
+	if err != nil {
+		return fmt.Errorf("failed to check restore sentinel: %w", err)
+	}
+
 	// Re-check status to ensure conditions haven't changed
 	// (e.g., another process may have initialized or started postgres while we waited for lock)
 	if pm.pgctldClient != nil {
 		statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
-		if err == nil {
-			// If directory is now initialized, skip restore
-			if statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-				return nil
+		switch {
+		case sentinelPresent:
+			// Like hasDataDirectory(), pgctld treats PG_VERSION as "initialized",
+			// and a partial restore can already contain it, so here "initialized"
+			// is no reason to skip the restore. Refuse when pgctld reports postgres
+			// running or its status can't be read, so the data directory is not
+			// removed under a postgres that something outside pgctld started
+			// (pgctld itself refuses to while the sentinel is present). The
+			// postmaster.pid check below covers one that is still starting up.
+			if err != nil {
+				return fmt.Errorf("failed to check postgres status before removing partial data directory: %w", err)
 			}
+			if statusResp.Status == pgctldpb.ServerStatus_RUNNING {
+				return errors.New("postgres is running on the data directory of an interrupted restore; refusing to remove it")
+			}
+		case err == nil && statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED:
+			// If directory is now initialized, skip restore
+			pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return nil
 		}
-		// If status check fails, continue with restore attempt
+		// Without a sentinel, if status check fails, continue with restore attempt
+	}
+
+	// pgctld also reports STOPPED for a postmaster that is still starting up, so
+	// the check above can't rule one out. pgBackRest never restores
+	// postmaster.pid, so finding it in the data directory of an interrupted
+	// restore means postgres was started on it.
+	if sentinelPresent {
+		pidFile := filepath.Join(postgresDataDir(), constants.PostmasterPIDFile)
+		_, statErr := os.Stat(pidFile)
+		switch {
+		case statErr == nil:
+			return fmt.Errorf("%s exists in the data directory of an interrupted restore; refusing to remove it", pidFile)
+		case !os.IsNotExist(statErr):
+			return fmt.Errorf("failed to check for %s: %w", pidFile, statErr)
+		}
 	}
 
 	// Get the latest complete backup. ListBackups returns backups
@@ -1708,6 +1780,16 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	latestBackup := latestCompleteBackup(backups)
 	if latestBackup == nil {
 		return errors.New("no complete backups available")
+	}
+
+	// Remove the partial data directory only now that there is a backup to
+	// restore from. If the backup repository is unreachable, the node keeps both
+	// its data directory and the sentinel, and the next attempt tries again.
+	if sentinelPresent {
+		pm.logger.WarnContext(ctx, "MonitorPostgres: restore sentinel from an interrupted restore detected; removing partial data directory before retry") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		if err := pm.removeDataDirectory(); err != nil {
+			return fmt.Errorf("failed to remove partial data directory from interrupted restore: %w", err)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup", //nolint:sloglint // message intentionally starts with an operation name or proper noun

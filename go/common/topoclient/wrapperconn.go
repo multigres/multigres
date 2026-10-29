@@ -36,7 +36,13 @@ type WrapperConn struct {
 	wrapped  Conn
 	retrying bool
 	closed   bool
+
+	// recoveries is the stable channel behind Recoveries. It outlives the
+	// connections the wrapper swaps in and out, and is closed by Close.
+	recoveries chan struct{}
 }
+
+var _ ConnRecovery = (*WrapperConn)(nil)
 
 // NewWrapperConn creates a new connection wrapper that uses newFunc to establish connections.
 // If the initial connection attempt fails, it starts automatic retry logic in a goroutine.
@@ -44,16 +50,42 @@ func NewWrapperConn(newFunc func() (Conn, error), alarm func(string)) *WrapperCo
 	if alarm == nil {
 		alarm = func(string) {}
 	}
-	c := &WrapperConn{newFunc: newFunc, alarm: alarm}
+	c := &WrapperConn{newFunc: newFunc, alarm: alarm, recoveries: make(chan struct{}, 1)}
 
 	conn, err := newFunc()
 	if err != nil {
 		c.handleConnectionError(nil, err)
 	} else {
 		c.wrapped = conn
+		c.forwardRecoveries(conn)
 	}
 
 	return c
+}
+
+// Recoveries is part of the ConnRecovery interface. It fires when the wrapped
+// connection reports a regained link, and when the wrapper itself replaces a
+// failed connection with a new one.
+func (c *WrapperConn) Recoveries() <-chan struct{} {
+	return c.recoveries
+}
+
+// forwardRecoveries relays the recoveries of conn, if it reports any, to the
+// wrapper's channel until conn closes.
+func (c *WrapperConn) forwardRecoveries(conn Conn) {
+	rc, ok := conn.(ConnRecovery)
+	if !ok {
+		return
+	}
+	go func() {
+		for range rc.Recoveries() {
+			c.mu.Lock()
+			if !c.closed {
+				notifyRecovery(c.recoveries)
+			}
+			c.mu.Unlock()
+		}
+	}()
 }
 
 // handleConnectionError examines the error and triggers reconnection for retriable errors.
@@ -162,6 +194,8 @@ func (c *WrapperConn) retryConnection(reason ConnectionFailureReason, err error)
 				return false
 			}
 			c.wrapped = conn
+			c.forwardRecoveries(conn)
+			notifyRecovery(c.recoveries)
 			return false
 		}()
 		if !mustContinue {
@@ -426,7 +460,10 @@ func (c *WrapperConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.closed = true
+	if !c.closed {
+		c.closed = true
+		close(c.recoveries)
+	}
 	if c.wrapped != nil {
 		err := c.wrapped.Close()
 		c.wrapped = nil

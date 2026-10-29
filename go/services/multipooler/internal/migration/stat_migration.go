@@ -14,13 +14,6 @@
 
 package migration
 
-import (
-	"context"
-	"fmt"
-
-	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
-)
-
 // multigres.stat_migration is a real Postgres view exposing migration status —
 // identity, target, phase/direction, copy/stream progress, and replication lag
 // — without the source credential multigres.migration carries, so it is safe
@@ -28,14 +21,15 @@ import (
 // through the gateway's gRPC path.
 //
 // migration_target is stored as a genuine structured composite
-// (clustermetadata.ShardKey), so this view passes it through unchanged.
+// (multigres.shard_ref, mirroring clustermetadata.ShardRef), so this view
+// passes it through unchanged.
 // migration_phase/active_direction stay plain text rather than native Postgres
 // ENUMs: enums have real friction for an evolving value set (can't remove or
 // reorder a value without drop+recreate), and this vocabulary has already been
 // revised multiple times during this design.
 
 // CreateStatMigrationViewSQL defines multigres.stat_migration. CREATE OR
-// REPLACE VIEW is itself idempotent; shard_key, which migration_target is
+// REPLACE VIEW is itself idempotent; shard_ref, which migration_target is
 // stored as, is not and must exist before multigres.migration itself does.
 //
 // total_relations/ready_relations and lag_bytes/lag_seconds are both read from
@@ -86,24 +80,3 @@ GROUP BY m.migration_id, m.migration_name, c.name, m.migration_target,
 // own serving connection and any operator to query directly. GRANT is
 // idempotent on its own.
 const GrantStatMigrationSQL = `GRANT SELECT ON multigres.stat_migration TO PUBLIC`
-
-// ensureType creates a type in the multigres schema if it does not already
-// exist. Unlike CREATE TABLE/INDEX/VIEW, CREATE TYPE has no IF NOT EXISTS
-// clause, so EnsureSchema (idempotent, run on every coordinator start) must
-// check pg_type itself rather than rely on the statement being naturally
-// idempotent.
-func ensureType(ctx context.Context, qs executor.InternalQueryService, typeName, createSQL string) error {
-	res, err := qs.QueryAdminArgs(ctx,
-		`SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-		 WHERE n.nspname = 'multigres' AND t.typname = $1`, typeName)
-	if err != nil {
-		return fmt.Errorf("check type %q exists: %w", typeName, err)
-	}
-	if res != nil && len(res.Rows) > 0 {
-		return nil
-	}
-	if _, err := qs.QueryAdmin(ctx, createSQL); err != nil {
-		return fmt.Errorf("create type %q: %w", typeName, err)
-	}
-	return nil
-}

@@ -85,7 +85,7 @@ func seedPooler(t *testing.T, poolerStore *store.PoolerCache, poolerID *clusterm
 	return store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadata.Multipooler{
 			Id: poolerID,
-			ShardKey: &clustermetadata.ShardKey{
+			ShardRef: &clustermetadata.ShardRef{
 				Database:   "mydb",
 				TableGroup: "tg1",
 				Shard:      "0",
@@ -159,7 +159,6 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 
 	updated, _ := poolerStore.GetRider(key)
 	require.NotNil(t, updated.Health().LastSeen)
-	require.NotNil(t, updated.Health().LastCheckSuccessful)
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType())
 	require.NotNil(t, updated.Health().GetStatus().GetPrimaryStatus())
 	require.Equal(t, "0/123ABC", updated.Health().GetStatus().GetPrimaryStatus().GetLsn())
@@ -291,7 +290,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	key := topoclient.ComponentIDString(poolerID)
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadata.Multipooler{
-			Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
+			Id: poolerID, ShardRef: &clustermetadata.ShardRef{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 			Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host1",
 			PortMap: map[string]int32{"grpc": 5432},
 		},
@@ -475,7 +474,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
 		store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadata.Multipooler{
-				Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
+				Id: poolerID, ShardRef: &clustermetadata.ShardRef{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 				Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host2",
 				PortMap: map[string]int32{"grpc": 5432},
 			},

@@ -17,7 +17,6 @@ package analysis
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
@@ -83,11 +82,11 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *snapshot.Shard) ([]types.
 	return []types.Problem{{
 		Code:           types.ProblemShardNeedsInitialization,
 		CheckName:      "ShardNeedsInitialization",
-		ShardKey:       sa.ShardKey,
-		Description:    fmt.Sprintf("Shard %s needs initialization", sa.ShardKey),
+		ShardRef:       sa.ShardRef,
+		Description:    fmt.Sprintf("Shard %s needs initialization", sa.ShardRef),
 		Priority:       types.PriorityShardBootstrap,
 		Scope:          types.ScopeShard,
-		DetectedAt:     time.Now(),
+		DetectedAt:     sa.Now,
 		RecoveryAction: a.factory.NewShardInitAction(),
 	}}, nil
 }

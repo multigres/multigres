@@ -83,7 +83,7 @@ func pool(cell, name, db, tg, shard string, lifecycle clustermetadatapb.PoolerLi
 			Cell:      cell,
 			Name:      name,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   db,
 			TableGroup: tg,
 			Shard:      shard,
@@ -491,7 +491,7 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
 		Filter: func(p *clustermetadatapb.Multipooler) bool {
-			return p.GetShardKey().GetDatabase() == "mydb"
+			return p.GetShardRef().GetDatabase() == "mydb"
 		},
 		ShutdownGrace:      time.Hour,
 		MissingGracePeriod: time.Hour,
@@ -781,7 +781,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	// must be visible via Get / GetRider / All / CellStatuses.
 	p1 := &clustermetadatapb.Multipooler{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: "p1.local",
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, p1))
@@ -809,7 +809,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
 	p2 := &clustermetadatapb.Multipooler{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone2", Name: "p2"},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: "p2.local",
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, p2))

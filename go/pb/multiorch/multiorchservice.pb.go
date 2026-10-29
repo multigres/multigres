@@ -40,7 +40,7 @@ const (
 type ShardStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to get status for
-	ShardKey      *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef      *clustermetadata.ShardRef `protobuf:"bytes,1,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,9 +75,9 @@ func (*ShardStatusRequest) Descriptor() ([]byte, []int) {
 	return file_multiorchservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ShardStatusRequest) GetShardKey() *clustermetadata.ShardKey {
+func (x *ShardStatusRequest) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -141,7 +141,7 @@ type DetectedProblem struct {
 	Code          string                    `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                            // e.g., "PrimaryIsDead"
 	CheckName     string                    `protobuf:"bytes,2,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"` // Analyzer name
 	PoolerId      *clustermetadata.ID       `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`    // Affected pooler
-	ShardKey      *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef      *clustermetadata.ShardRef `protobuf:"bytes,4,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	Description   string                    `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	Priority      int32                     `protobuf:"varint,6,opt,name=priority,proto3" json:"priority,omitempty"`
 	Scope         string                    `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"` // "Shard" or "Pooler"
@@ -201,9 +201,9 @@ func (x *DetectedProblem) GetPoolerId() *clustermetadata.ID {
 	return nil
 }
 
-func (x *DetectedProblem) GetShardKey() *clustermetadata.ShardKey {
+func (x *DetectedProblem) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -691,7 +691,7 @@ func (x *TriggerRecoveryNowResponse) GetRemainingProblemCodes() []string {
 type ApplyCertifiedRuleChangeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to apply the rule change to.
-	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef *clustermetadata.ShardRef `protobuf:"bytes,1,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	// The transition to install. proposal's fields must all be populated,
 	// including rule_number, coordinator_id, and creation_time.
 	// proposal.rule_number.coordinator_term must equal
@@ -751,9 +751,9 @@ func (*ApplyCertifiedRuleChangeRequest) Descriptor() ([]byte, []int) {
 	return file_multiorchservice_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKey {
+func (x *ApplyCertifiedRuleChangeRequest) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -821,7 +821,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"\x16multiorchservice.proto\x12\tmultiorch\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n" +
 	"\x12ShardStatusRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\"\x8d\x01\n" +
+	"\tshard_ref\x18\x01 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\"\x8d\x01\n" +
 	"\x13ShardStatusResponse\x126\n" +
 	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12>\n" +
 	"\x0epooler_healths\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\rpoolerHealths\"\xbf\x02\n" +
@@ -830,7 +830,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"check_name\x18\x02 \x01(\tR\tcheckName\x120\n" +
 	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x126\n" +
-	"\tshard_key\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12 \n" +
+	"\tshard_ref\x18\x04 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1a\n" +
 	"\bpriority\x18\x06 \x01(\x05R\bpriority\x12\x14\n" +
 	"\x05scope\x18\a \x01(\tR\x05scope\x12;\n" +
@@ -861,7 +861,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
 	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\x85\x02\n" +
 	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12N\n" +
+	"\tshard_ref\x18\x01 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x12N\n" +
 	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12B\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\x04cert\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\"\"\n" +
@@ -902,22 +902,22 @@ var file_multiorchservice_proto_goTypes = []any{
 	(*TriggerRecoveryNowResponse)(nil),                    // 11: multiorch.TriggerRecoveryNowResponse
 	(*ApplyCertifiedRuleChangeRequest)(nil),               // 12: multiorch.ApplyCertifiedRuleChangeRequest
 	(*ApplyCertifiedRuleChangeResponse)(nil),              // 13: multiorch.ApplyCertifiedRuleChangeResponse
-	(*clustermetadata.ShardKey)(nil),                      // 14: clustermetadata.ShardKey
+	(*clustermetadata.ShardRef)(nil),                      // 14: clustermetadata.ShardRef
 	(*clustermetadata.ID)(nil),                            // 15: clustermetadata.ID
 	(*timestamppb.Timestamp)(nil),                         // 16: google.protobuf.Timestamp
 	(*clustermetadata.RulePosition)(nil),                  // 17: clustermetadata.RulePosition
 	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 18: clustermetadata.ExternallyCertifiedRevocation
 }
 var file_multiorchservice_proto_depIdxs = []int32{
-	14, // 0: multiorch.ShardStatusRequest.shard_key:type_name -> clustermetadata.ShardKey
+	14, // 0: multiorch.ShardStatusRequest.shard_ref:type_name -> clustermetadata.ShardRef
 	2,  // 1: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
 	3,  // 2: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
 	15, // 3: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	14, // 4: multiorch.DetectedProblem.shard_key:type_name -> clustermetadata.ShardKey
+	14, // 4: multiorch.DetectedProblem.shard_ref:type_name -> clustermetadata.ShardRef
 	16, // 5: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
 	15, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
 	16, // 7: multiorch.PoolerHealth.last_seen:type_name -> google.protobuf.Timestamp
-	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
+	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_ref:type_name -> clustermetadata.ShardRef
 	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
 	18, // 10: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	0,  // 11: multiorch.MultiorchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest

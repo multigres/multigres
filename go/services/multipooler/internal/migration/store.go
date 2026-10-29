@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
 )
 
 // ErrNotFound is returned by Store.Get when no migration with the given id
@@ -62,12 +63,15 @@ func NewStore(qs executor.InternalQueryService) *Store {
 // EnsureSchema creates the migration tables if they do not already exist. It is
 // idempotent and safe to call on every coordinator start, covering shards
 // bootstrapped before the tables were added to createSidecarSchema.
-// shard_key is created first: migration.migration_target and
-// stat_migration.migration_target both store/cast into it. migration_connection
+// The shared multigres.shard_ref type (see package shardref) is ensured first:
+// migration.migration_target and stat_migration.migration_target both
+// store/cast into it. Every shard also ensures it with its sidecar schema, but
+// the store ensures it itself so it never depends on that ordering.
+// migration_connection
 // is created next: migration.connection_id carries a foreign key into it.
 // migration_tables is created after migration (it references it).
 func (s *Store) EnsureSchema(ctx context.Context) error {
-	if err := ensureType(ctx, s.qs, "shard_key", CreateMigrationShardKeyTypeSQL); err != nil {
+	if _, err := shardref.Ensure(ctx, s.qs); err != nil {
 		return fmt.Errorf("ensure migration schema: %w", err)
 	}
 	sqlList := []string{
@@ -90,7 +94,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 }
 
 // insertMigrationSQL's args $5-$7 are (TargetDatabase, TargetShard,
-// TargetTableGroup) in Insert's own call order, but shard_key's declared
+// TargetTableGroup) in Insert's own call order, but shard_ref's declared
 // field order is (database, table_group, shard) — ROW($5,$7,$6) maps $7
 // (TargetTableGroup) into the table_group slot and $6 (TargetShard) into the
 // shard slot, matching the type correctly despite the Go args and the
@@ -98,7 +102,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 const insertMigrationSQL = `INSERT INTO multigres.migration
 	(migration_id, migration_phase, migration_name, connection_id, migration_target,
 	 sequence_margin, copy_data, skip_schema_copy, direction)
-	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_key,$8,$9,$10,$11)`
+	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_ref,$8,$9,$10,$11)`
 
 // Insert writes a new migration row and its table list atomically. created_at
 // defaults to now(); streaming_since starts NULL.

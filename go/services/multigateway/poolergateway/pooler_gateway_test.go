@@ -226,7 +226,7 @@ func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
 		}
 		probeCtx, cancel := context.WithCancel(requestCtx)
 		cancel()
-		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardKey())
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardRef())
 		if errors.Is(err, context.Canceled) {
 			break
 		}
@@ -258,13 +258,13 @@ func TestPoolerGateway_TopologyUpdateDoesNotDrainStaleHealth(t *testing.T) {
 	}
 	result := make(chan waitResult, 1)
 	go func() {
-		retryDone, err := failoverBuffer.WaitForFailoverEnd(t.Context(), oldPrimary.GetShardKey())
+		retryDone, err := failoverBuffer.WaitForFailoverEnd(t.Context(), oldPrimary.GetShardRef())
 		result <- waitResult{retryDone: retryDone, err: err}
 	}()
 	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		_, err := failoverBuffer.WaitIfAlreadyBuffering(ctx, oldPrimary.GetShardKey())
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(ctx, oldPrimary.GetShardRef())
 		return errors.Is(err, context.Canceled)
 	}, time.Second, time.Millisecond)
 

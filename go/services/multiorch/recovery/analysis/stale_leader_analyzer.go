@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -60,7 +59,12 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// Any reachable pooler whose own consensus status says it believes itself the
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
-	leaderID := sa.IntendedLeaderID()
+	//
+	// Demoting the others is safe even if the named leader has not been promoted
+	// yet. A newer rule, even one only proposed, exists only after its coordinator
+	// recruited (and so revoked) enough of the previous cohort that earlier leaders
+	// can no longer commit.
+	leaderID := sa.HighestIntendedRule().IntendedLeaderID()
 	if leaderID == nil {
 		return nil, nil
 	}
@@ -86,8 +90,6 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	// priority.
 	slices.SortFunc(staleLeaders, compareLeaderTimeline)
 
-	leaderPosition := commonconsensus.FormatRulePosition(sa.HighestIntendedRule())
-
 	// Assign descending priorities so the most-stale leader (sorted first)
 	// gets PriorityHigh, the next gets PriorityHigh-1, etc.
 	problems := make([]types.Problem, 0, len(staleLeaders))
@@ -96,15 +98,15 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 			Code:      types.ProblemStaleLeader,
 			CheckName: "StaleLeader",
 			PoolerID:  poolerID(stale),
-			ShardKey:  sa.ShardKey,
+			ShardRef:  sa.ShardRef,
 			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_position %s) is stale, current leader %s (leader_position %s)",
 				poolerID(stale).Name,
 				commonconsensus.FormatRulePosition(stale.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
-				leaderPosition),
+				sa.HighestIntendedRule().String()),
 			Priority:       types.PriorityHigh - types.Priority(i),
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewDemoteStaleLeaderAction(),
 		})
 	}

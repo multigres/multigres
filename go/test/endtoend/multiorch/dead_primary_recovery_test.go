@@ -346,7 +346,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			leaderName := commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule(
+			leaderName := commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule(
 				[]*clustermetadatapb.ConsensusStatus{status.ConsensusStatus},
 			)).GetLeaderId().GetName()
 			if leaderName != finalPrimary.Name {
@@ -898,7 +898,7 @@ func TestPoolerDownEventuallyFailsOver(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		resp, err := orchClient.GetShardStatus(utils.WithShortDeadline(t), &multiorchpb.ShardStatusRequest{
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "postgres",
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,

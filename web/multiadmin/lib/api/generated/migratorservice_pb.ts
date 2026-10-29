@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { ShardKey } from "./clustermetadata_pb";
+import { ShardRef } from "./clustermetadata_pb";
 
 /**
  * MigrationPhase is the lifecycle phase of a migration workflow.
@@ -383,15 +383,15 @@ export class MigrationRecord extends Message<MigrationRecord> {
 
   /**
    * target identifies the destination shard (database, table_group, shard).
-   * Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+   * Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
    * same across the topology and routing layers (see query.Target, which
    * reuses it for the same reason) — a database can have multiple
    * tablegroups, each with its own shard namespace, so database+shard alone
    * do not uniquely identify a shard.
    *
-   * @generated from field: clustermetadata.ShardKey target = 4;
+   * @generated from field: clustermetadata.ShardRef target = 4;
    */
-  target?: ShardKey;
+  target?: ShardRef;
 
   /**
    * @generated from field: migrator.SelectionObject objects = 6;
@@ -417,7 +417,7 @@ export class MigrationRecord extends Message<MigrationRecord> {
     { no: 1, name: "id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "connection_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "target", kind: "message", T: ShardKey },
+    { no: 4, name: "target", kind: "message", T: ShardRef },
     { no: 6, name: "objects", kind: "message", T: SelectionObject },
     { no: 7, name: "sequence_margin", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
@@ -527,6 +527,15 @@ export class MigrationStatus extends Message<MigrationStatus> {
    */
   lagSeconds = 0;
 
+  /**
+   * reverse_link_error is set when the EXPORT reverse link is degraded; the
+   * migration is still EXPORTING but needs a reseed to restore the reverse
+   * subscription.
+   *
+   * @generated from field: string reverse_link_error = 14;
+   */
+  reverseLinkError = "";
+
   constructor(data?: PartialMessage<MigrationStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -548,6 +557,7 @@ export class MigrationStatus extends Message<MigrationStatus> {
     { no: 11, name: "streaming_since", kind: "message", T: Timestamp },
     { no: 12, name: "lag_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
     { no: 13, name: "lag_seconds", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 14, name: "reverse_link_error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MigrationStatus {
@@ -853,6 +863,22 @@ export class CreateMigrationRequest extends Message<CreateMigrationRequest> {
    */
   quiesceRoles: string[] = [];
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path (CREATE
+   * MIGRATION): it gates a connection-ownership check against the named
+   * connection's stored Connection.owner_role, so a caller who merely has
+   * database CREATE + pg_create_subscription (enough to pass the gateway's
+   * CanCreateMigration gate) cannot name a connection it does not own and
+   * use its credentials to pull another operator's source data into a table
+   * the caller does own. Left empty on the CLI/multiadmin path, which has no
+   * SQL-authenticated identity to set it from; the check is skipped in that
+   * case, unchanged from before this field existed.
+   *
+   * @generated from field: string caller_role = 10;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<CreateMigrationRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -864,6 +890,7 @@ export class CreateMigrationRequest extends Message<CreateMigrationRequest> {
     { no: 1, name: "migration", kind: "message", T: MigrationRecord },
     { no: 2, name: "options", kind: "message", T: MigrationOptions },
     { no: 9, name: "quiesce_roles", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 10, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateMigrationRequest {
@@ -1305,6 +1332,21 @@ export class DropMigrationRequest extends Message<DropMigrationRequest> {
    */
   force = false;
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path (DROP
+   * MIGRATION): it gates an ownership check against the migration's stored
+   * Migration.owner_role, so a caller who merely has database CREATE +
+   * pg_create_subscription (enough to pass the gateway's CanCreateMigration
+   * gate) cannot name another operator's migration and abort it. Left empty
+   * on the CLI/multiadmin path, which has no SQL-authenticated identity to
+   * set it from; the check is skipped in that case, unchanged from before
+   * this field existed.
+   *
+   * @generated from field: string caller_role = 5;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<DropMigrationRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1317,6 +1359,7 @@ export class DropMigrationRequest extends Message<DropMigrationRequest> {
     { no: 2, name: "wait", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 3, name: "wait_timeout_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 4, name: "force", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 5, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DropMigrationRequest {
@@ -1419,6 +1462,20 @@ export class Connection extends Message<Connection> {
    */
   createdAt?: Timestamp;
 
+  /**
+   * owner_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client was connected as when this connection was created; set by the
+   * server from CreateConnectionRequest.caller_role, never from a
+   * client-supplied value on this message, so a caller cannot forge
+   * ownership of a connection it did not create. Empty for a connection
+   * created through the CLI/multiadmin path. See
+   * CreateMigrationRequest.caller_role's doc comment for the check this
+   * backs.
+   *
+   * @generated from field: string owner_role = 5;
+   */
+  ownerRole = "";
+
   constructor(data?: PartialMessage<Connection>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1431,6 +1488,7 @@ export class Connection extends Message<Connection> {
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "dsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "created_at", kind: "message", T: Timestamp },
+    { no: 5, name: "owner_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Connection {
@@ -1511,6 +1569,20 @@ export class CreateConnectionRequest extends Message<CreateConnectionRequest> {
    */
   connection?: Connection;
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path (CREATE
+   * CONNECTION); stamped onto the stored Connection.owner_role, which later
+   * gates CreateMigrationRequest.caller_role's ownership check. Left empty on
+   * the CLI/multiadmin path, which has no SQL-authenticated identity to set
+   * it from — the connection is then created with no owner, and the
+   * ownership check is skipped for every migration that later uses it,
+   * unchanged from before this field existed.
+   *
+   * @generated from field: string caller_role = 2;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<CreateConnectionRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1520,6 +1592,7 @@ export class CreateConnectionRequest extends Message<CreateConnectionRequest> {
   static readonly typeName = "migrator.CreateConnectionRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "connection", kind: "message", T: Connection },
+    { no: 2, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateConnectionRequest {

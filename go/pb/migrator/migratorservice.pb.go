@@ -452,12 +452,12 @@ type MigrationRecord struct {
 	// effect on the migration's very next action, not just at create time.
 	ConnectionName string `protobuf:"bytes,3,opt,name=connection_name,json=connectionName,proto3" json:"connection_name,omitempty"`
 	// target identifies the destination shard (database, table_group, shard).
-	// Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+	// Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
 	// same across the topology and routing layers (see query.Target, which
 	// reuses it for the same reason) — a database can have multiple
 	// tablegroups, each with its own shard namespace, so database+shard alone
 	// do not uniquely identify a shard.
-	Target  *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	Target  *clustermetadata.ShardRef `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
 	Objects *SelectionObject          `protobuf:"bytes,6,opt,name=objects,proto3" json:"objects,omitempty"`
 	// sequence_margin is added past each sequence's max at a direction switch.
 	// Set at create time; not currently changeable afterward.
@@ -517,7 +517,7 @@ func (x *MigrationRecord) GetConnectionName() string {
 	return ""
 }
 
-func (x *MigrationRecord) GetTarget() *clustermetadata.ShardKey {
+func (x *MigrationRecord) GetTarget() *clustermetadata.ShardRef {
 	if x != nil {
 		return x.Target
 	}
@@ -564,10 +564,14 @@ type MigrationStatus struct {
 	// walsender's replay_lag. Both are 0 when the migration is not streaming or the
 	// lag cannot be read. lag_bytes is the same measure
 	// SetMigrationDirectionRequest.max_lag_bytes gates on.
-	LagBytes      uint64  `protobuf:"varint,12,opt,name=lag_bytes,json=lagBytes,proto3" json:"lag_bytes,omitempty"`
-	LagSeconds    float64 `protobuf:"fixed64,13,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LagBytes   uint64  `protobuf:"varint,12,opt,name=lag_bytes,json=lagBytes,proto3" json:"lag_bytes,omitempty"`
+	LagSeconds float64 `protobuf:"fixed64,13,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
+	// reverse_link_error is set when the EXPORT reverse link is degraded; the
+	// migration is still EXPORTING but needs a reseed to restore the reverse
+	// subscription.
+	ReverseLinkError string `protobuf:"bytes,14,opt,name=reverse_link_error,json=reverseLinkError,proto3" json:"reverse_link_error,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *MigrationStatus) Reset() {
@@ -689,6 +693,13 @@ func (x *MigrationStatus) GetLagSeconds() float64 {
 		return x.LagSeconds
 	}
 	return 0
+}
+
+func (x *MigrationStatus) GetReverseLinkError() string {
+	if x != nil {
+		return x.ReverseLinkError
+	}
+	return ""
 }
 
 type MigrationOptions struct {
@@ -999,7 +1010,18 @@ type CreateMigrationRequest struct {
 	// otherwise diverge. Each role must exist on the source and must not be the DSN's
 	// own role (validated at create time). Empty leaves the terminate + read-only
 	// barrier as the only guard.
-	QuiesceRoles  []string `protobuf:"bytes,9,rep,name=quiesce_roles,json=quiesceRoles,proto3" json:"quiesce_roles,omitempty"`
+	QuiesceRoles []string `protobuf:"bytes,9,rep,name=quiesce_roles,json=quiesceRoles,proto3" json:"quiesce_roles,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (CREATE
+	// MIGRATION): it gates a connection-ownership check against the named
+	// connection's stored Connection.owner_role, so a caller who merely has
+	// database CREATE + pg_create_subscription (enough to pass the gateway's
+	// CanCreateMigration gate) cannot name a connection it does not own and
+	// use its credentials to pull another operator's source data into a table
+	// the caller does own. Left empty on the CLI/multiadmin path, which has no
+	// SQL-authenticated identity to set it from; the check is skipped in that
+	// case, unchanged from before this field existed.
+	CallerRole    string `protobuf:"bytes,10,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1053,6 +1075,13 @@ func (x *CreateMigrationRequest) GetQuiesceRoles() []string {
 		return x.QuiesceRoles
 	}
 	return nil
+}
+
+func (x *CreateMigrationRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type CreateMigrationResponse struct {
@@ -1540,7 +1569,17 @@ type DropMigrationRequest struct {
 	// wait_timeout_seconds bounds wait (0 = no timeout).
 	WaitTimeoutSeconds int64 `protobuf:"varint,3,opt,name=wait_timeout_seconds,json=waitTimeoutSeconds,proto3" json:"wait_timeout_seconds,omitempty"`
 	// force skips the drain and tears down from any phase.
-	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (DROP
+	// MIGRATION): it gates an ownership check against the migration's stored
+	// Migration.owner_role, so a caller who merely has database CREATE +
+	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
+	// gate) cannot name another operator's migration and abort it. Left empty
+	// on the CLI/multiadmin path, which has no SQL-authenticated identity to
+	// set it from; the check is skipped in that case, unchanged from before
+	// this field existed.
+	CallerRole    string `protobuf:"bytes,5,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1601,6 +1640,13 @@ func (x *DropMigrationRequest) GetForce() bool {
 		return x.Force
 	}
 	return false
+}
+
+func (x *DropMigrationRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type DropMigrationResponse struct {
@@ -1672,8 +1718,17 @@ type Connection struct {
 	// dsn is a full libpq conninfo (may include TLS options). Returned as-is on
 	// read paths, which may expose a password — same trust model as
 	// Migration.connection_name's resolved source; see that field's doc comment.
-	Dsn           string                 `protobuf:"bytes,3,opt,name=dsn,proto3" json:"dsn,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Dsn       string                 `protobuf:"bytes,3,opt,name=dsn,proto3" json:"dsn,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// owner_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client was connected as when this connection was created; set by the
+	// server from CreateConnectionRequest.caller_role, never from a
+	// client-supplied value on this message, so a caller cannot forge
+	// ownership of a connection it did not create. Empty for a connection
+	// created through the CLI/multiadmin path. See
+	// CreateMigrationRequest.caller_role's doc comment for the check this
+	// backs.
+	OwnerRole     string `protobuf:"bytes,5,opt,name=owner_role,json=ownerRole,proto3" json:"owner_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1734,6 +1789,13 @@ func (x *Connection) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Connection) GetOwnerRole() string {
+	if x != nil {
+		return x.OwnerRole
+	}
+	return ""
 }
 
 // ConnectionRef addresses one connection: by id, or by its unique name.
@@ -1820,8 +1882,17 @@ func (*ConnectionRef_Id) isConnectionRef_Ref() {}
 func (*ConnectionRef_Name) isConnectionRef_Ref() {}
 
 type CreateConnectionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Connection    *Connection            `protobuf:"bytes,1,opt,name=connection,proto3" json:"connection,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Connection *Connection            `protobuf:"bytes,1,opt,name=connection,proto3" json:"connection,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (CREATE
+	// CONNECTION); stamped onto the stored Connection.owner_role, which later
+	// gates CreateMigrationRequest.caller_role's ownership check. Left empty on
+	// the CLI/multiadmin path, which has no SQL-authenticated identity to set
+	// it from — the connection is then created with no owner, and the
+	// ownership check is skipped for every migration that later uses it,
+	// unchanged from before this field existed.
+	CallerRole    string `protobuf:"bytes,2,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1861,6 +1932,13 @@ func (x *CreateConnectionRequest) GetConnection() *Connection {
 		return x.Connection
 	}
 	return nil
+}
+
+func (x *CreateConnectionRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type CreateConnectionResponse struct {
@@ -2189,9 +2267,9 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
 	"\x0fconnection_name\x18\x03 \x01(\tR\x0econnectionName\x121\n" +
-	"\x06target\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\x06target\x123\n" +
+	"\x06target\x18\x04 \x01(\v2\x19.clustermetadata.ShardRefR\x06target\x123\n" +
 	"\aobjects\x18\x06 \x01(\v2\x19.migrator.SelectionObjectR\aobjects\x12'\n" +
-	"\x0fsequence_margin\x18\a \x01(\x03R\x0esequenceMargin\"\xbe\x04\n" +
+	"\x0fsequence_margin\x18\a \x01(\x03R\x0esequenceMargin\"\xec\x04\n" +
 	"\x0fMigrationStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12.\n" +
 	"\x05phase\x18\x02 \x01(\x0e2\x18.migrator.MigrationPhaseR\x05phase\x12\x1d\n" +
@@ -2209,7 +2287,8 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x0fstreaming_since\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x0estreamingSince\x12\x1b\n" +
 	"\tlag_bytes\x18\f \x01(\x04R\blagBytes\x12\x1f\n" +
 	"\vlag_seconds\x18\r \x01(\x01R\n" +
-	"lagSeconds\"b\n" +
+	"lagSeconds\x12,\n" +
+	"\x12reverse_link_error\x18\x0e \x01(\tR\x10reverseLinkError\"b\n" +
 	"\x10MigrationOptions\x12$\n" +
 	"\x0eskip_copy_data\x18\x01 \x01(\bR\fskipCopyData\x12(\n" +
 	"\x10skip_schema_copy\x18\x02 \x01(\bR\x0eskipSchemaCopy\"\xb3\x03\n" +
@@ -2232,11 +2311,14 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +
 	"\x1bGetMigrationJournalResponse\x129\n" +
-	"\aentries\x18\x01 \x03(\v2\x1f.migrator.MigrationJournalEntryR\aentries\"\xac\x01\n" +
+	"\aentries\x18\x01 \x03(\v2\x1f.migrator.MigrationJournalEntryR\aentries\"\xcd\x01\n" +
 	"\x16CreateMigrationRequest\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x124\n" +
 	"\aoptions\x18\x02 \x01(\v2\x1a.migrator.MigrationOptionsR\aoptions\x12#\n" +
-	"\rquiesce_roles\x18\t \x03(\tR\fquiesceRoles\"\x85\x01\n" +
+	"\rquiesce_roles\x18\t \x03(\tR\fquiesceRoles\x12\x1f\n" +
+	"\vcaller_role\x18\n" +
+	" \x01(\tR\n" +
+	"callerRole\"\x85\x01\n" +
 	"\x17CreateMigrationResponse\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
 	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"=\n" +
@@ -2263,30 +2345,36 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"\x17\n" +
 	"\x15ListMigrationsRequest\"*\n" +
 	"\x16ListMigrationsResponse\x12\x10\n" +
-	"\x03ids\x18\x01 \x03(\x03R\x03ids\"\x9c\x01\n" +
+	"\x03ids\x18\x01 \x03(\x03R\x03ids\"\xbd\x01\n" +
 	"\x14DropMigrationRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.migrator.MigrationRefR\x03ref\x12\x12\n" +
 	"\x04wait\x18\x02 \x01(\bR\x04wait\x120\n" +
 	"\x14wait_timeout_seconds\x18\x03 \x01(\x03R\x12waitTimeoutSeconds\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"\x83\x01\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12\x1f\n" +
+	"\vcaller_role\x18\x05 \x01(\tR\n" +
+	"callerRole\"\x83\x01\n" +
 	"\x15DropMigrationResponse\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
-	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"}\n" +
+	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"\x9c\x01\n" +
 	"\n" +
 	"Connection\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
 	"\x03dsn\x18\x03 \x01(\tR\x03dsn\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\">\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"owner_role\x18\x05 \x01(\tR\townerRole\">\n" +
 	"\rConnectionRef\x12\x10\n" +
 	"\x02id\x18\x01 \x01(\x03H\x00R\x02id\x12\x14\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04nameB\x05\n" +
-	"\x03ref\"O\n" +
+	"\x03ref\"p\n" +
 	"\x17CreateConnectionRequest\x124\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\x14.migrator.ConnectionR\n" +
-	"connection\"P\n" +
+	"connection\x12\x1f\n" +
+	"\vcaller_role\x18\x02 \x01(\tR\n" +
+	"callerRole\"P\n" +
 	"\x18CreateConnectionResponse\x124\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\x14.migrator.ConnectionR\n" +
@@ -2392,13 +2480,13 @@ var file_migratorservice_proto_goTypes = []any{
 	(*ListConnectionsResponse)(nil),       // 30: migrator.ListConnectionsResponse
 	(*DropConnectionRequest)(nil),         // 31: migrator.DropConnectionRequest
 	(*DropConnectionResponse)(nil),        // 32: migrator.DropConnectionResponse
-	(*clustermetadata.ShardKey)(nil),      // 33: clustermetadata.ShardKey
+	(*clustermetadata.ShardRef)(nil),      // 33: clustermetadata.ShardRef
 	(*timestamppb.Timestamp)(nil),         // 34: google.protobuf.Timestamp
 }
 var file_migratorservice_proto_depIdxs = []int32{
 	3,  // 0: migrator.SelectionObject.table:type_name -> migrator.TableSpec
 	4,  // 1: migrator.SelectionObject.schema:type_name -> migrator.SchemaSpec
-	33, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardKey
+	33, // 2: migrator.MigrationRecord.target:type_name -> clustermetadata.ShardRef
 	5,  // 3: migrator.MigrationRecord.objects:type_name -> migrator.SelectionObject
 	0,  // 4: migrator.MigrationStatus.phase:type_name -> migrator.MigrationPhase
 	34, // 5: migrator.MigrationStatus.created_at:type_name -> google.protobuf.Timestamp

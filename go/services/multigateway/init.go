@@ -426,7 +426,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	notifMgr := poolergateway.NewGRPCNotificationManager(
 		func() multipoolerpb.MultipoolerServiceClient {
 			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   constants.DefaultPostgresDatabase,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,

@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
 )
 
 // fakeQS is an in-memory executor.InternalQueryService that records admin
@@ -361,12 +362,20 @@ func TestScanJournalEntry(t *testing.T) {
 	require.Error(t, err, "too few columns must error")
 }
 
+// noLegacyShardRefResult answers shardref.CheckLegacyTypeSQL for a shard with
+// neither the legacy multigres.shard_key composite nor multigres.shard_ref.
+func noLegacyShardRefResult() *sqltypes.Result {
+	return &sqltypes.Result{Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("f"), sqltypes.Value("f")}}}}
+}
+
 // TestEnsureSchemaCreatesJournal proves EnsureSchema issues the journal DDL (and
 // its index) alongside the migration tables.
 func TestEnsureSchemaCreatesJournal(t *testing.T) {
-	qs := &fakeQS{}
+	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{shardref.CheckLegacyTypeSQL: noLegacyShardRefResult()}}
 	require.NoError(t, NewStore(qs).EnsureSchema(context.Background()))
 	joined := strings.Join(qs.adminQueries, "\n")
+	require.Contains(t, joined, shardref.CreateTypeSQL, "the shared shard_ref type is ensured first")
+	require.Contains(t, joined, "multigres.shard_ref NOT NULL", "migration_target is typed shard_ref")
 	require.Contains(t, joined, "CREATE TABLE IF NOT EXISTS multigres.migration_journal")
 	require.Contains(t, joined, "migration_journal_migration_id_idx")
 	require.NotContains(t, CreateMigrationJournalSQL, "REFERENCES",

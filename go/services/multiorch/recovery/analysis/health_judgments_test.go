@@ -47,7 +47,7 @@ func allFollowersStreaming(sa *snapshot.Shard) bool {
 	}
 	primaryHost := sa.IntendedLeaderHealth().GetMultipooler().GetHostname()
 	primaryPort := sa.IntendedLeaderHealth().GetMultipooler().GetPortMap()["postgres"]
-	undecidedRule := commonconsensus.PossiblyUndecidedRule(sa.HighestIntendedRule())
+	undecidedRule := sa.HighestIntendedRule().PossiblyUndecidedRule()
 	leaderKey := topoclient.ComponentIDString(undecidedRule.GetLeaderId())
 	replicaCount, connectedCount := 0, 0
 	for _, pa := range sa.Poolers {
@@ -81,7 +81,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -105,7 +105,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -117,7 +117,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, intendedLeaderPostgresReady(sa))
@@ -135,7 +135,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -157,7 +157,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -169,7 +169,7 @@ func TestIntendedLeaderServing(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, intendedLeaderPostgresReady(sa))
@@ -188,7 +188,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -213,7 +213,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -243,7 +243,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica2",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -266,7 +266,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(sa), "should be true when all replicas are connected")
@@ -282,7 +282,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -305,7 +305,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -335,7 +335,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica2",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -352,7 +352,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when any replica is disconnected")
@@ -368,7 +368,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -392,7 +392,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica1",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -405,7 +405,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica is unreachable")
@@ -422,7 +422,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -439,7 +439,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// Primary-only shard: ReplicasConnectedToLeader should be false (no replicas)
@@ -456,7 +456,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "primary",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -479,7 +479,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 					Cell:      "cell1",
 					Name:      "replica",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -502,7 +502,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(sa), "should be false when replica points to wrong primary")
@@ -514,7 +514,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -532,7 +532,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
 					Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "db1",
 						TableGroup: "tg1",
 						Shard:      "shard1",
@@ -555,7 +555,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 			}, nil))
 
 			gen := newTestCapture(ps)
-			analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+			analysis, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 			require.NoError(t, err)
 			assert.False(t, allFollowersStreaming(analysis), "should be false when wal_receiver_status=%q", status)
 		}
@@ -568,7 +568,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -588,7 +588,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -613,7 +613,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := newTestCapture(ps)
 		gen.now = fixedNow
-		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		analysis, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time is stale")
@@ -626,7 +626,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -648,7 +648,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -673,7 +673,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := newTestCapture(ps)
 		gen.now = fixedNow
-		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		analysis, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when last_msg_receive_time exceeds dynamic threshold")
@@ -687,7 +687,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -711,7 +711,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -737,7 +737,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 
 		gen := newTestCapture(ps)
 		gen.now = fixedNow
-		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		analysis, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.False(t, allFollowersStreaming(analysis), "should be false when delay exceeds wal_receiver_timeout")
@@ -752,7 +752,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -769,7 +769,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -792,7 +792,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		}, nil))
 
 		gen := newTestCapture(ps)
-		analysis, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		analysis, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		assert.True(t, allFollowersStreaming(analysis), "should be true when last_msg_receive_time is nil")
@@ -814,7 +814,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+				ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 				Hostname: "primary-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
@@ -830,7 +830,7 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
-				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+				ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 			},
 			LastSeen:                timestamppb.New(time.Now()),
 			StreamSnapshotsReceived: 10,
@@ -850,14 +850,14 @@ func TestReplicasStreamingFromLeader(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "replica2"},
-				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+				ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 			// LastSeen and StreamSnapshotsReceived are both zero — brand new pooler.
 		}, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
 		// replica1 is connected; replica2 has never reported health and must not

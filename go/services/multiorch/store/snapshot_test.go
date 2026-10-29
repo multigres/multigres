@@ -30,19 +30,19 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 )
 
-func seedPooler(t *testing.T, cache *PoolerCache, name string, shardKey *clustermetadatapb.ShardKey) {
+func seedPooler(t *testing.T, cache *PoolerCache, name string, shardRef *clustermetadatapb.ShardRef) {
 	t.Helper()
 	SeedCache(t, cache, NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name},
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 		},
 	}, nil))
 }
 
 func TestSnapshotShard_PoolersAreInStableOrder(t *testing.T) {
 	cache := NewTestCache(t)
-	key := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	key := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 	for _, name := range []string{"c", "a", "b"} {
 		seedPooler(t, cache, name, key)
 	}
@@ -57,29 +57,29 @@ func TestSnapshotShard_PoolersAreInStableOrder(t *testing.T) {
 }
 
 func TestSnapshotShard_UnknownShardIsNotFound(t *testing.T) {
-	_, err := SnapshotShard(NewTestCache(t), &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}, SnapshotOptions{})
+	_, err := SnapshotShard(NewTestCache(t), &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}, SnapshotOptions{})
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_NOT_FOUND, mterrors.Code(err))
 }
 
 func TestSnapshotShards_GroupsPoolersByShard(t *testing.T) {
 	cache := NewTestCache(t)
-	shard0 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	shard1 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
+	shard0 := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
+	shard1 := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "1"}
 	seedPooler(t, cache, "a", shard0)
 	seedPooler(t, cache, "b", shard0)
 	seedPooler(t, cache, "c", shard1)
 
 	sizes := map[string]int{}
 	for _, s := range SnapshotShards(cache, SnapshotOptions{Now: time.Now()}) {
-		sizes[s.ShardKey.GetShard()] = len(s.Poolers)
+		sizes[s.ShardRef.GetShard()] = len(s.Poolers)
 	}
 	assert.Equal(t, map[string]int{"0": 2, "1": 1}, sizes)
 }
 
 func TestSnapshotShards_CarriesTheOptions(t *testing.T) {
 	cache := NewTestCache(t)
-	key := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	key := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 	seedPooler(t, cache, "a", key)
 	now := time.Now()
 	policy := &clustermetadatapb.DurabilityPolicy{RequiredCount: 2}
@@ -112,7 +112,7 @@ func TestHealthOf(t *testing.T) {
 
 func TestSnapshotShards_CarriesTombstones(t *testing.T) {
 	cache := NewTestCache(t)
-	key := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	key := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 	seedPooler(t, cache, "live", key)
 	gone := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "gone"}
 	poolerwatch.SeedTombstoneForTest(t, cache, gone, time.Now())
@@ -125,9 +125,9 @@ func TestSnapshotShards_CarriesTombstones(t *testing.T) {
 
 func TestSnapshotShards_AgreesWithSnapshotShard(t *testing.T) {
 	cache := NewTestCache(t)
-	shard0 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	shard1 := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "1"}
-	for name, key := range map[string]*clustermetadatapb.ShardKey{"a": shard0, "b": shard0, "c": shard1} {
+	shard0 := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
+	shard1 := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "1"}
+	for name, key := range map[string]*clustermetadatapb.ShardRef{"a": shard0, "b": shard0, "c": shard1} {
 		seedPooler(t, cache, name, key)
 	}
 	opts := SnapshotOptions{Now: time.Now()}
@@ -140,8 +140,8 @@ func TestSnapshotShards_AgreesWithSnapshotShard(t *testing.T) {
 		return names
 	}
 	for _, all := range SnapshotShards(cache, opts) {
-		one, err := SnapshotShard(cache, all.ShardKey, opts)
+		one, err := SnapshotShard(cache, all.ShardRef, opts)
 		require.NoError(t, err)
-		assert.Equal(t, poolerNames(all), poolerNames(one), "shard %s", all.ShardKey.GetShard())
+		assert.Equal(t, poolerNames(all), poolerNames(one), "shard %s", all.ShardRef.GetShard())
 	}
 }

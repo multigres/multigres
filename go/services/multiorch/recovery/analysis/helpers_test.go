@@ -18,6 +18,8 @@ import (
 	"slices"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
@@ -65,11 +67,21 @@ func newTestShard(sa *snapshot.Shard, rule *clustermetadatapb.RulePosition, lead
 			sa.Poolers = append(sa.Poolers, leader)
 		}
 		if rule == nil {
-			rule = &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: poolerID(leader)}}
+			rule = &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:   poolerID(leader),
+			}}
 		}
 	}
 	setRule(sa, rule)
 	return sa
+}
+
+// editRule applies fn to a copy of the shard's published rule and republishes it.
+func editRule(sa *snapshot.Shard, fn func(*clustermetadatapb.RulePosition)) {
+	rule := proto.Clone(sa.HighestIntendedRule().Position()).(*clustermetadatapb.RulePosition)
+	fn(rule)
+	setRule(sa, rule)
 }
 
 // setRule replaces the shard's published rule; nil clears it.
@@ -150,7 +162,7 @@ func (c *testCapture) opts() store.SnapshotOptions {
 	return store.SnapshotOptions{Now: c.now, AvailabilityPolicy: DefaultAvailabilityPolicy()}
 }
 
-func (c *testCapture) shard(key *clustermetadatapb.ShardKey) (*snapshot.Shard, error) {
+func (c *testCapture) shard(key *clustermetadatapb.ShardRef) (*snapshot.Shard, error) {
 	return store.SnapshotShard(c.cache, key, c.opts())
 }
 

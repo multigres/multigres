@@ -41,7 +41,7 @@ func TestIsFailoverProblem(t *testing.T) {
 }
 
 func TestNextFailoverAttempt(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch1"}
 
 	newEngine := func(cache *store.PoolerCache) *Engine {
@@ -69,7 +69,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -85,7 +85,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 
 	t.Run("acts immediately when no revocation is observed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.True(t, ready, "should act immediately with nothing to back off from")
 		assert.True(t, readyAt.IsZero())
 	})
@@ -93,7 +93,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 	t.Run("defers while a recent revocation's backoff has not elapsed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
 		seedRevocation(cache, "p1", time.Now(), termPtr(4), 1) // now + base(10s) → in the future
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.False(t, ready, "should defer within the backoff window")
 		assert.True(t, readyAt.After(time.Now()))
 	})
@@ -101,7 +101,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 	t.Run("acts once a stale revocation's backoff has elapsed", func(t *testing.T) {
 		cache := store.NewTestCache(t)
 		seedRevocation(cache, "p1", time.Now().Add(-time.Hour), termPtr(4), 5) // old anchor → ready time is in the past
-		_, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		_, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.True(t, ready, "a long-stale revocation should not keep deferring")
 	})
 
@@ -111,7 +111,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		// this revocation (which targeted term 0) is resolved history.
 		cache := store.NewTestCache(t)
 		seedRevocation(cache, "p1", time.Now(), termPtr(0), 1)
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.True(t, ready, "a revocation targeting a different problem should not gate this one")
 		assert.True(t, readyAt.IsZero())
 	})
@@ -133,7 +133,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		// human-supervised.
 		cache := store.NewTestCache(t)
 		seedRevocation(cache, "p1", time.Now(), nil, 0)
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.False(t, ready, "an unidentifiable revocation should get the default cooldown, not a free pass")
 		assert.True(t, readyAt.After(time.Now()))
 	})
@@ -156,7 +156,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -177,7 +177,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p2"},
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -195,7 +195,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 				},
 			},
 		}, nil))
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.False(t, ready, "the live retry at the current decision must still gate, despite the stale higher-term revocation elsewhere")
 		assert.True(t, readyAt.After(time.Now()))
 	})
@@ -221,7 +221,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -242,7 +242,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pDeparting"},
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 			},
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
@@ -257,7 +257,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 				},
 			},
 		}, nil))
-		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardKey)
+		readyAt, ready := newEngine(cache).nextFailoverAttempt(shardRef)
 		assert.False(t, ready, "p1's live retry against decision 6 must still gate, despite pDeparting's higher, ineligible decision")
 		assert.True(t, readyAt.After(time.Now()))
 	})

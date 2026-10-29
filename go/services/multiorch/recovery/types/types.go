@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -194,7 +195,7 @@ type Problem struct {
 	Code           ProblemCode                 // Category of problem
 	CheckName      CheckName                   // Which check detected it
 	PoolerID       *clustermetadatapb.ID       // Affected pooler; can be nil for shard-scoped problems
-	ShardKey       *clustermetadatapb.ShardKey // Identifies the affected shard
+	ShardRef       *clustermetadatapb.ShardRef // Identifies the affected shard
 	Description    string                      // Human-readable description
 	Priority       Priority                    // Priority of this problem
 	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
@@ -217,18 +218,12 @@ func (p Problem) IsShardWide() bool {
 
 // EntityID returns a stable string identifying the affected entity.
 // For pooler-scoped problems this is the pooler ID string; for shard-scoped
-// problems it is the shard key string. Safe to call when PoolerID is nil.
+// problems it is the shard ref string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
 		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
-	return string(commontypes.FormatShardKey(p.ShardKey))
-}
-
-// GracePeriodConfig holds grace period settings for recovery actions.
-type GracePeriodConfig struct {
-	BaseDelay time.Duration
-	MaxJitter time.Duration
+	return string(commontypes.FormatShardRef(p.ShardRef))
 }
 
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
@@ -239,11 +234,11 @@ type GracePeriodConfig struct {
 // silently disagree. Passing them as independent parameters would let a
 // caller pass a mismatched pair and still compile; this makes that
 // structurally impossible — the only way to obtain one is from a successful
-// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck. HighestIntendedRule is empty if no rule was known for the shard at
 // recheck time; actions that don't mutate the consensus rule can ignore it.
 type RecheckedProblem struct {
 	Problem
-	HighestKnownRule *clustermetadatapb.RulePosition
+	HighestIntendedRule commonconsensus.RuleTransition
 }
 
 // RecoveryAction is a function that fixes a problem.
@@ -260,10 +255,6 @@ type RecoveryAction interface {
 	// This provides an extra guardrail to avoid accidental operations on replicas
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
-
-	// GracePeriod returns the grace period configuration for this action.
-	// Returns nil if no grace period is needed (action executes immediately).
-	GracePeriod() *GracePeriodConfig
 }
 
 // RecoveryMetadata describes the recovery action.

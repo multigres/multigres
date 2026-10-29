@@ -31,6 +31,7 @@ const (
 	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
 	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
 	PgSSUndefinedFunction         = "42883" // undefined_function
+	PgSSUndefinedTable            = "42P01" // undefined_table
 	PgSSActiveTransaction         = "25001" // active_sql_transaction
 	PgSSNoActiveTransaction       = "25P01" // no_active_sql_transaction
 	PgSSInFailedTransaction       = "25P02" // in_failed_sql_transaction
@@ -56,6 +57,7 @@ const (
 	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
 	PgSSDivisionByZero                  = "22012" // division_by_zero
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
+	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
 )
 
 // SQLSTATEs raised by expression analysis (postgres src/backend/parser).

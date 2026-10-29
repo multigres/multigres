@@ -17,7 +17,6 @@ package analysis
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -100,11 +99,11 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *snapshot.Shard, pa *mu
 		Code:           types.ProblemReplicaNotReplicating,
 		CheckName:      "ReplicaNotReplicating",
 		PoolerID:       poolerID(pa),
-		ShardKey:       sa.ShardKey,
+		ShardRef:       sa.ShardRef,
 		Description:    fmt.Sprintf("Replica %s has no replication configured", poolerID(pa).Name),
 		Priority:       types.PriorityHigh,
 		Scope:          types.ScopePooler,
-		DetectedAt:     time.Now(),
+		DetectedAt:     sa.Now,
 		RecoveryAction: a.factory.NewFixReplicationAction(),
 	}, nil
 }

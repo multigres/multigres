@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,9 @@ type Factory struct {
 	// operationErrors is used for testing purposes to fake errors from
 	// operations and paths matching the spec
 	operationErrors map[Operation][]errorSpec
+	// conns tracks the live connections per cell so SimulateRecovery can
+	// reach them.
+	conns map[string][]*conn
 	// callstats allows us to keep track of how many topoclient.conn calls
 	// we make (Create, Get, Update, Delete, List, ListDir, etc).
 	// TODO: Implement stats
@@ -115,11 +119,28 @@ func (f *Factory) Create(cell, root string, serverAddrs []string) (topoclient.Co
 		return nil, topoclient.NewError(topoclient.NoNode, cell)
 	}
 	//  note (root, doesn't matter for the in memory topo, hence we don't use it).
-	return &conn{
+	c := &conn{
 		factory:     f,
 		cell:        cell,
 		serverAddrs: serverAddrs,
-	}, nil
+		recoveries:  make(chan struct{}, 1),
+	}
+	if f.conns == nil {
+		f.conns = make(map[string][]*conn)
+	}
+	f.conns[cell] = append(f.conns[cell], c)
+	return c, nil
+}
+
+// SimulateRecovery makes every open connection to cell report that its link to
+// the server was lost and regained, as an etcd client does after an outage.
+func (f *Factory) SimulateRecovery(cell string) {
+	f.mu.Lock()
+	conns := slices.Clone(f.conns[cell])
+	f.mu.Unlock()
+	for _, c := range conns {
+		c.recoverOnce()
+	}
 }
 
 // SetError forces the given error to be returned from all calls and propagates
@@ -159,9 +180,30 @@ type conn struct {
 	cell        string
 	serverAddrs []string
 	closed      atomic.Bool
+
+	recoveries chan struct{}
+	mu         sync.Mutex
 }
 
-var _ topoclient.Conn = (*conn)(nil)
+var (
+	_ topoclient.Conn         = (*conn)(nil)
+	_ topoclient.ConnRecovery = (*conn)(nil)
+)
+
+// Recoveries is part of the topoclient.ConnRecovery interface.
+func (c *conn) Recoveries() <-chan struct{} { return c.recoveries }
+
+func (c *conn) recoverOnce() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed.Load() {
+		return
+	}
+	select {
+	case c.recoveries <- struct{}{}:
+	default:
+	}
+}
 
 // dial returns immediately, unless the conn points to the sentinel
 // UnreachableServerAddr, in which case it will block until the context expires.
@@ -181,7 +223,11 @@ func (c *conn) dial(ctx context.Context) error {
 // Close is part of the topoclient.Conn interface.
 func (c *conn) Close() error {
 	// c.factory.callstats.Add([]string{"Close"}, 1)
-	c.closed.Store(true)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed.Swap(true) {
+		close(c.recoveries)
+	}
 	return nil
 }
 

@@ -29,7 +29,7 @@ import (
 // first caller wins, different caller loses, same caller after crash wins
 // with the originally committed cohort.
 func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "claimdb", TableGroup: "tg0", Shard: "0"}
 
 	coord1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
 	coord2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "orch-2"}
@@ -39,7 +39,7 @@ func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store)
 	}
 
 	t.Log("===      first caller wins the claim")
-	won, committed, err := ts.ClaimShardInitialization(ctx, shardKey, coord1, cohort)
+	won, committed, err := ts.ClaimShardInitialization(ctx, shardRef, coord1, cohort)
 	require.NoError(t, err)
 	assert.True(t, won, "first caller should win")
 	require.Len(t, committed, 2)
@@ -48,7 +48,7 @@ func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store)
 	differentCohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pooler-3"},
 	}
-	won, committed, err = ts.ClaimShardInitialization(ctx, shardKey, coord1, differentCohort)
+	won, committed, err = ts.ClaimShardInitialization(ctx, shardRef, coord1, differentCohort)
 	require.NoError(t, err)
 	assert.True(t, won, "same caller should win on retry")
 	// Must get back the originally committed cohort, not the new proposal.
@@ -57,13 +57,13 @@ func checkShardInitClaim(t *testing.T, ctx context.Context, ts topoclient.Store)
 	assert.Equal(t, "pooler-2", committed[1].Name)
 
 	t.Log("===      different caller loses")
-	won, _, err = ts.ClaimShardInitialization(ctx, shardKey, coord2, cohort)
+	won, _, err = ts.ClaimShardInitialization(ctx, shardRef, coord2, cohort)
 	require.NoError(t, err)
 	assert.False(t, won, "different caller should lose")
 
 	t.Log("===      independent shard can be claimed separately")
-	shardKey2 := &clustermetadatapb.ShardKey{Database: "claimdb", TableGroup: "tg0", Shard: "1"}
-	won, committed, err = ts.ClaimShardInitialization(ctx, shardKey2, coord2, cohort)
+	shardRef2 := &clustermetadatapb.ShardRef{Database: "claimdb", TableGroup: "tg0", Shard: "1"}
+	won, committed, err = ts.ClaimShardInitialization(ctx, shardRef2, coord2, cohort)
 	require.NoError(t, err)
 	assert.True(t, won, "different shard should be claimable independently")
 	require.Len(t, committed, 2)
