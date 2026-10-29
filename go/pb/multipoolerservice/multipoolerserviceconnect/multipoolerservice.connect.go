@@ -88,6 +88,9 @@ const (
 	// MultipoolerServiceNotificationStreamProcedure is the fully-qualified name of the
 	// MultipoolerService's NotificationStream RPC.
 	MultipoolerServiceNotificationStreamProcedure = "/multipoolerservice.MultipoolerService/NotificationStream"
+	// MultipoolerServiceGetBackingConnectionProcedure is the fully-qualified name of the
+	// MultipoolerService's GetBackingConnection RPC.
+	MultipoolerServiceGetBackingConnectionProcedure = "/multipoolerservice.MultipoolerService/GetBackingConnection"
 )
 
 // MultipoolerServiceClient is a client for the multipoolerservice.MultipoolerService service.
@@ -158,6 +161,13 @@ type MultipoolerServiceClient interface {
 	// session. Subscription updates and notification delivery share one stream so
 	// notifications across channels preserve PostgreSQL delivery order.
 	NotificationStream(context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
+	// GetBackingConnection returns the named backing connection. It is served only
+	// by the default primary pooler, which owns the connection metadata; unmanaged
+	// poolers call it at bootstrap to learn the external endpoint they front. The
+	// reply carries the credential, so the call should travel over TLS; it is
+	// protected only by the transport's authentication, and there is no
+	// per-call authorization.
+	GetBackingConnection(context.Context, *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error)
 }
 
 // NewMultipoolerServiceClient constructs a client for the multipoolerservice.MultipoolerService
@@ -249,6 +259,12 @@ func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 			connect.WithClientOptions(opts...),
 		),
+		getBackingConnection: connect.NewClient[multipoolerservice.GetBackingConnectionRequest, multipoolerservice.GetBackingConnectionResponse](
+			httpClient,
+			baseURL+MultipoolerServiceGetBackingConnectionProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("GetBackingConnection")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -267,6 +283,7 @@ type multipoolerServiceClient struct {
 	releaseReservedConnection *connect.Client[multipoolerservice.ReleaseReservedConnectionRequest, multipoolerservice.ReleaseReservedConnectionResponse]
 	streamPoolerHealth        *connect.Client[multipoolerservice.StreamPoolerHealthRequest, multipoolerservice.StreamPoolerHealthResponse]
 	notificationStream        *connect.Client[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
+	getBackingConnection      *connect.Client[multipoolerservice.GetBackingConnectionRequest, multipoolerservice.GetBackingConnectionResponse]
 }
 
 // ExecuteQuery calls multipoolerservice.MultipoolerService.ExecuteQuery.
@@ -332,6 +349,11 @@ func (c *multipoolerServiceClient) StreamPoolerHealth(ctx context.Context, req *
 // NotificationStream calls multipoolerservice.MultipoolerService.NotificationStream.
 func (c *multipoolerServiceClient) NotificationStream(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse] {
 	return c.notificationStream.CallBidiStream(ctx)
+}
+
+// GetBackingConnection calls multipoolerservice.MultipoolerService.GetBackingConnection.
+func (c *multipoolerServiceClient) GetBackingConnection(ctx context.Context, req *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error) {
+	return c.getBackingConnection.CallUnary(ctx, req)
 }
 
 // MultipoolerServiceHandler is an implementation of the multipoolerservice.MultipoolerService
@@ -403,6 +425,13 @@ type MultipoolerServiceHandler interface {
 	// session. Subscription updates and notification delivery share one stream so
 	// notifications across channels preserve PostgreSQL delivery order.
 	NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error
+	// GetBackingConnection returns the named backing connection. It is served only
+	// by the default primary pooler, which owns the connection metadata; unmanaged
+	// poolers call it at bootstrap to learn the external endpoint they front. The
+	// reply carries the credential, so the call should travel over TLS; it is
+	// protected only by the transport's authentication, and there is no
+	// per-call authorization.
+	GetBackingConnection(context.Context, *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error)
 }
 
 // NewMultipoolerServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -490,6 +519,12 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 		connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerServiceGetBackingConnectionHandler := connect.NewUnaryHandler(
+		MultipoolerServiceGetBackingConnectionProcedure,
+		svc.GetBackingConnection,
+		connect.WithSchema(multipoolerServiceMethods.ByName("GetBackingConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multipoolerservice.MultipoolerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultipoolerServiceExecuteQueryProcedure:
@@ -518,6 +553,8 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 			multipoolerServiceStreamPoolerHealthHandler.ServeHTTP(w, r)
 		case MultipoolerServiceNotificationStreamProcedure:
 			multipoolerServiceNotificationStreamHandler.ServeHTTP(w, r)
+		case MultipoolerServiceGetBackingConnectionProcedure:
+			multipoolerServiceGetBackingConnectionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -577,4 +614,8 @@ func (UnimplementedMultipoolerServiceHandler) StreamPoolerHealth(context.Context
 
 func (UnimplementedMultipoolerServiceHandler) NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.NotificationStream is not implemented"))
+}
+
+func (UnimplementedMultipoolerServiceHandler) GetBackingConnection(context.Context, *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.GetBackingConnection is not implemented"))
 }
