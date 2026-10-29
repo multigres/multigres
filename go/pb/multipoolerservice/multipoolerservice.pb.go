@@ -3473,13 +3473,13 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x18keep_sticky_reservations\x18\x04 \x01(\bR\x16keepStickyReservations\"`\n" +
 	"!ReleaseReservedConnectionResponse\x12;\n" +
 	"\x0ereserved_state\x18\x01 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xec\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xf2\x02\n" +
 	"\x1aStreamPoolerHealthResponse\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12B\n" +
 	"\rrouting_state\x18\x04 \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
-	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"\x89\x02\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNsJ\x04\b\a\x10\b\"\x89\x02\n" +
 	"\x11BackingConnection\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +

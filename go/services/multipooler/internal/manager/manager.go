@@ -601,8 +601,8 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 // ctx must carry an action lock. The state transition publishes through
 // pm.record.Mutate, which asserts the lock.
 func (pm *MultipoolerManager) Open(ctx context.Context) {
-	// An unmanaged pooler starts closed: it does not serve until the readiness of its
-	// backend has been checked.
+	// An unmanaged pooler starts closed. Its external-backend monitor opens it
+	// once the backend is reachable, writable and in the intended database.
 	if pm.IsUnmanaged() {
 		pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_DISABLED)
 		return
@@ -635,10 +635,11 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
-	// The sidecar tables and the postgres monitor belong to a managed postgres: the monitor
-	// repairs, restarts and rewinds it, and the sidecar schemas are ours to keep in it. An
-	// external endpoint is neither repaired nor given sidecar tables by us.
-	if !pm.IsUnmanaged() {
+	// The postgres monitor repairs, restarts and rewinds a managed postgres. An external
+	// endpoint is only observed, never repaired by us, and is not given sidecar tables.
+	if pm.IsUnmanaged() {
+		pm.startExternalMonitorLocked()
+	} else {
 		// Ensure sidecar tables that a shard bootstrapped by an older pooler
 		// version may be missing (see ensureSidecarSchemas) exist on every
 		// open/resume, not just on promotion. On the catalog shard this also
@@ -851,6 +852,16 @@ func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
 	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
 }
 
+// ensurePubSubListener starts the LISTEN/NOTIFY listener unless it runs.
+func (pm *MultipoolerManager) ensurePubSubListener() {
+	if pm.pubsubListener != nil {
+		return
+	}
+	if err := pm.startPubSubListener(context.TODO()); err != nil {
+		pm.logger.Error("failed to start PubSub listener", "error", err)
+	}
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -944,8 +955,11 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 
 	// An unmanaged pooler must not create sidecar schema, heartbeat rows or any
 	// other object on the external database, and it has no replication or
-	// logical-slot machinery to poll.
+	// logical-slot machinery to poll. It does serve LISTEN/NOTIFY: a session's
+	// LISTEN stream sent to it needs the listener, which only issues LISTEN on
+	// pooled connections and creates nothing on the external database.
 	if pm.IsUnmanaged() {
+		pm.ensurePubSubListener()
 		return
 	}
 
@@ -970,11 +984,7 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 	}
 
 	// Start PubSub listener for LISTEN/NOTIFY support.
-	if pm.pubsubListener == nil {
-		if err := pm.startPubSubListener(context.TODO()); err != nil {
-			pm.logger.Error("failed to start PubSub listener", "error", err)
-		}
-	}
+	pm.ensurePubSubListener()
 
 	// Start the replication-stats poller (reserved connection metrics for
 	// logical replication), alongside heartbeat/pubsub.

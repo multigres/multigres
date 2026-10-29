@@ -54,6 +54,9 @@ type ShardSetup struct {
 	TopoServer     topoclient.Store
 	CellName       string
 
+	// Database is the database this setup serves.
+	Database string
+
 	// Context for all processes started by this ShardSetup.
 	// Cancelled when Cleanup() is called to gracefully terminate all processes.
 	runningCtx context.Context
