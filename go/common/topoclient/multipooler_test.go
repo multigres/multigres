@@ -559,6 +559,7 @@ func TestIsManagedPooler(t *testing.T) {
 	} {
 		t.Run(mode.String(), func(t *testing.T) {
 			require.Equal(t, managed, topoclient.IsManagedPooler(&clustermetadatapb.Multipooler{LeadershipMode: mode}))
+			require.Equal(t, managed, topoclient.IsManagedLeadershipMode(mode))
 		})
 	}
 }
@@ -1703,4 +1704,54 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 		require.NoError(t, err, "should be able to get multipooler by ID regardless of current cell context")
 		require.Equal(t, "zone2", zone2FromZone1.Id.Cell)
 	})
+}
+
+// TestRegisterMultipoolerKeepsItManagedOrUnmanaged: an update that would move an existing
+// record into or out of the unmanaged leadership mode is refused and leaves the record as it
+// was; an unspecified mode reads as managed, and a managed pooler may still change between
+// consensus and static leadership.
+func TestRegisterMultipoolerKeepsItManagedOrUnmanaged(t *testing.T) {
+	const (
+		unspecified = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED
+		consensus   = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS
+		static      = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+		unmanaged   = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
+		unknown     = clustermetadatapb.LeadershipMode(99)
+	)
+	for name, tc := range map[string]struct {
+		registered, registering clustermetadatapb.LeadershipMode
+		refused                 bool
+	}{
+		"consensus stays consensus": {consensus, consensus, false},
+		"unmanaged stays unmanaged": {unmanaged, unmanaged, false},
+		"legacy record, consensus":  {unspecified, consensus, false},
+		"consensus to static":       {consensus, static, false},
+		"consensus to unmanaged":    {consensus, unmanaged, true},
+		"static to unmanaged":       {static, unmanaged, true},
+		"legacy record, unmanaged":  {unspecified, unmanaged, true},
+		"unmanaged to consensus":    {unmanaged, consensus, true},
+		"unknown mode to consensus": {unknown, consensus, true},
+		"unknown mode to unmanaged": {unknown, unmanaged, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+			t.Cleanup(func() { _ = ts.Close() })
+			id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"}
+			require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadatapb.Multipooler{Id: id, Hostname: "before", LeadershipMode: tc.registered}))
+
+			err := ts.RegisterMultipooler(ctx, &clustermetadatapb.Multipooler{Id: id, Hostname: "after", LeadershipMode: tc.registering}, true)
+
+			got, getErr := ts.GetMultipooler(ctx, id)
+			require.NoError(t, getErr)
+			if tc.refused {
+				require.ErrorIs(t, err, topoclient.ErrManagementChanged)
+				require.Equal(t, "before", got.GetHostname(), "a refused update leaves the record as it was")
+				require.Equal(t, tc.registered, got.GetLeadershipMode())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "after", got.GetHostname())
+			}
+		})
+	}
 }
