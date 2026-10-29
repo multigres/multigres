@@ -33,7 +33,6 @@ func TestListBackups(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -55,7 +54,6 @@ func TestListBackups_LSNAndPgVersion(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -75,7 +73,6 @@ func TestListBackups_SkipsMismatchedTableGroup(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -91,7 +88,6 @@ func TestListBackups_ParsesTimestamps(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -110,7 +106,6 @@ func TestListBackups_UnsetTimestamps(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -127,7 +122,6 @@ func TestList_AppliesLimit(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	all, err := e.List(t.Context(), 0)
 	require.NoError(t, err)
@@ -154,7 +148,6 @@ func TestListBackups_SortsByStartTimestampDescending(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	all, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -185,7 +178,6 @@ func TestListBackups_FallsBackToBackupIdWhenTimestampMissing(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	all, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -199,7 +191,6 @@ func TestListBackups_EmptyWhenStanzaMissing(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\necho \"ERROR: [055]: unable to load info file: stanza 'multigres' does not exist\" >&2\nexit 1\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -219,7 +210,6 @@ func TestListBackups_ErrorOnUnreadableRepoStatus(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	_, err := e.ListBackups(t.Context())
 	require.Error(t, err, "a repo status error must not be silently treated as an empty backup list")
@@ -237,7 +227,6 @@ func TestListBackups_MissingStanzaDataIsBenign(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	backups, err := e.ListBackups(t.Context())
 	require.NoError(t, err)
@@ -248,24 +237,15 @@ func TestListBackups_ErrorOnMalformedJSON(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\nif [[ \"$*\" == *info* ]]; then echo \"garbage not json\"; exit 0; fi\nexit 0\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	_, err := e.ListBackups(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse pgbackrest info JSON")
 }
 
-func TestListBackups_ErrorWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
-	_, err := e.ListBackups(t.Context())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest config not found")
-}
-
 func TestListBackups_ErrorWhenBackupConfigMissing(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "") // no backup location → no repo config
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	_, err := e.ListBackups(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "backup config not loaded")

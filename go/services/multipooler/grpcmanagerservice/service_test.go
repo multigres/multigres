@@ -63,6 +63,9 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	config := &manager.Config{
 		TopoClient:     ts,
 		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
+		// Not dialed: the manager is never started.
+		PgBackRestControlSocket: "/run/pgbackrest-control/control.sock",
+		PgBackRestWALSocket:     "/run/pgbackrest-wal/wal.sock",
 	}
 	pm, err := manager.NewMultipoolerManager(logger, multipooler, config)
 	require.NoError(t, err)

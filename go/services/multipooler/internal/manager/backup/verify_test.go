@@ -70,7 +70,6 @@ func TestVerify_ExecPaths(t *testing.T) {
 
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			resp, err := e.Verify(context.Background())
 			if tt.wantErr {

@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -219,6 +220,29 @@ func remedialActionTimeout(action remedialAction) time.Duration {
 	}
 	return defaultRemedialActionTimeout
 }
+
+// remedialActionTimeout is the package function with the sidecar's restore
+// budget applied: its deadline is longer than RestoreTimeout (it adds the
+// sidecar's drain and margin), and a parent that is shorter would cap it.
+func (pm *MultipoolerManager) remedialActionTimeout(action remedialAction) time.Duration {
+	t := remedialActionTimeout(action)
+	// The steps after the restore (archive config, start, reopen) need time on
+	// the same context.
+	restore := backupengine.SidecarRestoreDeadline() + sidecarPostRestoreBudget
+	switch action {
+	case remedialActionRestoreFromBackup:
+		t = max(t, restore)
+	case remedialActionCreateFirstBackup:
+		// A pooler that loses the bootstrap race restores the winner's backup
+		// on this same context, after its own initdb and schema work.
+		t = max(t, commonbackup.BackupTimeout+restore)
+	}
+	return t
+}
+
+// sidecarPostRestoreBudget is what a restore action keeps for the steps after
+// the restore itself.
+const sidecarPostRestoreBudget = 10 * time.Minute
 
 // remedialAction represents actions the postgres monitor can take
 type remedialAction int
@@ -432,7 +456,7 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 	// takeRemedialAction's implementation later forgets to. Actions needing
 	// more than the default get it via remedialActionTimeout/
 	// remedialActionTimeouts, not by reaching past this bound.
-	actionCtx, actionCancel := context.WithTimeout(lockCtx, remedialActionTimeout(action))
+	actionCtx, actionCancel := context.WithTimeout(lockCtx, pm.remedialActionTimeout(action))
 	actionErr := pm.takeRemedialAction(actionCtx, action, currentState)
 	actionCancel()
 
@@ -560,10 +584,12 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 
 	restoreSentinelPresent, err := pm.restoreSentinel().present()
 	if err != nil {
-		// An unreadable sentinel leaves the "was a restore interrupted?" question
-		// ambiguous, so skip the tick rather than risk starting postgres on a
-		// possibly partial restore.
-		return state, fmt.Errorf("check restore sentinel: %w", err)
+		// The read goes through an anchored root and has more ways to fail, and
+		// skipping every tick would neither age the marker toward quarantine nor
+		// let a running postgres be remediated. An unreadable marker is an
+		// unsettled restore: never deleted, never started, aged by
+		// restoreMarkerAge, and ignored by the branches of a running postgres.
+		restoreSentinelPresent = true
 	}
 	state.restoreSentinelPresent = restoreSentinelPresent
 
@@ -574,7 +600,13 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	// instead of bootstrapping a fresh stanza over a repository it cannot read
 	// (e.g. a cipher-key mismatch), or counting a restore that cannot reach the
 	// repository as a failed recovery attempt.
-	if !state.dirInitialized || (state.restoreSentinelPresent && !state.postgresRunning) {
+	//
+	// A restore marker skips the check: the sidecar closes info
+	// while its restore runs and may be unreachable, so the read would fail and
+	// the tick would be skipped, which hides a wait that must age toward
+	// quarantine. restoreAndStartPostgres lists the backups itself once the
+	// sidecar has confirmed that no restore runs.
+	if !state.restoreSentinelPresent && (!state.dirInitialized || (state.restoreSentinelPresent && !state.postgresRunning)) {
 		available, err := pm.hasCompleteBackups(ctx)
 		if err != nil {
 			return state, fmt.Errorf("check for complete backups: %w", err)
@@ -598,6 +630,9 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
+
+	// Refreshes the marker age gauge and the rate-limited wait warning. The decision itself is state.restoreSentinelPresent.
+	_ = pm.restoreSettled(ctx)
 
 	return state, nil
 }
@@ -1283,7 +1318,9 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 	// A sentinel from a prior restore attempt means the restore was interrupted
 	// and any on-disk pg_data is a partial restore that may already contain
 	// PG_VERSION, so it would look initialized. Force the restore path so
-	// restoreAndStartPostgres can remove it and restore again.
+	// restoreAndStartPostgres can remove it and restore again. The same sentinel
+	// is the restore marker (see restoreSettled), and restoreAndStartPostgres waits for a restore the sidecar may still be
+	// running before it removes anything.
 	if state.restoreSentinelPresent {
 		return remedialActionRestoreFromBackup
 	}
@@ -1491,6 +1528,19 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
+			if isRestoreWaiting(err) {
+				if pm.restoreWaitCounts(err) {
+					// A wait that has outlived every bound is a node to replace: count
+					// it, still deleting and starting nothing.
+					pm.logger.ErrorContext(ctx, "MonitorPostgres: "+restoreWaitCountsReason(err)+"; counting this as a failed recovery",
+						"marker_age_seconds", pm.markerAgeSec.Load(), "error", err)
+					return err
+				}
+				// Waiting for a restore is not a failed recovery, so it must not
+				// reach trackRecoveryOutcome as one.
+				pm.logRestoreWaiting(ctx, err)
+				return nil
+			}
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return err
 		}
@@ -1597,6 +1647,9 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
+	if !pm.restoreSettled(ctx) {
+		return errors.New("MonitorPostgres: not starting PostgreSQL while a sidecar restore is unsettled")
+	}
 
 	// If we already suspect divergence, bring postgres up "held": clear
 	// primary_conninfo first so the node does not stream from a leader it hasn't
@@ -1613,6 +1666,15 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
+	}
+
+	// Whatever rewrote postgresql.auto.conf since the last start (pg_rewind, a
+	// restore, a mode switch) may have left commands for another pooler or the
+	// other archive mode. A failure is logged rather than returned: a stale
+	// command only stalls archiving, whereas refusing to start would take the
+	// database down with it, and the monitor retries this on every start attempt.
+	if err := pm.normalizeArchiveCommands(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to normalize archive commands before start; WAL archiving may fail", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	}
 
 	// Recover and start via pgctld. AllowCrashRecovery lets pgctld recover a node
@@ -1725,7 +1787,10 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	// restoreFromBackupLocked completes a restore.
 	sentinelPresent, err := pm.restoreSentinel().present()
 	if err != nil {
-		return fmt.Errorf("failed to check restore sentinel: %w", err)
+		// Neither deleting nor restoring is safe while the marker cannot be
+		// read; waiting counts toward quarantine once the marker is older than
+		// any restore can take.
+		return &restoreWaitError{reason: fmt.Errorf("%w: %w", errRestoreMarkerUnreadable, err)}
 	}
 
 	// Re-check status to ensure conditions haven't changed
@@ -1768,6 +1833,12 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		case !os.IsNotExist(statErr):
 			return fmt.Errorf("failed to check for %s: %w", pidFile, statErr)
 		}
+	}
+
+	// A restore running in the sidecar closes its gate to info, and a sidecar
+	// that cannot be asked proves nothing: wait instead of racing either.
+	if err := pm.sidecarRestoreEnded(ctx); err != nil {
+		return err
 	}
 
 	// Get the latest complete backup. ListBackups returns backups

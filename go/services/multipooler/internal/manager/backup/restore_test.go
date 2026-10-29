@@ -17,32 +17,10 @@ package backup
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os/exec"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestShellQuoteSingle round-trips values through an actual shell (not just
-// string comparison against a hand-computed expectation), since a bug in the
-// escaping logic could just as easily be mirrored in a hardcoded expectation.
-func TestShellQuoteSingle(t *testing.T) {
-	tests := []string{
-		"/tmp/pooler/restore_command.pid",
-		"/tmp/pooler's dir/restore_command.pid",
-		"'leading and trailing quotes'",
-		"has spaces and\ttabs",
-	}
-	for _, raw := range tests {
-		t.Run(raw, func(t *testing.T) {
-			out, err := exec.Command("sh", "-c", "printf '%s' "+shellQuoteSingle(raw)).Output()
-			require.NoError(t, err)
-			assert.Equal(t, raw, string(out))
-		})
-	}
-}
 
 // TestRestore_ExecPaths drives Restore against a stubbed pgbackrest, covering
 // the success and failure paths both with and without an explicit backup ID.
@@ -63,7 +41,6 @@ func TestRestore_ExecPaths(t *testing.T) {
 			stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\nexit %d\n", tt.exitCode))
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			err := e.Restore(context.Background(), tt.backupID, poolerDir)
 			if tt.wantErr {
@@ -74,26 +51,4 @@ func TestRestore_ExecPaths(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
-}
-
-func TestRestore_ErrorsWhenConfigPathMissing(t *testing.T) {
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	err := e.Restore(context.Background(), "20250104-100000F", poolerDir)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest config not found")
-}
-
-func TestRestoreCommand(t *testing.T) {
-	e := NewEngine(slog.New(slog.DiscardHandler), nil, nil, Settings{})
-
-	_, err := e.RestoreCommand("/pooler")
-	require.Error(t, err, "no pgbackrest config yet")
-
-	e.SetConfigPath("/etc/pgbackrest.conf")
-	cmd, err := e.RestoreCommand("/pooler")
-	require.NoError(t, err)
-	assert.Equal(t,
-		`pgctld restore-wrapper '/pooler/restore_command.pid' -- pgbackrest --stanza='`+stanzaName+`' --config='/etc/pgbackrest.conf' archive-get %f "%p"`,
-		cmd)
 }

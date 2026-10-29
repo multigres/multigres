@@ -50,16 +50,11 @@ func (e *Engine) List(ctx context.Context, limit uint32) ([]*multipoolermanagerd
 // ListBackups retrieves backup metadata from pgbackrest, sorted newest-first
 // by start time.
 func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return nil, mterrors.Wrap(err, "pgbackrest config not found")
-	}
-
 	if _, err := e.requireBackupConfig(); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config not loaded from topology")
 	}
 
-	output, err := e.runInfoCmd(ctx, configPath)
+	output, err := e.runInfoCmd(ctx)
 	if err != nil {
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
 		if output == "" || isStanzaMissing(output) {
@@ -124,17 +119,16 @@ func repoStatusError(infoData []pgBackRestInfo) error {
 // runInfoCmd runs `pgbackrest info --output=json` with the given config path and
 // returns the combined output. It is shared by ListBackups, FindByJobID, and the
 // health poller so a single code path produces the repo's JSON.
-func (e *Engine) runInfoCmd(ctx context.Context, configPath string) (string, error) {
+func (e *Engine) runInfoCmd(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, commonbackup.InfoTimeout)
 	defer cancel()
 
-	cmd := e.pgbackrestCmd(queryCtx,
+	cmd := e.pgbackrestCmd(
 		"--stanza="+stanzaName,
-		"--config="+configPath,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
-	return safeCombinedOutput(cmd)
+	return e.output(queryCtx, cmd)
 }
 
 // isStanzaMissing reports whether pgbackrest info output indicates the stanza
@@ -273,12 +267,7 @@ func (e *Engine) FindByJobID(
 	ctx context.Context,
 	jobID string,
 ) (string, error) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return "", mterrors.Wrap(err, "pgbackrest config not found")
-	}
-
-	output, err := e.runInfoCmd(ctx, configPath)
+	output, err := e.runInfoCmd(ctx)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))

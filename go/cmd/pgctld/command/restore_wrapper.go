@@ -35,7 +35,7 @@ const restoreWrapperGracePeriod = 500 * time.Millisecond
 // AddRestoreWrapperCommand adds the internal restore-wrapper subcommand.
 func AddRestoreWrapperCommand(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{
-		Use:                "restore-wrapper <pidfile> -- <command> [args...]",
+		Use:                "restore-wrapper <pidfile> [--rename <tmp> <dest>] -- <command> [args...]",
 		Short:              "Internal: wraps a restore_command invocation for reliable stop detection",
 		Hidden:             true,
 		DisableFlagParsing: true,
@@ -48,6 +48,8 @@ func AddRestoreWrapperCommand(root *cobra.Command) {
 		Annotations: map[string]string{skipTelemetryAnnotation: "true"},
 	})
 }
+
+var errUsage = errors.New("usage: pgctld restore-wrapper <pidfile> [--rename <tmp> <dest>] -- <command> [args...]")
 
 // runRestoreWrapper is set as restore_command itself (see resetRestoreCommand
 // / the observer catch-up path in the multipooler manager). Postgres invokes
@@ -65,11 +67,19 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 		pidfile = args[0]
 		args = args[1:]
 	}
+	var renameTmp, renameDest string
+	if len(args) > 0 && args[0] == "--rename" {
+		if len(args) < 3 {
+			return errUsage
+		}
+		renameTmp, renameDest = args[1], args[2]
+		args = args[3:]
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
-	if pidfile == "" || len(args) == 0 {
-		return errors.New("usage: pgctld restore-wrapper <pidfile> -- <command> [args...]")
+	if pidfile == "" || len(args) == 0 || (renameTmp != "" && renameDest == "") || (renameTmp == "" && renameDest != "") {
+		return errUsage
 	}
 
 	// Install the handler before publishing our PID so StopRestoreCommand cannot
@@ -87,10 +97,30 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 	// common case (no pidfile = nothing to check) the fast path.
 	defer os.Remove(pidfile)
 
-	return runWrappedCommand(args[0], args[1:], sigCh)
+	signaled, err := runWrappedCommand(args[0], args[1:], sigCh)
+	if renameTmp == "" {
+		return err
+	}
+	// Postgres skips the size check for timeline history files, so a partially
+	// written destination would be parsed as valid. The command writes to tmp
+	// and only a complete, successful run is published under the real name.
+	if err != nil || signaled {
+		//nolint:gosec // G703: the caller deliberately supplies the temp path.
+		if rmErr := os.Remove(renameTmp); rmErr != nil && !os.IsNotExist(rmErr) {
+			return errors.Join(err, fmt.Errorf("restore-wrapper: failed to remove %s: %w", renameTmp, rmErr))
+		}
+		return err
+	}
+	//nolint:gosec // G703: the caller deliberately supplies the rename paths.
+	if rnErr := os.Rename(renameTmp, renameDest); rnErr != nil {
+		_ = os.Remove(renameTmp)
+		return fmt.Errorf("restore-wrapper: failed to rename %s to %s: %w", renameTmp, renameDest, rnErr)
+	}
+	return nil
 }
 
-func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error {
+// runWrappedCommand reports whether the child was ended by a forwarded signal.
+func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) (bool, error) {
 	//nolint:gosec // G702: executing the caller-supplied restore command is this wrapper's purpose.
 	c := exec.Command(name, args...)
 	c.Stdout = os.Stdout
@@ -101,7 +131,7 @@ func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := c.Start(); err != nil {
-		return fmt.Errorf("restore-wrapper: failed to start %s: %w", name, err)
+		return false, fmt.Errorf("restore-wrapper: failed to start %s: %w", name, err)
 	}
 
 	done := make(chan error, 1)
@@ -121,8 +151,8 @@ func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error
 		// request. This signal came through StopRestoreCommand, so report a clean
 		// wrapper exit after the child is gone; PostgreSQL will verify whether the
 		// requested WAL file exists and continue normally when it does not.
-		return nil
+		return true, nil
 	case err := <-done:
-		return err
+		return false, err
 	}
 }

@@ -27,9 +27,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/keyrange"
+	"github.com/multigres/multigres/go/common/sandbox"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -112,15 +112,13 @@ type Multipooler struct {
 	// pooler's cluster-internal topo Hostname, which an external/standalone
 	// source cannot resolve. Port 0 selects the gateway's default Postgres
 	// protocol port.
-	migrationTargetAdvertiseHost   viperutil.Value[string]
-	migrationTargetAdvertisePort   viperutil.Value[int]
-	replicationStatsPollIntervalMs viperutil.Value[int]
-	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
-	pgBackRestCertFile               viperutil.Value[string]
-	pgBackRestKeyFile                viperutil.Value[string]
-	pgBackRestCAFile                 viperutil.Value[string]
-	pgBackRestPort                   viperutil.Value[int]
-	pgBackRestCipherKeyFile          viperutil.Value[string]
+	migrationTargetAdvertiseHost     viperutil.Value[string]
+	migrationTargetAdvertisePort     viperutil.Value[int]
+	replicationStatsPollIntervalMs   viperutil.Value[int]
+	pgBackRestControlSocket          viperutil.Value[string]
+	pgBackRestWALSocket              viperutil.Value[string]
+	dataVolumeRoot                   viperutil.Value[string]
+	dataVolumeAnchor                 viperutil.Value[string]
 	backendVpidTrackingEnabled       viperutil.Value[bool]
 	postgresUnrecoverableTimeout     viperutil.Value[time.Duration]
 	postgresUnrecoverableMinAttempts viperutil.Value[int]
@@ -262,30 +260,24 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 			FlagName: "replication-stats-poll-interval-milliseconds",
 			Dynamic:  false,
 		}),
-		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
-			Default:  "/certs/pgbackrest.crt",
-			FlagName: "pgbackrest-cert-file",
-			Dynamic:  false,
-		}),
-		pgBackRestKeyFile: viperutil.Configure(reg, "pgbackrest-key-file", viperutil.Options[string]{
-			Default:  "/certs/pgbackrest.key",
-			FlagName: "pgbackrest-key-file",
-			Dynamic:  false,
-		}),
-		pgBackRestCAFile: viperutil.Configure(reg, "pgbackrest-ca-file", viperutil.Options[string]{
-			Default:  "/certs/ca.crt",
-			FlagName: "pgbackrest-ca-file",
-			Dynamic:  false,
-		}),
-		pgBackRestPort: viperutil.Configure(reg, "pgbackrest-port", viperutil.Options[int]{
-			Default:  8432,
-			FlagName: "pgbackrest-port",
-			Dynamic:  false,
-		}),
-		pgBackRestCipherKeyFile: viperutil.Configure(reg, "pgbackrest-cipher-key-file", viperutil.Options[string]{
+		pgBackRestControlSocket: viperutil.Configure(reg, "pgbackrest-control-socket", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "pgbackrest-cipher-key-file",
-			EnvVars:  []string{backup.CipherKeyFileEnvVar},
+			FlagName: "pgbackrest-control-socket",
+			Dynamic:  false,
+		}),
+		pgBackRestWALSocket: viperutil.Configure(reg, "pgbackrest-wal-socket", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-wal-socket",
+			Dynamic:  false,
+		}),
+		dataVolumeRoot: viperutil.Configure(reg, "data-volume-root", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "data-volume-root",
+			Dynamic:  false,
+		}),
+		dataVolumeAnchor: viperutil.Configure(reg, "data-volume-anchor", viperutil.Options[string]{
+			Default:  dataVolumeAnchorMount,
+			FlagName: "data-volume-anchor",
 			Dynamic:  false,
 		}),
 		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
@@ -359,11 +351,10 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("migration-target-advertise-host", mp.migrationTargetAdvertiseHost.Default(), "gateway address advertised to an external source in the Migrator EXPORT-direction reverse subscription (must be a multigateway reachable from the source, not this pooler's cluster-internal hostname); required for EXPORT")
 	flags.Int("migration-target-advertise-port", mp.migrationTargetAdvertisePort.Default(), "Postgres-facing port paired with --migration-target-advertise-host; 0 selects the gateway's default Postgres protocol port")
 	flags.Int("replication-stats-poll-interval-milliseconds", mp.replicationStatsPollIntervalMs.Default(), "interval in milliseconds between logical-replication connection metrics polls")
-	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
-	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
-	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
-	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
-	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
+	flags.String("pgbackrest-control-socket", mp.pgBackRestControlSocket.Default(), "pgbackrestd control socket (required). pgBackRest runs in the pgbackrestd sidecar and nothing is exec'd locally.")
+	flags.String("pgbackrest-wal-socket", mp.pgBackRestWALSocket.Default(), "pgbackrestd WAL socket as postgres sees it, rendered into archive_command and restore_command (required)")
+	flags.String("data-volume-root", mp.dataVolumeRoot.Default(), "Mount root of the data volume shared with postgres and the pgbackrestd sidecar. Empty selects "+manager.DefaultDataVolumeRoot)
+	flags.String("data-volume-anchor", mp.dataVolumeAnchor.Default(), "How --data-volume-root is verified: \""+dataVolumeAnchorMount+"\" requires a mount point, \""+dataVolumeAnchorDir+"\" accepts any directory (local development and tests only)")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement. Default 5m; set 0 to disable (do so where no actor replaces quarantined nodes).")
 	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
@@ -385,11 +376,10 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.migrationTargetAdvertiseHost,
 		mp.migrationTargetAdvertisePort,
 		mp.replicationStatsPollIntervalMs,
-		mp.pgBackRestCertFile,
-		mp.pgBackRestKeyFile,
-		mp.pgBackRestCAFile,
-		mp.pgBackRestPort,
-		mp.pgBackRestCipherKeyFile,
+		mp.pgBackRestControlSocket,
+		mp.pgBackRestWALSocket,
+		mp.dataVolumeRoot,
+		mp.dataVolumeAnchor,
 		mp.backendVpidTrackingEnabled,
 		mp.postgresUnrecoverableTimeout,
 		mp.postgresUnrecoverableMinAttempts,
@@ -400,39 +390,15 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.connPoolConfig.RegisterFlags(flags)
 }
 
-// resolvePgBackRestCipherKeys loads the backup cipher key file if one is
-// configured. Same principles as the postgres password file: an explicitly
-// configured path is authoritative — an empty path, unreadable file, or
-// invalid content fails startup, never a silent fallthrough to "no keys".
-// Returns nil keys when no key file is configured.
-func (mp *Multipooler) resolvePgBackRestCipherKeys() (backup.CipherKeys, error) {
-	path, explicit := mp.pgBackRestCipherKeyFilePath()
-	if !explicit {
-		return nil, nil
+// requireSidecarSockets refuses to start without the sockets of the
+// pgbackrestd sidecar that runs every pgBackRest command. Whether the sidecar
+// can confine its children is its own start-time decision (--sandbox), not the
+// multipooler's.
+func requireSidecarSockets(controlSocket, walSocket string) error {
+	if controlSocket == "" || walSocket == "" {
+		return errors.New("--pgbackrest-control-socket and --pgbackrest-wal-socket are required: they name the pgbackrestd sidecar that runs every pgBackRest command")
 	}
-	if path == "" {
-		return nil, errors.New("backup cipher key file path is set to the empty string; unset it or provide a path")
-	}
-	return backup.LoadCipherKeys(path)
-}
-
-// pgBackRestCipherKeyFilePath reports the configured key file path and whether it
-// was explicitly set. Flag and env are checked directly (pflag.Flag.Changed /
-// os.LookupEnv) so an explicitly-empty value is distinguishable from an unset
-// one; a value from a viperutil config file is honored last.
-func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
-	if mp.flagSet != nil {
-		if f := mp.flagSet.Lookup("pgbackrest-cipher-key-file"); f != nil && f.Changed {
-			return f.Value.String(), true
-		}
-	}
-	if v, ok := os.LookupEnv(backup.CipherKeyFileEnvVar); ok {
-		return v, true
-	}
-	if v := mp.pgBackRestCipherKeyFile.Get(); v != "" {
-		return v, true
-	}
-	return "", false
+	return nil
 }
 
 // Init initializes the multipooler. If any services fail to start,
@@ -471,13 +437,12 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return errors.New("database is required")
 	}
 
-	if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
-		return fmt.Errorf("resolve admin password: %w", err)
+	if err := requireSidecarSockets(mp.pgBackRestControlSocket.Get(), mp.pgBackRestWALSocket.Get()); err != nil {
+		return err
 	}
 
-	cipherKeys, err := mp.resolvePgBackRestCipherKeys()
-	if err != nil {
-		return fmt.Errorf("resolve backup cipher keys: %w", err)
+	if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
+		return fmt.Errorf("resolve admin password: %w", err)
 	}
 
 	if mp.tableGroup.Get() == "" {
@@ -496,13 +461,24 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return errors.New("PGDATA environment variable is required")
 	}
 
-	// Adopt configuration pgctld owns (postgres port, pooler dir, pgBackRest
-	// port and cert paths) from its Status RPC, unless explicitly configured
-	// here. pgctld is the process that actually applies these values, so
+	dataVolumeAnchor, err := parseDataVolumeAnchor(mp.dataVolumeAnchor.Get())
+	if err != nil {
+		return err
+	}
+
+	// Adopt configuration pgctld owns (postgres port, pooler dir) from its
+	// Status RPC, unless explicitly configured here. pgctld is the process that actually applies these values, so
 	// adopting them removes a class of hand-balanced flag duplication.
 	adopted, err := mp.adoptPgctldValues(startCtx, logger)
 	if err != nil {
 		return err
+	}
+
+	portCtx, cancel := context.WithTimeout(startCtx, pgctldAdoptTimeout)
+	pgBackRestPort, err := manager.SidecarServerPort(portCtx, mp.pgBackRestControlSocket.Get())
+	cancel()
+	if err != nil {
+		return fmt.Errorf("read pgbackrest server port from the sidecar: %w", err)
 	}
 
 	// Resolve the postgres socket path: an unset --socket-file derives it from
@@ -530,7 +506,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(adopted.pgPort)
-	multipooler.PortMap["pgbackrest"] = int32(adopted.pgBackRestPort)
+	multipooler.PortMap["pgbackrest"] = int32(pgBackRestPort)
 	multipooler.ShardRef = &clustermetadatapb.ShardRef{
 		Database:   mp.database.Get(),
 		TableGroup: mp.tableGroup.Get(),
@@ -571,11 +547,11 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		ConnPoolConfig:                 mp.connPoolConfig,
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
-		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
-		PgBackRestCertFile: adopted.pgBackRestCertFile,
-		PgBackRestKeyFile:  adopted.pgBackRestKeyFile,
-		PgBackRestCAFile:   adopted.pgBackRestCAFile,
-		BackupCipherKeys:   cipherKeys,
+
+		PgBackRestControlSocket: mp.pgBackRestControlSocket.Get(),
+		PgBackRestWALSocket:     mp.pgBackRestWALSocket.Get(),
+		DataVolumeRoot:          mp.dataVolumeRoot.Get(),
+		DataVolumeAnchor:        dataVolumeAnchor,
 
 		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
 		PostgresUnrecoverableMinAttempts: minAttempts,
@@ -681,6 +657,23 @@ func (mp *Multipooler) Shutdown(ctx context.Context) {
 	}
 }
 
+const (
+	dataVolumeAnchorMount = "mount"
+	dataVolumeAnchorDir   = "dir"
+)
+
+// parseDataVolumeAnchor maps --data-volume-anchor to the sandbox anchor mode,
+// rejecting anything else so a typo cannot silently relax the mount check.
+func parseDataVolumeAnchor(v string) (sandbox.AnchorMode, error) {
+	switch v {
+	case dataVolumeAnchorMount:
+		return sandbox.AnchorMount, nil
+	case dataVolumeAnchorDir:
+		return sandbox.AnchorDir, nil
+	}
+	return sandbox.AnchorMount, fmt.Errorf("--data-volume-anchor must be %q or %q, got %q", dataVolumeAnchorMount, dataVolumeAnchorDir, v)
+}
+
 // flagExplicitlySet reports whether the named flag was explicitly configured:
 // set on the command line, even to its default or an empty value
 // (pflag.Flag.Changed), or present as a key in the loaded config file
@@ -723,34 +716,24 @@ const pgctldAdoptTimeout = 30 * time.Second
 
 // adoptedPgctldValues are the settings pgctld owns that the multipooler
 // adopts from its Status RPC instead of redeclaring: the postgres port and
-// pooler directory (pgctld is the process that applies both), and the
-// pgBackRest port and TLS material paths (pgctld serves that endpoint).
+// pooler directory (pgctld is the process that applies both).
 type adoptedPgctldValues struct {
-	pgPort             int
-	poolerDir          string
-	pgBackRestPort     int
-	pgBackRestCertFile string
-	pgBackRestKeyFile  string
-	pgBackRestCAFile   string
+	pgPort    int
+	poolerDir string
 }
 
 // flagValues returns the flag-configured values, used both as the
 // no-adoption-needed fast path and as the per-value explicit override.
 func (mp *Multipooler) flagValues() adoptedPgctldValues {
 	return adoptedPgctldValues{
-		pgPort:             mp.pgPort.Get(),
-		poolerDir:          mp.poolerDir.Get(),
-		pgBackRestPort:     mp.pgBackRestPort.Get(),
-		pgBackRestCertFile: mp.pgBackRestCertFile.Get(),
-		pgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
-		pgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+		pgPort:    mp.pgPort.Get(),
+		poolerDir: mp.poolerDir.Get(),
 	}
 }
 
 // resolveAdoptedValues merges the flag-configured values with a pgctld
 // StatusResponse: an explicitly configured flag wins; otherwise the Status
-// value is adopted when pgctld reports one, and the flag default is kept when
-// it does not (e.g. pgBackRest not configured on pgctld).
+// value is adopted when pgctld reports one.
 func resolveAdoptedValues(flags adoptedPgctldValues, explicit map[string]bool, status *pgctldpb.StatusResponse) adoptedPgctldValues {
 	out := flags
 	if !explicit["pg-port"] && status.GetPort() > 0 {
@@ -758,21 +741,6 @@ func resolveAdoptedValues(flags adoptedPgctldValues, explicit map[string]bool, s
 	}
 	if !explicit["pooler-dir"] && status.GetPoolerDir() != "" {
 		out.poolerDir = status.GetPoolerDir()
-	}
-	if !explicit["pgbackrest-port"] && status.GetPgbackrestPort() > 0 {
-		out.pgBackRestPort = int(status.GetPgbackrestPort())
-	}
-	if certDir := status.GetPgbackrestCertDir(); certDir != "" {
-		certFile, keyFile, caFile := constants.PgBackRestCertFiles(certDir)
-		if !explicit["pgbackrest-cert-file"] {
-			out.pgBackRestCertFile = certFile
-		}
-		if !explicit["pgbackrest-key-file"] {
-			out.pgBackRestKeyFile = keyFile
-		}
-		if !explicit["pgbackrest-ca-file"] {
-			out.pgBackRestCAFile = caFile
-		}
 	}
 	return out
 }
@@ -782,24 +750,14 @@ func resolveAdoptedValues(flags adoptedPgctldValues, explicit map[string]bool, s
 // pgctld. Otherwise pgctld's Status is polled (it answers regardless of
 // postgres state, including before initdb) until pgctldAdoptTimeout.
 //
-// On timeout the outcome depends on what needed adopting. pg-port and
-// pooler-dir are identity: their defaults match no particular deployment, so
-// proceeding without them would be a silent misconfiguration — Init fails
-// with a clear error. The pgBackRest values have workable defaults and the
-// manager explicitly supports running with pgctld unavailable (degraded, so
-// multiorch keeps visibility), so a pgBackRest-only adoption falls back to
-// the flag values with a warning instead of refusing to start.
+// On timeout, pg-port and pooler-dir are identity: their defaults match no
+// particular deployment, so proceeding without them would be a silent
+// misconfiguration and Init fails with a clear error.
 func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logger) (adoptedPgctldValues, error) {
 	requiredFlags := []string{"pg-port", "pooler-dir"}
-	optionalFlags := []string{"pgbackrest-port", "pgbackrest-cert-file", "pgbackrest-key-file", "pgbackrest-ca-file"}
-	explicit := make(map[string]bool, len(requiredFlags)+len(optionalFlags))
-	allExplicit, requiredExplicit := true, true
+	explicit := make(map[string]bool, len(requiredFlags))
+	allExplicit := true
 	for _, name := range requiredFlags {
-		explicit[name] = mp.flagExplicitlySet(name)
-		allExplicit = allExplicit && explicit[name]
-		requiredExplicit = requiredExplicit && explicit[name]
-	}
-	for _, name := range optionalFlags {
 		explicit[name] = mp.flagExplicitlySet(name)
 		allExplicit = allExplicit && explicit[name]
 	}
@@ -825,12 +783,7 @@ func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logge
 		}
 		select {
 		case <-deadlineCtx.Done():
-			if !requiredExplicit {
-				return adoptedPgctldValues{}, fmt.Errorf("adopt config from pgctld at %s: %w (set --pg-port and --pooler-dir explicitly to start without pgctld); last error: %w", addr, context.Cause(deadlineCtx), err)
-			}
-			logger.WarnContext(ctx, "pgctld unreachable; keeping flag values for pgBackRest settings and starting degraded",
-				"pgctld_addr", addr, "error", err)
-			return mp.flagValues(), nil
+			return adoptedPgctldValues{}, fmt.Errorf("adopt config from pgctld at %s: %w (set --pg-port and --pooler-dir explicitly to start without pgctld); last error: %w", addr, context.Cause(deadlineCtx), err)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -855,7 +808,6 @@ func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logge
 		"pgctld_addr", addr,
 		"pg_port", adopted.pgPort,
 		"pooler_dir", adopted.poolerDir,
-		"pgbackrest_port", adopted.pgBackRestPort,
 	)
 	return adopted, nil
 }
