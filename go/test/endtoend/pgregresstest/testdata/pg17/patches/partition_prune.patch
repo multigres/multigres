@@ -1,4 +1,8 @@
 # Known divergences (by design):
+# - SQL-level EXPLAIN EXECUTE substitutes the arguments as literals into the
+#   prepared body, so partition pruning happens at plan time (the Filter shows the
+#   literal values and there is no "Subplans Removed") rather than the run-time
+#   pruning PostgreSQL performs when the plan carries $N parameters.
 # - explain_parallel_append runs a dynamic EXECUTE the pooler cannot vet, so its
 #   runtime CREATE is rejected. It is pre-seeded on the primary
 #   (testdata/pg17/regress_preseed.sql) so the parallel-append plan checks run.
@@ -7,7 +11,152 @@
 #   function's dynamic EXECUTE runs on another that has not prepared it.
 --- a
 +++ b
-@@ -2355,6 +2355,7 @@
+@@ -2142,33 +2142,31 @@
+ QUERY PLAN
+ ---------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 6
+ -> Seq Scan on ab_a2_b1 ab_1 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 2) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a2_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 2) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a2_b3 ab_3 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
+-(8 rows)
++Filter: ((a >= 2) AND (a <= 2) AND (b <= 3))
++(7 rows)
+ 
+ explain (analyze, costs off, summary off, timing off) execute ab_q1 (1, 2, 3);
+ QUERY PLAN
+ ---------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 3
+ -> Seq Scan on ab_a1_b1 ab_1 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a1_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a1_b3 ab_3 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a2_b1 ab_4 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a2_b2 ab_5 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
+ -> Seq Scan on ab_a2_b3 ab_6 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b <= $3))
+-(14 rows)
++Filter: ((a >= 1) AND (a <= 2) AND (b <= 3))
++(13 rows)
+ 
+ deallocate ab_q1;
+ -- Runtime pruning after optimizer pruning
+@@ -2178,27 +2176,25 @@
+ QUERY PLAN
+ ---------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 4
+ -> Seq Scan on ab_a2_b1 ab_1 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
++Filter: ((a >= 2) AND (a <= 2) AND (b < 3))
+ -> Seq Scan on ab_a2_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
+-(6 rows)
++Filter: ((a >= 2) AND (a <= 2) AND (b < 3))
++(5 rows)
+ 
+ explain (analyze, costs off, summary off, timing off) execute ab_q1 (2, 4);
+ QUERY PLAN
+ ---------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 2
+ -> Seq Scan on ab_a2_b1 ab_1 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
++Filter: ((a >= 2) AND (a <= 4) AND (b < 3))
+ -> Seq Scan on ab_a2_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
++Filter: ((a >= 2) AND (a <= 4) AND (b < 3))
+ -> Seq Scan on ab_a3_b1 ab_3 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
++Filter: ((a >= 2) AND (a <= 4) AND (b < 3))
+ -> Seq Scan on ab_a3_b2 ab_4 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < 3))
+-(10 rows)
++Filter: ((a >= 2) AND (a <= 4) AND (b < 3))
++(9 rows)
+ 
+ -- Ensure a mix of PARAM_EXTERN and PARAM_EXEC Params work together at
+ -- different levels of partitioning.
+@@ -2206,36 +2202,34 @@
+ select a from ab where a between $1 and $2 and b < (select 3);
+ explain (analyze, costs off, summary off, timing off) execute ab_q2 (2, 2);
+ QUERY PLAN
+------------------------------------------------------------------------
++---------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 6
+ InitPlan 1
+ -> Result (actual rows=1 loops=1)
+ -> Seq Scan on ab_a2_b1 ab_1 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < (InitPlan 1).col1))
++Filter: ((a >= 2) AND (a <= 2) AND (b < (InitPlan 1).col1))
+ -> Seq Scan on ab_a2_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < (InitPlan 1).col1))
++Filter: ((a >= 2) AND (a <= 2) AND (b < (InitPlan 1).col1))
+ -> Seq Scan on ab_a2_b3 ab_3 (never executed)
+-Filter: ((a >= $1) AND (a <= $2) AND (b < (InitPlan 1).col1))
+-(10 rows)
++Filter: ((a >= 2) AND (a <= 2) AND (b < (InitPlan 1).col1))
++(9 rows)
+ 
+ -- As above, but swap the PARAM_EXEC Param to the first partition level
+ prepare ab_q3 (int, int) as
+ select a from ab where b between $1 and $2 and a < (select 3);
+ explain (analyze, costs off, summary off, timing off) execute ab_q3 (2, 2);
+ QUERY PLAN
+------------------------------------------------------------------------
++---------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 6
+ InitPlan 1
+ -> Result (actual rows=1 loops=1)
+ -> Seq Scan on ab_a1_b2 ab_1 (actual rows=0 loops=1)
+-Filter: ((b >= $1) AND (b <= $2) AND (a < (InitPlan 1).col1))
++Filter: ((b >= 2) AND (b <= 2) AND (a < (InitPlan 1).col1))
+ -> Seq Scan on ab_a2_b2 ab_2 (actual rows=0 loops=1)
+-Filter: ((b >= $1) AND (b <= $2) AND (a < (InitPlan 1).col1))
++Filter: ((b >= 2) AND (b <= 2) AND (a < (InitPlan 1).col1))
+ -> Seq Scan on ab_a3_b2 ab_3 (never executed)
+-Filter: ((b >= $1) AND (b <= $2) AND (a < (InitPlan 1).col1))
+-(10 rows)
++Filter: ((b >= 2) AND (b <= 2) AND (a < (InitPlan 1).col1))
++(9 rows)
+ 
+ --
+ -- Test runtime pruning with hash partitioned tables
+@@ -2249,12 +2243,10 @@
+ select * from hp where a is null and b = $1;
+ explain (costs off) execute hp_q1('xxx');
+ QUERY PLAN
+---------------------------------------------
+-Append
+-Subplans Removed: 3
+--> Seq Scan on hp2 hp_1
+-Filter: ((a IS NULL) AND (b = $1))
+-(4 rows)
++-----------------------------------------------
++Seq Scan on hp2 hp
++Filter: ((a IS NULL) AND (b = 'xxx'::text))
++(2 rows)
+ 
+ deallocate hp_q1;
+ drop table hp;
+@@ -2355,6 +2347,7 @@
  end loop;
  end;
  $$;
@@ -15,7 +164,7 @@
  prepare ab_q4 (int, int) as
  select avg(a) from ab where a between $1 and $2 and b < 4;
  -- Encourage use of parallel plans
-@@ -2363,81 +2364,21 @@
+@@ -2363,81 +2356,21 @@
  set min_parallel_table_scan_size = 0;
  set max_parallel_workers_per_gather = 2;
  select explain_parallel_append('execute ab_q4 (2, 2)');
@@ -105,3 +254,257 @@
  -- Test Parallel Append with PARAM_EXEC Params
  select explain_parallel_append('select count(*) from ab where (a = (select 1) or a = (select 3)) and b = 2');
  explain_parallel_append
+@@ -2816,27 +2749,26 @@
+ -- Ensure the xy_1 subplan is not pruned.
+ explain (analyze, costs off, summary off, timing off) execute ab_q6(1);
+ QUERY PLAN
+---------------------------------------------------------
++-------------------------------------------------------
+ Append (actual rows=0 loops=1)
+-Subplans Removed: 12
+ InitPlan 1
+ -> Result (actual rows=1 loops=1)
+ -> Seq Scan on ab_a1_b1 ab_1 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
+ -> Seq Scan on ab_a1_b2 ab_2 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
+ -> Seq Scan on ab_a1_b3 ab_3 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
+ -> Seq Scan on xy_1 (actual rows=0 loops=1)
+-Filter: ((x = $1) AND (y = (InitPlan 1).col1))
++Filter: ((x = 1) AND (y = (InitPlan 1).col1))
+ Rows Removed by Filter: 1
+ -> Seq Scan on ab_a1_b1 ab_4 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
+ -> Seq Scan on ab_a1_b2 ab_5 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
+ -> Seq Scan on ab_a1_b3 ab_6 (never executed)
+-Filter: ((a = $1) AND (b = (InitPlan 1).col1))
+-(19 rows)
++Filter: ((a = 1) AND (b = (InitPlan 1).col1))
++(18 rows)
+ 
+ -- Ensure we see just the xy_1 row.
+ execute ab_q6(100);
+@@ -3188,7 +3120,7 @@
+ QUERY PLAN
+ ----------------------------------------------------------
+ Seq Scan on part_abc_p1 part_abc (actual rows=0 loops=1)
+-Filter: ((a = $1) AND (b = $2) AND (c = $3))
++Filter: ((a = 1) AND (b = 2) AND (c = 3))
+ (2 rows)
+ 
+ deallocate part_abc_q1;
+@@ -3211,28 +3143,24 @@
+ prepare q1 (int,int) as select * from listp where b in ($1,$2);
+ explain (analyze, costs off, summary off, timing off) execute q1 (1,1);
+ QUERY PLAN
+--------------------------------------------------------------
+-Append (actual rows=0 loops=1)
+-Subplans Removed: 1
+--> Seq Scan on listp_1_1 listp_1 (actual rows=0 loops=1)
+-Filter: (b = ANY (ARRAY[$1, $2]))
+-(4 rows)
++-----------------------------------------------------
++Seq Scan on listp_1_1 listp (actual rows=0 loops=1)
++Filter: (b = ANY ('{1,1}'::integer[]))
++(2 rows)
+ 
+ explain (analyze, costs off, summary off, timing off) execute q1 (2,2);
+ QUERY PLAN
+--------------------------------------------------------------
+-Append (actual rows=0 loops=1)
+-Subplans Removed: 1
+--> Seq Scan on listp_2_1 listp_1 (actual rows=0 loops=1)
+-Filter: (b = ANY (ARRAY[$1, $2]))
+-(4 rows)
++-----------------------------------------------------
++Seq Scan on listp_2_1 listp (actual rows=0 loops=1)
++Filter: (b = ANY ('{2,2}'::integer[]))
++(2 rows)
+ 
+ -- Try with no matching partitions.
+ explain (analyze, costs off, summary off, timing off) execute q1 (0,0);
+ QUERY PLAN
+ --------------------------------
+-Append (actual rows=0 loops=1)
+-Subplans Removed: 2
++Result (actual rows=0 loops=1)
++One-Time Filter: false
+ (2 rows)
+ 
+ deallocate q1;
+@@ -3241,19 +3169,17 @@
+ -- Both partitions allowed by IN clause, but one disallowed by <> clause
+ explain (analyze, costs off, summary off, timing off) execute q1 (1,2,2,0);
+ QUERY PLAN
+--------------------------------------------------------------------------
+-Append (actual rows=0 loops=1)
+-Subplans Removed: 1
+--> Seq Scan on listp_1_1 listp_1 (actual rows=0 loops=1)
+-Filter: ((b = ANY (ARRAY[$1, $2])) AND ($3 <> b) AND ($4 <> b))
+-(4 rows)
++----------------------------------------------------------------------
++Seq Scan on listp_1_1 listp (actual rows=0 loops=1)
++Filter: ((b = ANY ('{1,2}'::integer[])) AND (2 <> b) AND (0 <> b))
++(2 rows)
+ 
+ -- Both partitions allowed by IN clause, then both excluded again by <> clauses.
+ explain (analyze, costs off, summary off, timing off) execute q1 (1,2,2,1);
+ QUERY PLAN
+ --------------------------------
+-Append (actual rows=0 loops=1)
+-Subplans Removed: 2
++Result (actual rows=0 loops=1)
++One-Time Filter: false
+ (2 rows)
+ 
+ -- Ensure Params that evaluate to NULL properly prune away all partitions
+@@ -3406,14 +3332,12 @@
+ explain (analyze, costs off, summary off, timing off)
+ execute ps1(1);
+ QUERY PLAN
+--------------------------------------------------------------
+-Append (actual rows=1 loops=1)
+-Subplans Removed: 2
++------------------------------------------------------
++Seq Scan on mc3p1 mc3p (actual rows=1 loops=1)
++Filter: ((a = 1) AND (abs(b) < (InitPlan 1).col1))
+ InitPlan 1
+ -> Result (actual rows=1 loops=1)
+--> Seq Scan on mc3p1 mc3p_1 (actual rows=1 loops=1)
+-Filter: ((a = $1) AND (abs(b) < (InitPlan 1).col1))
+-(6 rows)
++(4 rows)
+ 
+ deallocate ps1;
+ prepare ps2 as
+@@ -3421,16 +3345,15 @@
+ explain (analyze, costs off, summary off, timing off)
+ execute ps2(1);
+ QUERY PLAN
+---------------------------------------------------------------
++-------------------------------------------------------------
+ Append (actual rows=2 loops=1)
+-Subplans Removed: 1
+ InitPlan 1
+ -> Result (actual rows=1 loops=1)
+ -> Seq Scan on mc3p0 mc3p_1 (actual rows=1 loops=1)
+-Filter: ((a <= $1) AND (abs(b) < (InitPlan 1).col1))
++Filter: ((a <= 1) AND (abs(b) < (InitPlan 1).col1))
+ -> Seq Scan on mc3p1 mc3p_2 (actual rows=1 loops=1)
+-Filter: ((a <= $1) AND (abs(b) < (InitPlan 1).col1))
+-(8 rows)
++Filter: ((a <= 1) AND (abs(b) < (InitPlan 1).col1))
++(7 rows)
+ 
+ deallocate ps2;
+ drop table mc3p;
+@@ -3489,14 +3412,13 @@
+ -----------------------------------------------------------------------------------------
+ Merge Append (actual rows=2 loops=1)
+ Sort Key: ma_test.b
+-Subplans Removed: 1
+ -> Index Scan using ma_test_p2_b_idx on ma_test_p2 ma_test_1 (actual rows=1 loops=1)
+-Filter: ((a >= $1) AND ((a % 10) = 5))
++Filter: ((a >= 15) AND ((a % 10) = 5))
+ Rows Removed by Filter: 9
+ -> Index Scan using ma_test_p3_b_idx on ma_test_p3 ma_test_2 (actual rows=1 loops=1)
+-Filter: ((a >= $1) AND ((a % 10) = 5))
++Filter: ((a >= 15) AND ((a % 10) = 5))
+ Rows Removed by Filter: 9
+-(9 rows)
++(8 rows)
+ 
+ execute mt_q1(15);
+ a
+@@ -3507,14 +3429,11 @@
+ 
+ explain (analyze, costs off, summary off, timing off) execute mt_q1(25);
+ QUERY PLAN
+------------------------------------------------------------------------------------------
+-Merge Append (actual rows=1 loops=1)
+-Sort Key: ma_test.b
+-Subplans Removed: 2
+--> Index Scan using ma_test_p3_b_idx on ma_test_p3 ma_test_1 (actual rows=1 loops=1)
+-Filter: ((a >= $1) AND ((a % 10) = 5))
++---------------------------------------------------------------------------------
++Index Scan using ma_test_p3_b_idx on ma_test_p3 ma_test (actual rows=1 loops=1)
++Filter: ((a >= 25) AND ((a % 10) = 5))
+ Rows Removed by Filter: 9
+-(6 rows)
++(3 rows)
+ 
+ execute mt_q1(25);
+ a
+@@ -3525,11 +3444,13 @@
+ -- Ensure MergeAppend behaves correctly when no subplans match
+ explain (analyze, costs off, summary off, timing off) execute mt_q1(35);
+ QUERY PLAN
+---------------------------------------
+-Merge Append (actual rows=0 loops=1)
+-Sort Key: ma_test.b
+-Subplans Removed: 3
+-(3 rows)
++----------------------------------------
++Sort (actual rows=0 loops=1)
++Sort Key: b
++Sort Method: quicksort Memory: 25kB
++-> Result (actual rows=0 loops=1)
++One-Time Filter: false
++(5 rows)
+ 
+ execute mt_q1(35);
+ a
+@@ -3541,13 +3462,17 @@
+ -- Ensure output list looks sane when the MergeAppend has no subplans.
+ explain (analyze, verbose, costs off, summary off, timing off) execute mt_q2 (35);
+ QUERY PLAN
+---------------------------------------------
++----------------------------------------------
+ Limit (actual rows=0 loops=1)
+-Output: ma_test.a, ma_test.b
+--> Merge Append (actual rows=0 loops=1)
++Output: a, b
++-> Sort (actual rows=0 loops=1)
++Output: a, b
+ Sort Key: ma_test.b
+-Subplans Removed: 3
+-(5 rows)
++Sort Method: quicksort Memory: 25kB
++-> Result (actual rows=0 loops=1)
++Output: a, b
++One-Time Filter: false
++(9 rows)
+ 
+ deallocate mt_q2;
+ -- ensure initplan params properly prune partitions
+@@ -3975,18 +3900,17 @@
+ where s.a = $1 and s.b = $2 and s.c = (select 1);
+ explain (costs off) execute q (1, 1);
+ QUERY PLAN
+-------------------------------------------------------------------------------
++-------------------------------------------------------------------
+ Append
+-Subplans Removed: 1
+ InitPlan 1
+ -> Result
+ -> Seq Scan on p1 p
+-Filter: ((a = $1) AND (b = $2) AND (c = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = 1) AND (c = (InitPlan 1).col1))
+ -> Seq Scan on q111 q1
+-Filter: ((a = $1) AND (b = $2) AND (c = (InitPlan 1).col1))
++Filter: ((a = 1) AND (b = 1) AND (c = (InitPlan 1).col1))
+ -> Result
+-One-Time Filter: ((1 = $1) AND (1 = $2) AND (1 = (InitPlan 1).col1))
+-(10 rows)
++One-Time Filter: (1 = (InitPlan 1).col1)
++(9 rows)
+ 
+ execute q (1, 1);
+ a | b | c
