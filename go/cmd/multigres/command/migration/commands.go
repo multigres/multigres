@@ -128,7 +128,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 			}
 			req := &migratorpb.CreateMigrationRequest{
 				Migration: &migratorpb.MigrationRecord{
-					Target: &clustermetadatapb.ShardKey{
+					Target: &clustermetadatapb.ShardRef{
 						Database:   targetDB,
 						TableGroup: targetTableGroup,
 						Shard:      targetShard,
