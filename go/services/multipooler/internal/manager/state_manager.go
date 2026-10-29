@@ -132,7 +132,7 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 func (ssm *StateManager) RoutingRole() clustermetadatapb.RoutingRole {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
-	return deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
+	return ssm.deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
 }
 
 // NewStateManager creates a new StateManager. consensusStatus returns the live
@@ -170,7 +170,7 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	defer ssm.mu.Unlock()
 	ssm.components = append(ssm.components, component)
 	return component.OnStateChange(ctx, servingstate.State{
-		Routing:       deriveRoutingState(ssm.pgMode, ssm.consensusStatus()),
+		Routing:       ssm.deriveRoutingState(ssm.pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	})
 }
@@ -284,7 +284,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// components that advertise it (the health streamer, the record projection
 	// below) publish it as a pure function of the fanned state — no explicit push.
 	target := servingstate.State{
-		Routing:       deriveRoutingState(next.PostgresMode, cs),
+		Routing:       ssm.deriveRoutingState(next.PostgresMode, cs),
 		ServingStatus: next.ServingStatus,
 	}
 	if ssm.lastFannedOut != nil && sameFanout(*ssm.lastFannedOut, target) {
@@ -386,7 +386,7 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode, suspectedDivergence, migra
 		return true
 	}
 	observed := servingstate.State{
-		Routing:       deriveRoutingState(pgMode, ssm.consensusStatus()),
+		Routing:       ssm.deriveRoutingState(pgMode, ssm.consensusStatus()),
 		ServingStatus: reconciledServingStatus(ssm.record.ServingStatus(), suspectedDivergence || migrationHold),
 	}
 	// Compare with sameFanout (proto-aware), not raw struct equality: the routing
@@ -435,4 +435,19 @@ func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode, suspe
 // lock; today it is only called from consensus RPC handlers that already hold it.
 func (ssm *StateManager) Recalc(ctx context.Context) error {
 	return ssm.Mutate(ctx, func(*servingStateMutation) {})
+}
+
+// deriveRoutingState wraps the package-level derivation for the manager's
+// management mode. An unmanaged pooler's write authority is the external
+// database, so it never manufactures a consensus rule: it reports PRIMARY only
+// while the backend is observed out of recovery and UNKNOWN otherwise.
+func (ssm *StateManager) deriveRoutingState(mode pgmode.Mode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingState {
+	if ssm.record.desired.Load().GetManagementMode() == clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNMANAGED {
+		role := servingstate.RoutingRoleUnknown
+		if mode.OutOfRecovery() {
+			role = servingstate.RoutingRolePrimary
+		}
+		return servingstate.RoutingState{Role: role}
+	}
+	return deriveRoutingState(mode, cs)
 }
