@@ -34,18 +34,33 @@
 // under the same name would start its rules over, which the ordering refuses;
 // that needs the database's identity, not just its name, once dropping a
 // database is supported.
+//
+// Routing reads the cache with Await, which waits for a database's first
+// snapshot: first use starts the database's loop, and a fetch made while the
+// cache has no snapshot of the database waits out a failover of its catalog
+// primary, as the statements waiting for it would. A catalog primary that
+// predates the snapshot (UNIMPLEMENTED) means the database has no catalog to
+// route by, which Await reports as a nil snapshot; the cache warns once and
+// keeps polling. OnInstall hooks run whenever a snapshot replaces what a
+// database had before, so whatever depends on its routing can follow it.
 package shardingcatalogcache
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -59,8 +74,11 @@ type Source interface {
 }
 
 // FetchFunc asks the catalog primary of database for its snapshot. since is
-// the cached snapshot's position, nil when there is none.
-type FetchFunc func(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
+// the cached snapshot's position, nil when there is none. With
+// waitForFailover the fetch waits out a failover of the catalog primary, as
+// application traffic does; the cache asks for that while it has no snapshot
+// of the database, which statements may be waiting for (see Await).
+type FetchFunc func(ctx context.Context, database string, since *Position, waitForFailover bool) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
 
 // Position orders snapshots: the consensus rule the serving primary held,
 // then the routing_version.
@@ -96,6 +114,7 @@ type Cache struct {
 
 	mu        sync.Mutex
 	databases map[string]*database
+	onInstall []func(database string)
 }
 
 var _ Source = (*Cache)(nil)
@@ -115,6 +134,18 @@ type database struct {
 	// fetch runs, exactly one more fetch follows, and it starts after all of
 	// them.
 	wake chan struct{}
+
+	// mu guards the fetch outcome below.
+	mu sync.Mutex
+	// unsupported is set while the catalog primary answers UNIMPLEMENTED: it
+	// predates the sharding catalog snapshot, so the database has no catalog
+	// to route by.
+	unsupported       bool
+	warnedUnsupported bool
+	// lastErr is the error of the last fetch, nil after one that succeeded.
+	lastErr error
+	// fetched is closed when a fetch ends, and replaced for the next one.
+	fetched chan struct{}
 }
 
 // New returns a cache that fetches with fetch and polls every pollInterval
@@ -161,6 +192,54 @@ func (c *Cache) current(name string) *installed {
 	return db.current.Load()
 }
 
+// OnInstall registers fn to run whenever a snapshot replaces what a database
+// had before: an earlier snapshot, or the state of a catalog primary that
+// predates snapshots. It does not run for a database's first snapshot. It
+// runs on the database's fetch loop, so it must not block. Register before
+// the cache sees its first database.
+func (c *Cache) OnInstall(fn func(database string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onInstall = append(c.onInstall, fn)
+}
+
+// Await returns database's snapshot. When the cache has none yet it starts
+// following the database, if it was not already, and waits for the next
+// fetch to end. It returns nil and no error when the catalog primary predates
+// snapshots, so the database has no catalog to route by, and an error when
+// that fetch failed or ctx ended first: the caller then knows nothing of the
+// database's routing and must not guess.
+func (c *Cache) Await(ctx context.Context, name string) (*shardingcatalog.Snapshot, error) {
+	db := c.database(name)
+	if cur := db.current.Load(); cur != nil {
+		return cur.snapshot, nil
+	}
+	db.mu.Lock()
+	unsupported, fetched := db.unsupported, db.fetched
+	db.mu.Unlock()
+	if unsupported {
+		return nil, nil
+	}
+	db.trigger()
+	select {
+	case <-fetched:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if cur := db.current.Load(); cur != nil {
+		return cur.snapshot, nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.unsupported {
+		return nil, nil
+	}
+	if db.lastErr != nil {
+		return nil, db.lastErr
+	}
+	return nil, errors.New("no sharding catalog snapshot was fetched")
+}
+
 // Databases returns the names of every database the cache has seen.
 func (c *Cache) Databases() []string {
 	c.mu.Lock()
@@ -199,7 +278,7 @@ func (c *Cache) database(name string) *database {
 	if ok {
 		return db
 	}
-	db = &database{name: name, wake: make(chan struct{}, 1)}
+	db = &database{name: name, wake: make(chan struct{}, 1), fetched: make(chan struct{})}
 	c.databases[name] = db
 	db.trigger()
 	go c.run(db)
@@ -233,7 +312,7 @@ func (c *Cache) run(db *database) {
 }
 
 // refresh fetches once and installs the result if it is after the cached
-// snapshot.
+// snapshot, then records the outcome for Await.
 func (c *Cache) refresh(db *database) {
 	ctx, cancel := context.WithTimeout(c.ctx, fetchTimeout)
 	defer cancel()
@@ -242,25 +321,62 @@ func (c *Cache) refresh(db *database) {
 	if cur != nil {
 		since = &cur.position
 	}
-	resp, err := c.fetch(ctx, db.name, since)
-	if err != nil {
+	resp, err := c.fetch(ctx, db.name, since, cur == nil)
+	unsupported := isUnimplemented(err)
+	if unsupported {
+		err = nil
+	} else {
+		err = c.install(ctx, db, cur, resp, err)
+	}
+
+	db.mu.Lock()
+	wasUnsupported := db.unsupported
+	switch {
+	case unsupported:
+		db.unsupported = true
+	case err == nil:
+		db.unsupported = false
+	}
+	db.lastErr = err
+	warn := unsupported && !db.warnedUnsupported
+	if unsupported {
+		db.warnedUnsupported = true
+	}
+	close(db.fetched)
+	db.fetched = make(chan struct{})
+	db.mu.Unlock()
+
+	if warn {
+		c.logger.WarnContext(ctx, "the catalog primary does not serve sharding catalog snapshots; the database has no catalog to route by",
+			"database", db.name)
+	}
+	if now := db.current.Load(); now != cur && (cur != nil || wasUnsupported) {
+		c.notifyInstall(db.name)
+	}
+}
+
+// install installs the snapshot resp carries if it is after cur. It returns
+// fetchErr, or an error when resp cannot be installed; a response that is not
+// after cur is not an error.
+func (c *Cache) install(ctx context.Context, db *database, cur *installed, resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse, fetchErr error) error {
+	if fetchErr != nil {
 		if c.ctx.Err() != nil {
-			return
+			return fetchErr
 		}
 		c.metrics.fetchFailed(ctx, db.name, failureFetch)
 		c.logger.WarnContext(ctx, "failed to fetch sharding catalog snapshot; keeping the cached one",
-			append([]any{"database", db.name, "error", err}, cachedAttrs(cur)...)...)
-		return
+			append([]any{"database", db.name, "error", fetchErr}, cachedAttrs(cur)...)...)
+		return fetchErr
 	}
 	if resp.GetUnchanged() {
-		return
+		return nil
 	}
 	pb := resp.GetSnapshot()
 	if pb == nil {
 		c.metrics.fetchFailed(ctx, db.name, failureInvalid)
 		c.logger.WarnContext(ctx, "catalog primary returned neither a snapshot nor unchanged; keeping the cached one",
 			append([]any{"database", db.name}, cachedAttrs(cur)...)...)
-		return
+		return errors.New("the catalog primary returned neither a snapshot nor unchanged")
 	}
 	pos := Position{Rule: resp.GetConsensusRule(), RoutingVersion: pb.GetRoutingVersion()}
 	// A primary that has not learned it was superseded serves under an older
@@ -273,7 +389,7 @@ func (c *Cache) refresh(db *database) {
 				append([]any{"database", db.name, "routing_version", pos.RoutingVersion, "consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule)},
 					cachedAttrs(cur)...)...)
 		}
-		return
+		return nil
 	}
 	snap, err := shardingcatalog.New(pb)
 	if err != nil {
@@ -281,7 +397,7 @@ func (c *Cache) refresh(db *database) {
 		c.logger.ErrorContext(ctx, "rejected sharding catalog snapshot; keeping the cached one",
 			append([]any{"database", db.name, "routing_version", pos.RoutingVersion, "consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule), "error", err},
 				cachedAttrs(cur)...)...)
-		return
+		return err
 	}
 	// The loop is the only writer, so nothing raced this install.
 	db.current.Store(&installed{position: pos, snapshot: snap})
@@ -291,6 +407,25 @@ func (c *Cache) refresh(db *database) {
 			"database", db.name, "routing_version", snap.RoutingVersion(), "plan_epoch", snap.PlanEpoch(),
 			"consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule), "tablegroups", len(snap.TableGroups()),
 		}, cachedAttrs(cur)...)...)
+	return nil
+}
+
+func (c *Cache) notifyInstall(name string) {
+	c.mu.Lock()
+	hooks := c.onInstall
+	c.mu.Unlock()
+	for _, fn := range hooks {
+		fn(name)
+	}
+}
+
+// isUnimplemented reports whether err says the catalog primary does not serve
+// the snapshot.
+func isUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	return status.Code(err) == codes.Unimplemented || mterrors.Code(err) == mtrpcpb.Code_UNIMPLEMENTED
 }
 
 // cachedAttrs describes the cached snapshot for a log line.

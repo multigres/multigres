@@ -19,11 +19,13 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -35,6 +37,8 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
@@ -616,4 +620,239 @@ func TestPoolerGateway_StreamReplication_NoLeaderPropagatesError(t *testing.T) {
 	assert.Nil(t, stream)
 	assert.True(t, mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE,
 		"no-leader error should be UNAVAILABLE, got %v", err)
+}
+
+func TestCatalogShardTarget(t *testing.T) {
+	target := catalogShardTarget("db1")
+	assert.Equal(t, "db1", target.GetShardRef().GetDatabase())
+	assert.Equal(t, constants.DefaultTableGroup, target.GetShardRef().GetTableGroup())
+	assert.Equal(t, constants.DefaultShard, target.GetShardRef().GetShard())
+	assert.Equal(t, query.Mode_MODE_WRITABLE, target.GetMode())
+}
+
+// fakeSnapshotManager is a manager client whose GetRoutingSnapshot answers
+// with resp, or refuses with err over gRPC, and records the request.
+type fakeSnapshotManager struct {
+	multipoolermanagerpb.MultipoolerManagerClient
+	resp  *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+	err   error
+	got   *multipoolermanagerdatapb.GetRoutingSnapshotRequest
+	calls atomic.Int32
+}
+
+func (f *fakeSnapshotManager) GetRoutingSnapshot(_ context.Context, in *multipoolermanagerdatapb.GetRoutingSnapshotRequest, _ ...grpc.CallOption) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	f.calls.Add(1)
+	if f.err != nil {
+		return nil, mterrors.ToGRPC(f.err)
+	}
+	f.got = in
+	return f.resp, nil
+}
+
+// notCatalogPrimaryError is the pooler's refusal of a catalog read while it
+// is not the catalog shard's elected primary.
+func notCatalogPrimaryError() error {
+	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		"operation not allowed: this pooler is not the elected primary of the catalog shard (routing role %s, service_id: %s)",
+		clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, "zone1-old")
+}
+
+// useManagerClients makes every pooler connection's manager client the one
+// clients holds for its pooler name, for the rest of the test.
+func useManagerClients(t *testing.T, clients map[string]multipoolermanagerpb.MultipoolerManagerClient) {
+	t.Helper()
+	orig := managerClientOf
+	managerClientOf = func(conn *poolerConnection) (multipoolermanagerpb.MultipoolerManagerClient, error) {
+		if c, ok := clients[conn.PoolerInfo().GetId().GetName()]; ok {
+			return c, nil
+		}
+		return nil, errors.New("no manager client")
+	}
+	t.Cleanup(func() { managerClientOf = orig })
+}
+
+func TestGetRoutingSnapshot_ReadsTheCatalogPrimary(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	conn := connForTest(t, lb, primary)
+	require.NotNil(t, conn)
+	conn.cancel()
+	<-conn.checkConnDone
+	manager := &fakeSnapshotManager{resp: &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 4}}
+	useManagerClients(t, map[string]multipoolermanagerpb.MultipoolerManagerClient{"primary": manager})
+	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+	since := int64(3)
+	for _, wait := range []bool{false, true} {
+		got, err := pg.GetRoutingSnapshot(t.Context(), constants.DefaultPostgresDatabase,
+			&multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: &since}, wait)
+		require.NoError(t, err)
+		assert.Equal(t, int64(4), got.GetRoutingVersion())
+		assert.Equal(t, int64(3), manager.got.GetSinceVersion(), "the request is passed through")
+
+		// Without a primary and without a failover buffer the read fails at
+		// once.
+		_, err = pg.GetRoutingSnapshot(t.Context(), "otherdb", &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}, wait)
+		require.Error(t, err)
+	}
+}
+
+// A snapshot read that waits out a failover and finds no catalog primary (a
+// planned failover) waits in the failover buffer and succeeds on the new
+// primary, as a credential lookup or a query would.
+func TestGetRoutingSnapshot_WaitsOutAFailover(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+	useManagerClients(t, map[string]multipoolermanagerpb.MultipoolerManagerClient{
+		"primary": &fakeSnapshotManager{resp: &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 9}},
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := pg.GetRoutingSnapshot(ctx, constants.DefaultPostgresDatabase, &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}, true)
+		done <- result{resp, err}
+	}()
+
+	sk := catalogShardTarget(constants.DefaultPostgresDatabase).GetShardRef()
+	require.Eventually(t, func() bool {
+		probe, cancelProbe := context.WithCancel(ctx)
+		cancelProbe()
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probe, sk)
+		return errors.Is(err, context.Canceled)
+	}, 5*time.Second, time.Millisecond, "the read should wait in the buffer, not fail")
+	select {
+	case r := <-done:
+		t.Fatalf("read returned before a primary appeared: %v", r.err)
+	default:
+	}
+
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	conn := connForTest(t, lb, primary)
+	conn.cancel()
+	<-conn.checkConnDone
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING, primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	r := <-done
+	require.NoError(t, r.err)
+	assert.Equal(t, int64(9), r.resp.GetRoutingVersion())
+}
+
+func TestIsCatalogPrimaryMovedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"not the elected primary", notCatalogPrimaryError(), true},
+		{"standby", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"operation not allowed: the PostgreSQL instance is in standby mode (service_id: zone1-old)"), true},
+		{"over gRPC", mterrors.FromGRPC(mterrors.ToGRPC(notCatalogPrimaryError())), true},
+		{"not the catalog shard", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"tablegroup operations are served by the catalog shard (default/0-inf), not tg1/0-inf"), false},
+		{"same words, another code", mterrors.New(mtrpcpb.Code_INTERNAL,
+			"operation not allowed: this pooler is not the elected primary of the catalog shard"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isCatalogPrimaryMovedError(tt.err))
+		})
+	}
+}
+
+// A snapshot read that waits out a failover and reaches the former catalog
+// primary, which refuses because it is no longer the elected primary, waits
+// in the failover buffer and succeeds on the new primary instead of failing.
+func TestGetRoutingSnapshot_WaitsOutACatalogPrimaryHandover(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+	oldManager := &fakeSnapshotManager{err: notCatalogPrimaryError()}
+	newManager := &fakeSnapshotManager{resp: &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 9}}
+	useManagerClients(t, map[string]multipoolermanagerpb.MultipoolerManagerClient{"old": oldManager, "new": newManager})
+
+	oldPrimary := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, oldPrimary)
+	oldConn := connForTest(t, lb, oldPrimary)
+	oldConn.cancel()
+	<-oldConn.checkConnDone
+	simulateHealthUpdate(oldConn, clustermetadatapb.PoolerServingStatus_SERVING, oldPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := pg.GetRoutingSnapshot(ctx, constants.DefaultPostgresDatabase, &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}, true)
+		done <- result{resp, err}
+	}()
+
+	sk := catalogShardTarget(constants.DefaultPostgresDatabase).GetShardRef()
+	require.Eventually(t, func() bool {
+		probe, cancelProbe := context.WithCancel(ctx)
+		cancelProbe()
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probe, sk)
+		return errors.Is(err, context.Canceled)
+	}, 5*time.Second, time.Millisecond, "the refused read should wait in the buffer, not fail")
+	select {
+	case r := <-done:
+		t.Fatalf("read returned before the new primary appeared: %v", r.err)
+	default:
+	}
+	assert.GreaterOrEqual(t, oldManager.calls.Load(), int32(1), "the read reached the former primary")
+
+	newPrimary := createTestMultipooler("new", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, newPrimary)
+	newConn := connForTest(t, lb, newPrimary)
+	newConn.cancel()
+	<-newConn.checkConnDone
+	rule := &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}
+	simulateHealthUpdate(oldConn, clustermetadatapb.PoolerServingStatus_SERVING, newPrimary.Id, rule)
+	simulateHealthUpdate(newConn, clustermetadatapb.PoolerServingStatus_SERVING, newPrimary.Id, rule)
+
+	r := <-done
+	require.NoError(t, r.err)
+	assert.Equal(t, int64(9), r.resp.GetRoutingVersion())
+}
+
+// A refusal a failover never resolves fails the read at once, without
+// buffering the catalog shard's traffic.
+func TestGetRoutingSnapshot_OtherRefusalsFailAtOnce(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+	manager := &fakeSnapshotManager{err: mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		"tablegroup operations are served by the catalog shard (default/0-inf), not tg1/0-inf")}
+	useManagerClients(t, map[string]multipoolermanagerpb.MultipoolerManagerClient{"primary": manager})
+
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	conn := connForTest(t, lb, primary)
+	conn.cancel()
+	<-conn.checkConnDone
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING, primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	_, err := pg.GetRoutingSnapshot(t.Context(), constants.DefaultPostgresDatabase, &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}, true)
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Equal(t, int32(1), manager.calls.Load(), "the read is not retried")
+
+	probe, cancelProbe := context.WithCancel(t.Context())
+	cancelProbe()
+	_, err = failoverBuffer.WaitIfAlreadyBuffering(probe, catalogShardTarget(constants.DefaultPostgresDatabase).GetShardRef())
+	assert.NoError(t, err, "the catalog shard is not buffering")
 }

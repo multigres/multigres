@@ -16,6 +16,7 @@ package poolergateway
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -85,4 +86,32 @@ func isCredentialSourceUnavailable(err error) bool {
 			mterrors.MTB02.ID,
 			mterrors.MTB03.ID,
 		)
+}
+
+// catalogPrimaryMovedMessages are the refusals the catalog shard's poolers
+// give a catalog read (checkCatalogPrimary in the pooler's manager) while its
+// primary fails over: postgres is already a standby, or the pooler is not (or
+// no longer) the elected primary. They carry no structured detail beyond
+// FAILED_PRECONDITION, so they are matched by message.
+var catalogPrimaryMovedMessages = []string{
+	"operation not allowed: the PostgreSQL instance is in standby mode",
+	"operation not allowed: this pooler is not the elected primary of the catalog shard",
+}
+
+// isCatalogPrimaryMovedError recognizes a catalog read refused because the
+// pooler the gateway still takes for the catalog shard's primary is not its
+// elected primary. Match both code and message: FAILED_PRECONDITION also
+// covers refusals that a failover never resolves, such as a read sent to a
+// shard that is not the catalog shard.
+func isCatalogPrimaryMovedError(err error) bool {
+	if mterrors.Code(err) != mtrpcpb.Code_FAILED_PRECONDITION {
+		return false
+	}
+	msg := err.Error()
+	for _, m := range catalogPrimaryMovedMessages {
+		if strings.Contains(msg, m) {
+			return true
+		}
+	}
+	return false
 }
