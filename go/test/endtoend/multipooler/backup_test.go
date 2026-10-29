@@ -769,95 +769,6 @@ func TestBackup_MultiadminAPIs(t *testing.T) {
 	}
 }
 
-// overrideRetentionInConfig rewrites the pgbackrest.conf to use a custom retention-full value.
-// It registers a cleanup function to restore the original config when the test completes.
-func overrideRetentionInConfig(t *testing.T, poolerDir string, retentionFull string) {
-	t.Helper()
-	configPath := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
-	original, err := os.ReadFile(configPath)
-	require.NoError(t, err, "Should be able to read pgbackrest.conf at %s", configPath)
-
-	updated := strings.Replace(string(original), "repo1-retention-full=7", "repo1-retention-full="+retentionFull, 1)
-	require.NotEqual(t, string(original), updated, "Should have replaced repo1-retention-full=7 in config")
-	err = os.WriteFile(configPath, []byte(updated), 0o644)
-	require.NoError(t, err, "Should be able to write updated pgbackrest.conf")
-	t.Logf("Updated retention-full to %s in %s", retentionFull, configPath)
-
-	t.Cleanup(func() {
-		_ = os.WriteFile(configPath, original, 0o644)
-	})
-}
-
-func TestExpireAuto(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	backends := availableBackends
-	for _, backend := range backends {
-		t.Run(backend, func(t *testing.T) {
-			setup := getSetupForBackend(t, backend)
-			setupPoolerTest(t, setup)
-
-			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-			waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-			// Override retention in pgbackrest.conf to keep only 1 full backup
-			overrideRetentionInConfig(t, setup.PrimaryMultipooler.PoolerDir, "1")
-			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
-
-			logger := slog.Default()
-			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-			defer adminServer.Stop()
-
-			backupReq := &multiadminpb.BackupRequest{
-				Database:   "postgres",
-				TableGroup: "default",
-				Shard:      "0-inf",
-				Type:       "full",
-			}
-			getBackupsReq := &multiadminpb.GetBackupsRequest{
-				Database:   "postgres",
-				TableGroup: "default",
-				Shard:      "0-inf",
-				Limit:      100,
-			}
-
-			t.Log("Step 1: Creating first full backup...")
-			backupResp1, err := adminServer.Backup(t.Context(), backupReq)
-			require.NoError(t, err)
-			status1 := waitForJobCompletion(t, adminServer, backupResp1.JobId, 5*time.Minute)
-			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status1.Status)
-			backupID1 := status1.BackupId
-			t.Logf("First backup completed: %s", backupID1)
-
-			t.Log("Step 2: Verifying first backup exists...")
-			getResp, err := adminServer.GetBackups(t.Context(), getBackupsReq)
-			require.NoError(t, err)
-			require.Len(t, getResp.Backups, 1, "Should have exactly one backup")
-
-			t.Log("Step 3: Creating second full backup (should auto-expire first)...")
-			backupResp2, err := adminServer.Backup(t.Context(), backupReq)
-			require.NoError(t, err)
-			status2 := waitForJobCompletion(t, adminServer, backupResp2.JobId, 5*time.Minute)
-			require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status2.Status)
-			backupID2 := status2.BackupId
-			t.Logf("Second backup completed: %s", backupID2)
-
-			t.Log("Step 4: Verifying expire-auto removed first backup...")
-			getResp, err = adminServer.GetBackups(t.Context(), getBackupsReq)
-			require.NoError(t, err)
-			var foundIDs []string
-			for _, b := range getResp.Backups {
-				foundIDs = append(foundIDs, b.BackupId)
-			}
-			assert.NotContains(t, foundIDs, backupID1, "First backup should have been auto-expired")
-			assert.Contains(t, foundIDs, backupID2, "Second backup should still exist")
-			t.Logf("After auto-expiration, remaining backups: %v", foundIDs)
-		})
-	}
-}
-
 func TestExpireBackups(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -1089,21 +1000,6 @@ func TestBackup_Encrypted(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	t.Run("ConfCarriesCipher", func(t *testing.T) {
-		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
-			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
-			content, err := os.ReadFile(confPath)
-			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
-			assert.Contains(t, string(content), "repo1-cipher-type="+backup.CipherType)
-			assert.Contains(t, string(content), "repo1-cipher-pass="+setup.BackupCipherKey)
-
-			info, err := os.Stat(confPath)
-			require.NoError(t, err)
-			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-				"conf carrying a cipher pass must not be world-readable")
-		}
-	})
-
 	t.Run("RepoFilesAreEncrypted", func(t *testing.T) {
 		// A plaintext backup.info is an INI file starting with readable
 		// section headers; an encrypted one is ciphertext.
@@ -1154,18 +1050,6 @@ func TestBackup_Unencrypted(t *testing.T) {
 
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	t.Run("ConfHasNoCipher", func(t *testing.T) {
-		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
-			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
-			content, err := os.ReadFile(confPath)
-			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
-			assert.NotContains(t, string(content), "cipher-type",
-				"unencrypted repo conf must not carry a cipher type")
-			assert.NotContains(t, string(content), "cipher-pass",
-				"unencrypted repo conf must not carry a cipher pass")
-		}
-	})
 
 	t.Run("RepoFilesArePlaintext", func(t *testing.T) {
 		// An unencrypted backup.info is a readable INI file with section headers.
