@@ -1804,6 +1804,13 @@ components:
              readiness). Recorded in topology so the orchestrator can observe terminal
              lifecycle states even on cold start, not only over the health stream.
           title: lifecycle_status
+        managementMode:
+          $ref: '#/components/schemas/clustermetadata.PoolerManagementMode'
+          description: |-
+            management_mode records who owns the backing PostgreSQL. Unspecified is
+             treated as MANAGED so records written before this field existed keep their
+             current behavior.
+          title: management_mode
         pgDataDir:
           description: |-
             PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
@@ -1933,6 +1940,14 @@ components:
         - LIFECYCLE_SHUTDOWN
         - LIFECYCLE_QUARANTINED
       title: PoolerLifecycleStatus
+      type: string
+    clustermetadata.PoolerManagementMode:
+      description: PoolerManagementMode is independent of query-serving role and readiness.
+      enum:
+        - POOLER_MANAGEMENT_MODE_UNSPECIFIED
+        - POOLER_MANAGEMENT_MODE_MANAGED
+        - POOLER_MANAGEMENT_MODE_UNMANAGED
+      title: PoolerManagementMode
       type: string
     clustermetadata.PoolerPosition:
       additionalProperties: false
