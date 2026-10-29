@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -45,6 +46,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
@@ -1490,6 +1493,117 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 
 	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0}}}))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
+}
+
+// resignRecordingPgctldClient records the REQUESTING_DEMOTION term that was
+// published when pgctld was asked to restart postgres as a standby.
+type resignRecordingPgctldClient struct {
+	mockPgctldClient
+	pm                    *MultipoolerManager
+	resignedTermAtRestart int64
+}
+
+func (c *resignRecordingPgctldClient) Restart(ctx context.Context, req *pgctldpb.RestartRequest, opts ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
+	c.resignedTermAtRestart = c.pm.consensusMgr.ResignedLeaderAtTerm()
+	return c.mockPgctldClient.Restart(ctx, req, opts...)
+}
+
+// TestResignLeadership_PublishesDemotionAfterRestart verifies REQUESTING_DEMOTION
+// is published only once postgres has been restarted as a standby, and still is
+// when clearing restore_command or the restart fails, so multiorch can go ahead
+// with the election. Publishing it before the restart lets the election's
+// Recruit disconnect the standbys before the old leader's shutdown checkpoint WAL
+// reaches them.
+func TestResignLeadership_PublishesDemotionAfterRestart(t *testing.T) {
+	self := newLeaderAddress("test-pooler", "localhost", 5432)
+	tests := []struct {
+		name        string
+		leader      *clustermetadatapb.PoolerAddress // leader of the rule at term 5
+		resetErr    error
+		restartErr  error
+		wantErr     string
+		wantRestart bool
+		wantTerm    int64 // published REQUESTING_DEMOTION term
+	}{
+		{
+			name:        "restart succeeds",
+			leader:      self,
+			wantRestart: true,
+			wantTerm:    5,
+		},
+		{
+			name:        "restart fails",
+			leader:      self,
+			restartErr:  errors.New("restart failed"),
+			wantErr:     "failed to restart postgres as standby during resign",
+			wantRestart: true,
+			wantTerm:    5,
+		},
+		{
+			name:     "clearing restore_command fails",
+			leader:   self,
+			resetErr: errors.New("reset failed"),
+			wantErr:  "failed to clear restore_command before resign restart",
+			wantTerm: 5,
+		},
+		{
+			// A primary the rule doesn't name as leader has no leadership to
+			// resign, so nothing is published.
+			name:        "not the rule's leader",
+			leader:      newLeaderAddress("other-pooler", "other-host", 5432),
+			wantRestart: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := mock.NewQueryService()
+			// The primary guardrail, the demotion state and its WAL position each
+			// read the recovery state before the restart; afterwards postgres is a
+			// standby.
+			for range 3 {
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+			}
+			m.AddQueryPattern("SELECT pg_is_in_recovery",
+				mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+			m.AddQueryPattern("SELECT pg_current_wal_lsn",
+				mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/3000000"}}))
+			// No write connections to drain or terminate.
+			m.AddQueryPattern("FROM pg_stat_activity", mock.MakeQueryResult([]string{"pid"}, nil))
+			if tt.resetErr != nil {
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET restore_command", tt.resetErr)
+			} else {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
+			}
+			// After the restart: waitForDatabaseConnection and the replay position.
+			m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+			m.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+				mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/3000000"}}))
+
+			rules := &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(tt.leader, 5)},
+				Lsn:      "0/3000000",
+			}}
+			pm, _ := setupManagerWithMockDB(t, m, rules)
+			pgctld := &resignRecordingPgctldClient{pm: pm}
+			pgctld.restartError = tt.restartErr
+			pm.pgctldClient = pgctld
+
+			resp, err := pm.ResignLeadership(t.Context(), &multipoolermanagerdatapb.ResignLeadershipRequest{})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, "0/3000000", resp.GetFlushLsn())
+			}
+			require.NoError(t, m.ExpectationsWereMet())
+
+			assert.Equal(t, tt.wantRestart, pgctld.restartCalled, "whether postgres was restarted as a standby")
+			assert.Zero(t, pgctld.resignedTermAtRestart, "REQUESTING_DEMOTION must not be published before postgres restarts")
+			assert.Equal(t, tt.wantTerm, pm.consensusMgr.ResignedLeaderAtTerm(), "REQUESTING_DEMOTION term published")
+		})
+	}
 }
 
 // TestWaitForReplayComplete covers the WAL-replay completion check used during
