@@ -412,7 +412,7 @@ func (e *Executor) Describe(
 	if portalInfo != nil {
 		psi = portalInfo.PreparedStatementInfo
 	}
-	if stmt != nil && engine.MayReferenceClusterView(psi.GetQuery()) && engine.ContainsClusterView(stmt) {
+	if stmt != nil && e.planner.ClusterViewsEnabled() && engine.MayReferenceClusterView(psi.GetQuery()) && engine.ContainsClusterView(stmt) {
 		stubSQL, err := engine.ClusterViewDescribeSQL(stmt)
 		if err != nil {
 			return nil, err
@@ -496,10 +496,13 @@ func (e *Executor) PrepareInTransaction(
 	// prepares separately, so the stub only has to parse and describe
 	// correctly. A statement the gateway would reject at planning time is
 	// rejected here too, so the client gets the gateway's error rather than a
-	// backend error that aborts the transaction.
-	queryStr, err := clusterViewPrepareSQL(queryStr)
-	if err != nil {
-		return err
+	// backend error that aborts the transaction. With the views off the text
+	// goes to the backend as written.
+	if e.planner.ClusterViewsEnabled() {
+		var err error
+		if queryStr, err = clusterViewPrepareSQL(queryStr); err != nil {
+			return err
+		}
 	}
 	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
 		Query:        queryStr,

@@ -16,6 +16,7 @@ package planner
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"testing"
 
@@ -26,10 +27,37 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
+// noRows is a ClusterViewSource that serves empty views; the planner only
+// needs one to be wired to treat the names as views.
+type noRows struct{}
+
+func (noRows) ClusterViewRows(context.Context, string) ([][]any, error) { return nil, nil }
+
 func TestPlanClusterViews(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
+	p.SetClusterViewSource(noRows{})
 	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	t.Run("without a source the views are off and nothing is intercepted", func(t *testing.T) {
+		off := NewPlanner("default", logger, nil)
+		assert.False(t, off.ClusterViewsEnabled())
+		for _, sql := range []string{
+			"SELECT * FROM multigres.multipoolers",
+			"INSERT INTO multigres.multipoolers (name) VALUES ('x')",
+			"DELETE FROM multigres.multigateways",
+			"CREATE VIEW v AS SELECT * FROM multigres.multigateways",
+			"CREATE TEMP TABLE t AS SELECT * FROM multigres.multipoolers",
+			"DECLARE c CURSOR WITH HOLD FOR SELECT * FROM multigres.multipoolers",
+		} {
+			plan, err := off.Plan(sql, parseOne(t, sql), testConn.Conn, PlanOptions{})
+			require.NoError(t, err, sql)
+			assert.NotEqual(t, engine.PlanTypeClusterViewRoute, plan.Type, sql)
+			q, ok := plan.Primitive.(interface{ GetQuery() string })
+			require.True(t, ok, "%s: %T has no query to inspect", sql, plan.Primitive)
+			assert.NotContains(t, q.GetQuery(), "json_to_recordset", sql)
+		}
+	})
 
 	t.Run("a SELECT on a view plans a ClusterViewRoute", func(t *testing.T) {
 		for _, sql := range []string{

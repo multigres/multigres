@@ -32,6 +32,24 @@ other and with real tables), aggregates, `ORDER BY`, `EXPLAIN`, subqueries,
 prepared statements with parameters. They are readable by every client the
 gateway admits (see below).
 
+## Enabling the views
+
+The views are off by default and switched on per gateway with
+`--enable-cluster-views` (or `MT_ENABLE_CLUSTER_VIEWS=true`), read once at
+startup like `--buffer-enabled`. On a gateway without the flag nothing in
+this document applies: the gateway never looks for the names, so
+`SELECT * FROM multigres.multipoolers` reaches PostgreSQL as written and
+fails there with `relation "multigres.multipoolers" does not exist`, and so
+do the writes and definitions an enabled gateway rejects itself. Minigres
+takes the same flag. The local cluster inherits the environment of
+`multigres cluster start`, so `MT_ENABLE_CLUSTER_VIEWS=true` there turns
+the views on for every gateway.
+
+The flag is the whole switch: the planner treats the names as views only
+while a row source is wired, which `Init` does only when the flag is set.
+Exposing it per environment (for example staging only) is a matter of the
+operator passing the flag the way it passes `--buffer-enabled`.
+
 ## The `multigres.` qualifier is required
 
 Only a reference qualified with the `multigres` schema is recognized. The
@@ -185,3 +203,4 @@ deployment needs it.
 | `executor/executor.go`               | Describe and in-transaction Parse use the empty fold       |
 | `poolergateway/cluster_view_rows.go` | `multipoolers` rows from the pooler cache and health state |
 | `multigateway/cluster_views.go`      | `multigateways` rows from the topology; wires both sources |
+| `multigateway/init.go`               | `--enable-cluster-views`; wires the source only when set   |

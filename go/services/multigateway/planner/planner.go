@@ -53,8 +53,8 @@ type Planner struct {
 
 	// clusterViews supplies the rows of the gateway's cluster views
 	// (multigres.multigateways, multigres.multipoolers) at execution time.
-	// Set via SetClusterViewSource; nil makes a reference to a view fail at
-	// execution with an internal error, since the views can't be served.
+	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
+	// every statement naming one is forwarded to the backend unchanged.
 	clusterViews engine.ClusterViewSource
 }
 
@@ -76,10 +76,17 @@ func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
 	p.slotBasedReplicationEnabled = enabled
 }
 
-// SetClusterViewSource wires the source the cluster views read from. Must be
-// called before connections are accepted.
+// SetClusterViewSource wires the source the cluster views read from and so
+// turns the views on (see --enable-cluster-views). Must be called before
+// connections are accepted. Left nil, the views are off: a reference to
+// multigres.multipoolers is an ordinary unknown relation to the backend.
 func (p *Planner) SetClusterViewSource(source engine.ClusterViewSource) {
 	p.clusterViews = source
+}
+
+// ClusterViewsEnabled reports whether the gateway serves the cluster views.
+func (p *Planner) ClusterViewsEnabled() bool {
+	return p.clusterViews != nil
 }
 
 // admitsFailoverSlots reports whether the planner should admit a
@@ -254,7 +261,7 @@ func (p *Planner) Plan(
 
 	// Writes to a cluster view and definitions persisted over one are
 	// rejected before dispatch; see CheckClusterViewStatement.
-	if engine.MayReferenceClusterView(sql) {
+	if p.ClusterViewsEnabled() && engine.MayReferenceClusterView(sql) {
 		if err := CheckClusterViewStatement(stmt); err != nil {
 			return nil, err
 		}
@@ -300,7 +307,7 @@ func (p *Planner) Plan(
 
 	case ast.T_CreateStmt:
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planTempTableCreation(sql, conn)
@@ -309,7 +316,7 @@ func (p *Planner) Plan(
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planTempTableCreation(sql, conn)
@@ -320,7 +327,7 @@ func (p *Planner) Plan(
 		// Temp sequences are session-scoped like temp tables: nextval/currval
 		// on later statements must land on the same backend connection.
 		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planTempTableCreation(sql, conn)
@@ -330,7 +337,7 @@ func (p *Planner) Plan(
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
 		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planTempTableCreation(sql, conn)
@@ -339,7 +346,7 @@ func (p *Planner) Plan(
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planTempTableCreation(sql, conn)
@@ -349,7 +356,7 @@ func (p *Planner) Plan(
 	case ast.T_DeclareCursorStmt:
 		dcs := stmt.(*ast.DeclareCursorStmt)
 		if dcs.Options&ast.CURSOR_OPT_HOLD != 0 {
-			if err := noClusterView(sql, stmt); err != nil {
+			if err := p.noClusterView(sql, stmt); err != nil {
 				return nil, err
 			}
 			return p.planHoldCursorDeclare(sql, dcs)

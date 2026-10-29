@@ -54,9 +54,10 @@ func CheckClusterViewStatement(stmt ast.Stmt) error {
 // noClusterView guards the dispatch branches in Plan that return before
 // wrapClusterViews runs (temp-table creation, holdable cursors): their
 // primitives forward the statement text unfolded, so a view reference there
-// is rejected rather than sent to the backend.
-func noClusterView(sql string, stmt ast.Stmt) error {
-	if engine.MayReferenceClusterView(sql) && engine.ContainsClusterView(stmt) {
+// is rejected rather than sent to the backend. With the views off nothing
+// is a view and the statement goes to the backend as written.
+func (p *Planner) noClusterView(sql string, stmt ast.Stmt) error {
+	if p.ClusterViewsEnabled() && engine.MayReferenceClusterView(sql) && engine.ContainsClusterView(stmt) {
 		return errClusterViewUnsupported
 	}
 	return nil
@@ -70,7 +71,7 @@ func noClusterView(sql string, stmt ast.Stmt) error {
 // is rejected as unsupported rather than silently routing the unfolded name
 // to the backend.
 func (p *Planner) wrapClusterViews(sql string, stmt ast.Stmt, plan *engine.Plan) (*engine.Plan, error) {
-	if !engine.MayReferenceClusterView(sql) || !engine.ContainsClusterView(stmt) {
+	if !p.ClusterViewsEnabled() || !engine.MayReferenceClusterView(sql) || !engine.ContainsClusterView(stmt) {
 		return plan, nil
 	}
 	route, ok := plan.Primitive.(*engine.Route)

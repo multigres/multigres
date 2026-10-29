@@ -16,6 +16,7 @@ package queryserving
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,4 +173,53 @@ func TestMultigateway_ClusterViews(t *testing.T) {
 		require.Error(t, err, "without the multigres. qualifier the name goes to the backend as written")
 		assert.Contains(t, err.Error(), "does not exist")
 	})
+}
+
+// TestMultigateway_ClusterViewsDisabled runs against a gateway started without
+// --enable-cluster-views: the names are not views, so every statement naming
+// one, including the writes the enabled gateway rejects itself, reaches the
+// backend as written and fails there as an unknown relation.
+func TestMultigateway_ClusterViewsDisabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping cluster views test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping cluster views test")
+	}
+
+	setup := getSlotBasedReplicationSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	defer db.Close()
+
+	ctx := utils.WithTimeout(t, 60*time.Second)
+	require.NoError(t, db.PingContext(ctx))
+
+	for _, q := range []string{
+		`SELECT * FROM multigres.multigateways`,
+		`SELECT name FROM multigres.multipoolers WHERE name = $1`, // extended protocol: Parse/Describe
+		`DELETE FROM multigres.multipoolers`,
+		`CREATE VIEW v AS SELECT * FROM multigres.multigateways`,
+	} {
+		var args []any
+		if strings.Contains(q, "$1") {
+			args = []any{"x"}
+		}
+		_, err := db.ExecContext(ctx, q, args...)
+		require.Error(t, err, q)
+		assert.Contains(t, err.Error(), "does not exist", q)
+		assert.NotContains(t, err.Error(), "view", q)
+	}
+
+	// Inside a transaction the Parse goes to the backend immediately; the
+	// backend's error is what the client sees.
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `SELECT * FROM multigres.multipoolers WHERE name = $1`, "x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
+	_ = tx.Rollback()
 }

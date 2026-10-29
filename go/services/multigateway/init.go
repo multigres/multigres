@@ -74,6 +74,10 @@ type Multigateway struct {
 	// (any wire error aborts the transaction); opt-in for pg_regress and associated
 	// suites (default off, dynamic/reloadable).
 	keepTransactionOnGatewayRejection viperutil.Value[bool]
+	// clusterViewsEnabled serves multigres.multigateways and
+	// multigres.multipoolers from this gateway. Off by default: the names are
+	// then ordinary unknown relations to the backend.
+	clusterViewsEnabled viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -284,6 +288,12 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 			Dynamic:  true,
 			EnvVars:  []string{"MT_KEEP_TRANSACTION_ON_GATEWAY_REJECTION"},
 		}),
+		clusterViewsEnabled: viperutil.Configure(reg, "enable-cluster-views", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-cluster-views",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ENABLE_CLUSTER_VIEWS"},
+		}),
 		reg: reg,
 		serverStatus: Status{
 			Title: "Multigateway",
@@ -345,6 +355,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
 	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
+	fs.Bool("enable-cluster-views", mg.clusterViewsEnabled.Default(), "serve the read-only cluster views multigres.multigateways and multigres.multipoolers from this gateway. Default off; a reference to either name is then an unknown relation to the backend.")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
@@ -362,6 +373,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
 		mg.keepTransactionOnGatewayRejection,
+		mg.clusterViewsEnabled,
 		mg.planCacheMemory,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
@@ -466,7 +478,10 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
-	mg.executor.SetClusterViewSource(mg)
+	if mg.clusterViewsEnabled.Get() {
+		mg.executor.SetClusterViewSource(mg)
+		logger.InfoContext(ctx, "cluster views enabled")
+	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
 	// can't start any earlier.

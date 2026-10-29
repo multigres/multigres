@@ -31,13 +31,13 @@ import (
 // setupManager manages the shared test setup for tests in this package.
 var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) shardsetup.Cluster {
 	if clustersetup.IsMinigres() {
-		return minigressetup.New(t)
+		return minigressetup.New(t, minigressetup.WithExtraArgs("--enable-cluster-views"))
 	}
 	// Create a 2-node cluster for testing (primary + standby)
 	// We only use the primary for transaction tests, but shardsetup requires 2 nodes for bootstrap
 	return shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),      // enable multigateway
+		shardsetup.WithMultipoolerCount(2),                             // primary + standby
+		shardsetup.WithMultigatewayExtraArgs("--enable-cluster-views"), // implies WithMultigateway; TestMultigateway_ClusterViews
 	)
 })
 
