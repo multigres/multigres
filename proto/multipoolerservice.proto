@@ -695,6 +695,8 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
+
+  reserved 7;
 }
 
 // BackingConnection is the configuration of an external PostgreSQL. It names one
