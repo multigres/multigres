@@ -23,6 +23,7 @@ import (
 	"errors"
 	"time"
 
+	grpcpkg "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -56,10 +57,21 @@ type migrationService struct {
 func RegisterMigrationServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("migration", senv) {
-			pm.StartMigrationCoordinator()
-			migratorpb.RegisterMigratorServer(grpc.Server, &migrationService{manager: pm})
+			registerMigrationService(grpc.Server, pm)
 		}
 	})
+}
+
+// registerMigrationService serves the migration RPCs on pm and starts its coordinator. An
+// unmanaged pooler fronts an external database that multigres does not own: it gets neither,
+// so no migration state is ever created in that database, and every migration RPC answers
+// Unimplemented.
+func registerMigrationService(server grpcpkg.ServiceRegistrar, pm *manager.MultipoolerManager) {
+	if pm.IsUnmanaged() {
+		return
+	}
+	pm.StartMigrationCoordinator()
+	migratorpb.RegisterMigratorServer(server, &migrationService{manager: pm})
 }
 
 func (s *migrationService) CreateMigration(ctx context.Context, req *migratorpb.CreateMigrationRequest) (*migratorpb.CreateMigrationResponse, error) {

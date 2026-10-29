@@ -321,8 +321,24 @@ func (ts *store) UnregisterMultipooler(ctx context.Context, id *clustermetadatap
 	return nil
 }
 
+// ErrManagementModeChanged is returned by RegisterMultipooler when an update
+// would change the management mode an existing record has. A pooler id keeps
+// its mode for life: a managed member of a cohort and an unmanaged pooler are
+// different components even under the same name.
+var ErrManagementModeChanged = errors.New("multipooler management mode cannot change")
+
+// effectiveManagementMode reads an unspecified mode as managed, the meaning of
+// records written before the mode existed.
+func effectiveManagementMode(p *clustermetadatapb.Multipooler) clustermetadatapb.PoolerManagementMode {
+	if mode := p.GetManagementMode(); mode != clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNSPECIFIED {
+		return mode
+	}
+	return clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_MANAGED
+}
+
 // RegisterMultipooler creates or updates a multipooler. If allowUpdate is true,
-// and a multipooler with the same ID exists, just update it.
+// and a multipooler with the same ID exists, just update it, unless the update
+// would change the record's management mode (ErrManagementModeChanged).
 func (ts *store) RegisterMultipooler(ctx context.Context, mtpooler *clustermetadatapb.Multipooler, allowUpdate bool) error {
 	err := ts.CreateMultipooler(ctx, mtpooler)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
@@ -330,6 +346,10 @@ func (ts *store) RegisterMultipooler(ctx context.Context, mtpooler *clustermetad
 		oldMtPooler, err := ts.GetMultipooler(ctx, mtpooler.Id)
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
+		}
+		if was, now := effectiveManagementMode(oldMtPooler.Multipooler), effectiveManagementMode(mtpooler); was != now {
+			return fmt.Errorf("%w: mtpooler %v is registered as %s, not %s",
+				ErrManagementModeChanged, ComponentIDString(mtpooler.Id), was, now)
 		}
 		oldMtPooler.Multipooler = proto.Clone(mtpooler).(*clustermetadatapb.Multipooler)
 		if err := ts.UpdateMultipooler(ctx, oldMtPooler); err != nil {
