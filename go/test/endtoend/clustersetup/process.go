@@ -30,7 +30,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
@@ -69,18 +68,14 @@ type ProcessInstance struct {
 	ReplicaPgPort int
 
 	// ExtraArgs holds additional command-line flags appended to the process args.
-	// Used by multigateway for buffer config, etc.
+	// Used by multigateway for buffer config and by multipooler for connpool
+	// flags and the pgbackrestd sidecar's sockets.
 	ExtraArgs []string
 
 	// LogLevel sets --log-level for multipooler/multiorch/multigateway.
 	// Defaults to "debug" when empty so existing tests keep verbose logs;
 	// benchmarks set "warn" to remove logging from the hot path.
 	LogLevel string
-
-	// PgBackRest-specific fields (used by multipooler and pgctld)
-	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
-	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
-	PgBackRestCertDir   string                     // pgBackRest TLS certificate directory (pgctld)
 
 	// InitdbSQLFiles is a list of SQL files executed after initdb against the
 	// target database when InitDataDir runs on this pgctld instance.
@@ -194,16 +189,6 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	if p.PgClientSSLNegotiation != "" {
 		args = append(args, "--pg-client-sslnegotiation", p.PgClientSSLNegotiation)
 	}
-	if p.PgBackRestCertPaths != nil {
-		args = append(args,
-			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
-			"--pgbackrest-key-file", p.PgBackRestCertPaths.ServerKeyFile,
-			"--pgbackrest-ca-file", p.PgBackRestCertPaths.CACertFile,
-		)
-	}
-	if p.PgBackRestPort > 0 {
-		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
-	}
 	// EXPORT, the fail-back direction, builds the reverse-subscription conninfo
 	// from the advertised target address. Production advertises the gateway; these
 	// harness setups have no gateway, so each pooler advertises its own
@@ -310,13 +295,6 @@ func BuildPgctldServerArgs(p *ProcessInstance) []string {
 		"--log-output", p.LogFile,
 	}
 
-	if p.PgBackRestPort > 0 {
-		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
-	}
-	if p.PgBackRestCertDir != "" {
-		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
-	}
-
 	for _, file := range p.InitdbSQLFiles {
 		args = append(args, "--pg-initdb-sql-files", file)
 	}
@@ -332,6 +310,7 @@ func BuildPgctldServerArgs(p *ProcessInstance) []string {
 	if p.PgHbaTemplate != "" {
 		args = append(args, "--pg-hba-template", p.PgHbaTemplate)
 	}
+	args = append(args, p.ExtraArgs...)
 	return args
 }
 

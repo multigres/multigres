@@ -247,6 +247,35 @@ func TestMinigres_ConfigFile(t *testing.T) {
 	assert.Equal(t, "7s", timeout, "the gateway's statement timeout comes from the config file")
 }
 
+// TestMinigres_ArchivesThroughTheSidecar checks that a Minigres cell has the
+// same backup architecture as a Multigres one: its postgres archives WAL through
+// the pooler's sidecar (archive_command is a request to the sidecar's WAL
+// socket), and the sidecar is the process holding the repository.
+func TestMinigres_ArchivesThroughTheSidecar(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	require.True(t, setup.PgBackRestd.IsRunning(), "the cell's sidecar must be running")
+	assert.Contains(t, strings.Join(setup.Minigres.ExtraArgs, " "), "--pgbackrest-control-socket "+setup.PgBackRestd.Paths.ControlSocket)
+
+	pg, err := setup.postgresClient()
+	require.NoError(t, err)
+	defer pg.Close()
+
+	archiveCommand, err := pg.ExecuteQuery(t.Context(), "SHOW archive_command", 1)
+	require.NoError(t, err)
+	assert.Contains(t, string(archiveCommand.Rows[0].Values[0]), setup.PgBackRestd.Paths.WALSocket,
+		"archive_command must name the sidecar's WAL socket")
+
+	_, err = pg.ExecuteQuery(t.Context(), "SELECT pg_switch_wal()", 1)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		res, err := pg.ExecuteQuery(t.Context(), "SELECT archived_count FROM pg_stat_archiver", 1)
+		return err == nil && len(res.Rows) == 1 && string(res.Rows[0].Values[0]) != "0"
+	}, 2*time.Minute, time.Second, "a WAL segment must reach the repository through the sidecar")
+}
+
 // TestMinigres_BackupAndRestore backs up a static leader through multiadmin
 // without "force primary", lists and verifies the backup, then restores it
 // into an empty data directory.
