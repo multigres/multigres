@@ -125,8 +125,6 @@ func addShardRefEnsure(m *mock.QueryService, record func(string)) {
 // addMigrationTableCreate registers the migration coordinator's state DDL that
 // createSidecarSchema runs on every shard (createMigrationTable).
 func addMigrationTableCreate(m *mock.QueryService) {
-	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_connection", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("CREATE UNIQUE INDEX IF NOT EXISTS migration_connection_name_key", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration ", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_tables", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.migration_journal", mock.MakeQueryResult(nil, nil))

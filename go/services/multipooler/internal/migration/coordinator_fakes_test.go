@@ -44,6 +44,8 @@ type fakeStore struct {
 	getErr           error
 	listErr          error
 	insertJournalErr error
+	// connErr, when set, is what GetConnectionByRef returns.
+	connErr error
 
 	updates int
 	deletes []int64
@@ -67,6 +69,9 @@ func (f *fakeStore) DeleteConnection(_ context.Context, id int64) error {
 }
 
 func (f *fakeStore) GetConnectionByRef(_ context.Context, ref Ref) (*Connection, error) {
+	if f.connErr != nil {
+		return nil, f.connErr
+	}
 	if ref.ID != 0 {
 		if c, ok := f.conns[ref.ID]; ok {
 			return c, nil
@@ -383,6 +388,9 @@ type fakeSource struct {
 	resolved     []string
 	warnings     []string
 	validateErr  error
+	// onValidate, when set, runs at the start of Validate: a hook for a change that
+	// lands while the (slow) source validation is running.
+	onValidate func()
 
 	dumpSchema string
 	dumpErr    error
@@ -421,6 +429,9 @@ func (s *fakeSource) record(name string) {
 }
 
 func (s *fakeSource) Validate([]string) (*SourceInfo, []string, []string, error) {
+	if s.onValidate != nil {
+		s.onValidate()
+	}
 	if s.validateErr != nil {
 		return nil, nil, nil, s.validateErr
 	}
