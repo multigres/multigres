@@ -29,7 +29,7 @@ source "$SCRIPT_DIR/tool_checksums.sh"
 PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
-PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
+PGBACKREST_VERSION="${PGBACKREST_VER:-2.60.0}"
 SQLLOGICTEST_VERSION="${SQLLOGICTEST_VER:-v0.29.1}"
 # pgproto has no prebuilt binaries; it is built from the pgpool-II release
 # source tarball (pgproto lives in the pgpool2 tree under src/tools/pgproto).
@@ -312,8 +312,30 @@ install_pgbackrest_linux() {
       echo "PostgreSQL apt repository already configured"
     fi
 
-    # Update and install
-    if sudo apt-get update && sudo apt-get install -y pgbackrest; then
+    # Pin the exact version: a sidecar and a legacy pgctld in one shard must
+    # speak the same remote protocol. The package suffix differs per distro.
+    local pkg_version=""
+    resolve_pgbackrest_pkg_version() {
+      pkg_version=""
+      if sudo apt-get update; then
+        pkg_version="$(apt-cache madison pgbackrest | awk -v v="${version}-" 'index($3, v) == 1 {print $3; exit}')"
+      fi
+    }
+    resolve_pgbackrest_pkg_version
+    if [ -z "$pkg_version" ]; then
+      # The live PGDG index keeps only the newest pgBackRest, so add the archive
+      # source (same key) as setup-test-environment.sh does, then retry once.
+      echo "pgbackrest ${version} not in the live index, adding the PGDG archive source..."
+      echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg-archive main" | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
+      resolve_pgbackrest_pkg_version
+    fi
+    if [ -z "$pkg_version" ]; then
+      echo "ERROR: pgbackrest ${version} not found in apt, even with the PGDG archive source." >&2
+      echo "A sidecar and a legacy pgctld in one shard must run the same pgBackRest version, so this script will not install a different one." >&2
+      echo "Set PGBACKREST_VER to a version the configured repositories provide." >&2
+      exit 1
+    fi
+    if sudo apt-get install -y "pgbackrest=${pkg_version}"; then
       ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
       return 0
     fi
@@ -386,6 +408,8 @@ install_pgbackrest_macos() {
     fi
   fi
 
+  # Homebrew's version is whatever it is and cannot be pinned; local macOS runs
+  # use --sandbox=off anyway, so the sidecar version match does not apply.
   # Try Homebrew installation
   if command -v brew >/dev/null 2>&1; then
     echo "Installing pgBackRest ${version} via Homebrew..."
