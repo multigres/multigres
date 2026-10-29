@@ -331,6 +331,10 @@ const (
 	// LEADERSHIP_MODE_STATIC: the pooler is the only pooler of its shard and
 	// leads it without consensus (minigres).
 	LeadershipMode_LEADERSHIP_MODE_STATIC LeadershipMode = 2
+	// LEADERSHIP_MODE_UNMANAGED: the pooler fronts an external PostgreSQL that
+	// multigres neither starts, replicates, backs up nor elects. Its leadership
+	// is decided outside multigres.
+	LeadershipMode_LEADERSHIP_MODE_UNMANAGED LeadershipMode = 3
 )
 
 // Enum value maps for LeadershipMode.
@@ -339,11 +343,13 @@ var (
 		0: "LEADERSHIP_MODE_UNSPECIFIED",
 		1: "LEADERSHIP_MODE_CONSENSUS",
 		2: "LEADERSHIP_MODE_STATIC",
+		3: "LEADERSHIP_MODE_UNMANAGED",
 	}
 	LeadershipMode_value = map[string]int32{
 		"LEADERSHIP_MODE_UNSPECIFIED": 0,
 		"LEADERSHIP_MODE_CONSENSUS":   1,
 		"LEADERSHIP_MODE_STATIC":      2,
+		"LEADERSHIP_MODE_UNMANAGED":   3,
 	}
 )
 
@@ -1265,7 +1271,8 @@ type Multipooler struct {
 	// leadership_mode is how this pooler gets its leadership. It is fixed for
 	// the life of the process. A static leader (minigres) is the only pooler of
 	// its shard: callers such as multiadmin use it for work they would
-	// otherwise send to a replica, such as backups.
+	// otherwise send to a replica, such as backups. An unmanaged pooler fronts a
+	// PostgreSQL that multigres does not manage, so multiorch never elects it.
 	LeadershipMode LeadershipMode `protobuf:"varint,14,opt,name=leadership_mode,json=leadershipMode,proto3,enum=clustermetadata.LeadershipMode" json:"leadership_mode,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -3265,11 +3272,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16QUORUM_TYPE_AT_LEAST_N\x10\x03\x12%\n" +
-	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*l\n" +
+	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*\x8b\x01\n" +
 	"\x0eLeadershipMode\x12\x1f\n" +
 	"\x1bLEADERSHIP_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19LEADERSHIP_MODE_CONSENSUS\x10\x01\x12\x1a\n" +
-	"\x16LEADERSHIP_MODE_STATIC\x10\x02*[\n" +
+	"\x16LEADERSHIP_MODE_STATIC\x10\x02\x12\x1d\n" +
+	"\x19LEADERSHIP_MODE_UNMANAGED\x10\x03*[\n" +
 	"\vRoutingRole\x12\x18\n" +
 	"\x14ROUTING_ROLE_UNKNOWN\x10\x00\x12\x18\n" +
 	"\x14ROUTING_ROLE_PRIMARY\x10\x01\x12\x18\n" +

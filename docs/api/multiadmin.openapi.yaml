@@ -1705,6 +1705,7 @@ components:
         - LEADERSHIP_MODE_UNSPECIFIED
         - LEADERSHIP_MODE_CONSENSUS
         - LEADERSHIP_MODE_STATIC
+        - LEADERSHIP_MODE_UNMANAGED
       title: LeadershipMode
       type: string
     clustermetadata.LsnPosition:
@@ -1793,7 +1794,8 @@ components:
             leadership_mode is how this pooler gets its leadership. It is fixed for
              the life of the process. A static leader (minigres) is the only pooler of
              its shard: callers such as multiadmin use it for work they would
-             otherwise send to a replica, such as backups.
+             otherwise send to a replica, such as backups. An unmanaged pooler fronts a
+             PostgreSQL that multigres does not manage, so multiorch never elects it.
           title: leadership_mode
         lifecycleStatus:
           $ref: '#/components/schemas/clustermetadata.PoolerLifecycle'

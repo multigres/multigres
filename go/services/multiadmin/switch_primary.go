@@ -124,8 +124,9 @@ func (s *MultiadminServer) SwitchPrimary(ctx context.Context, req *multiadminpb.
 	return response, nil
 }
 
-// findShardPoolers returns all poolers registered for the given shard across
-// all cells.
+// findShardPoolers returns the poolers multigres manages for the given shard
+// across all cells. An unmanaged pooler's leadership is decided outside
+// multigres, so a switchover must never pick it as the leader to resign.
 func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardRef *clustermetadatapb.ShardRef) ([]*clustermetadatapb.Multipooler, error) {
 	cellNames, err := s.ts.GetCellNames(ctx)
 	if err != nil {
@@ -147,14 +148,14 @@ func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardRef *clust
 			continue
 		}
 		for _, info := range infos {
-			if info.Multipooler != nil {
+			if info.Multipooler != nil && topoclient.IsManagedPooler(info.Multipooler) {
 				poolers = append(poolers, info.Multipooler)
 			}
 		}
 	}
 
 	if len(poolers) == 0 {
-		return nil, status.Errorf(codes.NotFound, "no poolers found for shard %s/%s/%s",
+		return nil, status.Errorf(codes.NotFound, "no managed poolers found for shard %s/%s/%s",
 			shardRef.GetDatabase(), shardRef.GetTableGroup(), shardRef.GetShard())
 	}
 	return poolers, nil

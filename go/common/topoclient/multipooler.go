@@ -101,6 +101,21 @@ func PoolerAddressFor(mp *clustermetadatapb.Multipooler) *clustermetadatapb.Pool
 	}
 }
 
+// IsManagedPooler reports whether multigres manages the PostgreSQL behind p,
+// so that multiorch may repair and elect it. An unmanaged pooler fronts an
+// external PostgreSQL, and a leadership mode this build does not know is not
+// authority to manage a database either.
+func IsManagedPooler(p *clustermetadatapb.Multipooler) bool {
+	switch p.GetLeadershipMode() {
+	case clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC:
+		return true
+	default:
+		return false
+	}
+}
+
 // GetMultipooler is a high level function to read multipooler data.
 func (ts *store) GetMultipooler(ctx context.Context, id *clustermetadatapb.ID) (*MultipoolerInfo, error) {
 	conn, err := ts.ConnForCell(ctx, id.Cell)

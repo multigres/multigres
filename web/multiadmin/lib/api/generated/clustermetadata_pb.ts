@@ -270,12 +270,22 @@ export enum LeadershipMode {
    * @generated from enum value: LEADERSHIP_MODE_STATIC = 2;
    */
   STATIC = 2,
+
+  /**
+   * LEADERSHIP_MODE_UNMANAGED: the pooler fronts an external PostgreSQL that
+   * multigres neither starts, replicates, backs up nor elects. Its leadership
+   * is decided outside multigres.
+   *
+   * @generated from enum value: LEADERSHIP_MODE_UNMANAGED = 3;
+   */
+  UNMANAGED = 3,
 }
 // Retrieve enum metadata with: proto3.getEnumType(LeadershipMode)
 proto3.util.setEnumType(LeadershipMode, "clustermetadata.LeadershipMode", [
   { no: 0, name: "LEADERSHIP_MODE_UNSPECIFIED" },
   { no: 1, name: "LEADERSHIP_MODE_CONSENSUS" },
   { no: 2, name: "LEADERSHIP_MODE_STATIC" },
+  { no: 3, name: "LEADERSHIP_MODE_UNMANAGED" },
 ]);
 
 /**
@@ -1027,7 +1037,8 @@ export class Multipooler extends Message<Multipooler> {
    * leadership_mode is how this pooler gets its leadership. It is fixed for
    * the life of the process. A static leader (minigres) is the only pooler of
    * its shard: callers such as multiadmin use it for work they would
-   * otherwise send to a replica, such as backups.
+   * otherwise send to a replica, such as backups. An unmanaged pooler fronts a
+   * PostgreSQL that multigres does not manage, so multiorch never elects it.
    *
    * @generated from field: clustermetadata.LeadershipMode leadership_mode = 14;
    */
