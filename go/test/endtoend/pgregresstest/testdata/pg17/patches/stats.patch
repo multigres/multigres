@@ -16,6 +16,14 @@
 # have run. The per-transaction truncate/subxact semantics themselves are
 # correct because each transaction is pinned to a single backend. A future fix
 # is fanning pg_stat_force_next_flush() out to idle pooled backends.
+#
+# The `sessions > :db_stat_sessions` check is not patched but masked by the
+# verifier (normalizeDatabaseSessionsCheck): pg_stat_database.sessions counts
+# backend starts, and under pooling a psql \c starts no backend while
+# multipooler's own pools open and replace backends on background timers
+# (session scrubber, reserved inactivity kill, rebalancer). Whether one of
+# those lands inside the test's window is timing, observed as both t and f
+# across CI runs.
 --- a
 +++ b
 @@ -116,10 +116,10 @@
@@ -160,12 +168,3 @@
  (1 row)
  
  BEGIN;
-@@ -825,7 +825,7 @@
- SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database());
- ?column?
- ----------
--t
-+f
- (1 row)
- 
- -- Test pg_stat_checkpointer checkpointer-related stats, together with pg_stat_wal
