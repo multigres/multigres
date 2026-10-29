@@ -25,6 +25,30 @@ import (
 	"unicode"
 )
 
+// ErrMultipleHosts is the refusal of a connection that names a list of hosts.
+var ErrMultipleHosts = errors.New("host names more than one server; a single server is required")
+
+// Endpoint returns the one host and port of the lists a connection carries, as libpq's
+// host=a,b port=1,2 do. A connection is not given more than one server: the lists exist so that
+// the type does not change if it ever is, and this is where more than one is refused. A missing
+// host or port comes back empty and is left for Validate to name. A list of ports is checked
+// first, so a connection with lists of both is refused for its ports.
+func Endpoint[P ~int | ~int32](hosts []string, ports []P) (host string, port int, err error) {
+	switch {
+	case len(ports) > 1:
+		return "", 0, errors.New("port is not a single valid port number")
+	case len(hosts) > 1:
+		return "", 0, ErrMultipleHosts
+	}
+	if len(hosts) == 1 {
+		host = hosts[0]
+	}
+	if len(ports) == 1 {
+		port = int(ports[0])
+	}
+	return host, port, nil
+}
+
 // Validate reports why a connection cannot be used as a backing connection, or nil.
 //
 // The connection names one server: the pooler's admin connection must reach the same server as
@@ -36,7 +60,7 @@ func Validate(host string, port int, database, user string) error {
 	case strings.TrimSpace(host) == "":
 		return errors.New("host is required")
 	case strings.Contains(host, ","):
-		return errors.New("host names more than one server; a single server is required")
+		return ErrMultipleHosts
 	case strings.HasPrefix(host, "/"):
 		return errors.New("host is a socket directory; a network host is required")
 	case strings.ContainsFunc(host, unicode.IsSpace) || strings.ContainsAny(host, "/@"):
