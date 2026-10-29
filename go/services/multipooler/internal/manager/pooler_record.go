@@ -564,3 +564,21 @@ func (r *poolerRecord) restoreIfMissing(ctx context.Context) (done bool) {
 		return false
 	}
 }
+
+// RegisterPreparing publishes a DISABLED topology entry for an unmanaged pooler
+// before it reads any metadata. It runs before the manager exists; once the
+// manager starts, the normal record lifecycle takes ownership of the entry.
+//
+// Registering first closes a gap: a restarted pooler must not leave a stale
+// SERVING entry in topology while it is still deciding whether it may serve.
+// It overwrites an earlier entry of the same pooler, which is how a restart
+// replaces its predecessor's.
+func RegisterPreparing(ctx context.Context, ts poolerTopoStore, initial *clustermetadatapb.Multipooler) error {
+	record, err := newPoolerRecord(nil, ts, initial)
+	if err != nil {
+		return err
+	}
+	rec := routingStateForPublish(record.Snapshot())
+	rec.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	return record.topoClient.RegisterMultipooler(ctx, rec, true /* allowUpdate */)
+}
