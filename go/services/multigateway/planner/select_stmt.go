@@ -107,7 +107,7 @@ func (p *Planner) planSelectStmt(
 	// so a `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend
 	// for the lock and tracks the session setting on success.
 	buildRoute := func(routeStmt ast.Stmt) engine.Primitive {
-		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeStmt.SqlString(), routeStmt)
+		route := engine.NewRoute(p.tableGroup(), constants.DefaultShard, routeStmt.SqlString(), routeStmt)
 		if len(bound) > 0 || len(reads) > 0 {
 			return engine.NewGatewayManagedValueRoute(route, bound, reads)
 		}
@@ -124,7 +124,7 @@ func (p *Planner) planSelectStmt(
 		primitives = append(primitives, buildRoute(routeAST))
 	} else {
 		primitives = append(primitives, engine.NewSessionStateBranch(
-			p.defaultTableGroup, constants.DefaultShard, sql,
+			p.tableGroup(), constants.DefaultShard, sql,
 			buildRoute(routeAST), buildRoute(revertedAST)))
 	}
 	for _, sc := range setConfigs {
@@ -231,12 +231,12 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 	// (that's the query that actually evaluates the set_config args, including
 	// any pg_advisory_lock call). The resolve primitive just reads the rows the
 	// route streams back.
-	resolveRoute := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, unroll.SqlString(), unroll)
+	resolveRoute := engine.NewRoute(p.tableGroup(), constants.DefaultShard, unroll.SqlString(), unroll)
 	// The resolve projection's rows are read by ResolveTrackSetConfig itself, not
 	// streamed to the client, so opt this route out of opaque row passthrough.
 	resolveRoute.KeepStructured = true
 
-	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
+	prim := engine.NewResolveTrackSetConfig(p.tableGroup(), constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = execInfoFromOpts(opts)
 	return plan, nil

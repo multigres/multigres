@@ -119,6 +119,10 @@ type PoolerGateway struct {
 	// gateway shuts the cache down, which tears down everything in turn.
 	cache *poolerwatch.PoolerCache[*poolerConnection]
 
+	// appRouting, when set, steers application targets to the tablegroup the
+	// application's traffic goes to. Set once at startup. See app_routing.go.
+	appRouting *AppRouting
+
 	// logger for debugging
 	logger *slog.Logger
 }
@@ -371,6 +375,8 @@ func (pg *PoolerGateway) withBuffering(
 	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
+
+	pg.appRouting.Rewrite(target)
 	// Buffer operations are keyed on the target's full ShardRef
 	// (database + tableGroup + shard) — no need to copy field-by-field.
 	sk := target.GetShardRef()
@@ -692,7 +698,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	target := &query.Target{
 		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   req.GetDatabase(),
-			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
+			TableGroup: pg.appRouting.AuthTableGroup(req.GetDatabase()), // the application tablegroup
 			Shard:      constants.DefaultShard,
 		},
 		Mode: query.Mode_MODE_WRITABLE,

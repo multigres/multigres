@@ -48,6 +48,7 @@ type mockExec struct {
 	streamExecuteCalls              atomic.Int32
 	portalStreamExecuteCalls        atomic.Int32
 	lastStreamExecuteSQL            atomic.Value // string
+	lastStreamExecuteTableGroup     atomic.Value // string
 	lastEagerParsePreparedStatement atomic.Pointer[querypb.PreparedStatement]
 	lastPortalStreamExecuteQS       atomic.Value // string
 
@@ -60,13 +61,14 @@ type mockExec struct {
 }
 
 func (m *mockExec) StreamExecute(
-	_ context.Context, _ *server.Conn, _, _ string, sql string,
+	_ context.Context, _ *server.Conn, tableGroup, _ string, sql string,
 	preparedStatement *querypb.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	m.lastStreamExecuteTableGroup.Store(tableGroup)
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
 	m.lastEagerParsePreparedStatement.Store(preparedStatement)
@@ -807,4 +809,31 @@ func TestStreamReplication_PropagatesError(t *testing.T) {
 
 	require.ErrorIs(t, err, wantErr)
 	assert.Nil(t, stream)
+}
+
+// TestApplicationTableGroupIsPerDatabase: routing follows one database. Its statements,
+// describes and prepares go to the application tablegroup; every other database keeps
+// the default tablegroup, which is the only one it has.
+func TestApplicationTableGroupIsPerDatabase(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	routed, other := testConnWithDB("routed"), testConnWithDB("other")
+	const sql = "SELECT * FROM users WHERE id = 42"
+
+	exec.SetApplicationRouting("routed", "destTG")
+
+	_, err := exec.StreamExecute(ctx, routed, nil, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+	assert.Equal(t, "destTG", mock.lastStreamExecuteTableGroup.Load())
+	_, err = exec.StreamExecute(ctx, other, nil, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultTableGroup, mock.lastStreamExecuteTableGroup.Load(), "another database stays on the default tablegroup")
+
+	state := handler.NewMultigatewayConnectionState()
+	require.NoError(t, exec.PrepareInTransaction(ctx, other, state, "SELECT $1", []uint32{23}))
+	assert.Equal(t, DefaultTableGroup, mock.lastStreamExecuteTableGroup.Load())
+	require.NoError(t, exec.PrepareInTransaction(ctx, routed, state, "SELECT $1", []uint32{23}))
+	assert.Equal(t, "destTG", mock.lastStreamExecuteTableGroup.Load())
 }

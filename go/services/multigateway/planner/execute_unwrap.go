@@ -116,7 +116,7 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 	// need — `CREATE TEMP TABLE t AS EXECUTE p` materializes its own temp
 	// table regardless of what the body does.
 	plan := engine.NewPlan(deparsedSQL,
-		engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, substituted))
+		engine.NewRoute(p.tableGroup(), constants.DefaultShard, deparsedSQL, substituted))
 	plan.ExecInfo = execInfo
 	if isTemp {
 		plan.ExecInfo.TempTable = true

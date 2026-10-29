@@ -131,7 +131,7 @@ func (p *Planner) planVariableSetStmt(
 		}
 	}
 
-	pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard)
+	pinned := sessionPinned(conn, state, p.tableGroup(), constants.DefaultShard)
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
@@ -142,7 +142,7 @@ func (p *Planner) planVariableSetStmt(
 		// avoids assigning a REPEATABLE READ/SERIALIZABLE snapshot before the
 		// transaction's first real query.
 		if pinned {
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			route := engine.NewRoute(p.tableGroup(), constants.DefaultShard, sql, stmt)
 			track := engine.NewApplySessionStateSilent(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
 			p.logger.Debug("created route-then-track SET plan on pinned session",
@@ -160,7 +160,7 @@ func (p *Planner) planVariableSetStmt(
 		// the trailing ApplySessionState records the setting for pool-rotation
 		// replay and emits CommandComplete("SET").
 		value := extractVariableValue(stmt.Args)
-		validate := engine.NewValidateSetting(p.defaultTableGroup, constants.DefaultShard, stmt.Name, value, sql)
+		validate := engine.NewValidateSetting(p.tableGroup(), constants.DefaultShard, stmt.Name, value, sql)
 		track := engine.NewApplySessionState(sql, stmt)
 		plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
 		p.logger.Debug("created validate-then-track SET plan",
@@ -192,7 +192,7 @@ func (p *Planner) planVariableSetStmt(
 
 			if stmt.Kind == ast.VAR_RESET {
 				if restoreSQL, ok := startupRestoreStatement(startup, stmt.Name); ok {
-					restore := engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL)
+					restore := engine.NewSilentRoute(p.tableGroup(), constants.DefaultShard, restoreSQL)
 					track := engine.NewApplySessionState(sql, trackStmt)
 					plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{restore, track}))
 					p.logger.Debug("created startup-restore RESET plan on pinned session",
@@ -210,9 +210,9 @@ func (p *Planner) planVariableSetStmt(
 				// RESET tag, so a failing restore surfaces as a bare error —
 				// the raw statement's own tag must not reach the client
 				// before the reconciliation it depends on has succeeded.
-				children := []engine.Primitive{engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, sql)}
+				children := []engine.Primitive{engine.NewSilentRoute(p.tableGroup(), constants.DefaultShard, sql)}
 				for _, restoreSQL := range restores {
-					children = append(children, engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL))
+					children = append(children, engine.NewSilentRoute(p.tableGroup(), constants.DefaultShard, restoreSQL))
 				}
 				children = append(children, engine.NewApplySessionState(sql, stmt))
 				plan := engine.NewPlan(sql, engine.NewSequence(children))
@@ -221,7 +221,7 @@ func (p *Planner) planVariableSetStmt(
 				return plan, nil
 			}
 
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			route := engine.NewRoute(p.tableGroup(), constants.DefaultShard, sql, stmt)
 			track := engine.NewApplySessionStateSilent(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
 			p.logger.Debug("created route-then-track RESET plan on pinned session",
@@ -234,7 +234,7 @@ func (p *Planner) planVariableSetStmt(
 		// RESET and reverts instantly), then drop the map entry and emit
 		// CommandComplete("RESET"). No backend session state is touched.
 		if stmt.Kind == ast.VAR_RESET {
-			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
+			validate := engine.NewValidateSettingReset(p.tableGroup(), constants.DefaultShard, stmt.Name, sql)
 			// trackStmt (pre-normalization) so SET x TO DEFAULT completes as
 			// "SET" — matching PostgreSQL and the pinned paths, which route the
 			// original SQL or hand the tracker the original kind.

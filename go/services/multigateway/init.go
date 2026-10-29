@@ -52,6 +52,10 @@ import (
 )
 
 type Multigateway struct {
+	// routing is the application routing fixed at startup, read from the flags that
+	// RegisterFlags adds.
+	routing *staticRouting
+
 	cell viperutil.Value[string]
 	// serviceID string
 	serviceID viperutil.Value[string]
@@ -365,6 +369,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.replicaConfig.registerFlags(fs)
+	mg.routing = &staticRouting{}
+	mg.routing.RegisterFlags(fs, mg.reg)
 	if mg.bufferConfig != nil {
 		mg.bufferConfig.RegisterFlags(fs)
 	}
@@ -463,6 +469,11 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
 	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+
+	// Where the application's traffic goes is fixed before anything is served.
+	if err := mg.routing.apply(mg.executor, mg.poolerGateway, logger); err != nil {
+		return fmt.Errorf("application routing: %w", err)
+	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
 	// can't start any earlier.

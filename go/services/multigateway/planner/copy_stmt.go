@@ -41,9 +41,9 @@ func (p *Planner) planCopyStmt(
 			// COPY FROM STDIN - requires CopyStatement primitive (streaming)
 			p.logger.Debug("planning COPY FROM STDIN command",
 				"query", sql,
-				"tablegroup", p.defaultTableGroup)
+				"tablegroup", p.tableGroup())
 
-			copyPrimitive := engine.NewCopyStatement(p.defaultTableGroup, sql, stmt)
+			copyPrimitive := engine.NewCopyStatement(p.tableGroup(), sql, stmt)
 			plan := engine.NewPlan(sql, copyPrimitive)
 			p.logger.Debug("created COPY FROM STDIN plan", "plan", plan.String())
 			return plan, nil
@@ -55,9 +55,9 @@ func (p *Planner) planCopyStmt(
 			p.logger.Debug("planning COPY FROM file command (pass-through)",
 				"query", sql,
 				"file", stmt.Filename,
-				"tablegroup", p.defaultTableGroup)
+				"tablegroup", p.tableGroup())
 
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
+			route := engine.NewRoute(p.tableGroup(), constants.DefaultShard, sql, nil)
 			plan := engine.NewPlan(sql, route)
 			p.logger.Debug("created COPY FROM file plan (pass-through)", "plan", plan.String())
 			return plan, nil
@@ -71,9 +71,9 @@ func (p *Planner) planCopyStmt(
 		// dispatches on stmt.IsFrom internally.
 		p.logger.Debug("planning COPY TO STDOUT command",
 			"query", sql,
-			"tablegroup", p.defaultTableGroup)
+			"tablegroup", p.tableGroup())
 
-		copyPrimitive := engine.NewCopyStatement(p.defaultTableGroup, sql, stmt)
+		copyPrimitive := engine.NewCopyStatement(p.tableGroup(), sql, stmt)
 		plan := engine.NewPlan(sql, copyPrimitive)
 		p.logger.Debug("created COPY TO STDOUT plan", "plan", plan.String())
 		return plan, nil
@@ -85,9 +85,9 @@ func (p *Planner) planCopyStmt(
 	p.logger.Debug("planning COPY TO file command (pass-through)",
 		"query", sql,
 		"file", stmt.Filename,
-		"tablegroup", p.defaultTableGroup)
+		"tablegroup", p.tableGroup())
 
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
+	route := engine.NewRoute(p.tableGroup(), constants.DefaultShard, sql, nil)
 	plan := engine.NewPlan(sql, route)
 	p.logger.Debug("created COPY TO file plan (pass-through)", "plan", plan.String())
 	return plan, nil
