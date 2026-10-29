@@ -267,6 +267,12 @@ message Target {
   // mode expresses the caller's writability / consistency needs.
   // See Mode for the semantics of each value.
   Mode mode = 5;
+
+  // control marks cluster control traffic rather than application work: a
+  // credential lookup, a routing snapshot read, and the like. A control target
+  // always names the shard it means, and the gateway never rewrites it by a
+  // routing rule.
+  bool control = 6;
 }
 
 // PreparedStatement represents a prepared statement in the extended query protocol.
