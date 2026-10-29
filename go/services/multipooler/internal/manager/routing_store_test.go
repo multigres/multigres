@@ -131,13 +131,13 @@ func TestLoadRoutingCatalog_RejectsANonCanonicalShardName(t *testing.T) {
 
 func TestApplyRoutingRuleChange_WritesRulesAndBumpsVersion(t *testing.T) {
 	tx := newFakeRoutingTx()
-	version, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{
+	write, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{
 		operationID:            importOp,
 		rules:                  []shardRuleSpec{{fromTablegroup: "default", toTablegroup: "srctg", toShard: "0-inf"}},
 		expectedRoutingVersion: 5,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), version)
+	assert.Equal(t, routingWrite{version: 6, rules: 1}, write)
 
 	var nilID *int64
 	shardID := int64(2)
@@ -150,9 +150,9 @@ func TestApplyRoutingRuleChange_WritesRulesAndBumpsVersion(t *testing.T) {
 
 func TestApplyRoutingRuleChange_DeleteBumpsVersion(t *testing.T) {
 	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
-	version, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
+	write, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), version)
+	assert.Equal(t, routingWrite{version: 6, rules: 0}, write)
 	assert.Equal(t, []fakeRoutingCall{
 		{sql: deleteOperationRulesSQL, args: []any{importOp}},
 		{sql: bumpRoutingVersionSQL, args: []any{int64(6), int64(0)}},
@@ -192,13 +192,13 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tx := newFakeRoutingTx(tt.rules...)
-			version, err := applyRoutingRuleChange(context.Background(), tx, tt.change)
+			write, err := applyRoutingRuleChange(context.Background(), tx, tt.change)
 			if tt.code != mtrpcpb.Code_OK {
 				require.Error(t, err)
 				assert.Equal(t, tt.code, mterrors.Code(err), "error: %v", err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.version, version)
+				assert.Equal(t, routingWrite{version: tt.version, rules: len(tt.rules)}, write)
 			}
 			assert.Empty(t, tx.writes(), tt.name+" must not write")
 			if tt.change.operationID == "nope" {

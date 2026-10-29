@@ -20,6 +20,7 @@
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, GetRoutingSnapshotRequest, GetRoutingSnapshotResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -468,6 +469,40 @@ export const MultiadminService = {
       name: "DropConnection",
       I: DropConnectionRequest,
       O: DropConnectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetRoutingSnapshot returns a database's routing rules and routing version.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetRoutingSnapshot
+     */
+    getRoutingSnapshot: {
+      name: "GetRoutingSnapshot",
+      I: GetRoutingSnapshotRequest,
+      O: GetRoutingSnapshotResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetRoutingRules replaces every routing rule of an operation. A change
+     * already in effect succeeds without changing the routing version.
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetRoutingRules
+     */
+    setRoutingRules: {
+      name: "SetRoutingRules",
+      I: SetRoutingRulesRequest,
+      O: SetRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DeleteRoutingRules deletes every routing rule of an operation.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DeleteRoutingRules
+     */
+    deleteRoutingRules: {
+      name: "DeleteRoutingRules",
+      I: DeleteRoutingRulesRequest,
+      O: DeleteRoutingRulesResponse,
       kind: MethodKind.Unary,
     },
   }

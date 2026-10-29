@@ -24,6 +24,7 @@ import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
 import "google/rpc/status.proto";
 import "mtrpc.proto";
+import "multipoolermanagerdata.proto";
 import "query.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolerservice";
@@ -60,6 +61,14 @@ service MultipoolerService {
   // an up-to-date cache of all password hashes and by real-time updates from multipooler
   // when any credentials change.
   rpc GetAuthCredentials(GetAuthCredentialsRequest) returns (GetAuthCredentialsResponse);
+
+  // GetRoutingSnapshot returns a database's routing rules and routing version,
+  // read in one consistent snapshot of its catalog. Gateways poll it. Served
+  // only by the primary of the default tablegroup, which holds the catalog;
+  // any other pooler returns UNAVAILABLE. It is control traffic: it never
+  // goes through query admission.
+  rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest)
+      returns (multipoolermanagerdata.GetRoutingSnapshotResponse);
 
   // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
   // The gateway sends the initial command and then streams data/messages.

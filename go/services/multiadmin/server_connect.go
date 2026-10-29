@@ -27,6 +27,7 @@ import (
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // connectAdapter wraps MultiadminServer to implement the connect-go handler interface.
@@ -316,6 +317,33 @@ func (a *connectAdapter) ListConnections(ctx context.Context, req *connect.Reque
 // DropConnection forwards to the Multigres Migrator service.
 func (a *connectAdapter) DropConnection(ctx context.Context, req *connect.Request[migratorpb.DropConnectionRequest]) (*connect.Response[migratorpb.DropConnectionResponse], error) {
 	resp, err := a.MultiadminServer.DropConnection(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// GetRoutingSnapshot forwards to the database's catalog primary.
+func (a *connectAdapter) GetRoutingSnapshot(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdatapb.GetRoutingSnapshotResponse], error) {
+	resp, err := a.MultiadminServer.GetRoutingSnapshot(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// SetRoutingRules forwards to the database's catalog primary.
+func (a *connectAdapter) SetRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdatapb.SetRoutingRulesResponse], error) {
+	resp, err := a.MultiadminServer.SetRoutingRules(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// DeleteRoutingRules forwards to the database's catalog primary.
+func (a *connectAdapter) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdatapb.DeleteRoutingRulesResponse], error) {
+	resp, err := a.MultiadminServer.DeleteRoutingRules(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

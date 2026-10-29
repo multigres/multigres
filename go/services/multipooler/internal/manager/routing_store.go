@@ -20,6 +20,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -56,35 +57,55 @@ JOIN multigres.tablegroup tg USING (tablegroup_id) WHERE tg.name = $1`
 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`
 
 	bumpRoutingVersionSQL = `UPDATE multigres.catalog_state SET routing_version = $1, plan_epoch = plan_epoch + $2`
+
+	selectRoutingStateSQL = `SELECT routing_version, plan_epoch FROM multigres.catalog_state`
+
+	// selectSnapshotRulesSQL reads every rule with the names a gateway routes
+	// by, in rule_id order.
+	selectSnapshotRulesSQL = `SELECT r.rule_id, r.operation_id::text, r.scope, ftg.name, ft.schema_name, ft.table_name,
+	ttg.name, s.shard_name, sk.name, r.created_version
+FROM multigres.routing_rule r
+JOIN multigres.tablegroup ftg ON ftg.tablegroup_id = r.from_tablegroup_id
+JOIN multigres.tablegroup ttg ON ttg.tablegroup_id = r.to_tablegroup_id
+LEFT JOIN multigres.tablegroup_table ft ON ft.table_id = r.from_table_id
+LEFT JOIN multigres.shard s ON s.shard_id = r.to_shard_id
+LEFT JOIN multigres.shard_key sk ON sk.shard_key_id = r.to_shard_key_id
+ORDER BY r.rule_id`
 )
 
 // applyRoutingRuleChange validates change and writes it in tx: it replaces
 // the operation's rules and increments routing_version (and plan_epoch when
-// the plan requires it). It returns the routing version after the change; a
-// change that is already in effect writes nothing and returns the current
-// version. The caller commits tx.
-func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, change routingRuleChange) (int64, error) {
+// the plan requires it). It returns the routing version and the database's
+// rule count after the change; a change that is already in effect writes
+// nothing and returns the current ones. The caller commits tx.
+func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, change routingRuleChange) (routingWrite, error) {
 	cat, err := loadRoutingCatalog(ctx, tx, change.operationID)
 	if err != nil {
-		return 0, err
+		return routingWrite{}, err
 	}
 	plan, err := planRoutingRuleChange(cat, change)
 	if err != nil {
-		return 0, err
+		return routingWrite{}, err
 	}
 	if plan.noop {
-		return cat.routingVersion, nil
+		return routingWrite{version: cat.routingVersion, rules: len(cat.rules)}, nil
 	}
 
-	version := cat.routingVersion + 1
+	write := routingWrite{version: cat.routingVersion + 1, rules: len(plan.insert)}
+	for _, r := range cat.rules {
+		if r.operationID != change.operationID {
+			write.rules++
+		}
+	}
+	version := write.version
 	if _, err := tx.QueryArgs(ctx, deleteOperationRulesSQL, change.operationID); err != nil {
-		return 0, mterrors.Wrap(err, "failed to delete routing rules")
+		return routingWrite{}, mterrors.Wrap(err, "failed to delete routing rules")
 	}
 	for _, r := range plan.insert {
 		if _, err := tx.QueryArgs(ctx, insertRoutingRuleSQL,
 			r.operationID, r.scope, r.fromTablegroupID, nullableID(r.fromTableID),
 			r.toTablegroupID, nullableID(r.toShardID), nullableID(r.toShardKeyID), version); err != nil {
-			return 0, mterrors.Wrap(err, "failed to insert routing rule")
+			return routingWrite{}, mterrors.Wrap(err, "failed to insert routing rule")
 		}
 	}
 	var planEpochDelta int64
@@ -92,9 +113,16 @@ func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, change 
 		planEpochDelta = 1
 	}
 	if _, err := tx.QueryArgs(ctx, bumpRoutingVersionSQL, version, planEpochDelta); err != nil {
-		return 0, mterrors.Wrap(err, "failed to bump routing version")
+		return routingWrite{}, mterrors.Wrap(err, "failed to bump routing version")
 	}
-	return version, nil
+	return write, nil
+}
+
+// routingWrite is the outcome of a rule change: the routing version after it
+// and the number of rules the database then has.
+type routingWrite struct {
+	version int64
+	rules   int
 }
 
 // loadRoutingCatalog locks catalog_state and reads what rule validation needs.
@@ -205,4 +233,51 @@ func derefID(id *int64) int64 {
 		return 0
 	}
 	return *id
+}
+
+// readRoutingSnapshot reads the routing version, the plan epoch and every rule
+// in tx, which the caller opens REPEATABLE READ so they are read from one
+// snapshot.
+func readRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	resp := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{Full: true}
+	result, err := tx.Query(ctx, selectRoutingStateSQL)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read routing version")
+	}
+	if err := executor.ScanSingleRow(result, &resp.RoutingVersion, &resp.PlanEpoch); err != nil {
+		return nil, mterrors.Wrap(err, "failed to read routing version")
+	}
+
+	result, err = tx.Query(ctx, selectSnapshotRulesSQL)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read routing rules")
+	}
+	for _, row := range result.Rows {
+		rule := &multipoolermanagerdatapb.RoutingRule{}
+		var scope string
+		var fromSchema, fromTable, toShard, toShardKey *string
+		if err := executor.ScanRow(row, &rule.RuleId, &rule.OperationId, &scope, &rule.FromTablegroup,
+			&fromSchema, &fromTable, &rule.ToTablegroup, &toShard, &toShardKey,
+			&rule.CreatedVersion); err != nil {
+			return nil, mterrors.Wrap(err, "failed to read routing rule")
+		}
+		switch scope {
+		case routingScopeTablegroup:
+			rule.Scope = multipoolermanagerdatapb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP
+		case routingScopeTable:
+			rule.Scope = multipoolermanagerdatapb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE
+		}
+		if fromTable != nil {
+			rule.FromTable = &multipoolermanagerdatapb.RoutingTableName{Schema: derefString(fromSchema), Name: *fromTable}
+		}
+		if toShard != nil {
+			rule.ToShard = *toShard
+			if rule.ToKeyRange, err = keyrange.ParseShardName(*toShard); err != nil {
+				return nil, mterrors.Wrapf(err, "routing rule %d targets a shard with an invalid name", rule.RuleId)
+			}
+		}
+		rule.ToShardKey = derefString(toShardKey)
+		resp.Rules = append(resp.Rules, rule)
+	}
+	return resp, nil
 }

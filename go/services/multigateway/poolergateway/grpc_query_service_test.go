@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -161,6 +162,9 @@ type mockMultipoolerServiceClient struct {
 	// GetAuthCredentials behavior
 	authResponse *multipoolerservice.GetAuthCredentialsResponse
 	authErr      error
+
+	routingResponse *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+	routingErr      error
 }
 
 func (m *mockMultipoolerServiceClient) ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse], error) {
@@ -203,6 +207,10 @@ func (m *mockMultipoolerServiceClient) Describe(ctx context.Context, in *multipo
 
 func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
 	return m.authResponse, m.authErr
+}
+
+func (m *mockMultipoolerServiceClient) GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdatapb.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	return m.routingResponse, m.routingErr
 }
 
 func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {

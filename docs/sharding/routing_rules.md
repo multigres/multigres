@@ -7,9 +7,9 @@ tablegroup, in `multigres.routing_rule`, and every rule belongs to the
 operation (`multigres.operation`) that created it. When no operation runs,
 there are no rules.
 
-This page describes what is implemented today: the rule table and how a rule
-change is validated. Nothing reads or applies rules yet; the RPCs that set and
-read them, and the gateway routing that applies them, come later.
+This page describes what is implemented today: the rule table, how a rule
+change is validated, and the RPCs that set and read rules. Gateways don't apply
+rules yet; that comes later.
 
 ## Rules
 
@@ -34,3 +34,18 @@ transaction that locks `multigres.catalog_state`, checks the caller's expected
 routing version, validates the rule set the change leaves behind, and
 increments `routing_version`. A change that is already in effect succeeds and
 returns the current version, so a retry is safe.
+
+## API
+
+The catalog primary serves the RPCs; multiadmin forwards them to it.
+
+| RPC                  | Multiadmin REST                                                                                        | Service            |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | ------------------ |
+| `GetRoutingSnapshot` | `GET /api/v1/databases/{database}/routing`                                                             | MultipoolerService |
+| `SetRoutingRules`    | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/rules`                             | MultipoolerManager |
+| `DeleteRoutingRules` | `DELETE /api/v1/databases/{database}/routing/operations/{operation_id}/rules?expectedRoutingVersion=N` | MultipoolerManager |
+
+Errors: a pooler that is not the catalog primary answers `UNAVAILABLE` (find
+the primary and retry); a stale expected version or a change the catalog does
+not allow answers `FAILED_PRECONDITION`; a malformed request answers
+`INVALID_ARGUMENT`.

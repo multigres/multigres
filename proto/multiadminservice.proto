@@ -69,6 +69,7 @@ option (openapi.v3.document) = {
   tags: {name: "jobs" description: "Asynchronous backup and restore jobs."}
   tags: {name: "migrations" description: "Table migration into Multigres via logical replication."}
   tags: {name: "connections" description: "Stored source connections for table migrations."}
+  tags: {name: "routing" description: "Routing rules that send a database's traffic elsewhere while an operation moves its data."}
   components: {
     security_schemes: {
       additional_properties: {
@@ -771,6 +772,59 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {delete: "/api/v1/connections/{ref.id}"};
+  }
+  //
+  // Routing rules. These forward to the primary of the database's default
+  // tablegroup, which holds its catalog.
+  //
+
+  // GetRoutingSnapshot returns a database's routing rules and routing version.
+  rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest) returns (multipoolermanagerdata.GetRoutingSnapshotResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a database's routing"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/databases/{database}/routing"};
+  }
+
+  // SetRoutingRules replaces every routing rule of an operation. A change
+  // already in effect succeeds without changing the routing version.
+  rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest) returns (multipoolermanagerdata.SetRoutingRulesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Set an operation's routing rules"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      put: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"
+      body: "*"
+    };
+  }
+
+  // DeleteRoutingRules deletes every routing rule of an operation.
+  rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest) returns (multipoolermanagerdata.DeleteRoutingRulesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Delete an operation's routing rules"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {delete: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"};
   }
 }
 
