@@ -45,6 +45,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -727,14 +729,11 @@ var _ Gateway = (*PoolerGateway)(nil)
 // It uses withBuffering so that auth requests are buffered during planned failovers,
 // just like query execution.
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	target := &query.Target{
-		ShardRef: &clustermetadatapb.ShardRef{
-			Database:   req.GetDatabase(),
-			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
-			Shard:      constants.DefaultShard,
-		},
-		Mode: query.Mode_MODE_WRITABLE,
-	}
+	// Credential lookups always read the database's default tablegroup and
+	// never go through a routing rule. Every postgres of the database holds
+	// the same role verifiers, so the default tablegroup answers for all of
+	// them.
+	target := catalogShardTarget(req.GetDatabase())
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
@@ -764,6 +763,71 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 		}
 	}
 	return resp, err
+}
+
+// catalogShardTarget is the writable target of the primary of database's
+// default tablegroup, which holds its catalog.
+func catalogShardTarget(database string) *query.Target {
+	return &query.Target{
+		ShardRef: &clustermetadatapb.ShardRef{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		Mode: query.Mode_MODE_WRITABLE,
+	}
+}
+
+// managerClientOf returns the manager client of a pooler connection. Tests
+// replace it.
+var managerClientOf = func(conn *poolerConnection) (multipoolermanagerpb.MultipoolerManagerClient, error) {
+	return conn.ManagerClient()
+}
+
+// GetRoutingSnapshot reads database's sharding catalog snapshot from the
+// primary of its catalog shard, over the manager service.
+//
+// With waitForFailover, a read that finds the catalog primary failing over
+// waits in the failover buffer and is retried on the new primary, as
+// application traffic would be: it is a read with no side effects. The
+// sharding catalog cache reads this way while it has no snapshot of the
+// database, which statements wait for. Without it the read fails at once,
+// never takes a buffer slot, and the cache keeps the snapshot it has.
+func (pg *PoolerGateway) GetRoutingSnapshot(ctx context.Context, database string, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest, waitForFailover bool) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	target := catalogShardTarget(database)
+	read := func(conn *poolerConnection) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+		client, err := managerClientOf(conn)
+		if err != nil {
+			return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, err.Error())
+		}
+		resp, err := client.GetRoutingSnapshot(ctx, req)
+		return resp, mterrors.FromGRPC(err)
+	}
+	if !waitForFailover {
+		conn, err := pg.loadBalancer.getConnection(target)
+		if err != nil {
+			return nil, err
+		}
+		return read(conn)
+	}
+
+	var resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+	err := pg.withBuffering(ctx, target, true, false, func(conn *poolerConnection) error {
+		var err error
+		resp, err = read(conn)
+		// A pooler that is unavailable, or no longer (or not yet) the
+		// catalog primary, refuses before reading anything, so the read is
+		// safe to buffer and retry on the new primary, like a credential
+		// lookup.
+		if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE || isCatalogPrimaryMovedError(err) {
+			return mterrors.MarkPreExecutionUnavailable(err)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // GetConnection selects a poolerConnection matching the target. External
