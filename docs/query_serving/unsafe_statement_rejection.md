@@ -158,14 +158,14 @@ a connection that sets
 
 ### Tier 2 — infrastructure operations (blocked at plan time)
 
-| Statement                     | AST Node                    | Example                                                                  | Reason                                                            |
-| ----------------------------- | --------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `LOAD`                        | `T_LoadStmt`                | `LOAD 'auto_explain'`                                                    | Loads shared libraries into the PostgreSQL server process         |
-| `ALTER SYSTEM`                | `T_AlterSystemStmt`         | `ALTER SYSTEM SET max_connections = 1`                                   | Modifies `postgresql.conf` — can break the service                |
-| `CREATE DATABASE`             | `T_CreatedbStmt`            | `CREATE DATABASE foo`                                                    | Structural server changes not permitted in a hosted environment   |
-| `DROP DATABASE`               | `T_DropdbStmt`              | `DROP DATABASE foo`                                                      | Structural server changes not permitted in a hosted environment   |
-| `CREATE LANGUAGE`             | `T_CreatePLangStmt`         | `CREATE LANGUAGE plpython3u`                                             | Installs procedural language runtimes (especially untrusted ones) |
-| `CREATE SUBSCRIPTION`         | `T_CreateSubscriptionStmt`  | `CREATE SUBSCRIPTION s CONNECTION '...' PUBLICATION p`                   | Opens outbound replication connections to external servers        |
+| Statement             | AST Node                   | Example                                                | Reason                                                            |
+| --------------------- | -------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
+| `LOAD`                | `T_LoadStmt`               | `LOAD 'auto_explain'`                                  | Loads shared libraries into the PostgreSQL server process         |
+| `ALTER SYSTEM`        | `T_AlterSystemStmt`        | `ALTER SYSTEM SET max_connections = 1`                 | Modifies `postgresql.conf` — can break the service                |
+| `CREATE DATABASE`     | `T_CreatedbStmt`           | `CREATE DATABASE foo`                                  | Structural server changes not permitted in a hosted environment   |
+| `DROP DATABASE`       | `T_DropdbStmt`             | `DROP DATABASE foo`                                    | Structural server changes not permitted in a hosted environment   |
+| `CREATE LANGUAGE`     | `T_CreatePLangStmt`        | `CREATE LANGUAGE plpython3u`                           | Installs procedural language runtimes (especially untrusted ones) |
+| `CREATE SUBSCRIPTION` | `T_CreateSubscriptionStmt` | `CREATE SUBSCRIPTION s CONNECTION '...' PUBLICATION p` | Opens outbound replication connections to external servers        |
 
 **Why blocked:** these are properties of the shared server process or
 its outbound connections. Unlike Tier 1, there is no "inspect the
