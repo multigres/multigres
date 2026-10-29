@@ -128,6 +128,13 @@ type managerMetrics struct {
 	// total-ready go negative).
 	failoverSlotReadinessSnapshot atomic.Pointer[failoverSlotReadiness]
 	logicalFailoverSlots          metric.Int64ObservableGauge
+
+	// routingRules is the number of routing rules a database has, labelled by
+	// db.namespace. Only the catalog primary records it, whenever it serves a
+	// full sharding catalog snapshot: gateways fetch one after every catalog
+	// change and on their backstop poll, so a newly promoted catalog primary
+	// reports it without waiting for a rule change.
+	routingRules metric.Int64Gauge
 }
 
 // failoverSlotReadiness is a (ready, total) pair published atomically as a
@@ -229,14 +236,24 @@ func newManagerMetrics() (*managerMetrics, error) {
 		metric.WithUnit("{slot}"),
 	)
 
+	// Routing rules exist only while placement operations run, so a database
+	// normally has none or a handful. Every gateway reads all of them in each
+	// snapshot, so a count that keeps growing is worth an alert.
+	routingRules, routingRulesErr := meter.Int64Gauge(
+		"mg.pooler.routing.rules",
+		metric.WithDescription("Routing rules of a database, as last served by its catalog primary in a sharding catalog snapshot"),
+		metric.WithUnit("{rule}"),
+	)
+
 	m := &managerMetrics{
 		rewindCheckpointWait:        wait,
 		rewindExecutionDuration:     exec,
 		logicalFailoverDuration:     failoverDuration,
 		logicalFailoverCount:        failoverCount,
 		logicalFailoverSlotsDropped: slotsDropped,
+		routingRules:                routingRules,
 	}
-	errs := []error{waitErr, execErr, failoverDurationErr, failoverCountErr, slotsDroppedErr}
+	errs := []error{waitErr, execErr, failoverDurationErr, failoverCountErr, slotsDroppedErr, routingRulesErr}
 
 	// Steady-state failover-slot readiness, labelled by status (ready/unready),
 	// so an operator can see whether a node is failover-ready before it is ever
@@ -328,4 +345,13 @@ func (m *managerMetrics) recordLogicalFailover(ctx context.Context, status logic
 	if m.logicalFailoverCount != nil {
 		m.logicalFailoverCount.Add(ctx, 1, attrs)
 	}
+}
+
+// recordRoutingRules records the number of routing rules database has.
+// Nil-receiver safe.
+func (m *managerMetrics) recordRoutingRules(ctx context.Context, database string, n int) {
+	if m == nil || m.routingRules == nil {
+		return
+	}
+	m.routingRules.Record(ctx, int64(n), metric.WithAttributes(attribute.String("db.namespace", database)))
 }

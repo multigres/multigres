@@ -265,6 +265,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	snapshot.RoutingVersion = v.routingVersion
 	snapshot.PlanEpoch = v.planEpoch
 	out.Snapshot = snapshot
+	pm.metrics.recordRoutingRules(ctx, pm.record.ShardRef().GetDatabase(), len(snapshot.GetRoutingRules()))
 	return out, nil
 }
 
