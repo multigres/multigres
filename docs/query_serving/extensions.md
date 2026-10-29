@@ -61,12 +61,12 @@ multigateway.
 
 These extensions are not expected to be covered by the current harness.
 
-| Extension            | Source  | Reason                                                                          |
-| -------------------- | ------- | ------------------------------------------------------------------------------- |
-| `dblink`             | contrib | Gateway's expression filter blocks the `dblink*` functions.                     |
-| `moddatetime`        | contrib | `contrib/spi` does not ship an installable `pg_regress` suite.                  |
-| `pg_stat_statements` | contrib | Marked `NO_INSTALLCHECK`; records query text rewritten by the gateway.          |
-| `plpgsql`            | contrib | Built-in procedural language covered by the core regression suite, not contrib. |
+| Extension            | Source  | Reason                                                                                                                                                                        |
+| -------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dblink`             | contrib | Gateway's expression filter blocks the `dblink*` functions.                                                                                                                   |
+| `moddatetime`        | contrib | `contrib/spi` does not ship an installable `pg_regress` suite.                                                                                                                |
+| `pg_stat_statements` | contrib | Marked `NO_INSTALLCHECK`; records query text rewritten by the gateway.                                                                                                        |
+| `plpgsql`            | contrib | Built-in procedural language covered by the core regression suite, not contrib.                                                                                               |
 | `postgres_fdw`       | contrib | FDW DDL is allowed (covered by the queryserving e2e), but the upstream suite builds its loopback servers in a DO block with a raw `\|\|` dynamic EXECUTE the gateway rejects. |
 
 ## External extensions
@@ -74,14 +74,14 @@ These extensions are not expected to be covered by the current harness.
 These extensions live outside the PostgreSQL source tree and need separate
 build and test infrastructure before they can be run by this harness.
 
-| Extension          | Notes                     |
-| ------------------ | ------------------------- |
-| `pg_cron`          | -                         |
-| `pg_graphql`       | Rust extension.           |
-| `pg_net`           | Uses a background worker. |
-| `pgmq`             | -                         |
-| `postgis`          | -                         |
-| `postgis_topology` | Part of PostGIS.          |
-| `supabase_vault`   | -                         |
-| `vector`           | pgvector.                 |
+| Extension          | Notes                                                                           |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `pg_cron`          | -                                                                               |
+| `pg_graphql`       | Rust extension.                                                                 |
+| `pg_net`           | Uses a background worker.                                                       |
+| `pgmq`             | -                                                                               |
+| `postgis`          | -                                                                               |
+| `postgis_topology` | Part of PostGIS.                                                                |
+| `supabase_vault`   | -                                                                               |
+| `vector`           | pgvector.                                                                       |
 | `wrappers`         | Rust extension; smoke runs the helloworld FDW DDL + SELECT through the gateway. |
