@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,8 +54,7 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config              *LocalProvisionerConfig
-	pgBackRestCertPaths *PgBackRestCertPaths
+	config *LocalProvisionerConfig
 	// cipherKeyFilePath is the resolved backup cipher key file path, set once
 	// per ProvisionDatabase run when encryption is enabled and passed to every
 	// multipooler. Empty when encryption is disabled.
@@ -318,13 +318,21 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 // e.g. "pgBackRest 2.57.0".
 var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+(\d+\.\d+(?:\.\d+)?)`)
 
-// minPgBackrestVersionDisplay returns constants.MinPgBackrestVersion without
-// the semver "v" prefix, for use in user-facing messages.
-func minPgBackrestVersionDisplay() string {
+// minPgBackrestVersionDisplay returns the minimum version without the semver
+// "v" prefix, for messages.
+func (p *localProvisioner) minPgBackrestVersionDisplay() string {
 	return strings.TrimPrefix(constants.MinPgBackrestVersion, "v")
 }
 
-// checkPgBackrestVersion verifies that the pgbackrest binary is >= constants.MinPgBackrestVersion.
+// CheckPgBackrestVersion verifies that the pgbackrest binary meets
+// constants.MinPgBackrestVersion, for callers (the end-to-end harness) that run
+// the sidecar without going through the provisioner's own checks.
+func CheckPgBackrestVersion(binaryPath string) error {
+	return (&localProvisioner{}).checkPgBackrestVersion(binaryPath)
+}
+
+// checkPgBackrestVersion verifies that the pgbackrest binary meets the minimum
+// version.
 func (p *localProvisioner) checkPgBackrestVersion(binaryPath string) error {
 	cmd := exec.Command(binaryPath, "--version")
 	output, err := cmd.Output()
@@ -344,7 +352,7 @@ func (p *localProvisioner) checkPgBackrestVersionFromOutput(versionStr string) e
 	actual := semver.Canonical("v" + matches[1])
 	if semver.Compare(actual, constants.MinPgBackrestVersion) < 0 {
 		return fmt.Errorf("pgbackrest %s is too old; need >= %s",
-			matches[1], minPgBackrestVersionDisplay())
+			matches[1], p.minPgBackrestVersionDisplay())
 	}
 	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n", matches[1])
 	return nil
@@ -873,15 +881,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// No --pgbackrest-port or --pgbackrest-{cert,key,ca}-file: the multipooler
-	// adopts them from pgctld's Status RPC (pgctld serves the pgBackRest
-	// endpoint and owns the cert directory).
-
-	// When backup encryption is enabled, point the multipooler at the shared
-	// cipher key file so it renders the initial repository encrypted.
-	if p.cipherKeyFilePath != "" {
-		args = append(args, "--pgbackrest-cipher-key-file", p.cipherKeyFilePath)
-	}
+	// The sidecar owns the cipher keys and the pgBackRest server, so the
+	// multipooler only needs to know where to reach it.
+	args = append(args, sidecarPoolerArgs(pgctldResult.PoolerDir)...)
 
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
@@ -1112,6 +1114,44 @@ func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisio
 	}, nil
 }
 
+// minigresLaunch is everything minigresArgs renders into the command line.
+type minigresLaunch struct {
+	httpPort, grpcPort, pgPort int
+	etcdAddress                string
+	topoGlobalRoot             string
+	cell, database             string
+	tableGroup, shard          string
+	serviceID                  string
+	pgctldAddr                 string
+	logLevel, logFile          string
+	poolerDir                  string
+}
+
+// minigresArgs builds minigres's command line. There is no --pooler-dir:
+// minigres's pooler half adopts it from pgctld's Status RPC, same as a
+// standalone multipooler does. The embedded multipooler reaches its pooler's
+// sidecar the same way a standalone multipooler does.
+func minigresArgs(l minigresLaunch) []string {
+	args := []string{
+		"--http-port", strconv.Itoa(l.httpPort),
+		"--grpc-port", strconv.Itoa(l.grpcPort),
+		"--pg-port", strconv.Itoa(l.pgPort),
+		"--pg-bind-address", "127.0.0.1",
+		"--topo-global-server-addresses", l.etcdAddress,
+		"--topo-global-root", l.topoGlobalRoot,
+		"--cell", l.cell,
+		"--database", l.database,
+		"--table-group", l.tableGroup,
+		"--shard", l.shard,
+		"--service-id", l.serviceID,
+		"--pgctld-addr", l.pgctldAddr,
+		"--log-level", l.logLevel,
+		"--log-output", l.logFile,
+		"--hostname", "localhost",
+	}
+	return append(args, sidecarPoolerArgs(l.poolerDir)...)
+}
+
 // provisionMinigres provisions minigres — a single process running both a
 // multigateway and a multipooler half — using the local binary. It pairs
 // with its own pgctld exactly like provisionMultipooler does, since a
@@ -1212,25 +1252,13 @@ func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provision
 		return nil, fmt.Errorf("failed to provision pgctld for minigres: %w", err)
 	}
 
-	// Build command arguments. No --pooler-dir: minigres's pooler half adopts
-	// it from pgctld's Status RPC, same as a standalone multipooler does.
-	args := []string{
-		"--http-port", strconv.Itoa(httpPort),
-		"--grpc-port", strconv.Itoa(grpcPort),
-		"--pg-port", strconv.Itoa(pgPort),
-		"--pg-bind-address", "127.0.0.1",
-		"--topo-global-server-addresses", etcdAddress,
-		"--topo-global-root", topoGlobalRoot,
-		"--cell", cell,
-		"--database", database,
-		"--table-group", tableGroup,
-		"--shard", shard,
-		"--service-id", serviceID,
-		"--pgctld-addr", pgctldResult.Address,
-		"--log-level", logLevel,
-		"--log-output", logFile,
-		"--hostname", "localhost",
-	}
+	args := minigresArgs(minigresLaunch{
+		httpPort: httpPort, grpcPort: grpcPort, pgPort: pgPort,
+		etcdAddress: etcdAddress, topoGlobalRoot: topoGlobalRoot,
+		cell: cell, database: database, tableGroup: tableGroup, shard: shard,
+		serviceID: serviceID, pgctldAddr: pgctldResult.Address,
+		logLevel: logLevel, logFile: logFile, poolerDir: pgctldResult.PoolerDir,
+	})
 
 	// Start minigres process
 	minigresCmd := executil.Command(ctx, minigresBinary, args...)
@@ -1443,6 +1471,16 @@ func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pi
 
 // Bootstrap sets up etcd and creates the default database
 func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.ProvisionResult, error) {
+	// Every pgBackRest command runs under the sidecar, which confines it with
+	// Landlock unless the sandbox mode allows otherwise.
+	mode, err := SandboxMode()
+	if err != nil {
+		return nil, err
+	}
+	if err := requireSidecarHost(runtime.GOOS, mode); err != nil {
+		return nil, err
+	}
+
 	// Validate binary paths before starting
 	if err := p.validateBinaryPaths(p.config); err != nil {
 		return nil, err
@@ -2045,12 +2083,9 @@ func (p *localProvisioner) ensureBackupCipherKeyFile() error {
 func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
 	fmt.Println("=== Generating pgBackRest certs ===")
 	certDir := p.certDir()
-	certPaths, err := GeneratePgBackRestCerts(certDir)
-	if err != nil {
+	if _, err := GeneratePgBackRestCerts(certDir); err != nil {
 		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
 	}
-	// Store the cert paths for later use
-	p.pgBackRestCertPaths = certPaths
 	fmt.Println("")
 	return nil
 }
@@ -2372,7 +2407,7 @@ func (p *localProvisioner) validateSystemBinaries() error {
 			"For PostgreSQL: Install PostgreSQL %d.x client tools (pg_ctl, postgres, pg_isready)\n"+
 			"For etcd: Install etcd client binary\n"+
 			"For pgBackRest: Install pgBackRest >= %s",
-			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, minPgBackrestVersionDisplay())
+			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, p.minPgBackrestVersionDisplay())
 	}
 
 	return nil
