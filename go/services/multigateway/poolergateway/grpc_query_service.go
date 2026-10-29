@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 
@@ -1144,6 +1145,13 @@ var _ queryservice.QueryService = (*grpcQueryService)(nil)
 // SQLSTATE.
 func (g *grpcQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
 	resp, err := g.client.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromGRPC(err)
+}
+
+// GetRoutingSnapshot reads a database's routing. FromGRPC restores the error
+// code the catalog primary answered with.
+func (g *grpcQueryService) GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	resp, err := g.client.GetRoutingSnapshot(ctx, req)
 	return resp, mterrors.FromGRPC(err)
 }
 

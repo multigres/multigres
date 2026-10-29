@@ -206,6 +206,12 @@ type ShardState struct {
 	// Target stores the information about the shard
 	Target *query.Target
 
+	// Planned is the target the planner routed to, before the database's
+	// routing rules rewrote it into Target. It equals Target when no rule
+	// applied. A reservation keeps serving the statements planned for it
+	// until it is released, even if the rules change in between.
+	Planned *query.Target
+
 	// ReservedState holds the authoritative reservation state from the multipooler,
 	// including the pooler ID, reserved connection ID, and reservation reasons bitmask.
 	ReservedState *query.ReservedState
@@ -376,11 +382,26 @@ func (m *MultigatewayConnectionState) DeletePortalInfo(portalName string) {
 	delete(m.Portals, portalName)
 }
 
-// NewShardState creates a new shard state.
+// NewShardState creates a new shard state for a target no routing rule
+// rewrote.
 func NewShardState(target *query.Target) *ShardState {
 	return &ShardState{
-		Target: target,
+		Target:  target,
+		Planned: target,
 	}
+}
+
+// GetReservedShardStateFor returns the shard state holding a reserved
+// connection that was opened for statements planned to planned, or nil.
+func (m *MultigatewayConnectionState) GetReservedShardStateFor(planned *query.Target) *ShardState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() != 0 && protoutil.TargetEquals(ss.Planned, planned) {
+			return ss
+		}
+	}
+	return nil
 }
 
 // GetMatchingShardState gets the shardState (if any) that matches the target specified.
@@ -399,6 +420,14 @@ func (m *MultigatewayConnectionState) GetMatchingShardState(target *query.Target
 // The reasons in rs.ReservationReasons are set exactly as provided (not OR'd).
 // Creates a new entry if none exists for the target.
 func (m *MultigatewayConnectionState) SetReservedConnection(target *query.Target, rs *query.ReservedState) {
+	m.SetRoutedReservedConnection(target, target, rs)
+}
+
+// SetRoutedReservedConnection is SetReservedConnection for a target that
+// routing rules may have rewritten: target is where the reservation lives and
+// planned the target the statement was planned for. An existing entry for
+// target keeps the planned target it was created with.
+func (m *MultigatewayConnectionState) SetRoutedReservedConnection(planned, target *query.Target, rs *query.ReservedState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
@@ -407,8 +436,7 @@ func (m *MultigatewayConnectionState) SetReservedConnection(target *query.Target
 			return
 		}
 	}
-	ss := NewShardState(target)
-	ss.ReservedState = rs
+	ss := &ShardState{Target: target, Planned: planned, ReservedState: rs}
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
@@ -449,7 +477,9 @@ func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard
 		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
 		}
-		key := ss.Target.GetShardRef()
+		// The planner asks about the tablegroup it routes to, before routing
+		// rules rewrite it.
+		key := ss.Planned.GetShardRef()
 		if key.GetTableGroup() == tableGroup && key.GetShard() == shard {
 			return true
 		}
