@@ -19,6 +19,7 @@ complete `pg_available_extensions` inventory.
 | `citext`        | contrib  | -                                                                                              |
 | `cube`          | contrib  | -                                                                                              |
 | `earthdistance` | contrib  | Depends on `cube`.                                                                             |
+| `file_fdw`      | contrib  | `explain_filter` helper (bare-parameter dynamic EXECUTE) patched.                              |
 | `fuzzystrmatch` | contrib  | -                                                                                              |
 | `hstore`        | contrib  | -                                                                                              |
 | `ltree`         | contrib  | -                                                                                              |
@@ -26,7 +27,7 @@ complete `pg_available_extensions` inventory.
 | `pg_trgm`       | contrib  | -                                                                                              |
 | `pg_walinspect` | contrib  | `NO_INSTALLCHECK`; explicit REGRESS list (cluster provides `wal_level=replica`).               |
 | `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                  |
-| `pgstattuple`   | contrib  | FDW-section patched (gateway blocks `CREATE FOREIGN DATA WRAPPER` / `CREATE SERVER`).          |
+| `pgstattuple`   | contrib  | -                                                                                              |
 | `unaccent`      | contrib  | -                                                                                              |
 | `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                              |
 | `http`          | external | pgsql-http; local httpbin; upstream/autocommit suite; timeout-wording patch.                   |
@@ -62,11 +63,11 @@ These extensions are not expected to be covered by the current harness.
 
 | Extension            | Source  | Reason                                                                          |
 | -------------------- | ------- | ------------------------------------------------------------------------------- |
-| `dblink`             | contrib | Pooler blocks outbound connections.                                             |
+| `dblink`             | contrib | Gateway's expression filter blocks the `dblink*` functions.                     |
 | `moddatetime`        | contrib | `contrib/spi` does not ship an installable `pg_regress` suite.                  |
 | `pg_stat_statements` | contrib | Marked `NO_INSTALLCHECK`; records query text rewritten by the gateway.          |
 | `plpgsql`            | contrib | Built-in procedural language covered by the core regression suite, not contrib. |
-| `postgres_fdw`       | contrib | Pooler blocks `CREATE SERVER` and outbound connections.                         |
+| `postgres_fdw`       | contrib | FDW DDL is allowed (covered by the queryserving e2e), but the upstream suite builds its loopback servers in a DO block with a raw `\|\|` dynamic EXECUTE the gateway rejects. |
 
 ## External extensions
 
@@ -83,4 +84,4 @@ build and test infrastructure before they can be run by this harness.
 | `postgis_topology` | Part of PostGIS.          |
 | `supabase_vault`   | -                         |
 | `vector`           | pgvector.                 |
-| `wrappers`         | Rust extension.           |
+| `wrappers`         | Rust extension; smoke runs the helloworld FDW DDL + SELECT through the gateway. |

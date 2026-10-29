@@ -486,15 +486,71 @@ func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension,
 		}
 	}
 
-	return &TestResults{
+	res := &TestResults{
 		TotalTests:  1,
 		PassedTests: 1,
-		Duration:    time.Since(start),
 		Tests: []IndividualTestResult{{
 			Name:   "load",
 			Status: "pass",
 		}},
-	}, nil
+	}
+	// SmokeSQL statements build on each other, so stop at the first failure
+	// and report the rest as skipped rather than as cascaded failures.
+	if len(ext.SmokeSQL) > 0 {
+		// One gateway connection for the whole list, so statements that build
+		// on session state would see it (database/sql would otherwise hand
+		// each Exec whichever pooled connection is free).
+		ctx := context.Background()
+		db, err := openPostgres(multigatewayPort, password)
+		if err != nil {
+			return res, err
+		}
+		defer db.Close()
+		conn, err := db.Conn(ctx) // sql.Open does not dial; this does
+		if err != nil {
+			// Report it as a smoke failure: the caller reads res.Tests, not err.
+			res.TotalTests++
+			res.FailedTests++
+			res.Tests = append(res.Tests, IndividualTestResult{Name: "smoke_connect", Status: "fail", FailReason: err.Error()})
+			res.Duration = time.Since(start)
+			return res, nil
+		}
+		defer conn.Close()
+		failed := false
+		for i, stmt := range ext.SmokeSQL {
+			tr := IndividualTestResult{Name: fmt.Sprintf("smoke_%d", i+1), Status: "pass"}
+			switch {
+			case failed:
+				tr.Status = "skip"
+				res.SkippedTests++
+			default:
+				if _, err := conn.ExecContext(ctx, stmt); err != nil {
+					failed = true
+					tr.Status = "fail"
+					tr.FailReason = fmt.Sprintf("%s: %v", stmt, err)
+					res.FailedTests++
+				} else {
+					res.PassedTests++
+				}
+			}
+			res.TotalTests++
+			res.Tests = append(res.Tests, tr)
+		}
+	}
+	res.Duration = time.Since(start)
+	return res, nil
+}
+
+// openPostgres opens a database/sql handle on port (multigateway or the
+// primary directly) as the postgres test user.
+func openPostgres(port int, password string) (*sql.DB, error) {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		port, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err) // sql.Open validates the DSN; it does not dial
+	}
+	return db, nil
 }
 
 func hasPostGISRunnerResults(res *TestResults) bool {
@@ -1168,11 +1224,9 @@ func recountResults(res *TestResults) {
 // Test fixtures assume a clean database; sharing one postgres DB across
 // modules otherwise leaks types/extensions/schemas between them.
 func resetContribState(directPgPort int, password string) error {
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		directPgPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(directPgPort, password)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return err
 	}
 	defer db.Close()
 
@@ -1231,11 +1285,9 @@ func resetContribState(directPgPort int, password string) error {
 // reconnect. Terminating them here forces subsequent gateway traffic to open
 // fresh backends that inherit the new database default.
 func terminateDatabaseClientBackends(directPgPort int, password string) (int, error) {
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		directPgPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(directPgPort, password)
 	if err != nil {
-		return 0, fmt.Errorf("connect: %w", err)
+		return 0, err
 	}
 	defer db.Close()
 
@@ -1287,11 +1339,9 @@ func collectStrings(rows *sql.Rows) ([]string, error) {
 // autocommit connection so statements that can't run in a transaction block
 // (CREATE DATABASE) work.
 func execOnPrimary(directPgPort int, password, stmt string) error {
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		directPgPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(directPgPort, password)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return err
 	}
 	defer db.Close()
 
@@ -1310,11 +1360,9 @@ func execOnPrimary(directPgPort int, password, stmt string) error {
 // replicates via WAL like any DDL; the connection's backend is quarantined and
 // discarded at teardown, but the committed objects persist for every backend.
 func execViaGatewayUnsafeConnection(ctx context.Context, gatewayPort int, password, stmt string) error {
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		gatewayPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(gatewayPort, password)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return err
 	}
 	defer db.Close()
 
@@ -1354,11 +1402,9 @@ func execViaGatewayUnsafeConnection(ctx context.Context, gatewayPort int, passwo
 // CREATE/DROP DATABASE); fixtures that assume the extension exists (pgvector opens
 // with a bare CREATE TABLE t (val vector(3))) would otherwise fail.
 func createExtensionWithSchema(port int, password, ext, schema string) error {
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		port, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(port, password)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return err
 	}
 	defer db.Close()
 

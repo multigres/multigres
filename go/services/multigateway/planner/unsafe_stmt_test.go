@@ -72,17 +72,18 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 			wantErr:     true,
 			wantMessage: "CREATE SUBSCRIPTION is not supported",
 		},
+
+		// -- Foreign-data wrappers: catalog DDL governed by PostgreSQL privileges,
+		// deliberately allowed (see rejectUnsupportedStatement).
 		{
-			name:        "CREATE FOREIGN DATA WRAPPER",
-			stmt:        &ast.CreateFdwStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateFdwStmt}, FdwName: "myfdw"},
-			wantErr:     true,
-			wantMessage: "CREATE FOREIGN DATA WRAPPER is not supported",
+			name:    "CREATE FOREIGN DATA WRAPPER is allowed",
+			stmt:    &ast.CreateFdwStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateFdwStmt}, FdwName: "myfdw"},
+			wantErr: false,
 		},
 		{
-			name:        "CREATE FOREIGN SERVER",
-			stmt:        &ast.CreateForeignServerStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateForeignServerStmt}, Servername: "myserver"},
-			wantErr:     true,
-			wantMessage: "CREATE SERVER is not supported",
+			name:    "CREATE SERVER is allowed",
+			stmt:    &ast.CreateForeignServerStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreateForeignServerStmt}, Servername: "myserver"},
+			wantErr: false,
 		},
 
 		// -- Tier 1: not rejected by this Tier 2 statement check. Their bodies
@@ -201,4 +202,40 @@ func TestPlanRejectsUnsafeStatements(t *testing.T) {
 			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
 		})
 	}
+}
+
+// TestRejectForeignTableProgramOption covers file_fdw's shell-execution option
+// through both the CREATE and ALTER FOREIGN TABLE paths, including the body
+// path (a DO block that creates the table), while every other option passes.
+func TestRejectForeignTableProgramOption(t *testing.T) {
+	rejected := []string{
+		"CREATE FOREIGN TABLE t (l text) SERVER files OPTIONS (program 'cat /etc/passwd')",
+		"CREATE FOREIGN TABLE t (l text) SERVER files OPTIONS (format 'csv', PROGRAM 'id')",
+		"ALTER FOREIGN TABLE t OPTIONS (ADD program 'id')",
+		"ALTER FOREIGN TABLE t OPTIONS (SET program 'id')",
+		"ALTER FOREIGN TABLE t OPTIONS (format 'csv', program 'id')",
+		"ALTER TABLE t OPTIONS (ADD program 'id')", // PostgreSQL accepts ALTER TABLE on a foreign table
+		"DO $$ BEGIN EXECUTE 'CREATE FOREIGN TABLE t (l text) SERVER files OPTIONS (program ''id'')'; END $$",
+	}
+	for _, sql := range rejected {
+		_, err := analyzeStatement(parseOne(t, sql), false, false)
+		require.Error(t, err, sql)
+		assert.Contains(t, err.Error(), `option "program" is not supported`, sql)
+	}
+
+	allowed := []string{
+		"CREATE FOREIGN TABLE t (l text) SERVER files OPTIONS (filename '/tmp/x.csv', format 'csv')",
+		"CREATE FOREIGN TABLE t (id bigint) SERVER dynamodb OPTIONS (table 'users', rowid_column 'id')",
+		"ALTER FOREIGN TABLE t OPTIONS (DROP program)",
+		"ALTER FOREIGN TABLE t OPTIONS (SET filename '/tmp/y.csv')",
+		"CREATE FOREIGN TABLE t (l text) SERVER files",
+	}
+	for _, sql := range allowed {
+		_, err := analyzeStatement(parseOne(t, sql), false, false)
+		require.NoError(t, err, sql)
+	}
+
+	// The per-connection opt-out suppresses the rejection like every other.
+	_, err := analyzeStatement(parseOne(t, rejected[0]), true, false)
+	require.NoError(t, err)
 }

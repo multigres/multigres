@@ -15,6 +15,8 @@
 package planner
 
 import (
+	"strings"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
@@ -22,10 +24,17 @@ import (
 // rejectUnsupportedStatement rejects Tier 2 statements — server-level operations
 // that should not be available through a shared connection pooler in a
 // hosted environment: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, CREATE
-// LANGUAGE, CREATE SUBSCRIPTION, CREATE FOREIGN DATA WRAPPER, CREATE SERVER.
-// These change the server itself, affect tenant isolation, or open outbound
-// connections to external hosts, and there is no "inspect the body"
-// mitigation that could make them safe.
+// LANGUAGE, CREATE SUBSCRIPTION. These change the server itself, affect
+// tenant isolation, or open outbound replication connections, and there is
+// no "inspect the body" mitigation that could make them safe.
+//
+// Foreign-data wrappers (CREATE FOREIGN DATA WRAPPER, CREATE SERVER) are
+// deliberately not in this list. They are ordinary catalog objects guarded by
+// PostgreSQL's own privilege model (superuser for the wrapper, USAGE on it for
+// the server), the remote access they enable runs entirely inside the backend,
+// and hosted workloads depend on them (postgres_fdw, file_fdw, Supabase
+// Wrappers). See docs/query_serving/unsafe_statement_rejection.md for the
+// residual postgres_fdw connection-cache note.
 //
 // Tier 1 statements (DO, CREATE FUNCTION / PROCEDURE, CREATE TRIGGER,
 // CREATE RULE, CREATE EVENT TRIGGER) embed procedural-language code and are
@@ -67,15 +76,54 @@ func rejectUnsupportedStatement(stmt ast.Stmt) error {
 		return mterrors.NewFeatureNotSupported(
 			"CREATE SUBSCRIPTION is not supported: creating replication subscriptions is not permitted through the connection pooler")
 
-	case ast.T_CreateFdwStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler")
+	// -- Foreign tables: allowed, except file_fdw's `program` option, which runs
+	// a shell command on the server — the same capability COPY ... PROGRAM and
+	// pg_execute_server_program are refused for, so it is refused here too
+	// regardless of the role's pg_execute_server_program membership. `filename`
+	// is file_fdw's purpose and stays governed by pg_read_server_files.
+	case ast.T_CreateForeignTableStmt:
+		return rejectForeignTableProgramOption(stmt.(*ast.CreateForeignTableStmt).Options)
 
-	case ast.T_CreateForeignServerStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler")
+	case ast.T_AlterTableStmt:
+		// Checked for every object type: PostgreSQL accepts ALTER TABLE on a
+		// foreign table, and an OPTIONS subcommand only exists for one.
+		at := stmt.(*ast.AlterTableStmt)
+		if at.Cmds == nil {
+			return nil
+		}
+		for _, item := range at.Cmds.Items {
+			cmd, ok := item.(*ast.AlterTableCmd)
+			if !ok || cmd.Subtype != ast.AT_GenericOptions {
+				continue
+			}
+			opts, _ := cmd.Def.(*ast.NodeList)
+			if err := rejectForeignTableProgramOption(opts); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	default:
 		return nil
 	}
+}
+
+// rejectForeignTableProgramOption refuses a foreign-table OPTIONS list that
+// sets (or adds) the file_fdw `program` option. DROP program is a revert and is
+// allowed.
+func rejectForeignTableProgramOption(opts *ast.NodeList) error {
+	if opts == nil {
+		return nil
+	}
+	for _, item := range opts.Items {
+		def, ok := item.(*ast.DefElem)
+		if !ok || def.Defaction == ast.DEFELEM_DROP {
+			continue
+		}
+		if strings.EqualFold(def.Defname, "program") {
+			return mterrors.NewFeatureNotSupported(
+				"foreign table option \"program\" is not supported: executing server programs is not permitted through the connection pooler")
+		}
+	}
+	return nil
 }
