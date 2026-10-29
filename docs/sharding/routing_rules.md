@@ -7,9 +7,12 @@ tablegroup, in `multigres.routing_rule`, and every rule belongs to the
 operation (`multigres.operation`) that created it. When no operation runs,
 there are no rules.
 
-This page describes what is implemented today: the rule table, how a rule
-change is validated, and the RPCs that set and read rules. Gateways don't apply
-rules yet; that comes later.
+This page describes what is implemented today: shard rules, the RPCs that set
+and read them, and how gateways apply them. It is enough to serve a database's
+application traffic from an external PostgreSQL behind an unmanaged pooler
+during an import. Fences, the fenced switch and revert, and the fold that ends
+an operation come later; until then **rules may change only while the
+affected application traffic is quiesced**.
 
 ## Rules
 
@@ -34,6 +37,88 @@ transaction that locks `multigres.catalog_state`, checks the caller's expected
 routing version, validates the rule set the change leaves behind, and
 increments `routing_version`. A change that is already in effect succeeds and
 returns the current version, so a retry is safe.
+
+## Traffic classes
+
+The gateway classifies a request by where it originates, never by its SQL.
+
+- **Application traffic** is everything the planner builds from client SQL,
+  including Describe, COPY, cursors, transactions, temporary tables,
+  replication connections and the LISTEN stream. It follows the database's
+  routing rules.
+- **Control traffic** always goes to the database's `default` primary and is
+  never rewritten: credential lookups, routing snapshot reads, and the
+  multiadmin and migrator RPCs. The gateway marks it with `Target.control`.
+- **Cancel requests** are not routed; they go to the pooler holding the
+  backend.
+
+### Logins
+
+Credential lookups always read the `default` tablegroup. Poolers, managed and
+unmanaged alike, log in to their PostgreSQL with the SCRAM keys the client's
+login produced, so **every PostgreSQL of the database must hold the same role
+verifiers**. Before an import routes traffic to an external PostgreSQL, its
+roles are copied into the database **verbatim** (the same `rolpassword` SCRAM
+verifiers, and the role memberships). Running `ALTER ROLE ... PASSWORD` instead
+produces a new salt and breaks logins through the external side. A role
+changed on the external PostgreSQL during an import must be copied again.
+
+### Sessions across a rule change
+
+A session that holds a reserved backend (an open transaction, a temporary
+table, a cursor, an advisory lock) keeps using it until it is released, even if
+the rules change in between; its later statements follow the rules again. This
+is why rules must change only while the application is quiesced until fences
+exist.
+
+### LISTEN/NOTIFY
+
+NOTIFY is an ordinary statement and follows the rules. A session's LISTEN
+stream goes where its database's application traffic goes; when a rule change
+moves that traffic, the stream is closed and reopened on the new side with the
+session's channels. Notifications sent in between are not delivered.
+
+### Replication connections
+
+Replication connections follow the rules like other application traffic.
+Replication slots do not move with them: after a rule change, a consumer
+recreates its slot on the side that now serves the database.
+
+## Gateways
+
+Each gateway keeps the routing of every database it serves:
+
+- The first statement of a database waits for a snapshot read from the
+  database's catalog primary (`GetRoutingSnapshot`), shared by every statement
+  that arrives meanwhile. During a planned failover of the catalog primary
+  that read waits in the failover buffer, as the statement itself would. If
+  the read fails (no catalog primary and no failover in progress, or the
+  failover outlasts the buffer), the database's application traffic fails
+  with **57P03**, which clients retry; it never goes to the catalog's
+  placement on a guess.
+- Afterwards the gateway reads the snapshot again every
+  `--routing-poll-interval` (default 10s), without waiting out failovers. It
+  installs only a snapshot with a higher `routing_version`, and keeps the last
+  one when a read fails.
+- A database no statement used for 10 minutes is forgotten; its next statement
+  reads the snapshot again.
+
+Two consequences of failing closed:
+
+- A gateway that starts, or first sees a database, while that database's
+  catalog primary is down and no failover is in progress serves none of the
+  database's application traffic, replica-port reads included, until a
+  catalog primary answers.
+- Replica-port reads follow the rules like everything else. When a rule sends
+  a database to a tablegroup without replicas (an import's unmanaged poolers),
+  they fail rather than read the `default` tablegroup's replicas, which hold
+  only a partial copy during an import.
+
+A catalog primary that predates routing rules answers `GetRoutingSnapshot`
+with UNIMPLEMENTED; the gateway then routes the database as it is placed and
+logs a warning once per database. **Upgrade every pooler of a database's
+`default` tablegroup before creating any rule**, or a gateway reaching an old
+catalog primary sends traffic to `default` despite the rule.
 
 ## API
 

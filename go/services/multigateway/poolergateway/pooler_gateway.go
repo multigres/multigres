@@ -45,6 +45,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -689,14 +690,11 @@ var _ Gateway = (*PoolerGateway)(nil)
 // It uses withBuffering so that auth requests are buffered during planned failovers,
 // just like query execution.
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	target := &query.Target{
-		ShardRef: &clustermetadatapb.ShardRef{
-			Database:   req.GetDatabase(),
-			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
-			Shard:      constants.DefaultShard,
-		},
-		Mode: query.Mode_MODE_WRITABLE,
-	}
+	// Credential lookups are control traffic: always the database's default
+	// tablegroup, never rewritten by a routing rule. Every postgres of the
+	// database holds the same role verifiers, so the default tablegroup
+	// answers for all of them.
+	target := catalogControlTarget(req.GetDatabase())
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
@@ -728,6 +726,66 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 		}
 	}
 	return resp, err
+}
+
+// catalogControlTarget is the target of database's control traffic: the
+// primary of its default tablegroup, which holds its catalog, marked control
+// so that no routing rule rewrites it.
+func catalogControlTarget(database string) *query.Target {
+	return &query.Target{
+		ShardRef: &clustermetadatapb.ShardRef{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		Mode:    query.Mode_MODE_WRITABLE,
+		Control: true,
+	}
+}
+
+// GetRoutingSnapshot reads database's routing snapshot from the primary of
+// its default tablegroup. It is control traffic: never rewritten by a routing
+// rule.
+//
+// With waitForFailover, a read that finds the default primary failing over
+// waits in the failover buffer and is retried on the new primary, as
+// application traffic would be: it is a read with no side effects. The
+// gateway reads this way when a statement waits for a database's first
+// snapshot. Without it the read fails at once; the routing cache's
+// background poll reads this way, so it never takes a buffer slot, and a
+// failed poll keeps the snapshot the gateway has.
+func (pg *PoolerGateway) GetRoutingSnapshot(ctx context.Context, database string, waitForFailover bool) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	target := catalogControlTarget(database)
+	req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{Database: database}
+	if !waitForFailover {
+		conn, err := pg.loadBalancer.getConnection(target)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := conn.ServiceClient().GetRoutingSnapshot(ctx, req)
+		if err != nil {
+			return nil, mterrors.FromGRPC(err)
+		}
+		return resp, nil
+	}
+
+	var resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+	err := pg.withBuffering(ctx, target, true, false, func(conn *poolerConnection) error {
+		var err error
+		resp, err = conn.ServiceClient().GetRoutingSnapshot(ctx, req)
+		err = mterrors.FromGRPC(err)
+		// A pooler that is no longer (or not yet) the catalog primary answers
+		// UNAVAILABLE before reading anything, so the read is safe to buffer
+		// and retry on the new primary, like a credential lookup.
+		if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+			return mterrors.MarkPreExecutionUnavailable(err)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // GetConnection selects a poolerConnection matching the target. External

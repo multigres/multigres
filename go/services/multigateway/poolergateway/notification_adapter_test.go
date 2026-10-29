@@ -108,11 +108,13 @@ func (c *fakeNotificationClient) stream(i int) *fakeNotificationStream {
 func TestNotificationSession_ReconnectsAfterEOF(t *testing.T) {
 	client := &fakeNotificationClient{}
 	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient { return client },
+		func(string) (multipoolerpb.MultipoolerServiceClient, string, error) {
+			return client, "default/0-inf", nil
+		},
 		slog.New(slog.DiscardHandler), nil)
 	notifCh := make(chan *sqltypes.Notification, 8)
 
-	m.Subscribe("ch", notifCh)
+	m.Subscribe("db1", "ch", notifCh)
 	require.Equal(t, 1, client.count())
 	require.Equal(t, []string{"ch"}, client.stream(0).subscribed())
 
@@ -152,16 +154,16 @@ func TestNotificationSession_ReconnectsOnLeaderServing(t *testing.T) {
 	var leaderKnown atomic.Bool
 	leaderKnown.Store(true)
 	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+		func(string) (multipoolerpb.MultipoolerServiceClient, string, error) {
 			if !leaderKnown.Load() {
-				return nil
+				return nil, "", nil
 			}
-			return client
+			return client, "default/0-inf", nil
 		},
 		slog.New(slog.DiscardHandler), nil)
 	notifCh := make(chan *sqltypes.Notification, 8)
 
-	m.Subscribe("ch", notifCh)
+	m.Subscribe("db1", "ch", notifCh)
 	require.Equal(t, 1, client.count())
 
 	leaderKnown.Store(false)
@@ -188,16 +190,16 @@ func TestNotificationSession_SubscribeWithoutLeaderIsRestored(t *testing.T) {
 	client := &fakeNotificationClient{}
 	var leaderKnown atomic.Bool
 	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+		func(string) (multipoolerpb.MultipoolerServiceClient, string, error) {
 			if !leaderKnown.Load() {
-				return nil
+				return nil, "", nil
 			}
-			return client
+			return client, "default/0-inf", nil
 		},
 		slog.New(slog.DiscardHandler), nil)
 	notifCh := make(chan *sqltypes.Notification, 8)
 
-	m.Subscribe("ch", notifCh)
+	m.Subscribe("db1", "ch", notifCh)
 	require.Equal(t, 0, client.count(), "no leader: no stream can open")
 	require.False(t, m.lookupSession(notifCh).empty(), "the subscription must be remembered")
 
@@ -218,17 +220,17 @@ func TestNotificationSession_UnsubscribeWhileDisconnectedIsNotResurrected(t *tes
 	var leaderKnown atomic.Bool
 	leaderKnown.Store(true)
 	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+		func(string) (multipoolerpb.MultipoolerServiceClient, string, error) {
 			if !leaderKnown.Load() {
-				return nil
+				return nil, "", nil
 			}
-			return client
+			return client, "default/0-inf", nil
 		},
 		slog.New(slog.DiscardHandler), nil)
 	notifCh := make(chan *sqltypes.Notification, 8)
 
-	m.Subscribe("a", notifCh)
-	m.Subscribe("b", notifCh)
+	m.Subscribe("db1", "a", notifCh)
+	m.Subscribe("db1", "b", notifCh)
 	require.Equal(t, 1, client.count())
 
 	leaderKnown.Store(false)
@@ -252,4 +254,57 @@ func TestNotificationSession_UnsubscribeWhileDisconnectedIsNotResurrected(t *tes
 	time.Sleep(50 * time.Millisecond)
 	m.Unsubscribe("a", notifCh)
 	require.Nil(t, m.lookupSession(notifCh), "session with no channels must be removed")
+}
+
+// A session's stream goes where its database sends application traffic, and
+// moves when the database's routing changes; sessions of other databases, and
+// sessions whose traffic did not move, keep their stream.
+func TestNotificationSession_FollowsItsDatabaseRouting(t *testing.T) {
+	defaultSide, routedSide := &fakeNotificationClient{}, &fakeNotificationClient{}
+	var routed atomic.Bool
+	var asked sync.Map
+	m := NewGRPCNotificationManager(
+		func(database string) (multipoolerpb.MultipoolerServiceClient, string, error) {
+			asked.Store(database, true)
+			if database == "db1" && routed.Load() {
+				return routedSide, "srctg/0-inf", nil
+			}
+			return defaultSide, "default/0-inf", nil
+		},
+		slog.New(slog.DiscardHandler), nil)
+	db1, db2 := make(chan *sqltypes.Notification, 8), make(chan *sqltypes.Notification, 8)
+
+	m.Subscribe("db1", "ch", db1)
+	m.Subscribe("db2", "ch", db2)
+	require.Equal(t, 2, defaultSide.count())
+	_, askedDB2 := asked.Load("db2")
+	require.True(t, askedDB2, "each session resolves its own database")
+
+	// A change of db1's routing that keeps its traffic in place moves nothing.
+	m.OnRoutingChanged("db1")
+	require.Equal(t, 2, defaultSide.count())
+	require.Equal(t, 0, routedSide.count())
+
+	// db1's traffic moves: only its session reopens, on the new side, with
+	// its channels.
+	routed.Store(true)
+	m.OnRoutingChanged("db1")
+	require.Eventually(t, func() bool {
+		return routedSide.count() == 1 && len(routedSide.stream(0).subscribed()) == 1
+	}, 5*time.Second, 5*time.Millisecond, "db1's stream should reopen where its traffic goes")
+	require.Equal(t, []string{"ch"}, routedSide.stream(0).subscribed())
+	require.Equal(t, 2, defaultSide.count(), "db2's stream must not move")
+
+	routedSide.stream(0).resps <- &multipoolerpb.NotificationStreamResponse{
+		Notification: &query.PgNotification{Channel: "ch", Payload: "routed"},
+	}
+	select {
+	case n := <-db1:
+		require.Equal(t, "routed", n.Payload)
+	case <-time.After(5 * time.Second):
+		t.Fatal("notification on the moved stream was not delivered")
+	}
+
+	m.UnsubscribeAll(db1)
+	m.UnsubscribeAll(db2)
 }
