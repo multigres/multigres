@@ -217,3 +217,17 @@ func TestConnConfig_TransportCredentials_RequireTLSWithoutConfig(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TLS is required")
 }
+
+func TestConnConfig_TLSConfigured(t *testing.T) {
+	var none *ConnConfig
+	require.False(t, none.TLSConfigured())
+
+	cc := NewConnConfig(viperutil.NewRegistry())
+	require.False(t, cc.TLSConfigured(), "no client flag set")
+	cc.ca.Set("/ca.pem")
+	require.True(t, cc.TLSConfigured(), "a CA is enough to build TLS credentials")
+
+	cc = NewConnConfig(viperutil.NewRegistry())
+	cc.cert.Set("/cert.pem")
+	require.True(t, cc.TLSConfigured())
+}

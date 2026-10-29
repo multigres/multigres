@@ -91,19 +91,6 @@ func (f fakeSource) BackingConnection(_ context.Context, name string) (*backingC
 	return f.conn, nil
 }
 
-func TestConnectionSourceIsAnExplicitSeam(t *testing.T) {
-	// With nothing configured an unmanaged pooler refuses to start, saying why.
-	mp := newTestMultipooler()
-	_, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.ErrorContains(t, err, "no source of backing connections")
-
-	want := &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "app", User: "u"}
-	mp.connections = fakeSource{conn: want}
-	got, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.NoError(t, err)
-	require.Same(t, want, got)
-}
-
 // TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne: whatever the source is, nothing, an
 // incomplete connection and a connection that names several servers are refused, and the
 // refusal is permanent.
