@@ -668,3 +668,30 @@ func TestNormalizeEventTriggerLoginCount(t *testing.T) {
 		t.Fatalf("masked an unrelated COUNT result")
 	}
 }
+
+func TestNormalizeDatabaseSessionsCheck(t *testing.T) {
+	block := func(value string) string {
+		return "SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database());\n" +
+			"?column?\n----------\n" + value + "\n(1 row)\n"
+	}
+	gotT := string(normalizeDatabaseSessionsCheck([]byte(block("t"))))
+	gotF := string(normalizeDatabaseSessionsCheck([]byte(block("f"))))
+	if gotT != gotF {
+		t.Fatalf("t and f not masked to the same form:\nt: %q\nf: %q", gotT, gotF)
+	}
+	if !strings.Contains(gotT, "<sessions_incremented>") {
+		t.Fatalf("expected masked placeholder, got: %q", gotT)
+	}
+
+	// Any other boolean result must be left intact, including one that
+	// follows an errored sessions check.
+	for _, other := range []string{
+		"SELECT st.seq_scan >= pr.seq_scan + 1\n?column?\n----------\nt\n(1 row)\n",
+		"SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database());\n" +
+			"ERROR:  boom\nSELECT 1 = 1;\n?column?\n----------\nt\n(1 row)\n",
+	} {
+		if string(normalizeDatabaseSessionsCheck([]byte(other))) != other {
+			t.Fatalf("masked an unrelated boolean result in %q", other)
+		}
+	}
+}
