@@ -48,7 +48,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	ctx := context.Background()
 	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 
 	// rule is the highest known consensus position setupStore's primary
 	// publishes. Tests pass it as RecheckedProblem.HighestIntendedRule to stand
@@ -66,7 +66,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
@@ -82,7 +82,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -110,7 +110,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -161,7 +161,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemCohortMemberIneligible,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -182,7 +182,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -218,7 +218,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -239,7 +239,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}})
 
@@ -259,7 +259,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: placeholder})
 
@@ -279,7 +279,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
@@ -291,7 +291,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 			},
 		}, nil))
@@ -299,7 +299,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -324,7 +324,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 
@@ -353,7 +353,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(undecided)})
 
@@ -377,7 +377,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemReplicaNotReplicating,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			PoolerID: replicaID,
 		}, HighestIntendedRule: commonconsensus.NewRuleTransition(rule)})
 

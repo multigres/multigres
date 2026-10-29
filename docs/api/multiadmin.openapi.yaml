@@ -1165,7 +1165,7 @@ paths:
       summary: Get pooler status
       tags:
         - poolers
-  /api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change:
+  /api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change:
     post:
       description: |-
         The cert is either supplied explicitly by the caller or, if
@@ -1186,21 +1186,21 @@ paths:
       parameters:
         - description: Database name.
           in: path
-          name: shard_key.database
+          name: shard_ref.database
           required: true
           schema:
             title: database
             type: string
         - description: TableGroup name.
           in: path
-          name: shard_key.table_group
+          name: shard_ref.table_group
           required: true
           schema:
             title: table_group
             type: string
         - description: Shard name. If range based sharding is used, it should match key_range.
           in: path
-          name: shard_key.shard
+          name: shard_ref.shard
           required: true
           schema:
             title: shard
@@ -1232,10 +1232,10 @@ paths:
                       description: Free-text, recorded in rule_history for audit.
                       title: reason
                       type: string
-                    shardKey:
-                      $ref: '#/components/schemas/clustermetadata.ShardKey'
+                    shardRef:
+                      $ref: '#/components/schemas/clustermetadata.ShardRef'
                       description: Shard to apply the rule change to.
-                      title: shard_key
+                      title: shard_ref
                 - oneOf:
                     - properties:
                         cert:
@@ -1309,7 +1309,7 @@ paths:
       summary: Apply a certified shard rule change
       tags:
         - shards
-  /api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary:
+  /api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary:
     post:
       description: |-
         Errors and recovery:
@@ -1324,21 +1324,21 @@ paths:
       parameters:
         - description: Database name.
           in: path
-          name: shard_key.database
+          name: shard_ref.database
           required: true
           schema:
             title: database
             type: string
         - description: TableGroup name.
           in: path
-          name: shard_key.table_group
+          name: shard_ref.table_group
           required: true
           schema:
             title: table_group
             type: string
         - description: Shard name. If range based sharding is used, it should match key_range.
           in: path
-          name: shard_key.shard
+          name: shard_ref.shard
           required: true
           schema:
             title: shard
@@ -1354,10 +1354,10 @@ paths:
                   description: Free-text reason recorded in rule_history for audit.
                   title: reason
                   type: string
-                shardKey:
-                  $ref: '#/components/schemas/clustermetadata.ShardKey'
+                shardRef:
+                  $ref: '#/components/schemas/clustermetadata.ShardRef'
                   description: Shard to perform the switchover on (required).
-                  title: shard_key
+                  title: shard_ref
               title: SwitchPrimaryRequest
               type: object
         required: true
@@ -1840,15 +1840,15 @@ components:
           $ref: '#/components/schemas/clustermetadata.PoolerServingStatus'
           description: PoolerServingStatus is the current type of the pooler.
           title: serving_status
-        shardKey:
-          $ref: '#/components/schemas/clustermetadata.ShardKey'
+        shardRef:
+          $ref: '#/components/schemas/clustermetadata.ShardRef'
           description: |-
-            shard_key identifies which shard this pooler belongs to. It is used for
+            shard_ref identifies which shard this pooler belongs to. It is used for
              routing requests to the correct pooler and for displaying metadata about
              the shard in dashboards. It is not expected to change for the lifetime of
              the pooler, but it is not immutable either — if the pooler moves to a
              different shard, this field should be updated to reflect the new shard.
-          title: shard_key
+          title: shard_ref
         type:
           $ref: '#/components/schemas/clustermetadata.PoolerType'
           deprecated: true
@@ -2236,11 +2236,14 @@ components:
           type: boolean
       title: S3Backup
       type: object
-    clustermetadata.ShardKey:
+    clustermetadata.ShardRef:
       additionalProperties: false
       description: |-
-        ShardKey uniquely identifies a shard in the cluster.
+        ShardRef uniquely identifies a shard in the cluster.
          This is a centralized message used across all services to identify shards.
+         It is a shard's identity, not a table's shard key (the routing columns a
+         table declares with PRIMARY SHARD KEY). Its SQL mirror is the
+         multigres.shard_ref composite type.
       properties:
         database:
           description: Database name.
@@ -2254,7 +2257,7 @@ components:
           description: TableGroup name.
           title: table_group
           type: string
-      title: ShardKey
+      title: ShardRef
       type: object
     clustermetadata.ShardRule:
       additionalProperties: false
@@ -2879,10 +2882,10 @@ components:
           title: sequence_margin
           type: string
         target:
-          $ref: '#/components/schemas/clustermetadata.ShardKey'
+          $ref: '#/components/schemas/clustermetadata.ShardRef'
           description: |-
             target identifies the destination shard (database, table_group, shard).
-             Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+             Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
              same across the topology and routing layers (see query.Target, which
              reuses it for the same reason) — a database can have multiple
              tablegroups, each with its own shard namespace, so database+shard alone

@@ -140,7 +140,7 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -247,7 +247,7 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default"},
 		Type:     clustermetadatapb.PoolerType_REPLICA,
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
@@ -399,7 +399,7 @@ func TestFindPoolerForMigration_ReachesDrainingPrimary(t *testing.T) {
 	require.ErrorContains(t, err, "serving leader pooler not found")
 
 	// Migration path: the DRAINING primary is reached.
-	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
 	require.NoError(t, err)
 	require.Equal(t, primary.Id.Name, got.Id.Name)
 }
@@ -422,7 +422,7 @@ func TestFindPoolerForMigration_StaticLeaderDraining(t *testing.T) {
 	require.ErrorContains(t, err, "is not serving")
 
 	// Migration path: the DRAINING static leader is reached.
-	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
 	require.NoError(t, err)
 	require.Equal(t, leader.Id.Name, got.Id.Name)
 }
@@ -435,7 +435,7 @@ func TestFindPooler_ExcludesOtherShards(t *testing.T) {
 	defer server.Stop()
 
 	wrongShard := makeRoutedPooler("cell1", "wrong-shard-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
-	wrongShard.ShardKey.Shard = "80-inf"
+	wrongShard.ShardRef.Shard = "80-inf"
 	require.NoError(t, server.ts.CreateMultipooler(ctx, wrongShard))
 
 	// A caller asking for "0-inf" must not resolve to the "80-inf" primary,
@@ -465,7 +465,7 @@ func TestFindPoolerForMigration_ExcludesShutDownPooler(t *testing.T) {
 	stale.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
 	require.NoError(t, server.ts.CreateMultipooler(ctx, stale))
 
-	_, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	_, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
 	require.ErrorContains(t, err, "serving leader pooler not found", "a shut-down pooler's stale record must never be selected as the leader")
 }
 
@@ -479,7 +479,7 @@ func TestFindPoolerForMigration_StaticLeaderElsewhereDoesNotBreakWildcardSearch(
 	// A static-leader single-node shard ("80-inf")...
 	staticLeader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 	staticLeader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
-	staticLeader.ShardKey.Shard = "80-inf"
+	staticLeader.ShardRef.Shard = "80-inf"
 	require.NoError(t, server.ts.CreateMultipooler(ctx, staticLeader))
 
 	// ...coexisting with an ordinary consensus primary on a different shard ("0-inf").
@@ -509,7 +509,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "primary-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -527,7 +527,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -603,7 +603,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			},
 			Hostname: "primary-only.cell2",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},
@@ -698,7 +698,7 @@ func TestVerifyBackups(t *testing.T) {
 			},
 			Hostname: "replica-pooler.cell1",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},

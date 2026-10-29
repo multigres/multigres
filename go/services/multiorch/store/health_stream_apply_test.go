@@ -28,13 +28,13 @@ import (
 
 func TestHealthStream_applySnapshot(t *testing.T) {
 	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	newStream := func(t *testing.T) (*HealthStream, *Pooler) {
 		t.Helper()
 		cache := NewTestCache(t)
 		pooler := NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{Id: poolerID, ShardKey: shardKey},
+			Multipooler: &clustermetadatapb.Multipooler{Id: poolerID, ShardRef: shardRef},
 		}, nil)
 		id := SeedCache(t, cache, pooler)
 		return &HealthStream{

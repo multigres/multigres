@@ -115,7 +115,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 // a DRAINING one, since an in-progress migration holds the leader non-serving.
 // A nil target searches every database, table group and shard, which is
 // correct only while the cluster has a single shard.
-func (s *MultiadminServer) findPoolerForMigration(ctx context.Context, target *clustermetadatapb.ShardKey) (*clustermetadatapb.Multipooler, error) {
+func (s *MultiadminServer) findPoolerForMigration(ctx context.Context, target *clustermetadatapb.ShardRef) (*clustermetadatapb.Multipooler, error) {
 	return s.findPooler(ctx, target.GetDatabase(), target.GetTableGroup(), target.GetShard(), true, false)
 }
 
@@ -163,7 +163,7 @@ func (s *MultiadminServer) findPooler(ctx context.Context, database, tableGroup,
 		for _, info := range poolerInfos {
 			// Exclude poolers from other shards. An empty shard on either side matches:
 			// "" is the caller's wildcard, or the pooler hasn't registered one yet.
-			if poolerShard := info.Multipooler.GetShardKey().GetShard(); shard != "" && poolerShard != "" && poolerShard != shard {
+			if poolerShard := info.Multipooler.GetShardRef().GetShard(); shard != "" && poolerShard != "" && poolerShard != shard {
 				continue
 			}
 			// A pooler that shut down is gone; its record stays in topology,

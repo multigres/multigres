@@ -900,10 +900,10 @@ func (x *ParameterDescription) GetDataTypeOid() uint32 {
 // translates the mode into a specific pooler at routing time.
 type Target struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// shard_key identifies the destination shard (database, table_group, shard).
-	// Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+	// shard_ref identifies the destination shard (database, table_group, shard).
+	// Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
 	// same across the topology and routing layers.
-	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,4,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
+	ShardRef *clustermetadata.ShardRef `protobuf:"bytes,4,opt,name=shard_ref,json=shardRef,proto3" json:"shard_ref,omitempty"`
 	// mode expresses the caller's writability / consistency needs.
 	// See Mode for the semantics of each value.
 	Mode          Mode `protobuf:"varint,5,opt,name=mode,proto3,enum=query.Mode" json:"mode,omitempty"`
@@ -941,9 +941,9 @@ func (*Target) Descriptor() ([]byte, []int) {
 	return file_query_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *Target) GetShardKey() *clustermetadata.ShardKey {
+func (x *Target) GetShardRef() *clustermetadata.ShardRef {
 	if x != nil {
-		return x.ShardKey
+		return x.ShardRef
 	}
 	return nil
 }
@@ -1706,7 +1706,7 @@ const file_query_proto_rawDesc = "" +
 	"\x14ParameterDescription\x12\"\n" +
 	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOid\"a\n" +
 	"\x06Target\x126\n" +
-	"\tshard_key\x18\x04 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12\x1f\n" +
+	"\tshard_ref\x18\x04 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x12\x1f\n" +
 	"\x04mode\x18\x05 \x01(\x0e2\v.query.ModeR\x04mode\"\x83\x01\n" +
 	"\x11PreparedStatement\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
@@ -1797,7 +1797,7 @@ var file_query_proto_goTypes = []any{
 	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
 	nil,                                 // 17: query.QueryResult.ParameterStatusEntry
 	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
+	(*clustermetadata.ShardRef)(nil),    // 19: clustermetadata.ShardRef
 	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
@@ -1810,7 +1810,7 @@ var file_query_proto_depIdxs = []int32{
 	17, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
 	8,  // 7: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	3,  // 8: query.StatementDescription.fields:type_name -> query.Field
-	19, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	19, // 9: query.Target.shard_ref:type_name -> clustermetadata.ShardRef
 	0,  // 10: query.Target.mode:type_name -> query.Mode
 	10, // 11: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
 	20, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID

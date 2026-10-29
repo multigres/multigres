@@ -51,7 +51,7 @@ var (
 // Unregister callbacks receive a pointer to a struct populated with the
 // current values, so a caller can read and conditionally update them.
 //
-// All other Multipooler proto fields (Id, ShardKey, PoolerDir, PgDataDir,
+// All other Multipooler proto fields (Id, ShardRef, PoolerDir, PgDataDir,
 // Hostname, PortMap) are set at construction and the record treats them as
 // immutable — exposing only this struct in the mutation API makes that
 // contract a property of the type system rather than a runtime check.
@@ -144,8 +144,8 @@ func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *c
 // change it.
 func (r *poolerRecord) Id() *clustermetadatapb.ID { return r.desired.Load().Id }
 
-// ShardKey returns the pooler's shard identity. Effectively immutable.
-func (r *poolerRecord) ShardKey() *clustermetadatapb.ShardKey { return r.desired.Load().ShardKey }
+// ShardRef returns the pooler's shard identity. Effectively immutable.
+func (r *poolerRecord) ShardRef() *clustermetadatapb.ShardRef { return r.desired.Load().ShardRef }
 
 // PoolerDir returns the on-disk pooler directory. Effectively immutable.
 func (r *poolerRecord) PoolerDir() string { return r.desired.Load().PoolerDir }
@@ -192,7 +192,7 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.Multipooler {
 // and schedules an asynchronous publish. fn receives a struct populated
 // with the current values; any modifications it makes become the new
 // desired state. Fields not exposed in MutablePoolerRecordState (Id,
-// ShardKey, PoolerDir, etc.) cannot be touched.
+// ShardRef, PoolerDir, etc.) cannot be touched.
 //
 // ctx must carry an action lock (see actionlock.AssertActionLockHeld). The action lock
 // serialises state transitions across the whole manager — RPC handlers

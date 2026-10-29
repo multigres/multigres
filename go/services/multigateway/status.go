@@ -109,7 +109,7 @@ func (mg *Multigateway) collectCellStatuses() []CellStatus {
 		for _, pooler := range cs.Poolers {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
 				Name:       pooler.Id.GetName(),
-				Database:   pooler.GetShardKey().GetDatabase(),
+				Database:   pooler.GetShardRef().GetDatabase(),
 				Leadership: mg.poolerGateway.LeadershipForID(topoclient.ComponentIDString(pooler.Id)),
 				Lifecycle:  lifecycleLabel(pooler.GetLifecycleStatus()),
 			})

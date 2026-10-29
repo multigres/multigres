@@ -211,7 +211,7 @@ func TestCreateMigration_RoutesByTarget(t *testing.T) {
 	t.Run("matching target resolves", func(t *testing.T) {
 		req := &migratorpb.CreateMigrationRequest{Migration: &migratorpb.MigrationRecord{
 			Name:   "m1",
-			Target: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+			Target: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 		}}
 		_, err := server.CreateMigration(ctx, req)
 		require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestCreateMigration_RoutesByTarget(t *testing.T) {
 	t.Run("mismatched target finds no pooler", func(t *testing.T) {
 		req := &migratorpb.CreateMigrationRequest{Migration: &migratorpb.MigrationRecord{
 			Name:   "m2",
-			Target: &clustermetadatapb.ShardKey{Database: "other-db", TableGroup: "default", Shard: "0-inf"},
+			Target: &clustermetadatapb.ShardRef{Database: "other-db", TableGroup: "default", Shard: "0-inf"},
 		}}
 		_, err := server.CreateMigration(ctx, req)
 		require.Error(t, err)

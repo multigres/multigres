@@ -40,7 +40,7 @@ const stanzaName = "multigres"
 // Identity exposes the pooler identity the backup engine needs.
 type Identity interface {
 	Id() *clustermetadatapb.ID
-	ShardKey() *clustermetadatapb.ShardKey
+	ShardRef() *clustermetadatapb.ShardRef
 }
 
 // Settings are the static settings fixed at construction (from the pooler's
@@ -265,7 +265,7 @@ func (e *Engine) pgbackrestCmd(ctx context.Context, args ...string) *executil.Cm
 
 // shardID returns this pooler's shard identifier.
 func (e *Engine) shardID() string {
-	return e.id.ShardKey().GetShard()
+	return e.id.ShardRef().GetShard()
 }
 
 // Metrics returns the engine's pgBackRest metrics. The manager uses this to

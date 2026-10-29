@@ -97,7 +97,7 @@ func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notifica
 // retry cadence a session has, so there is no timer here. Cheap and
 // non-blocking: it signals sessions and returns, so the health stream
 // goroutine never waits on a session's stream handshake.
-func (m *GRPCNotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardKey) {
+func (m *GRPCNotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardRef) {
 	m.mu.Lock()
 	sessions := make([]*notificationSession, 0, len(m.sessions))
 	for _, s := range m.sessions {

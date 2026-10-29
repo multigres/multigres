@@ -38,7 +38,7 @@ func loadDatabaseRecord(t *testing.T, ts topoclient.Store, poolerDir string, sta
 	t.Helper()
 	multipooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-service"},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,

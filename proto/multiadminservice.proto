@@ -571,7 +571,7 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {
-      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"
+      post: "/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"
       body: "*"
     };
   }
@@ -603,7 +603,7 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {
-      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
+      post: "/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"
       body: "*"
     };
   }
@@ -1142,7 +1142,7 @@ message ApplyCertifiedRuleChangeRequest {
     }}
   };
   // Shard to apply the rule change to.
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 
   // The transition to install. The caller must populate proposal's leader_id,
   // cohort_members, and durability_policy. The caller may also populate
@@ -1213,7 +1213,7 @@ message ApplyCertifiedRuleChangeResponse {
 // SwitchPrimaryRequest identifies the shard and the audit reason for a graceful switchover.
 message SwitchPrimaryRequest {
   // Shard to perform the switchover on (required).
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 
   // Free-text reason recorded in rule_history for audit.
   string reason = 2;

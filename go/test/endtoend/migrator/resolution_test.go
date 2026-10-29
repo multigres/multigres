@@ -103,7 +103,7 @@ func TestCreateMigrationTableResolution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp, err := mt.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{
 				Migration: &migratorpb.MigrationRecord{
-					Target:         &clustermetadatapb.ShardKey{Database: targetDB},
+					Target:         &clustermetadatapb.ShardRef{Database: targetDB},
 					ConnectionName: createTestConnection(t, ctx, mt, sourceDSN(srcPort)),
 					Objects:        sel(tc.tables...),
 				},

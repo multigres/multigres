@@ -95,12 +95,12 @@ message MigrationRecord {
   // effect on the migration's very next action, not just at create time.
   string connection_name = 3;
   // target identifies the destination shard (database, table_group, shard).
-  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
   // same across the topology and routing layers (see query.Target, which
   // reuses it for the same reason) — a database can have multiple
   // tablegroups, each with its own shard namespace, so database+shard alone
   // do not uniquely identify a shard.
-  clustermetadata.ShardKey target = 4;
+  clustermetadata.ShardRef target = 4;
   SelectionObject objects = 6;
   // sequence_margin is added past each sequence's max at a direction switch.
   // Set at create time; not currently changeable afterward.

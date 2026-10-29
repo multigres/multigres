@@ -34,7 +34,7 @@ import (
 // migration state.
 
 // leaderMigrationClient dials the Migrator service on target's leader pooler.
-func (s *MultiadminServer) leaderMigrationClient(ctx context.Context, target *clustermetadatapb.ShardKey) (migratorpb.MigratorClient, func(), error) {
+func (s *MultiadminServer) leaderMigrationClient(ctx context.Context, target *clustermetadatapb.ShardRef) (migratorpb.MigratorClient, func(), error) {
 	pooler, err := s.findPoolerForMigration(ctx, target)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.Unavailable, "no leader pooler for migration: %v", err)
@@ -54,7 +54,7 @@ func forwardMigration[Req, Resp any](
 	s *MultiadminServer,
 	call func(migratorpb.MigratorClient, context.Context, Req, ...grpc.CallOption) (Resp, error),
 	req Req,
-	target *clustermetadatapb.ShardKey,
+	target *clustermetadatapb.ShardRef,
 ) (Resp, error) {
 	c, closer, err := s.leaderMigrationClient(ctx, target)
 	if err != nil {
@@ -66,7 +66,7 @@ func forwardMigration[Req, Resp any](
 }
 
 // CreateMigration forwards to Multigres Migrator, routed by the migration's
-// target shard key.
+// target shard ref.
 func (s *MultiadminServer) CreateMigration(ctx context.Context, req *migratorpb.CreateMigrationRequest) (*migratorpb.CreateMigrationResponse, error) {
 	return forwardMigration(ctx, s, migratorpb.MigratorClient.CreateMigration, req, req.GetMigration().GetTarget())
 }

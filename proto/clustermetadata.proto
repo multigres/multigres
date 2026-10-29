@@ -171,12 +171,12 @@ message Multipooler {
   // id is the unique identifier of the multipooler in the cluster.
   ID id = 1;
 
-  // shard_key identifies which shard this pooler belongs to. It is used for
+  // shard_ref identifies which shard this pooler belongs to. It is used for
   // routing requests to the correct pooler and for displaying metadata about
   // the shard in dashboards. It is not expected to change for the lifetime of
   // the pooler, but it is not immutable either — if the pooler moves to a
   // different shard, this field should be updated to reflect the new shard.
-  ShardKey shard_key = 2; //
+  ShardRef shard_ref = 2;
 
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
@@ -255,9 +255,12 @@ message Multigateway {
   uint32 pid_prefix = 4;
 }
 
-// ShardKey uniquely identifies a shard in the cluster.
+// ShardRef uniquely identifies a shard in the cluster.
 // This is a centralized message used across all services to identify shards.
-message ShardKey {
+// It is a shard's identity, not a table's shard key (the routing columns a
+// table declares with PRIMARY SHARD KEY). Its SQL mirror is the
+// multigres.shard_ref composite type.
+message ShardRef {
   // Database name.
   string database = 1;
 

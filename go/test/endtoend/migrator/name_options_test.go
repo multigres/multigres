@@ -63,7 +63,7 @@ func TestNamedMigrationAndOptions(t *testing.T) {
 
 	createResp, err := mt.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{
 		Migration: &migratorpb.MigrationRecord{
-			Target:         &clustermetadatapb.ShardKey{Database: targetDB},
+			Target:         &clustermetadatapb.ShardRef{Database: targetDB},
 			Name:           "nightly",
 			ConnectionName: createTestConnection(t, ctx, mt, sourceDSN(srcPort)),
 			Objects:        objs("public.orders"),
@@ -81,7 +81,7 @@ func TestNamedMigrationAndOptions(t *testing.T) {
 	// A second migration reusing the name is rejected.
 	_, err = mt.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{
 		Migration: &migratorpb.MigrationRecord{
-			Target:         &clustermetadatapb.ShardKey{Database: targetDB},
+			Target:         &clustermetadatapb.ShardRef{Database: targetDB},
 			Name:           "nightly",
 			ConnectionName: createTestConnection(t, ctx, mt, sourceDSN(srcPort)),
 			Objects:        objs("public.orders"),

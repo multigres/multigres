@@ -97,9 +97,9 @@ func (pm *MultipoolerManager) withBackupLease(ctx context.Context, steal bool, a
 	case pm.staticLeader():
 		return fn(ctx)
 	case steal:
-		return pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, action, pm.logger, fn)
+		return pm.topoClient.WithStolenBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, action, pm.logger, fn)
 	default:
-		return pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, action, pm.logger, fn)
+		return pm.topoClient.WithBackupLease(ctx, pm.shardRef(), pm.record.Id().Name, action, pm.logger, fn)
 	}
 }
 

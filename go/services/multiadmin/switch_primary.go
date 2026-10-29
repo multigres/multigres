@@ -28,8 +28,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (s *MultiadminServer) findShardPrimary(ctx context.Context, shardKey *clustermetadatapb.ShardKey) (*clustermetadatapb.Multipooler, bool, error) {
-	allPoolers, err := s.findShardPoolers(ctx, shardKey)
+func (s *MultiadminServer) findShardPrimary(ctx context.Context, shardRef *clustermetadatapb.ShardRef) (*clustermetadatapb.Multipooler, bool, error) {
+	allPoolers, err := s.findShardPoolers(ctx, shardRef)
 	if err != nil {
 		return nil, false, err
 	}
@@ -50,7 +50,7 @@ func (s *MultiadminServer) findShardPrimary(ctx context.Context, shardKey *clust
 	}
 
 	return nil, false, status.Errorf(codes.NotFound, "no PRIMARY pooler found for shard %s/%s/%s",
-		shardKey.GetDatabase(), shardKey.GetTableGroup(), shardKey.GetShard())
+		shardRef.GetDatabase(), shardRef.GetTableGroup(), shardRef.GetShard())
 }
 
 // SwitchPrimary performs a graceful switchover: it quiesces writes on the
@@ -59,13 +59,13 @@ func (s *MultiadminServer) findShardPrimary(ctx context.Context, shardKey *clust
 // flow. The RPC returns as soon as the old primary has been quiesced and
 // restarted as a standby — it does not wait for the new leader to appear.
 func (s *MultiadminServer) SwitchPrimary(ctx context.Context, req *multiadminpb.SwitchPrimaryRequest) (*multiadminpb.SwitchPrimaryResponse, error) {
-	if req.GetShardKey() == nil {
-		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
+	if req.GetShardRef() == nil {
+		return nil, status.Error(codes.InvalidArgument, "shard_ref is required")
 	}
-	shardKey := req.GetShardKey()
+	shardRef := req.GetShardRef()
 
 	// 1. Find the primary pooler for this shard.
-	leader, hasStandby, err := s.findShardPrimary(ctx, shardKey)
+	leader, hasStandby, err := s.findShardPrimary(ctx, shardRef)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (s *MultiadminServer) SwitchPrimary(ctx context.Context, req *multiadminpb.
 
 // findShardPoolers returns all poolers registered for the given shard across
 // all cells.
-func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardKey *clustermetadatapb.ShardKey) ([]*clustermetadatapb.Multipooler, error) {
+func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardRef *clustermetadatapb.ShardRef) ([]*clustermetadatapb.Multipooler, error) {
 	cellNames, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list cells: %v", err)
@@ -136,9 +136,9 @@ func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardKey *clust
 	for _, cell := range cellNames {
 		opts := &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
-				Database:   shardKey.GetDatabase(),
-				TableGroup: shardKey.GetTableGroup(),
-				Shard:      shardKey.GetShard(),
+				Database:   shardRef.GetDatabase(),
+				TableGroup: shardRef.GetTableGroup(),
+				Shard:      shardRef.GetShard(),
 			},
 		}
 		infos, err := s.ts.GetMultipoolersByCell(ctx, cell, opts)
@@ -155,7 +155,7 @@ func (s *MultiadminServer) findShardPoolers(ctx context.Context, shardKey *clust
 
 	if len(poolers) == 0 {
 		return nil, status.Errorf(codes.NotFound, "no poolers found for shard %s/%s/%s",
-			shardKey.GetDatabase(), shardKey.GetTableGroup(), shardKey.GetShard())
+			shardRef.GetDatabase(), shardRef.GetTableGroup(), shardRef.GetShard())
 	}
 	return poolers, nil
 }

@@ -212,7 +212,7 @@ func (a *applyRuleChangeCmd) buildRequest() (*multiadminpb.ApplyCertifiedRuleCha
 	}
 
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   a.database.Get(),
 			TableGroup: a.tableGroup.Get(),
 			Shard:      a.shard.Get(),
@@ -301,7 +301,7 @@ func parsePoolerID(raw string) (*clustermetadatapb.ID, error) {
 // confirm prints a summary of the operation and prompts the operator to type
 // the shard name to proceed. Bypassed by --yes.
 func confirm(cmd *cobra.Command, req *multiadminpb.ApplyCertifiedRuleChangeRequest) error {
-	sk := req.GetShardKey()
+	sk := req.GetShardRef()
 	cohort := make([]string, 0, len(req.GetProposedTransition().GetProposal().GetCohortMembers()))
 	for _, id := range req.GetProposedTransition().GetProposal().GetCohortMembers() {
 		cohort = append(cohort, fmt.Sprintf("%s/%s", id.GetCell(), id.GetName()))

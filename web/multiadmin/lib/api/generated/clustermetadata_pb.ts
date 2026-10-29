@@ -922,17 +922,15 @@ export class Multipooler extends Message<Multipooler> {
   id?: ID;
 
   /**
-   * shard_key identifies which shard this pooler belongs to. It is used for
+   * shard_ref identifies which shard this pooler belongs to. It is used for
    * routing requests to the correct pooler and for displaying metadata about
    * the shard in dashboards. It is not expected to change for the lifetime of
    * the pooler, but it is not immutable either — if the pooler moves to a
    * different shard, this field should be updated to reflect the new shard.
    *
-   *
-   *
-   * @generated from field: clustermetadata.ShardKey shard_key = 2;
+   * @generated from field: clustermetadata.ShardRef shard_ref = 2;
    */
-  shardKey?: ShardKey;
+  shardRef?: ShardRef;
 
   /**
    * If range based sharding is used, range for the pooler's shard.
@@ -1044,7 +1042,7 @@ export class Multipooler extends Message<Multipooler> {
   static readonly typeName = "clustermetadata.Multipooler";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
-    { no: 2, name: "shard_key", kind: "message", T: ShardKey },
+    { no: 2, name: "shard_ref", kind: "message", T: ShardRef },
     { no: 5, name: "key_range", kind: "message", T: KeyRange },
     { no: 6, name: "type", kind: "enum", T: proto3.getEnumType(PoolerType) },
     { no: 7, name: "serving_status", kind: "enum", T: proto3.getEnumType(PoolerServingStatus) },
@@ -1141,12 +1139,15 @@ export class Multigateway extends Message<Multigateway> {
 }
 
 /**
- * ShardKey uniquely identifies a shard in the cluster.
+ * ShardRef uniquely identifies a shard in the cluster.
  * This is a centralized message used across all services to identify shards.
+ * It is a shard's identity, not a table's shard key (the routing columns a
+ * table declares with PRIMARY SHARD KEY). Its SQL mirror is the
+ * multigres.shard_ref composite type.
  *
- * @generated from message clustermetadata.ShardKey
+ * @generated from message clustermetadata.ShardRef
  */
-export class ShardKey extends Message<ShardKey> {
+export class ShardRef extends Message<ShardRef> {
   /**
    * Database name.
    *
@@ -1168,33 +1169,33 @@ export class ShardKey extends Message<ShardKey> {
    */
   shard = "";
 
-  constructor(data?: PartialMessage<ShardKey>) {
+  constructor(data?: PartialMessage<ShardRef>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.ShardKey";
+  static readonly typeName = "clustermetadata.ShardRef";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "table_group", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ShardKey {
-    return new ShardKey().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ShardRef {
+    return new ShardRef().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ShardKey {
-    return new ShardKey().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ShardRef {
+    return new ShardRef().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ShardKey {
-    return new ShardKey().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ShardRef {
+    return new ShardRef().fromJsonString(jsonString, options);
   }
 
-  static equals(a: ShardKey | PlainMessage<ShardKey> | undefined, b: ShardKey | PlainMessage<ShardKey> | undefined): boolean {
-    return proto3.util.equals(ShardKey, a, b);
+  static equals(a: ShardRef | PlainMessage<ShardRef> | undefined, b: ShardRef | PlainMessage<ShardRef> | undefined): boolean {
+    return proto3.util.equals(ShardRef, a, b);
   }
 }
 

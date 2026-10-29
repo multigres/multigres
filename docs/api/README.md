@@ -168,7 +168,7 @@ have no client-supplied idempotency key and must not be blindly retried.
   additionally requires exactly one of `cert` or `unsafeDeriveCert`, as expressed
   in its proto schema annotation. Backup locations may omit both choices.
 - Fields bound from the URL need not be repeated in the JSON body. Vanguard
-  applies path values to the request, including nested IDs and shard keys.
+  applies path values to the request, including nested IDs and shard refs.
 
 `make openapi` runs `tools/openapi/normalize` to correct the generated schemas.
 It narrows the generator's integer/string unions to canonical 64-bit
@@ -205,8 +205,8 @@ Orchestrator discovery is grouped under `cells` because it is scoped by cells.
 | POST   | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts`                          | SetPostgresRestartsEnabled | poolers   |
 | GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries`                                 | GetGatewayQueries          | gateways  |
 | GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator`                            | GetGatewayConsolidator     | gateways  |
-| POST   | `/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change`    | ApplyCertifiedRuleChange   | shards    |
-| POST   | `/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary` | SwitchPrimary              | shards    |
+| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change`    | ApplyCertifiedRuleChange   | shards    |
+| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary` | SwitchPrimary              | shards    |
 
 ## Tests
 
