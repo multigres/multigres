@@ -137,3 +137,10 @@ func ConnInfoString(kv map[string]string) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// IsConnURI reports whether a connection string is in libpq's URI form
+// (postgres://user:password@host:port/dbname?...), as opposed to keyword=value
+// pairs, which ParseConnInfo reads.
+func IsConnURI(dsn string) bool {
+	return strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://")
+}
