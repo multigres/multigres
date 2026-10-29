@@ -207,7 +207,8 @@ tablegroup. The binding is set when the tablegroup is created and never
 changed. A bound connection cannot be deleted while a tablegroup uses it.
 
 The tablegroup is one shard, `0-inf`, served by one unmanaged pooler: it has
-no standby, no pgctld, no multiorch and no backups.
+no standby, no pgctld, no multiorch and no backups, and it is its shard's
+primary while its backend is ready.
 
 **How the pooler learns it is unmanaged.** It is told only its tablegroup id.
 At startup it decides how it is managed in this order: its own topology
