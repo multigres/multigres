@@ -10,9 +10,9 @@ expression-level filter that runs across all tiers:
   FUNCTION / PROCEDURE, CREATE TRIGGER, CREATE RULE, CREATE EVENT
   TRIGGER). Risk is session-state changes _inside_ an opaque body.
 - **Tier 2 — server-level infrastructure operations** (LOAD, ALTER
-  SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
-  CREATE FDW, CREATE SERVER). Risk is modifying the shared server
-  process or crossing tenant boundaries.
+  SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION).
+  Risk is modifying the shared server process or crossing tenant
+  boundaries.
 - **Expression-level filter — dangerous built-in function calls**
   (`set_config`, `dblink*`, `pg_read_file*`, `lo_import/export`,
   `pg_execute_server_program`, `{query,table,cursor}_to_xml*`).
@@ -45,8 +45,8 @@ environment, a shared pooler must not expose operations that:
   `postgresql.conf`),
 - cross tenant boundaries (creating or dropping databases,
   installing languages), or
-- open outbound connections to external hosts (subscriptions,
-  foreign data wrappers, foreign servers).
+- open outbound replication connections to external hosts
+  (subscriptions).
 
 These are managed by the control plane, not by tenant users, even
 when the tenant has the raw Postgres privileges to run them. That is
@@ -166,8 +166,6 @@ a connection that sets
 | `DROP DATABASE`               | `T_DropdbStmt`              | `DROP DATABASE foo`                                                      | Structural server changes not permitted in a hosted environment   |
 | `CREATE LANGUAGE`             | `T_CreatePLangStmt`         | `CREATE LANGUAGE plpython3u`                                             | Installs procedural language runtimes (especially untrusted ones) |
 | `CREATE SUBSCRIPTION`         | `T_CreateSubscriptionStmt`  | `CREATE SUBSCRIPTION s CONNECTION '...' PUBLICATION p`                   | Opens outbound replication connections to external servers        |
-| `CREATE FOREIGN DATA WRAPPER` | `T_CreateFdwStmt`           | `CREATE FOREIGN DATA WRAPPER myfdw`                                      | Installs external data access layers                              |
-| `CREATE SERVER`               | `T_CreateForeignServerStmt` | `CREATE SERVER s FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '...')` | Configures outbound connections to external hosts                 |
 
 **Why blocked:** these are properties of the shared server process or
 its outbound connections. Unlike Tier 1, there is no "inspect the
@@ -177,6 +175,46 @@ environment the control plane owns these, not tenant users.
 **No follow-up planned:** Tier 2 stays blocked. The only anticipated
 change is a configurable allowlist for self-hosted deployments where
 the operator explicitly opts into these.
+
+**Foreign-data wrappers are not Tier 2.** `CREATE FOREIGN DATA WRAPPER`
+and `CREATE SERVER` were blocked here originally, on the "outbound
+connections" argument, and were unblocked once hosted workloads
+(postgres_fdw, file_fdw, Supabase Wrappers) needed them. They are
+ordinary catalog objects: PostgreSQL requires superuser to create a
+wrapper and `USAGE` on the wrapper to create a server, `file_fdw`
+additionally requires `pg_read_server_files` for a filename, and every
+remote access happens inside the backend, where the pooler has no role.
+The other FDW statements (`CREATE FOREIGN TABLE`, `IMPORT FOREIGN
+SCHEMA`, user mappings, `ALTER SERVER`) were never blocked, with one
+exception: a foreign-table `OPTIONS` clause that sets or adds `program`
+(`CREATE FOREIGN TABLE ... OPTIONS (program '...')`, `ALTER [FOREIGN]
+TABLE ... OPTIONS (ADD|SET program '...')`) is rejected with `0A000`,
+because file_fdw runs that string as a shell command on the server, the
+same capability `COPY ... PROGRAM` and `pg_execute_server_program` are
+refused for. The check is by option name, since the planner cannot see
+which wrapper a server uses, so any foreign table with an option
+spelled `program` is refused; no Supabase wrapper uses that name.
+`DROP program` is a revert and passes. One residual
+to know about: `postgres_fdw` caches its remote connections per backend
+and `DISCARD ALL` does not close them, so a pooled backend keeps a
+remote connection open until `postgres_fdw_disconnect_all()` or backend
+exit, and the next session of the same user on that backend can see it in
+`postgres_fdw_get_connections()`. Per-user pools keep this within one
+role, which matches the behavior under transaction-mode poolers today.
+`postgres_fdw` reaches the same network a `dblink()` call would, but
+the two are not equivalent: `dblink` takes an ad-hoc connection string
+and executes arbitrary caller-supplied SQL on the remote, while a
+foreign server is a catalog object and `postgres_fdw` only issues
+planner-generated statements against declared foreign tables. The
+`dblink*` functions therefore stay in the expression filter below.
+`CREATE SUBSCRIPTION` stays blocked for a different reason: it starts a persistent replication worker in the server, which
+is a cluster-level resource. A second residual: a `postgres_fdw` server
+pointed at the primary itself (the backend can reach it on localhost)
+opens libpq sessions that bypass the gateway and its pools, bounded only
+by PostgreSQL's own `max_connections` and by needing a valid password
+for the mapped role (`postgres_fdw` refuses a password-less mapping for
+non-superusers). That is the same as a direct connection today and is
+accepted.
 
 ### Expression-level filter — dangerous built-in function calls
 
@@ -199,7 +237,9 @@ and enforces rules on specific built-ins. Schema-qualified variants
 
 **Why these specific functions:** each one is a callable equivalent of
 a Tier 2 operation or a session-state bypass. `dblink` opens outbound
-connections (same as CREATE SERVER / SUBSCRIPTION). `pg_read_file`,
+connections from an ad-hoc connection string in the query (unlike a
+foreign server, which is a catalog object vetted by PostgreSQL
+privileges when it is created). `pg_read_file`,
 `lo_import`, and `pg_execute_server_program` reach the server
 filesystem or shell. `query_to_xml` executes arbitrary SQL strings
 inside the engine. `set_config(name, value, false)` is functionally
