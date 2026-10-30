@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +39,6 @@ func TestStanzaCreate_ExecPaths(t *testing.T) {
 			stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\nexit %d\n", tt.exitCode))
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			err := e.StanzaCreate(context.Background())
 			if tt.wantErr {
@@ -51,26 +49,4 @@ func TestStanzaCreate_ExecPaths(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
-}
-
-func TestStanzaCreate_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
-	err := e.StanzaCreate(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet generated")
-}
-
-// TestSetPgpassPath_PropagatesToCommand verifies SetPgpassPath exports
-// PGPASSFILE to pgbackrest's environment. The stub echoes the variable and
-// fails, so the error output reveals what the command saw.
-func TestSetPgpassPath_PropagatesToCommand(t *testing.T) {
-	stubPgbackrest(t, "#!/bin/bash\necho \"PGPASSFILE=$PGPASSFILE\"\nexit 1\n")
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetPgpassPath("/tmp/test.pgpass")
-
-	err := e.StanzaCreate(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PGPASSFILE=/tmp/test.pgpass")
 }

@@ -81,7 +81,7 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		config:       &Config{},
 		record:       newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: t.TempDir()}),
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
 	// The data dir is not initialized, so discoverPostgresState checks whether
@@ -1147,7 +1147,8 @@ func TestTakeRemedialAction_RestoreFromBackupFails(t *testing.T) {
 	pm.pgctldClient = &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_NOT_INITIALIZED},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
+	useAnsweringSidecar(t, pm)
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
 	require.NoError(t, err)
@@ -1520,7 +1521,7 @@ func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
 
 	// With no usable pgbackrest config the repository cannot be inspected.
 	// That is unknown state, not an absence of backups: hasCompleteBackups
@@ -1541,7 +1542,7 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock to block hasCompleteBackups
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-holder")

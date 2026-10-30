@@ -45,5 +45,18 @@ import (
 // pooler_dir, so it is not removed along with a partial data directory; see
 // sentinel.go.
 func (pm *MultipoolerManager) restoreSentinel() sentinel {
-	return pm.newSentinel(constants.RestoreSentinelFile, "pgbackrest restore in progress\n")
+	s := pm.newSentinel(constants.RestoreSentinelFile, "pgbackrest restore in progress\n")
+	// The sidecar shares the data volume with postgres, so the marker is
+	// reached through a mount-anchored safefs root.
+	s.root = pm.openGenerationsRoot
+	return s
 }
+
+// The sentinel is also the restore marker that gates every decision to start
+// postgres, treat PGDATA as initialized or restore (see restoreSettled):
+//   - the restore runs in the sidecar and can outlive this process, so the
+//     sentinel is removed only after the sidecar confirmed the restore ended
+//     and the steps after it ran, not when pgbackrest returns;
+//   - a failed restore removes nothing, because the sidecar may still be
+//     writing PGDATA: the next attempt waits for it to end first;
+//   - a sentinel older than restoreMarkerStaleAfter counts toward quarantine.

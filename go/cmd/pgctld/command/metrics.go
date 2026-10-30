@@ -16,9 +16,7 @@ package command
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -26,76 +24,32 @@ import (
 
 const pgctldMeterName = "github.com/multigres/multigres/go/cmd/pgctld/command"
 
-// Metrics holds OTel gauge instruments for pgBackRest server health.
-// Atomic values are used because the OTel callback and setPgBackRestStatus run on different goroutines.
-type Metrics struct {
-	serverUp     metric.Int64ObservableGauge
-	restartCount metric.Int64ObservableGauge
-	serverUptime metric.Int64ObservableGauge
-
-	serverUpVal     atomic.Int64
-	restartCountVal atomic.Int64
-	startedAtNanos  atomic.Int64
+// sidecarMetrics holds the exposure gauge. pgctld publishes no
+// pgbackrest.server.* gauges: the sidecar's own gauge reports the 8432 server.
+type sidecarMetrics struct {
+	credentialExposed    metric.Int64ObservableGauge
+	credentialExposedVal atomic.Int64
 }
 
-// NewMetrics creates and registers the pgBackRest health gauges.
-// It always returns a non-nil *Metrics; any registration errors are collected and returned.
-func NewMetrics() (*Metrics, error) {
-	m := &Metrics{}
+func newSidecarMetrics() (*sidecarMetrics, error) {
+	m := &sidecarMetrics{}
 	meter := otel.Meter(pgctldMeterName)
 
-	var errs []error
-
 	var err error
-	m.serverUp, err = meter.Int64ObservableGauge(
-		"pgbackrest.server.up",
-		metric.WithDescription("1 if the pgBackRest TLS server is running, 0 if not"),
+	m.credentialExposed, err = meter.Int64ObservableGauge(
+		"credential_exposed",
+		metric.WithDescription("1 if a cloud credential source is present in pgctld's environment, else 0"),
 	)
-	errs = append(errs, err)
-
-	m.restartCount, err = meter.Int64ObservableGauge(
-		"pgbackrest.server.restart_count",
-		metric.WithDescription("Cumulative number of times the pgBackRest TLS server has been restarted"),
-	)
-	errs = append(errs, err)
-
-	m.serverUptime, err = meter.Int64ObservableGauge(
-		"pgbackrest.server.uptime",
-		metric.WithDescription("Seconds since the pgBackRest TLS server last started, 0 if down"),
-	)
-	errs = append(errs, err)
+	if err != nil {
+		return m, err
+	}
 
 	_, err = meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
-			o.ObserveInt64(m.serverUp, m.serverUpVal.Load())
-			o.ObserveInt64(m.restartCount, m.restartCountVal.Load())
-			var uptime int64
-			if started := m.startedAtNanos.Load(); started > 0 {
-				uptime = (time.Now().UnixNano() - started) / int64(time.Second)
-			}
-			o.ObserveInt64(m.serverUptime, uptime)
+			o.ObserveInt64(m.credentialExposed, m.credentialExposedVal.Load())
 			return nil
 		},
-		m.serverUp, m.restartCount, m.serverUptime,
+		m.credentialExposed,
 	)
-	errs = append(errs, err)
-
-	return m, errors.Join(errs...)
-}
-
-// SetServerUp atomically stores 1 if running is true, 0 if false.
-// It also records the start timestamp for the uptime gauge.
-func (m *Metrics) SetServerUp(running bool) {
-	if running {
-		m.serverUpVal.Store(1)
-		m.startedAtNanos.Store(time.Now().UnixNano())
-	} else {
-		m.serverUpVal.Store(0)
-		m.startedAtNanos.Store(0)
-	}
-}
-
-// SetRestartCount atomically stores the restart count as int64.
-func (m *Metrics) SetRestartCount(count int32) {
-	m.restartCountVal.Store(int64(count))
+	return m, err
 }

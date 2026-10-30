@@ -18,7 +18,7 @@ package manager
 import (
 	"time"
 
-	"github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/common/sandbox"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 )
@@ -78,15 +78,21 @@ type Config struct {
 	// above. <= 0 falls back to defaultUnrecoverableMinAttempts.
 	PostgresUnrecoverableMinAttempts int
 
-	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
-	PgBackRestCertFile string // TLS client certificate file path
-	PgBackRestKeyFile  string // TLS client key file path
-	PgBackRestCAFile   string // TLS CA certificate file path
-
-	// BackupCipherKeys holds the backup repository cipher keys resolved from
-	// the key file at startup (nil when no key file is configured). Loaded
-	// once at process start, like the postgres password.
-	BackupCipherKeys backup.CipherKeys
+	// PgBackRestControlSocket is the pgbackrestd control socket (required). WAL
+	// archive and restore go through the sidecar and the shared data volume is
+	// accessed only through mount-anchored safefs.
+	PgBackRestControlSocket string
+	// PgBackRestWALSocket is the sidecar's WAL socket as postgres sees it (required). It is
+	// only a path rendered into archive_command and restore_command; multipooler
+	// has no mount for it.
+	PgBackRestWALSocket string
+	// DataVolumeRoot is the mount root of the volume shared with postgres. Empty
+	// selects DefaultDataVolumeRoot.
+	DataVolumeRoot string
+	// DataVolumeAnchor selects how DataVolumeRoot is verified. The zero value
+	// requires a mount point; sandbox.AnchorDir is for tests and the local
+	// provisioner only.
+	DataVolumeAnchor sandbox.AnchorMode
 
 	// StaticLeader makes this pooler its shard's leader without consensus, for a
 	// shard served by a single pooler (Minigres). Routing-role derivation uses a

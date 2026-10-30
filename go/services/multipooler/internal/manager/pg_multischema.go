@@ -113,8 +113,8 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is the shared multigres.shard_ref type and backend_vpid on
-// every shard, plus the versioned sharding catalog on the catalog shard
+// Currently this is the shared multigres.shard_ref type, backend_vpid and
+// pgbackrest_repos_meta on every shard, plus the versioned sharding catalog on the catalog shard
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS); add future late-added sidecar tables here as they arise.
 func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
@@ -127,6 +127,12 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 
 	// backend_vpid maps live backend pids to gateway virtual pids.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
+		return err
+	}
+
+	// pgbackrest_repos_meta versions the generation list; shards bootstrapped
+	// before it existed have the repos table but not the revision.
+	if err := pm.ensurePgBackRestReposMeta(ctx); err != nil {
 		return err
 	}
 

@@ -55,6 +55,13 @@ var pgctldStopModes = []struct {
 func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
 
+	// A restore that is settling holds the action lock below and would hold it
+	// for its whole bound, so end its wait first. Its marker keeps the data
+	// directory untrusted until the next start settles it.
+	if pm.restoreWaitCancel != nil {
+		pm.restoreWaitCancel()
+	}
+
 	// TODO: issue a bounded CHECKPOINT before resigning so there's a recent
 	// checkpoint if the failover process doesn't go smoothly and rewinds are
 	// needed.

@@ -276,7 +276,8 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
+	useAnsweringSidecar(t, pm)
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -320,7 +321,8 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
+	useAnsweringSidecar(t, pm)
 
 	// Acquire the action lock as the monitor would do before calling this function
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -370,7 +372,8 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
+	useAnsweringSidecar(t, pm)
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -422,7 +425,8 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	// SetConfigPath is deliberately not called → the engine has no config path,
 	// so ConfigureArchiveMode will fail, triggering the cleanup defer after
 	// InitDataDir succeeded.
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	useAnsweringSidecar(t, pm)
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -442,18 +446,6 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	// so there's nothing a graceful stop buys here worth waiting for.
 	require.NotNil(t, pgctld.lastStopReq, "cleanup must call Stop")
 	assert.Equal(t, "immediate", pgctld.lastStopReq.Mode)
-}
-
-// writeMockPgBackRestConfig writes a minimal pgbackrest.conf so that
-// ConfigureArchiveMode's config-path existence check passes. Only the file's
-// presence matters here; its contents are not parsed by ConfigureArchiveMode.
-func writeMockPgBackRestConfig(t *testing.T, poolerDir string) string {
-	t.Helper()
-	pgbackrestDir := filepath.Join(poolerDir, "pgbackrest")
-	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
-	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
-	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n[multigres]\n"), 0o600))
-	return configPath
 }
 
 // TestCreateFirstBackupAndInitialize_StartFails verifies that a failure to start
@@ -476,7 +468,6 @@ func TestCreateFirstBackupAndInitialize_StartFails(t *testing.T) {
 	poolerDir := t.TempDir()
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
-	configPath := writeMockPgBackRestConfig(t, poolerDir)
 
 	// InitDataDir succeeds (creates dataDir); Start fails.
 	pgctld := &successStubPgctldClient{
@@ -499,9 +490,9 @@ func TestCreateFirstBackupAndInitialize_StartFails(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	useAnsweringSidecar(t, pm)
 	// Configure the engine so ConfigureArchiveMode succeeds and execution reaches Start.
-	pm.backup.SetConfigPath(configPath)
 	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
 	require.NoError(t, err)
 	pm.backup.SetBackupConfig(backupCfg)
@@ -540,7 +531,6 @@ func TestCreateFirstBackupAndInitialize_StopFailureStillRemovesDataDir(t *testin
 	poolerDir := t.TempDir()
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
-	configPath := writeMockPgBackRestConfig(t, poolerDir)
 
 	// InitDataDir succeeds (creates dataDir); Start fails, triggering cleanup;
 	// Stop (called by cleanup) also fails.
@@ -564,8 +554,8 @@ func TestCreateFirstBackupAndInitialize_StopFailureStillRemovesDataDir(t *testin
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
-	pm.backup.SetConfigPath(configPath)
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	useAnsweringSidecar(t, pm)
 	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
 	require.NoError(t, err)
 	pm.backup.SetBackupConfig(backupCfg)
@@ -601,7 +591,6 @@ func TestCreateFirstBackupAndInitialize_CleanupUsesFreshContextForStop(t *testin
 	poolerDir := t.TempDir()
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
-	configPath := writeMockPgBackRestConfig(t, poolerDir)
 
 	pgctld := &ctxCapturingPgctldClient{successStubPgctldClient: successStubPgctldClient{pgDataDir: dataDir}}
 
@@ -620,8 +609,8 @@ func TestCreateFirstBackupAndInitialize_CleanupUsesFreshContextForStop(t *testin
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
-	pm.backup.SetConfigPath(configPath)
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	useAnsweringSidecar(t, pm)
 	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
 	require.NoError(t, err)
 	pm.backup.SetBackupConfig(backupCfg)
@@ -666,7 +655,6 @@ func TestCreateFirstBackupAndInitialize_CleanupStopCarriesActionLock(t *testing.
 	poolerDir := t.TempDir()
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
-	configPath := writeMockPgBackRestConfig(t, poolerDir)
 
 	pgctld := &lockCheckingPgctldClient{successStubPgctldClient: successStubPgctldClient{
 		pgDataDir: dataDir,
@@ -688,8 +676,8 @@ func TestCreateFirstBackupAndInitialize_CleanupStopCarriesActionLock(t *testing.
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
-	pm.backup.SetConfigPath(configPath)
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	useAnsweringSidecar(t, pm)
 	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
 	require.NoError(t, err)
 	pm.backup.SetBackupConfig(backupCfg)
@@ -750,7 +738,8 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		}),
 		config: &Config{},
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
+	useAnsweringSidecar(t, pm)
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -766,110 +755,6 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 	assert.NoDirExists(t, dataDir, "stale data directory should be removed when sentinel detected")
 	// Sentinel stays because bootstrap has not completed successfully.
 	assert.FileExists(t, sentinelPath, "sentinel should remain until bootstrap completes")
-}
-
-// restoreSentinelAtStartPgctldClient records whether the restore sentinel was
-// on disk when Start was called. pgctld refuses to start postgres while it is,
-// so bootstrap must have cleared it by then.
-type restoreSentinelAtStartPgctldClient struct {
-	successStubPgctldClient
-	sentinelPath    string
-	startCalled     bool
-	sentinelAtStart bool
-}
-
-func (c *restoreSentinelAtStartPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
-	c.startCalled = true
-	_, err := os.Stat(c.sentinelPath)
-	c.sentinelAtStart = err == nil
-	return c.successStubPgctldClient.Start(ctx, req, opts...)
-}
-
-// TestCreateFirstBackupAndInitialize_ClearsRestoreSentinel verifies bootstrap
-// clears a restore sentinel left by an interrupted restore before it starts
-// postgres, which pgctld would otherwise refuse, and that it fails without
-// starting postgres if the sentinel can't be cleared.
-func TestCreateFirstBackupAndInitialize_ClearsRestoreSentinel(t *testing.T) {
-	setup := func(t *testing.T) (*MultipoolerManager, *restoreSentinelAtStartPgctldClient) {
-		t.Helper()
-		ctx := t.Context()
-
-		store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-		t.Cleanup(func() { store.Close() })
-
-		const dbName = "testdb"
-		require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
-			Name:                      dbName,
-			BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
-		}))
-
-		poolerDir := t.TempDir()
-		dataDir := filepath.Join(poolerDir, "pg_data")
-		t.Setenv(constants.PgDataDirEnvVar, dataDir)
-		configPath := writeMockPgBackRestConfig(t, poolerDir)
-
-		// Start fails, so the bootstrap stops right after it.
-		pgctld := &restoreSentinelAtStartPgctldClient{
-			successStubPgctldClient: successStubPgctldClient{
-				pgDataDir: dataDir,
-				startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
-			},
-			sentinelPath: filepath.Join(poolerDir, constants.RestoreSentinelFile),
-		}
-
-		pm := &MultipoolerManager{
-			logger:       slog.Default(),
-			topoClient:   store,
-			actionLock:   actionlock.NewActionLock(),
-			pgctldClient: pgctld,
-			record: newRecordFromProto(&clustermetadatapb.Multipooler{
-				PoolerDir: poolerDir,
-				ShardRef: &clustermetadatapb.ShardRef{
-					Database:   dbName,
-					TableGroup: constants.DefaultTableGroup,
-					Shard:      constants.DefaultShard,
-				},
-			}),
-			config: &Config{},
-		}
-		pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
-		// Configure the engine so ConfigureArchiveMode succeeds and execution reaches Start.
-		pm.backup.SetConfigPath(configPath)
-		backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
-		require.NoError(t, err)
-		pm.backup.SetBackupConfig(backupCfg)
-		return pm, pgctld
-	}
-
-	t.Run("cleared before postgres starts", func(t *testing.T) {
-		pm, pgctld := setup(t)
-		require.NoError(t, pm.restoreSentinel().write())
-
-		withLock(t, pm, func(ctx context.Context) {
-			_, _, err := pm.createFirstBackupAndInitializeLocked(ctx)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "failed to start PostgreSQL")
-		})
-
-		assert.True(t, pgctld.startCalled, "bootstrap should reach the postgres start")
-		assert.False(t, pgctld.sentinelAtStart, "the restore sentinel must be gone before postgres starts")
-	})
-
-	t.Run("failure to clear it aborts before postgres starts", func(t *testing.T) {
-		pm, pgctld := setup(t)
-		// A non-empty directory at the sentinel path cannot be removed.
-		sentinelPath := pm.restoreSentinel().path
-		require.NoError(t, os.Mkdir(sentinelPath, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(sentinelPath, "child"), []byte("x"), 0o644))
-
-		withLock(t, pm, func(ctx context.Context) {
-			_, _, err := pm.createFirstBackupAndInitializeLocked(ctx)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "failed to remove restore sentinel")
-		})
-
-		assert.False(t, pgctld.startCalled, "postgres must not be started")
-	})
 }
 
 // TestBootstrapSentinelPlacement guards the load-bearing invariant that the

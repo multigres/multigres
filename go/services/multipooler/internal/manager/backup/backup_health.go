@@ -376,14 +376,7 @@ func (e *Engine) resolveRole(ctx context.Context) pgmode.Mode {
 // transient repo failure it leaves the cached age/count untouched (so the
 // gauges don't thrash to zero) and reports repo_unreachable.
 func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason string) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		// pgbackrest.conf not generated yet (topology not loaded).
-		e.logger.DebugContext(ctx, "backup health: config path not set; repo unreachable", "error", err)
-		return false, ReadyReasonRepoUnreachable
-	}
-
-	output, err := e.runInfoCmd(ctx, configPath)
+	output, err := e.runInfoCmd(ctx)
 	if err != nil {
 		if isStanzaMissing(output) {
 			// Stanza not created yet: there are genuinely no backups.

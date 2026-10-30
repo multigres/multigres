@@ -24,23 +24,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/executil"
-	"github.com/multigres/multigres/go/tools/retry"
-	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -56,11 +50,9 @@ func intToInt32(v int) (int32, error) {
 
 // PgCtldServerCmd holds the server command configuration
 type PgCtldServerCmd struct {
-	pgCtlCmd          *PgCtlCommand
-	grpcServer        *servenv.GrpcServer
-	senv              *servenv.ServEnv
-	pgbackrestPort    viperutil.Value[int]
-	pgbackrestCertDir viperutil.Value[string]
+	pgCtlCmd   *PgCtlCommand
+	grpcServer *servenv.GrpcServer
+	senv       *servenv.ServEnv
 }
 
 // AddServerCommand adds the server subcommand to the root command
@@ -69,16 +61,6 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		pgCtlCmd:   pc,
 		grpcServer: servenv.NewGrpcServer(pc.reg),
 		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
-		pgbackrestPort: viperutil.Configure(pc.reg, "pgbackrest-port", viperutil.Options[int]{
-			Default:  0,
-			FlagName: "pgbackrest-port",
-			Dynamic:  false,
-		}),
-		pgbackrestCertDir: viperutil.Configure(pc.reg, "pgbackrest-cert-dir", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pgbackrest-cert-dir",
-			Dynamic:  false,
-		}),
 	}
 	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
@@ -107,11 +89,6 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	// as persistent flags in the root command and we're sharing those instances
 	s.senv.RegisterFlagsWithoutLoggerAndConfig(cmd.Flags())
 
-	// pgBackRest TLS server flags (server command only)
-	cmd.Flags().Int("pgbackrest-port", s.pgbackrestPort.Default(), "pgBackRest TLS server port")
-	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
-	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
-
 	return cmd
 }
 
@@ -128,8 +105,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	pgbackrestPort := s.pgbackrestPort.Get()
-	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
 	pgctldConfig, err := s.pgCtlCmd.buildServiceConfig()
 	if err != nil {
@@ -142,8 +117,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		s.pgCtlCmd.timeout.Get(),
 		poolerDir,
 		s.pgCtlCmd.pgListenAddresses.Get(),
-		pgbackrestPort,
-		pgbackrestCertDir,
 	)
 	if err != nil {
 		return err
@@ -172,9 +145,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 			"grpc_port", s.grpcServer.Port(),
 			"http_port", s.senv.GetHTTPPort(),
 		)
-
-		// Start pgBackRest management
-		pgctldService.StartPgBackRestManagement()
 
 		// Register gRPC service with the global GRPCServer
 		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
@@ -218,33 +188,18 @@ type PgCtldServiceConfig struct {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger            *slog.Logger
-	ctldConfig        PgCtldServiceConfig
-	timeout           int
-	poolerDir         string
-	pgbackrestPort    int
-	pgbackrestCertDir string
-	pgConfig          *pgctld.PostgresCtlConfig
+	logger     *slog.Logger
+	ctldConfig PgCtldServiceConfig
+	timeout    int
+	poolerDir  string
+	pgConfig   *pgctld.PostgresCtlConfig
 
 	// gucCache caches effective GUC values probed via postgres -C for
 	// Status reporting (max_connections today; see gucProbeCache for the
 	// caching, invalidation, and probe-ordering semantics).
 	gucCache *gucProbeCache
 
-	// pgBackRest management
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	pgBackRestCmd    *executil.Cmd
-	pgBackRestStatus *pb.PgBackRestStatus
-	statusMu         sync.RWMutex
-	restartCount     int32
-	metrics          *Metrics
-}
-
-// pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
-func (s *PgCtldService) pgbackrestServerConfigPath() string {
-	return filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest-server.conf")
+	sidecarMetrics *sidecarMetrics
 }
 
 // NewPgCtldService creates a new PgCtldService with validation
@@ -254,8 +209,6 @@ func NewPgCtldService(
 	timeout int,
 	poolerDir string,
 	listenAddresses string,
-	pgbackrestPort int,
-	pgbackrestCertDir string,
 ) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
@@ -282,15 +235,11 @@ func NewPgCtldService(
 	// (runServer) populate it via PgCtlCommand.GetPostgresPassword, which
 	// returns an error when no password source is configured.
 
-	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
-	// postgres subprocess and inherits this process's environment) can authenticate
-	// against PostgreSQL without exposing the password in the process environment.
-	pgpassPath, err := backup.WritePgpassFile(poolerDir, cfg.User, cfg.Password)
+	// The sidecar owns the pgBackRest server, its credentials and the pgpass
+	// file, so nothing here configures or advertises one.
+	sidecarM, err := startSidecarChecks(logger)
 	if err != nil {
 		return nil, err
-	}
-	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
-		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
 	}
 
 	// Create the PostgreSQL config once during service initialization
@@ -310,50 +259,14 @@ func NewPgCtldService(
 	}
 	pgConfig.Password = cfg.Password
 
-	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
-	if (pgbackrestPort > 0) != (pgbackrestCertDir != "") {
-		logger.Warn("pgBackRest is half-configured and will be disabled: --pgbackrest-port and --pgbackrest-cert-dir must be set together",
-			"pgbackrest_port", pgbackrestPort, "pgbackrest_cert_dir", pgbackrestCertDir)
-	}
-	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
-		configPath, err := backup.WriteServerConfig(backup.ServerConfigOpts{
-			PoolerDir:     poolerDir,
-			CertDir:       pgbackrestCertDir,
-			Port:          pgbackrestPort,
-			Pg1Port:       cfg.Port,
-			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
-			Pg1Path:       pgctld.PostgresDataDir(),
-			Pg1User:       cfg.User,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
-		}
-		logger.Info("generated pgbackrest-server.conf", "path", configPath)
-	}
-
-	metrics, metricsErr := NewMetrics()
-	if metricsErr != nil {
-		logger.Warn("failed to register pgctld metrics", "error", metricsErr)
-	}
-
-	//nolint:gocritic // Background context for pgBackRest lifecycle management
-	ctx, cancel := context.WithCancel(context.Background())
-
 	return &PgCtldService{
-		logger:            logger,
-		gucCache:          newGucProbeCache(logger),
-		ctldConfig:        cfg,
-		timeout:           timeout,
-		poolerDir:         poolerDir,
-		pgbackrestPort:    pgbackrestPort,
-		pgbackrestCertDir: pgbackrestCertDir,
-		pgConfig:          pgConfig,
-		ctx:               ctx,
-		cancel:            cancel,
-		metrics:           metrics,
-		pgBackRestStatus: &pb.PgBackRestStatus{
-			Running: false,
-		},
+		logger:         logger,
+		gucCache:       newGucProbeCache(logger),
+		ctldConfig:     cfg,
+		timeout:        timeout,
+		poolerDir:      poolerDir,
+		pgConfig:       pgConfig,
+		sidecarMetrics: sidecarM,
 	}, nil
 }
 
@@ -398,162 +311,9 @@ func (s *PgCtldService) removeStandbySignal() (string, error) {
 	return path, nil
 }
 
-// setPgBackRestStatus updates the pgBackRest status thread-safely and returns the current restart count
-func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, incrementRestart bool) int32 {
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
-
-	if incrementRestart {
-		s.restartCount++
-	}
-
-	s.pgBackRestStatus.Running = running
-	s.pgBackRestStatus.ErrorMessage = errorMessage
-	s.pgBackRestStatus.RestartCount = s.restartCount
-
-	if running {
-		s.pgBackRestStatus.LastStarted = timestamppb.Now()
-	}
-
-	s.metrics.SetServerUp(running)
-	s.metrics.SetRestartCount(s.restartCount)
-
-	return s.restartCount
-}
-
-// getPgBackRestStatus returns a copy of the current status thread-safely
-func (s *PgCtldService) getPgBackRestStatus() *pb.PgBackRestStatus {
-	s.statusMu.RLock()
-	defer s.statusMu.RUnlock()
-
-	// Return a copy to avoid race conditions
-	return &pb.PgBackRestStatus{
-		Running:      s.pgBackRestStatus.Running,
-		ErrorMessage: s.pgBackRestStatus.ErrorMessage,
-		RestartCount: s.pgBackRestStatus.RestartCount,
-		LastStarted:  s.pgBackRestStatus.LastStarted,
-	}
-}
-
 // Close shuts down the pgctld service gracefully
 func (s *PgCtldService) Close() {
-	s.logger.Info("shutting down pgctld service")
-
-	// Signal managePgBackRest goroutine to stop
-	s.cancel()
-
-	// Kill pgBackRest process if running
-	if s.pgBackRestCmd != nil {
-		s.logger.Info("terminating pgBackRest server")
-		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
-		_, _ = s.pgBackRestCmd.Stop(killCtx)
-		killCancel()
-	}
-
-	// Wait for goroutines to fully exit
-	s.wg.Wait()
 	s.logger.Info("pgctld service shutdown complete")
-}
-
-// startPgBackRest starts the pgBackRest TLS server process
-// Returns the command on success, or error on failure
-func (s *PgCtldService) startPgBackRest(ctx context.Context) (*executil.Cmd, error) {
-	configPath := s.pgbackrestServerConfigPath()
-
-	// Verify config exists
-	if _, err := os.Stat(configPath); err != nil {
-		return nil, fmt.Errorf("pgbackrest-server.conf not found at %s: %w", configPath, err)
-	}
-
-	// Build command: pgbackrest server
-	// Note: Config is passed via PGBACKREST_CONFIG environment variable
-	cmd := executil.Command(ctx, "pgbackrest", "server")
-	cmd.AddEnv("PGBACKREST_CONFIG=" + configPath)
-
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start pgbackrest server: %w", err)
-	}
-
-	logPath := filepath.Join(s.poolerDir, "pgbackrest", "log")
-	s.logger.InfoContext(ctx, "pgBackRest TLS server started",
-		"pid", cmd.Process.Pid,
-		"config", configPath,
-		"logs", logPath)
-	return cmd, nil
-}
-
-// managePgBackRest manages the pgBackRest TLS server lifecycle with retry and restart logic
-func (s *PgCtldService) managePgBackRest(ctx context.Context) {
-	// Check if pgbackrest config exists before attempting to start
-	configPath := s.pgbackrestServerConfigPath()
-	if _, err := os.Stat(configPath); err != nil {
-		s.logger.InfoContext(ctx, "pgBackRest config not found, skipping pgBackRest server startup", "config_path", configPath)
-		s.setPgBackRestStatus(false, "config not found", false)
-		return
-	}
-
-	r := retry.New(1*time.Second, 10*time.Second)
-
-	for {
-		var cmd *executil.Cmd
-
-		// Try to start with retry policy (max 5 attempts)
-		for attempt, err := range r.Attempts(ctx) {
-			if err != nil {
-				// Context cancelled during startup - clean shutdown
-				s.setPgBackRestStatus(false, fmt.Sprintf("context cancelled: %v", err), false)
-				return
-			}
-			if attempt >= 4 {
-				s.setPgBackRestStatus(false, "failed after 5 attempts", false)
-				return
-			}
-
-			var startErr error
-			cmd, startErr = s.startPgBackRest(ctx)
-			if startErr == nil {
-				s.setPgBackRestStatus(true, "", false)
-				s.pgBackRestCmd = cmd
-				break // Success, exit retry loop
-			}
-			s.logger.WarnContext(ctx, "pgBackRest startup failed", "attempt", attempt+1, "error", startErr)
-		}
-
-		if cmd == nil {
-			// Failed to start after retries
-			return
-		}
-
-		// Wait for exit OR context cancellation
-		done := make(chan struct{})
-		go func() {
-			_ = cmd.Wait() // Ignore error - process exit is expected
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			// Process exited, restart
-			currentCount := s.setPgBackRestStatus(false, "process exited, restarting", true)
-			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
-
-		case <-ctx.Done():
-			// Shutdown requested, stop process
-			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
-			_, _ = cmd.Stop(killCtx) // Ignore error - process may already be dead
-			cancel()
-			<-done // Wait for Wait() to complete
-			return
-		}
-	}
-}
-
-// StartPgBackRestManagement begins pgBackRest management in background
-func (s *PgCtldService) StartPgBackRestManagement() {
-	s.wg.Go(func() {
-		s.managePgBackRest(s.ctx)
-	})
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -733,21 +493,6 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// pgctld). Best-effort: empty when unavailable.
 	host, _ := os.Hostname()
 
-	// pgBackRest is configured only when BOTH port and cert dir are set —
-	// NewPgCtldService generates no server config otherwise. Report the pair
-	// all-or-nothing so a half-configured pgctld cannot advertise a port it
-	// is not serving (an adopting multipooler would marry it to default cert
-	// paths and publish a nonexistent endpoint).
-	var pgbackrestPort int32
-	pgbackrestCertDir := ""
-	if s.pgbackrestPort > 0 && s.pgbackrestCertDir != "" {
-		var err error
-		if pgbackrestPort, err = intToInt32(s.pgbackrestPort); err != nil {
-			return nil, fmt.Errorf("invalid pgbackrest port: %w", err)
-		}
-		pgbackrestCertDir = s.pgbackrestCertDir
-	}
-
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
 		port, err := intToInt32(s.ctldConfig.Port)
@@ -755,15 +500,12 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			return nil, fmt.Errorf("invalid port: %w", err)
 		}
 		return &pb.StatusResponse{
-			Status:            pb.ServerStatus_NOT_INITIALIZED,
-			DataDir:           pgctld.PostgresDataDir(),
-			Port:              port,
-			Host:              host,
-			Message:           "Data directory is not initialized",
-			PgbackrestStatus:  s.getPgBackRestStatus(),
-			PoolerDir:         s.poolerDir,
-			PgbackrestPort:    pgbackrestPort,
-			PgbackrestCertDir: pgbackrestCertDir,
+			Status:    pb.ServerStatus_NOT_INITIALIZED,
+			DataDir:   pgctld.PostgresDataDir(),
+			Port:      port,
+			Host:      host,
+			Message:   "Data directory is not initialized",
+			PoolerDir: s.poolerDir,
 		}, nil
 	}
 
@@ -801,20 +543,17 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// older servers its probe fails closed to absent.
 	gucs := s.gucCache.getAll(ctx, "max_connections", "superuser_reserved_connections", "reserved_connections")
 	resp := &pb.StatusResponse{
-		Status:            status,
-		Pid:               pid,
-		Version:           result.Version,
-		Uptime:            durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
-		DataDir:           result.DataDir,
-		Port:              port,
-		Host:              host,
-		Ready:             result.Ready,
-		Message:           result.Message,
-		PgbackrestStatus:  s.getPgBackRestStatus(),
-		PoolerDir:         s.poolerDir,
-		MaxConnections:    gucs["max_connections"],
-		PgbackrestPort:    pgbackrestPort,
-		PgbackrestCertDir: pgbackrestCertDir,
+		Status:         status,
+		Pid:            pid,
+		Version:        result.Version,
+		Uptime:         durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
+		DataDir:        result.DataDir,
+		Port:           port,
+		Host:           host,
+		Ready:          result.Ready,
+		Message:        result.Message,
+		PoolerDir:      s.poolerDir,
+		MaxConnections: gucs["max_connections"],
 	}
 	if v, known := gucs["superuser_reserved_connections"]; known {
 		resp.SuperuserReservedConnections = &v

@@ -31,7 +31,6 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
-	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -190,9 +189,8 @@ func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePri
 // GetPrimaryAsPg2Args returns pgbackrest CLI arguments for pg2 (primary) configuration.
 //
 // When backing up from PRIMARY: Returns empty slice - pgBackRest does local backup from pg1.
-// When backing up from REPLICA with TLS certs: Returns TLS connection parameters and pg2-path
-// (resolved from topology or overrides) to the primary's pgBackRest server.
-// When backing up from REPLICA without TLS certs: Returns direct postgres connection parameters (test mode).
+// When backing up from REPLICA: Returns the primary's host, pgBackRest port and pg2-path
+// (resolved from topology or overrides) for the sidecar to reach the primary's pgBackRest server.
 //
 // Returns error if this is a replica pooler without primary information.
 func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
@@ -220,71 +218,33 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 			"cannot backup from replica: primary host/port not configured")
 	}
 
-	// Check if TLS certs are configured to determine mode
-	caFile := pm.config.PgBackRestCAFile
-	certFile := pm.config.PgBackRestCertFile
-	keyFile := pm.config.PgBackRestKeyFile
-	isTLSMode := (caFile != "" && certFile != "" && keyFile != "")
-
-	var args []string
-
-	if isTLSMode {
-		// TLS mode: need to get the PRIMARY's pgBackRest port and data dir from topology
-		if primaryPoolerID == nil {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				"primary pooler ID not available")
-		}
-
-		primaryInfo, err := pm.topoClient.GetMultipooler(ctx, primaryPoolerID)
-		if err != nil {
-			return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
-		}
-
-		primaryPgBackRestPort, ok := primaryInfo.Multipooler.PortMap["pgbackrest"]
-		if !ok {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				"primary pooler does not have pgbackrest port configured")
-		}
-
-		// pg2-path is required by pgBackRest even in TLS mode.
-		// Use the override if provided, otherwise read from topology.
-		pg2Path := overrides["pg2_path"]
-		if pg2Path == "" {
-			pg2Path = primaryInfo.Multipooler.PgDataDir
-		}
-		if pg2Path == "" {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				"primary pooler does not have pg_data_dir set in topology (required for pg2-path)")
-		}
-
-		args = []string{
-			"--pg2-host=" + primaryHost,
-			"--pg2-path=" + pg2Path,
-			"--pg2-host-type=tls",
-			fmt.Sprintf("--pg2-host-port=%d", primaryPgBackRestPort),
-			"--pg2-host-ca-file=" + caFile,
-			"--pg2-host-cert-file=" + certFile,
-			"--pg2-host-key-file=" + keyFile,
-		}
-	} else {
-		// Local mode: pg2_path override is REQUIRED
-		pg2Path := overrides["pg2_path"]
-		if pg2Path == "" {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				"local mode backup requires pg2_path override (TLS certs not configured)")
-		}
-
-		args = []string{
-			"--pg2-host=" + primaryHost,
-			fmt.Sprintf("--pg2-port=%d", primaryPort),
-			"--pg2-path=" + pg2Path,
-		}
+	// The sidecar adds the TLS material and the host type itself, so only the
+	// three options its allowlist accepts are sent.
+	if primaryPoolerID == nil {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "primary pooler ID not available")
 	}
-
-	// Apply any additional overrides
-	args = backup.ApplyPgBackRestOverrides(args, overrides)
-
-	return args, nil
+	primaryInfo, err := pm.topoClient.GetMultipooler(ctx, primaryPoolerID)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
+	}
+	port, ok := primaryInfo.Multipooler.PortMap["pgbackrest"]
+	if !ok {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "primary pooler does not have pgbackrest port configured")
+	}
+	pg2Path := overrides["pg2_path"]
+	if pg2Path == "" {
+		pg2Path = primaryInfo.Multipooler.PgDataDir
+	}
+	if pg2Path == "" {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary pooler does not have pg_data_dir set in topology (required for pg2-path)")
+	}
+	args := []string{
+		"--pg2-host=" + primaryHost,
+		"--pg2-path=" + pg2Path,
+		fmt.Sprintf("--pg2-host-port=%d", port),
+	}
+	return backup.ApplyPgBackRestOverrides(args, overrides), nil
 }
 
 // restoreFromBackupLocked restores from a backup to a standby without a data
@@ -342,60 +302,39 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// do — a cohort member should only ever advance via streaming from the
 	// current leader. Might be good to add a best-effort check of this.
 
+	if err := pm.prepareRestore(ctx); err != nil {
+		return err
+	}
+
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore: PGDATA already exists; caller must stop PostgreSQL and remove PGDATA first")
 	}
 
-	// Restore the backup. A partial restore can leave PG_VERSION on disk,
-	// which hasDataDirectory() would misread as "already initialized" next
-	// tick. Two layers guard against starting postgres on unverified data:
-	//
-	//   - The restore sentinel is written before pgbackrest touches PGDATA, so
-	//     a process crash mid-restore (when no cleanup can run) leaves a
-	//     durable marker; restoreAndStartPostgres uses it to remove the partial
-	//     data directory and restore again.
-	//   - A restore that fails without the process dying is cleaned up here,
-	//     so the next tick retries.
-	//
-	// Both are scoped to the restore itself: later steps run after a
-	// successful restore, so their failures shouldn't discard good data.
+	// Restore the backup. A partial restore can leave PG_VERSION on disk, which
+	// hasDataDirectory() would misread as "already initialized". The restore
+	// sentinel is written before pgbackrest touches PGDATA, so a crash or a
+	// failure mid-restore leaves a durable marker; restoreAndStartPostgres
+	// uses it to remove the partial data directory and restore again, once the
+	// sidecar confirms that no restore is still writing it. The sentinel is
+	// also the marker restoreSettled gates on.
 	if err := pm.restoreSentinel().write(); err != nil {
 		return mterrors.Wrap(err, "failed to write restore sentinel")
 	}
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
 		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
-		// Ordering matters: only clear the sentinel after the data directory is
-		// gone, to preserve the "partial data dir present ⇒ sentinel present"
-		// invariant. If removal fails, the sentinel stays so the next attempt
-		// removes the partial directory instead of starting postgres on it.
-		if removeErr := pm.removeDataDirectory(); removeErr != nil {
-			pm.logger.WarnContext(ctx, "failed to remove partial data directory after failed restore", "error", removeErr)
-			return err
-		}
-		if removeErr := pm.restoreSentinel().remove(); removeErr != nil {
-			pm.logger.WarnContext(ctx, "failed to remove restore sentinel after failed restore", "error", removeErr)
-		}
+		// Whatever the failure, the sentinel stays and nothing is deleted here:
+		// the restore may be running, may still be delivered, or may have left
+		// a partial directory. restoreAndStartPostgres on the next attempt is
+		// the only place that clears either, after the sidecar confirms no
+		// restore runs.
 		return err
 	}
 
-	// PGDATA now holds a complete restore. Clear the sentinel before the steps
-	// below so a failure in one of them can't get the restored data discarded.
-	// If it can't be cleared, fail the restore: with the sentinel still on disk
-	// the next attempt redoes it from scratch, which is wasteful but safe. If only
-	// the directory fsync failed after the unlink, the sentinel is gone and the
-	// next tick starts postgres on the restored data, as after a failure in one
-	// of the steps below.
-	if err := pm.restoreSentinel().remove(); err != nil {
-		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
-	}
-
-	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
-	// After restore, postgresql.auto.conf contains archive_command pointing to the
-	// primary's pgbackrest.conf path. Each pooler needs its own config path.
-	pm.logger.InfoContext(ctx, "reconfiguring archive_command for local pgbackrest.conf")
+	// After restore, postgresql.auto.conf carries the donor's archive_command.
+	pm.logger.InfoContext(ctx, "reconfiguring archive_command after restore")
 	if err := telemetry.WithSpan(ctx, "restore/reconfigure-archive", func(ctx context.Context) error {
 		if err := pm.backup.RemoveArchiveConfig(); err != nil {
 			return mterrors.Wrap(err, "failed to remove old archive configuration")
@@ -403,6 +342,19 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return mterrors.Wrap(pm.backup.ConfigureArchiveMode(ctx), "failed to configure archive mode")
 	}); err != nil {
 		return err
+	}
+
+	// The sidecar writes its own restore_command into the restored data
+	// directory, and any archive_command in it is the donor's.
+	if err := pm.normalizeArchiveCommands(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to normalize archive commands after restore")
+	}
+
+	// The sentinel goes only now: a crash before this point costs a redundant
+	// restore on the next start, never a postgres that skipped the archive
+	// reconfiguration above.
+	if err := pm.restoreSentinel().remove(); err != nil {
+		return mterrors.Wrap(err, "failed to clear the restore marker")
 	}
 
 	if err := telemetry.WithSpan(ctx, "restore/start-postgres", func(ctx context.Context) error {
@@ -533,55 +485,6 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 	pm.logger.DebugContext(ctx, "backup not found by job_id", "job_id", jobID)
 	return nil, nil
-}
-
-// runLongCommand executes a long-running command with periodic progress logging.
-// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
-// to ensure proper cleanup on context cancellation.
-func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
-	pm.logger.InfoContext(ctx, "starting command", "operation", operationName)
-
-	startTime := time.Now()
-
-	// Create a context for the logging goroutine
-	logCtx, cancelLog := context.WithCancel(ctx)
-
-	// Log progress periodically in background
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-logCtx.Done():
-				return
-			case <-ticker.C:
-				elapsed := time.Since(startTime)
-				pm.logger.InfoContext(ctx, "command still in progress",
-					"operation", operationName,
-					"elapsed_seconds", int(elapsed.Seconds()))
-			}
-		}
-	}()
-
-	output, err := cmd.CombinedOutput()
-
-	cancelLog()
-
-	// Log completion
-	elapsed := time.Since(startTime)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "command failed",
-			"operation", operationName,
-			"elapsed_seconds", int(elapsed.Seconds()),
-			"error", err)
-	} else {
-		pm.logger.InfoContext(ctx, "command completed",
-			"operation", operationName,
-			"elapsed_seconds", int(elapsed.Seconds()))
-	}
-
-	return output, err
 }
 
 // ExpireBackups runs pgbackrest expire to remove backups that exceed the
