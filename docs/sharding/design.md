@@ -328,7 +328,7 @@ flowchart TD
 
 ## Out of scope
 
-- DDL / user-facing syntax for declaring sharding.
+- DDL / user-facing syntax for declaring sharding: see [ddl.md](ddl.md).
 - Resharding execution (cutover, data movement, consistency).
 - Cross-shard transactions (2PC) and cross-shard query planning.
 - Where the catalog is stored (topology vs postgres), and its committed proto or
