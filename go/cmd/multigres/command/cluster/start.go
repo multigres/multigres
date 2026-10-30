@@ -94,9 +94,11 @@ func extractBootstrapCredentials(provConfig map[string]any) bootstrapCredentials
 // runGatewayProbeFn in a closure that captures the bootstrap credentials.
 type gatewayProbeFunc func(ctx context.Context, host string, port int) error
 
-// runGatewayProbeFn runs `SELECT 1` through a multigateway as the
-// operator's configured postgres user. Going through the gateway's PG
-// protocol exercises the entire path psql will use moments later —
+// runGatewayProbeFn runs `SELECT pg_backend_pid()` through a multigateway
+// as the operator's configured postgres user (a constant SELECT such as
+// `SELECT 1` is answered by the gateway itself and would prove less).
+// Going through the gateway's PG protocol exercises the entire path psql
+// will use moments later —
 // gateway PoolerDiscovery → primary multipooler → GetAuthCredentials →
 // pg_authid → SCRAM compare — so a successful probe is the strongest
 // practical guarantee that user queries will succeed. It is a var (not a
@@ -114,7 +116,7 @@ var runGatewayProbeFn = func(ctx context.Context, host string, port int, creds b
 
 	probeCtx, cancel := context.WithTimeout(ctx, constants.LocalGatewayBootstrapProbeTimeout)
 	defer cancel()
-	_, err = db.ExecContext(probeCtx, "SELECT 1")
+	_, err = db.ExecContext(probeCtx, "SELECT pg_backend_pid()")
 	return err
 }
 

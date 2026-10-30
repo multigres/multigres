@@ -59,9 +59,9 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 	var result int
-	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
+	err = db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&result)
 	require.NoError(t, err, "baseline query should succeed before crash")
-	require.Equal(t, 1, result)
+	require.Positive(t, result)
 	t.Log("Baseline query through multigateway succeeded")
 
 	// Step 2: Stop postgres on the primary. Restarts are disabled first so the monitor
@@ -110,12 +110,12 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		queryCtx := utils.WithShortDeadline(t)
-		err := freshDB.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+		err := freshDB.QueryRowContext(queryCtx, "SELECT pg_backend_pid()").Scan(&result)
 		if err != nil {
 			t.Logf("Query after restart failed (may still be recovering): %v", err)
 			return false
 		}
-		return result == 1
+		return result > 0
 	}, 30*time.Second, 1*time.Second,
 		"Query through multigateway should succeed after postgres crash recovery on primary")
 

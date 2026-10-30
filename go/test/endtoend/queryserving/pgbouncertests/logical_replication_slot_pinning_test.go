@@ -81,7 +81,7 @@ func TestMUL470LogicalReplicationSlotSurvivesPoolContention(t *testing.T) {
 	for range 8 {
 		wg.Go(func() {
 			for !stop.Load() {
-				_, _ = gatewayDB.ExecContext(ctx, "SELECT 1")
+				_, _ = gatewayDB.ExecContext(ctx, "SELECT pg_backend_pid()")
 			}
 		})
 	}

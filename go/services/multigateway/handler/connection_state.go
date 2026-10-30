@@ -457,6 +457,23 @@ func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard
 	return false
 }
 
+// HasReservedConnection reports whether the session holds a reserved
+// connection on any shard: a backend carrying session state (an advisory
+// lock, a temp table, an open transaction) whose loss must end the session.
+// A statement the gateway could answer itself still goes to that backend
+// while one exists, so the session learns of the loss on its next statement
+// and never outlives its state. Same zero-id rule as HasReservedConnectionFor.
+func (m *MultigatewayConnectionState) HasReservedConnection() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearAllReservedConnections removes all reserved connection entries.
 // Called after COMMIT or ROLLBACK to clean up stale shard state.
 func (m *MultigatewayConnectionState) ClearAllReservedConnections() {

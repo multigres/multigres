@@ -1,0 +1,35 @@
+#
+# Execute the same portal again after it has completed, and Execute with a row
+# limit.
+#
+# A SELECT portal in PostgreSQL carries its position: once an Execute has
+# returned every row, a further Execute of that portal returns no rows and
+# CommandComplete("SELECT 0"). An Execute whose maxrows equals the number of
+# rows available returns the rows and PortalSuspended, not CommandComplete, and
+# the next Execute then completes with zero rows.
+#
+# The statement is a constant-only SELECT that the multigateway answers
+# without a backend. Its portal keeps no position, so every Execute returns
+# the row again and maxrows is ignored. That divergence is recorded in
+# patches/portal_reexecute.patch; this file exists to pin it.
+#
+# Field layout (tab-separated):
+#   'P'  "stmt"   "query"  <noids>
+#   'B'  "portal" "stmt"   <ncodes> <nparams> <nresultcodes>
+#   'E'  "portal" <maxrows>
+#
+
+'P'	""	"SELECT 1 AS one"	0
+
+# Completed portal executed again.
+'B'	"p_again"	""	0	0	0
+'E'	"p_again"	0
+'E'	"p_again"	0
+
+# Row limit equal to the row count: PostgreSQL suspends, then completes empty.
+'B'	"p_limit"	""	0	0	0
+'E'	"p_limit"	1
+'E'	"p_limit"	1
+'S'
+'Y'
+'X'

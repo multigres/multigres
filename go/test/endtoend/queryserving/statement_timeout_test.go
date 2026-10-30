@@ -192,10 +192,10 @@ func TestMultigateway_StatementTimeout(t *testing.T) {
 		_, err = conn.Query(ctx, "SET statement_timeout = '0'")
 		require.NoError(t, err)
 
-		results, err := conn.Query(ctx, "SELECT 1")
+		results, err := conn.Query(ctx, "SELECT pg_backend_pid()")
 		require.NoError(t, err)
 		require.Len(t, results, 1)
-		assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
+		assert.NotEmpty(t, results[0].Rows[0].Values[0])
 	})
 
 	t.Run("session override persists across queries", func(t *testing.T) {

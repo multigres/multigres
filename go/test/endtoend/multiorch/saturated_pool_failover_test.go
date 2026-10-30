@@ -89,7 +89,7 @@ func TestFailoverWithSaturatedUserPools(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var one int
-		return roDB.QueryRow("SELECT 1").Scan(&one) == nil
+		return roDB.QueryRow("SELECT pg_backend_pid()").Scan(&one) == nil
 	}, 60*time.Second, time.Second, "replica-reads port did not become ready")
 	roDB.Close()
 

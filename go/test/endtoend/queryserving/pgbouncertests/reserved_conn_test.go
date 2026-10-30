@@ -107,7 +107,7 @@ func TestReservedConnectionInactivityTimeout(t *testing.T) {
 	require.Eventually(t, func() bool {
 		recoverCtx := utils.WithShortDeadline(t)
 		var n int
-		return conn.QueryRow(recoverCtx, "SELECT 1").Scan(&n) == nil && n == 1
+		return conn.QueryRow(recoverCtx, "SELECT pg_backend_pid()").Scan(&n) == nil && n > 0
 	}, 15*time.Second, 250*time.Millisecond,
 		"after the reserved backend is reaped the session must serve again on a pooled connection")
 }

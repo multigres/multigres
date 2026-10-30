@@ -414,12 +414,12 @@ func TestUnwrapMissingPreparedStatement(t *testing.T) {
 func TestUnwrapNoOpForRegularStatements(t *testing.T) {
 	s := newTestSetup(t)
 
-	_, err := planAndExecute(t, s, "SELECT 1")
+	_, err := planAndExecute(t, s, "SELECT * FROM t")
 	require.NoError(t, err)
 
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Equal(t, "SELECT 1", call.sql)
+	assert.Equal(t, "SELECT * FROM t", call.sql)
 	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 

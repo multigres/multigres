@@ -84,7 +84,7 @@ func TestPreparedDDLMatrix(t *testing.T) {
 	// Settle the regular sub-pool to a single backend.
 	settleDB, err := sql.Open("postgres", shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable"))
 	require.NoError(t, err)
-	_, _ = settleDB.ExecContext(ctx, "SELECT 1")
+	_, _ = settleDB.ExecContext(ctx, "SELECT pg_backend_pid()")
 	time.Sleep(5 * time.Second)
 	settleDB.Close()
 

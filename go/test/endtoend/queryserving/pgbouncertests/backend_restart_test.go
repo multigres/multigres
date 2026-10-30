@@ -110,7 +110,7 @@ func TestBackendCrashRecoveryUnderLoad(t *testing.T) {
 	require.Eventually(t, func() bool {
 		ctx := utils.WithShortDeadline(t)
 		var n int
-		return db.QueryRowContext(ctx, "SELECT 1").Scan(&n) == nil && n == 1
+		return db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&n) == nil && n > 0
 	}, 30*time.Second, 200*time.Millisecond,
 		"a read must succeed on its own after the backend is back (transparent reconnect)")
 
