@@ -18,6 +18,8 @@ package grpcconsensusservice
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -36,12 +38,19 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
-			srv := &consensusService{
-				manager: pm,
-			}
-			consensuspb.RegisterMultipoolerConsensusServer(grpc.Server, srv)
+			registerConsensusService(grpc.Server, pm)
 		}
 	})
+}
+
+// registerConsensusService registers the service for a pooler that takes part in consensus. An
+// unmanaged pooler has no consensus RPCs: the service is not registered at all, so every method,
+// any added later included, answers Unimplemented. The mode is immutable for the process.
+func registerConsensusService(server grpc.ServiceRegistrar, pm *manager.MultipoolerManager) {
+	if pm.IsUnmanaged() {
+		return
+	}
+	consensuspb.RegisterMultipoolerConsensusServer(server, &consensusService{manager: pm})
 }
 
 // Promote sends a role assignment to this pooler: promote to primary or point replication at the new primary.

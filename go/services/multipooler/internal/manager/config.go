@@ -93,4 +93,15 @@ type Config struct {
 	// fixed consensus status naming this pooler as leader, and the postgres
 	// monitor starts postgres as a primary rather than a standby.
 	StaticLeader bool
+
+	// ExternalBackend is the external PostgreSQL an unmanaged pooler fronts.
+	// Nil for managed poolers. It is the resolved form of --backing-connection.
+	ExternalBackend *ExternalBackend
+}
+
+// ExternalBackend is the endpoint of an externally owned PostgreSQL.
+type ExternalBackend struct {
+	Host     string
+	Port     int
+	Database string
 }
