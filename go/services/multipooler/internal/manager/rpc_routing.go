@@ -124,6 +124,28 @@ func (pm *MultipoolerManager) DeleteRoutingRules(ctx context.Context, req *multi
 	return &multipoolermanagerdatapb.DeleteRoutingRulesResponse{RoutingVersion: version}, nil
 }
 
+// EnsureImportTarget creates, if absent, an import operation and the
+// tablegroup it imports into with its full-range shard.
+//
+// It is temporary, for the first version of imports, and will be deprecated:
+// tablegroup creation (the equivalent of CREATE TABLEGROUP) plus the import's
+// PREPARE step (registering its tables, the default rule and fencing) will
+// replace it.
+func (pm *MultipoolerManager) EnsureImportTarget(ctx context.Context, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	if err := pm.requireCatalogPrimary(req.GetDatabase()); err != nil {
+		return nil, err
+	}
+	err := pm.inRoutingTx(ctx, setReadCommittedSQL, func(ctx context.Context, tx executor.InternalTx) error {
+		return ensureImportTarget(ctx, tx, req.GetOperationId(), req.GetTablegroup())
+	})
+	if err != nil {
+		return nil, err
+	}
+	pm.logger.InfoContext(ctx, "ensured import target",
+		"operation_id", req.GetOperationId(), "tablegroup", req.GetTablegroup())
+	return &multipoolermanagerdatapb.EnsureImportTargetResponse{}, nil
+}
+
 // applyRoutingRuleChange writes change in its own READ COMMITTED transaction
 // and returns the routing version after it.
 func (pm *MultipoolerManager) applyRoutingRuleChange(ctx context.Context, database string, change routingRuleChange) (int64, error) {
