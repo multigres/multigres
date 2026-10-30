@@ -86,8 +86,13 @@ spec:
   selector:
     app: multigateway
   ports:
+    # postgres port is exposed as a NodePort so the external migration source
+    # (the pg-source container on the kind docker network) can reach the gateway's
+    # replication=database tunnel for the EXPORT / fail-back reverse subscription.
+    # The multipooler advertises <node>:31432 via --migration-target-advertise-*.
     - port: 15432
       targetPort: 15432
+      nodePort: 31432
       name: postgres
     - port: 15000
       targetPort: 15000
@@ -95,4 +100,6 @@ spec:
     - port: 15100
       targetPort: 15100
       name: grpc
-  type: ClusterIP
+  # NodePort (not ClusterIP) so the reverse subscription is reachable from outside
+  # the cluster; in-cluster clients still use the fixed clusterIP above.
+  type: NodePort

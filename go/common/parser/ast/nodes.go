@@ -350,6 +350,14 @@ const (
 	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
 	T_Null      // NULL literal
 
+	// Multigres-specific migration/connection statements, not part of PostgreSQL.
+	T_CreateConnectionStmt
+	T_DropConnectionStmt
+	T_ShowConnectionsStmt
+	T_CreateMigrationStmt
+	T_AlterMigrationStmt
+	T_DropMigrationStmt
+
 	// Multigres tablegroup DDL (go/common/parser/ast/sharding.go)
 	T_CreateTableGroupStmt
 	T_AlterTableGroupStmt

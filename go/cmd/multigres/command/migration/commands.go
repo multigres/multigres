@@ -115,6 +115,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 			name, _ := f.GetString("name")
 			tables, _ := f.GetStringSlice("tables")
 			skipSchemaCopy, _ := f.GetBool("skip-schema-copy")
+			quiesceRoles, _ := f.GetStringSlice("quiesce-roles")
 
 			client, err := admin.NewClient(cmd)
 			if err != nil {
@@ -140,6 +141,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 				Options: &migratorpb.MigrationOptions{
 					SkipSchemaCopy: skipSchemaCopy,
 				},
+				QuiesceRoles: quiesceRoles,
 			}
 			// Only touch skip_copy_data when the operator set --copy-data, so an
 			// unset flag keeps the server-side default of performing the copy.
@@ -163,6 +165,7 @@ func AddCreateMigrationCommand() *cobra.Command {
 	cmd.Flags().StringSlice("tables", nil, "tables to migrate (comma-separated); use '*' for all owned tables or 'schema.*' for all owned tables in a schema")
 	cmd.Flags().Bool("copy-data", true, "run the initial COPY at subscription setup (false subscribes without a copy; target seeded out-of-band)")
 	cmd.Flags().Bool("skip-schema-copy", false, "skip pg_dump --schema-only (the target schema already exists)")
+	cmd.Flags().StringSlice("quiesce-roles", nil, "source application role(s) (comma-separated) whose CONNECT is revoked during the ACTIVATE cutover so they cannot write to the source once it becomes a subscriber")
 	return cmd
 }
 
@@ -337,5 +340,36 @@ func AddDropMigrationCommand() *cobra.Command {
 	cmd.Flags().Bool("wait", false, "block until the migration is caught up, then drain and tear down (for scripts)")
 	cmd.Flags().Int64("wait-timeout", 0, "timeout in seconds for --wait (0 = no timeout)")
 	cmd.Flags().Bool("force", false, "skip the drain and tear down from any phase")
+	return cmd
+}
+
+// AddReseedReverseLinkCommand repairs a degraded EXPORT reverse link: an
+// operator-triggered full-copy reseed, for use when GetMigration reports a
+// reverse link error that the automatic detection path cannot repair on its
+// own.
+func AddReseedReverseLinkCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reseed-reverse-link",
+		Short: "Repair a degraded EXPORT reverse link with a full-copy reseed",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			client, err := admin.NewClient(cmd)
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			refID, refName := splitRef(id)
+			req := &migratorpb.ReseedReverseLinkRequest{Ref: toRef(refID, refName)}
+			resp, err := client.ReseedReverseLink(cmd.Context(), req)
+			if err != nil {
+				return fmt.Errorf("failed to reseed reverse link: %w", err)
+			}
+			return printJSON(cmd, resp)
+		},
+	}
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("id", "", "migration id or name")
+	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }

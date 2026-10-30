@@ -286,6 +286,15 @@ func (a *connectAdapter) DropMigration(ctx context.Context, req *connect.Request
 	return connect.NewResponse(resp), nil
 }
 
+// ReseedReverseLink forwards to the Multigres Migrator service.
+func (a *connectAdapter) ReseedReverseLink(ctx context.Context, req *connect.Request[migratorpb.ReseedReverseLinkRequest]) (*connect.Response[migratorpb.ReseedReverseLinkResponse], error) {
+	resp, err := a.MultiadminServer.ReseedReverseLink(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // CreateConnection forwards to the Multigres Migrator service.
 func (a *connectAdapter) CreateConnection(ctx context.Context, req *connect.Request[migratorpb.CreateConnectionRequest]) (*connect.Response[migratorpb.CreateConnectionResponse], error) {
 	resp, err := a.MultiadminServer.CreateConnection(ctx, req.Msg)

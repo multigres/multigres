@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -385,6 +386,31 @@ func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	require.NoError(t, h.HandleParse(ctx, conn, "inside", "SELECT 1", nil))
 	require.Equal(t, 1, exec.eagerParseCalls)
+}
+
+// TestLogSafeQuery_RedactsConnectionPassword is the regression test for the
+// finding this guards against: HandleQuery/HandleParse both log the raw query
+// text at DEBUG, and CREATE CONNECTION carries a source password as a SQL
+// literal in that raw text, so logging it verbatim would write reusable
+// source credentials to gateway logs.
+func TestLogSafeQuery_RedactsConnectionPassword(t *testing.T) {
+	t.Run("CREATE CONNECTION is redacted", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("CREATE CONNECTION src OPTIONS (host 'h', password 'supersecret')")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts)
+		require.NotContains(t, got, "supersecret")
+		require.Contains(t, got, "src", "the connection name is still useful to keep for debugging")
+	})
+	t.Run("other statements are logged in full", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("SELECT 1")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts)
+		require.Equal(t, stmts[0].SqlString(), got)
+	})
+	t.Run("a nil AstStmt (empty/comment-only prepared statement) is not redacted", func(t *testing.T) {
+		got := logSafeQuery("", []ast.Stmt{nil})
+		require.Equal(t, "", got)
+	})
 }
 
 func TestHandleParseEagerParseErrorAbortsTransactionAndDoesNotRegister(t *testing.T) {

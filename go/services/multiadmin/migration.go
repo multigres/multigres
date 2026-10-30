@@ -96,6 +96,11 @@ func (s *MultiadminServer) DropMigration(ctx context.Context, req *migratorpb.Dr
 	return forwardMigration(ctx, s, migratorpb.MigratorClient.DropMigration, req, nil)
 }
 
+// ReseedReverseLink forwards to Multigres Migrator.
+func (s *MultiadminServer) ReseedReverseLink(ctx context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	return forwardMigration(ctx, s, migratorpb.MigratorClient.ReseedReverseLink, req, nil)
+}
+
 // CreateConnection forwards to Multigres Migrator.
 func (s *MultiadminServer) CreateConnection(ctx context.Context, req *migratorpb.CreateConnectionRequest) (*migratorpb.CreateConnectionResponse, error) {
 	return forwardMigration(ctx, s, migratorpb.MigratorClient.CreateConnection, req, nil)

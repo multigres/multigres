@@ -77,6 +77,7 @@ func (s *migrationService) CreateMigration(ctx context.Context, req *migratorpb.
 		CopyData:         !req.GetOptions().GetSkipCopyData(),
 		SkipSchemaCopy:   req.GetOptions().GetSkipSchemaCopy(),
 		SequenceMargin:   req.GetMigration().GetSequenceMargin(),
+		QuiesceRoles:     req.QuiesceRoles,
 		CallerRole:       req.GetCallerRole(),
 	})
 	if err != nil {
@@ -176,11 +177,24 @@ func (s *migrationService) DropMigration(ctx context.Context, req *migratorpb.Dr
 		Wait:        req.Wait,
 		WaitTimeout: time.Duration(req.WaitTimeoutSeconds) * time.Second,
 		Force:       req.Force,
+		CallerRole:  req.GetCallerRole(),
 	})
 	if err != nil {
 		return nil, toGRPC(err)
 	}
 	return &migratorpb.DropMigrationResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
+}
+
+func (s *migrationService) ReseedReverseLink(ctx context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	proj, err := coord.ReseedReverseLink(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	return &migratorpb.ReseedReverseLinkResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
 }
 
 func (s *migrationService) SetMigrationDirection(ctx context.Context, req *migratorpb.SetMigrationDirectionRequest) (*migratorpb.SetMigrationDirectionResponse, error) {

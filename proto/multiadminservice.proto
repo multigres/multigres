@@ -710,6 +710,25 @@ service MultiadminService {
     option (google.api.http) = {delete: "/api/v1/migrations/{ref.id}"};
   }
 
+  // ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+  // operator-triggered full-copy reseed.
+  rpc ReseedReverseLink(migrator.ReseedReverseLinkRequest) returns (migrator.ReseedReverseLinkResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Reseed a migration's reverse export link"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/migrations/{ref.id}/reseed-reverse-link"
+      body: "*"
+    };
+  }
+
   // CreateConnection stores a named source conninfo, shard-scoped.
   rpc CreateConnection(migrator.CreateConnectionRequest) returns (migrator.CreateConnectionResponse) {
     option (openapi.v3.operation) = {

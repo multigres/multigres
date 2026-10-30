@@ -84,7 +84,7 @@ func TestCommandConstruction(t *testing.T) {
 			name:  "create",
 			cmd:   AddCreateMigrationCommand(),
 			use:   "create-migration",
-			flags: []string{"admin-server", "connection", "target-database", "target-table-group", "target-shard", "name", "tables", "copy-data", "skip-schema-copy"},
+			flags: []string{"admin-server", "connection", "target-database", "target-table-group", "target-shard", "name", "tables", "copy-data", "skip-schema-copy", "quiesce-roles"},
 		},
 		{
 			name:     "set-direction",
@@ -113,6 +113,13 @@ func TestCommandConstruction(t *testing.T) {
 			flags:    []string{"admin-server", "id", "wait", "wait-timeout", "force"},
 			required: []string{"id"},
 		},
+		{
+			name:     "reseed-reverse-link",
+			cmd:      AddReseedReverseLinkCommand(),
+			use:      "reseed-reverse-link",
+			flags:    []string{"admin-server", "id"},
+			required: []string{"id"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,6 +143,7 @@ func TestCommandRequiredFlags(t *testing.T) {
 		AddSetMigrationDirectionCommand(),
 		AddGetMigrationCommand(),
 		AddDropMigrationCommand(),
+		AddReseedReverseLinkCommand(),
 	} {
 		err := runE(cmd)
 		require.Error(t, err, "%s must require a flag", cmd.Use)
@@ -174,6 +182,7 @@ func TestCommandClientError(t *testing.T) {
 		{"list", AddListMigrationsCommand(), nil},
 		{"get", AddGetMigrationCommand(), []string{"--id", "m1"}},
 		{"drop", AddDropMigrationCommand(), []string{"--id", "m1", "--wait", "--wait-timeout", "5"}},
+		{"reseed-reverse-link", AddReseedReverseLinkCommand(), []string{"--id", "m1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -243,6 +252,7 @@ type fakeMultiadminServer struct {
 	listMigrations        func(context.Context, *migratorpb.ListMigrationsRequest) (*migratorpb.ListMigrationsResponse, error)
 	setMigrationDirection func(context.Context, *migratorpb.SetMigrationDirectionRequest) (*migratorpb.SetMigrationDirectionResponse, error)
 	dropMigration         func(context.Context, *migratorpb.DropMigrationRequest) (*migratorpb.DropMigrationResponse, error)
+	reseedReverseLink     func(context.Context, *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error)
 }
 
 func (f *fakeMultiadminServer) CreateMigration(ctx context.Context, req *migratorpb.CreateMigrationRequest) (*migratorpb.CreateMigrationResponse, error) {
@@ -280,6 +290,13 @@ func (f *fakeMultiadminServer) DropMigration(ctx context.Context, req *migratorp
 	return f.UnimplementedMultiadminServiceServer.DropMigration(ctx, req)
 }
 
+func (f *fakeMultiadminServer) ReseedReverseLink(ctx context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	if f.reseedReverseLink != nil {
+		return f.reseedReverseLink(ctx, req)
+	}
+	return f.UnimplementedMultiadminServiceServer.ReseedReverseLink(ctx, req)
+}
+
 // startFakeAdminServer serves srv on a real local TCP listener and returns its
 // address, so a test can point a command's --admin-server flag at it: the CLI
 // dials a real address rather than accepting an injectable client.
@@ -309,13 +326,14 @@ func TestCommandSuccessPaths(t *testing.T) {
 		})
 		out, err := runEOut(AddCreateMigrationCommand(), "--admin-server", addr,
 			"--connection", "src", "--target-database", "db1", "--name", "nightly",
-			"--tables", "public.orders,public.items",
+			"--tables", "public.orders,public.items", "--quiesce-roles", "app,reporting",
 			"--copy-data=false")
 		require.NoError(t, err)
 		assert.Regexp(t, `"id": +"42"`, out)
 		require.NotNil(t, gotReq)
 		assert.Equal(t, "src", gotReq.GetMigration().GetConnectionName())
 		assert.Equal(t, "db1", gotReq.GetMigration().GetTarget().GetDatabase())
+		assert.Equal(t, []string{"app", "reporting"}, gotReq.GetQuiesceRoles())
 		assert.Equal(t, []string{"public.orders", "public.items"}, gotReq.GetMigration().GetObjects().GetTable().GetQualifiedNames())
 		assert.True(t, gotReq.GetOptions().GetSkipCopyData(), "--copy-data=false must set SkipCopyData")
 	})
@@ -485,5 +503,26 @@ func TestCommandSuccessPaths(t *testing.T) {
 		})
 		_, err := runEOut(AddDropMigrationCommand(), "--admin-server", addr, "--id", "3")
 		require.ErrorContains(t, err, "failed to drop migration")
+	})
+
+	t.Run("reseed-reverse-link", func(t *testing.T) {
+		addr := startFakeAdminServer(t, &fakeMultiadminServer{
+			reseedReverseLink: func(_ context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+				return &migratorpb.ReseedReverseLinkResponse{Migration: &migratorpb.MigrationRecord{Id: req.GetRef().GetId()}}, nil
+			},
+		})
+		out, err := runEOut(AddReseedReverseLinkCommand(), "--admin-server", addr, "--id", "4")
+		require.NoError(t, err)
+		assert.Regexp(t, `"id": +"4"`, out)
+	})
+
+	t.Run("reseed-reverse-link wraps the RPC error", func(t *testing.T) {
+		addr := startFakeAdminServer(t, &fakeMultiadminServer{
+			reseedReverseLink: func(context.Context, *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+				return nil, errors.New("boom")
+			},
+		})
+		_, err := runEOut(AddReseedReverseLinkCommand(), "--admin-server", addr, "--id", "4")
+		require.ErrorContains(t, err, "failed to reseed reverse link")
 	})
 }

@@ -120,6 +120,9 @@ const (
 	// MultiadminServiceDropMigrationProcedure is the fully-qualified name of the MultiadminService's
 	// DropMigration RPC.
 	MultiadminServiceDropMigrationProcedure = "/multiadmin.MultiadminService/DropMigration"
+	// MultiadminServiceReseedReverseLinkProcedure is the fully-qualified name of the
+	// MultiadminService's ReseedReverseLink RPC.
+	MultiadminServiceReseedReverseLinkProcedure = "/multiadmin.MultiadminService/ReseedReverseLink"
 	// MultiadminServiceCreateConnectionProcedure is the fully-qualified name of the MultiadminService's
 	// CreateConnection RPC.
 	MultiadminServiceCreateConnectionProcedure = "/multiadmin.MultiadminService/CreateConnection"
@@ -317,6 +320,9 @@ type MultiadminServiceClient interface {
 	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -482,6 +488,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
 			connect.WithClientOptions(opts...),
 		),
+		reseedReverseLink: connect.NewClient[migrator.ReseedReverseLinkRequest, migrator.ReseedReverseLinkResponse](
+			httpClient,
+			baseURL+MultiadminServiceReseedReverseLinkProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ReseedReverseLink")),
+			connect.WithClientOptions(opts...),
+		),
 		createConnection: connect.NewClient[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse](
 			httpClient,
 			baseURL+MultiadminServiceCreateConnectionProcedure,
@@ -535,6 +547,7 @@ type multiadminServiceClient struct {
 	getMigrationJournal        *connect.Client[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse]
 	setMigrationDirection      *connect.Client[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse]
 	dropMigration              *connect.Client[migrator.DropMigrationRequest, migrator.DropMigrationResponse]
+	reseedReverseLink          *connect.Client[migrator.ReseedReverseLinkRequest, migrator.ReseedReverseLinkResponse]
 	createConnection           *connect.Client[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse]
 	getConnection              *connect.Client[migrator.GetConnectionRequest, migrator.GetConnectionResponse]
 	listConnections            *connect.Client[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse]
@@ -659,6 +672,11 @@ func (c *multiadminServiceClient) SetMigrationDirection(ctx context.Context, req
 // DropMigration calls multiadmin.MultiadminService.DropMigration.
 func (c *multiadminServiceClient) DropMigration(ctx context.Context, req *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
 	return c.dropMigration.CallUnary(ctx, req)
+}
+
+// ReseedReverseLink calls multiadmin.MultiadminService.ReseedReverseLink.
+func (c *multiadminServiceClient) ReseedReverseLink(ctx context.Context, req *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error) {
+	return c.reseedReverseLink.CallUnary(ctx, req)
 }
 
 // CreateConnection calls multiadmin.MultiadminService.CreateConnection.
@@ -864,6 +882,9 @@ type MultiadminServiceHandler interface {
 	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -1025,6 +1046,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceReseedReverseLinkHandler := connect.NewUnaryHandler(
+		MultiadminServiceReseedReverseLinkProcedure,
+		svc.ReseedReverseLink,
+		connect.WithSchema(multiadminServiceMethods.ByName("ReseedReverseLink")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiadminServiceCreateConnectionHandler := connect.NewUnaryHandler(
 		MultiadminServiceCreateConnectionProcedure,
 		svc.CreateConnection,
@@ -1099,6 +1126,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceSetMigrationDirectionHandler.ServeHTTP(w, r)
 		case MultiadminServiceDropMigrationProcedure:
 			multiadminServiceDropMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceReseedReverseLinkProcedure:
+			multiadminServiceReseedReverseLinkHandler.ServeHTTP(w, r)
 		case MultiadminServiceCreateConnectionProcedure:
 			multiadminServiceCreateConnectionHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetConnectionProcedure:
@@ -1210,6 +1239,10 @@ func (UnimplementedMultiadminServiceHandler) SetMigrationDirection(context.Conte
 
 func (UnimplementedMultiadminServiceHandler) DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ReseedReverseLink(context.Context, *connect.Request[migrator.ReseedReverseLinkRequest]) (*connect.Response[migrator.ReseedReverseLinkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ReseedReverseLink is not implemented"))
 }
 
 func (UnimplementedMultiadminServiceHandler) CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {

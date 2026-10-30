@@ -56,6 +56,22 @@ type Planner struct {
 	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
 	// every statement naming one is forwarded to the backend unchanged.
 	clusterViews engine.ClusterViewSource
+
+	// migration backs the gateway migration/connection DDL interface. It is
+	// injected after construction via SetMigrationBackend; when nil the DDL
+	// statements still plan but fail at execution with a clear error.
+	migration *engine.MigrationBackend
+}
+
+// SetMigrationBackend wires the migration/connection DDL backend into the
+// planner.
+func (p *Planner) SetMigrationBackend(b *engine.MigrationBackend) {
+	p.migration = b
+}
+
+// planMigrationDDL plans one of the gateway migration/connection DDL statements.
+func (p *Planner) planMigrationDDL(sql string, stmt ast.Stmt) (*engine.Plan, error) {
+	return engine.NewPlan(sql, engine.NewMigrationDDL(sql, stmt, p.migration)), nil
 }
 
 // NewPlanner creates a new query planner.
@@ -195,7 +211,7 @@ func (p *Planner) Plan(
 	opts PlanOptions,
 ) (*engine.Plan, error) {
 	p.logger.Debug("planning query",
-		"query", sql,
+		"query", logSafeQuery(sql, stmt),
 		"user", conn.User(),
 		"database", conn.Database(),
 		"default_tablegroup", p.defaultTableGroup,
@@ -284,6 +300,11 @@ func (p *Planner) Plan(
 	case ast.T_VariableShowStmt:
 		plan, err = p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
 
+	case ast.T_CreateConnectionStmt, ast.T_DropConnectionStmt,
+		ast.T_ShowConnectionsStmt, ast.T_CreateMigrationStmt, ast.T_AlterMigrationStmt,
+		ast.T_DropMigrationStmt:
+		plan, err = p.planMigrationDDL(sql, stmt)
+
 	case ast.T_PrepareStmt:
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
@@ -342,6 +363,20 @@ func (p *Planner) Plan(
 			}
 			return p.planTempTableCreation(sql, conn)
 		}
+		// multigres.stat_migration is a real Postgres view, so any query against it
+		// would also resolve correctly through ordinary routing; the bypass below is
+		// purely an optimization for the common "check status" shapes, not a
+		// correctness requirement. Ordinary routing is held by the serving gate like
+		// any other query, which defeats the one reason to query it: checking
+		// migration progress while the target is NOT_SERVING, exactly when an
+		// operator most wants to see it. A recognized shape answers directly via the
+		// migrator RPC instead, bypassing the gate the same way CREATE/ALTER/DROP
+		// MIGRATION already do; anything else falls through to planSelectStmt and the
+		// real view.
+		if p.migration != nil && engine.IsStatMigrationSelect(ss) {
+			plan, err = p.planMigrationDDL(sql, stmt)
+			break
+		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
@@ -385,6 +420,17 @@ func (p *Planner) Plan(
 	plan.Type = planType(plan.Primitive, plan.ExecInfo)
 
 	return plan, nil
+}
+
+// logSafeQuery returns a version of sql safe to write to logs. CREATE/ALTER
+// CONNECTION statements carry a source password as a SQL literal in their raw
+// text, so those are redacted rather than logged verbatim. This mirrors
+// executor.logSafeQuery's redaction of the same statement types.
+func logSafeQuery(sql string, stmt ast.Stmt) string {
+	if redacted, ok := ast.RedactIfCredentialBearing(stmt); ok {
+		return redacted
+	}
+	return sql
 }
 
 // maybeWrapStatementWarning prepends a WARNING notice to plan when stmt has
@@ -521,7 +567,8 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 	}
 	if strings.HasPrefix(strings.ToLower(schema), "pg_temp") {
 		return mterrors.NewFeatureNotSupported(
-			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead")
+			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead",
+		)
 	}
 	return nil
 }
