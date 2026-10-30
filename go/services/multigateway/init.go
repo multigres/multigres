@@ -74,6 +74,10 @@ type Multigateway struct {
 	// (any wire error aborts the transaction); opt-in for pg_regress and associated
 	// suites (default off, dynamic/reloadable).
 	keepTransactionOnGatewayRejection viperutil.Value[bool]
+	// clusterViewsEnabled serves multigres.multigateways and
+	// multigres.multipoolers from this gateway. Off by default: the names are
+	// then ordinary unknown relations to the backend.
+	clusterViewsEnabled viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -84,17 +88,10 @@ type Multigateway struct {
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
 	pgHandler *handler.MultigatewayHandler
-	// pgReplicaPort is the optional port for replica-reads connections.
-	// When set, a second listener accepts connections that are allowed to read from replicas.
-	pgReplicaPort viperutil.Value[int]
+	// replicaConfig holds the replica-reads settings; nil with a single pooler.
+	replicaConfig *replicaConfig
 	// pgReplicaListener is the optional replica-reads listener
 	pgReplicaListener *server.Listener
-	// pgReplicaLowLagMs is the preferred replication lag threshold (ms) for replicas.
-	// Replicas at or below this lag are considered "healthy" and preferred.
-	pgReplicaLowLagMs viperutil.Value[int]
-	// pgReplicaHighLagToleranceMs is the absolute maximum replication lag (ms).
-	// Replicas above this are never selected. 0 means no upper bound.
-	pgReplicaHighLagToleranceMs viperutil.Value[int]
 	// cancelManager handles cross-gateway query cancellation
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
@@ -103,7 +100,7 @@ type Multigateway struct {
 	executor *executor.Executor
 	// buffer holds requests during PRIMARY failovers
 	buffer *buffer.Buffer
-	// bufferConfig holds buffer configuration
+	// bufferConfig holds buffer configuration; nil with a single pooler.
 	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
@@ -126,11 +123,26 @@ type Multigateway struct {
 	queryRegistry *queryregistry.Registry
 	// senv is the serving environment
 	senv *servenv.ServEnv
-	// connConfig holds RPC client configuration (TLS, etc.) for multipooler connections
+	// reg is the viper registry backing senv's config, kept directly so
+	// CobraPreRunE can subscribe its own reload notification (see
+	// viperutil.NotifyConfigReload) before senv's LoadConfig starts
+	// watching it — NotifyConfigReload panics if called any later.
+	reg *viperutil.Registry
+	// configReloaded is subscribed to config-reload notifications in
+	// CobraPreRunE (before mg.executor exists) but only consumed starting in
+	// Init, once mg.executor is safely assigned — see CobraPreRunE's doc
+	// comment for why the consumer can't start any earlier.
+	configReloaded chan struct{}
+	// connConfig holds RPC client configuration (TLS, etc.) for multipooler
+	// connections and cancel forwarding; nil with a single pooler.
 	connConfig *rpcclient.ConnConfig
-	// topoConfig holds topology configuration
-	topoConfig   *topoclient.TopoConfig
-	ts           topoclient.Store
+	// ts is set from Init's ts argument. Owned by whoever constructed this
+	// Multigateway (cmd/multigateway standalone, or cmd/minigres sharing it
+	// with a multipooler): they open it and close it, never Shutdown.
+	ts topoclient.Store
+	// gatewayID is this gateway's topology ID, set once its record is built
+	// in Init. multigres.multigateways uses it to flag the serving gateway.
+	gatewayID    *clustermetadatapb.ID
 	tr           *toporeg.TopoReg
 	serverStatus Status
 	// prefixLost is set when a re-assertion finds this gateway's PID
@@ -148,10 +160,43 @@ type Multigateway struct {
 	// to all long-running goroutines (health streams, discovery, etc.)
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+
+	// statusPath is where the status page is served, given by main: "/" when
+	// the multigateway owns the process, under its service name when it
+	// shares the HTTP server with other components.
+	statusPath string
+
+	// localPooler, when set, is the only pooler the multigateway uses (see
+	// poolergateway.LocalPooler). nil in Multigres.
+	localPooler *poolergateway.LocalPooler
 }
 
-func NewMultigateway() *Multigateway {
-	reg := viperutil.NewRegistry()
+// singlePooler reports whether the multigateway serves the only pooler of its
+// database and is the only gateway its clients reach: it has a local pooler
+// (minigres).
+func (mg *Multigateway) singlePooler() bool {
+	return mg.localPooler != nil
+}
+
+// NewMultigateway creates a new Multigateway instance. reg is the settings
+// registry the multigateway configures its own settings on; a configuration
+// file or MT_* environment variable reaches a setting only through the
+// registry the process loads it into, so a standalone process passes the same
+// registry its servenv uses. resources are the process's shared servenv and
+// gRPC server — the caller (cmd/multigateway for
+// a standalone process, cmd/minigres for one shared with a multipooler) owns
+// and constructs them; the multigateway never creates its own. statusPath is
+// where the status page is served ("/" when the multigateway owns the
+// process, under its service name when it shares the HTTP server).
+// localPooler is the pooler in the same process, the only one the multigateway
+// then uses (minigres); nil uses every pooler in the topology (Multigres).
+// With a local pooler, what needs several poolers or gateways is off: replica
+// reads, failover buffering, the multipooler gRPC TLS settings and
+// cross-gateway cancel forwarding. Their flags are not registered.
+func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
+	if reg == nil {
+		panic("multigateway: reg is required")
+	}
 	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
@@ -243,29 +288,13 @@ func NewMultigateway() *Multigateway {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_KEEP_TRANSACTION_ON_GATEWAY_REJECTION"},
 		}),
-		pgReplicaPort: viperutil.Configure(reg, "pg-replica-port", viperutil.Options[int]{
-			Default:  0,
-			FlagName: "pg-replica-port",
+		clusterViewsEnabled: viperutil.Configure(reg, "enable-cluster-views", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-cluster-views",
 			Dynamic:  false,
-			EnvVars:  []string{"MT_PG_REPLICA_PORT"},
+			EnvVars:  []string{"MT_ENABLE_CLUSTER_VIEWS"},
 		}),
-		pgReplicaLowLagMs: viperutil.Configure(reg, "low-replication-lag-ms", viperutil.Options[int]{
-			Default:  30000,
-			FlagName: "low-replication-lag-ms",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_LOW_REPLICATION_LAG_MS"},
-		}),
-		pgReplicaHighLagToleranceMs: viperutil.Configure(reg, "high-replication-lag-tolerance-ms", viperutil.Options[int]{
-			Default:  0,
-			FlagName: "high-replication-lag-tolerance-ms",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_HIGH_REPLICATION_LAG_TOLERANCE_MS"},
-		}),
-		bufferConfig: buffer.NewConfig(reg),
-		grpcServer:   servenv.NewGrpcServer(reg),
-		senv:         servenv.NewServEnv(reg),
-		connConfig:   rpcclient.NewConnConfig(reg),
-		topoConfig:   topoclient.NewTopoConfig(reg),
+		reg: reg,
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -275,6 +304,20 @@ func NewMultigateway() *Multigateway {
 			},
 		},
 	}
+	if err := resources.Validate(); err != nil {
+		panic(fmt.Sprintf("multigateway: invalid ProcessResources: %v", err))
+	}
+	mg.senv = resources.ServEnv
+	mg.grpcServer = resources.GrpcServer
+	mg.statusPath = statusPath
+	mg.localPooler = localPooler
+	// Settings are not even created with a single pooler, so their environment
+	// variables cannot turn the features on.
+	if !mg.singlePooler() {
+		mg.replicaConfig = newReplicaConfig(reg)
+		mg.bufferConfig = buffer.NewConfig(reg)
+		mg.connConfig = rpcclient.NewConnConfig(reg)
+	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
@@ -283,6 +326,16 @@ func NewMultigateway() *Multigateway {
 // Executor returns the query executor for this multigateway.
 func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
+}
+
+// ServiceIdentity returns the identity the multigateway reports when main
+// initializes the process's servenv.
+func (mg *Multigateway) ServiceIdentity() servenv.ServiceIdentity {
+	return servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: mg.serviceID.Get(),
+		Cell:              mg.cell.Get(),
+	}
 }
 
 // ServEnv returns the serving environment for this multigateway.
@@ -302,9 +355,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
 	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
-	fs.Int("pg-replica-port", mg.pgReplicaPort.Default(), "optional port for replica-reads connections; 0 disables the replica listener")
-	fs.Int("low-replication-lag-ms", mg.pgReplicaLowLagMs.Default(), "replicas at or below this lag (milliseconds) are preferred; 0 treats all replicas equally")
-	fs.Int("high-replication-lag-tolerance-ms", mg.pgReplicaHighLagToleranceMs.Default(), "absolute max lag (milliseconds) for replicas; 0 means no upper bound")
+	fs.Bool("enable-cluster-views", mg.clusterViewsEnabled.Default(), "serve the read-only cluster views multigres.multigateways and multigres.multipoolers from this gateway. Default off; a reference to either name is then an unknown relation to the backend.")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
@@ -322,46 +373,37 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
 		mg.keepTransactionOnGatewayRejection,
-		mg.pgReplicaPort,
-		mg.pgReplicaLowLagMs,
-		mg.pgReplicaHighLagToleranceMs,
+		mg.clusterViewsEnabled,
 		mg.planCacheMemory,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
 		mg.queryLogSampleRate,
 	)
-	mg.bufferConfig.RegisterFlags(fs)
-	mg.senv.RegisterFlags(fs)
-	mg.grpcServer.RegisterFlags(fs)
-	mg.connConfig.RegisterFlags(fs)
-	mg.topoConfig.RegisterFlags(fs)
+	mg.replicaConfig.registerFlags(fs)
+	if mg.bufferConfig != nil {
+		mg.bufferConfig.RegisterFlags(fs)
+	}
+	if mg.connConfig != nil {
+		mg.connConfig.RegisterFlags(fs)
+	}
 }
 
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
-// until successful.
-func (mg *Multigateway) Init(ctx context.Context) error {
-	// Resolve service ID early for telemetry resource attributes
-	serviceID := mg.serviceID.Get()
-	if serviceID == "" {
-		serviceID = servenv.GenerateRandomServiceID()
+// until successful. ts is the process's already-open topology store (main
+// opens it, after parsing flags, before calling Init).
+func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
+	if ts == nil {
+		return errors.New("topology store is not open: main must open it before Init")
 	}
+	mg.ts = ts
+
+	// main has already resolved and applied the service ID (see
+	// ServiceIdentity/servenv.Init), so this is never empty here.
+	serviceID := mg.serviceID.Get()
 	cell := mg.cell.Get()
 
-	if err := mg.senv.Init(servenv.ServiceIdentity{
-		ServiceName:       constants.ServiceMultigateway,
-		ServiceInstanceID: serviceID,
-		Cell:              cell,
-	}); err != nil {
-		return fmt.Errorf("servenv init: %w", err)
-	}
 	logger := mg.senv.GetLogger()
-
-	var err error
-	mg.ts, err = mg.topoConfig.Open()
-	if err != nil {
-		return fmt.Errorf("topo open: %w", err)
-	}
 
 	// This doesn't change
 	mg.serverStatus.LocalCell = mg.cell.Get()
@@ -370,29 +412,62 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
-	if err := mg.bufferConfig.Validate(); err != nil {
-		return fmt.Errorf("buffer config: %w", err)
-	}
-	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
-		logger.InfoContext(ctx, "failover buffering enabled")
+	if mg.bufferConfig != nil {
+		if err := mg.bufferConfig.Validate(); err != nil {
+			return fmt.Errorf("buffer config: %w", err)
+		}
+		if mg.bufferConfig.Enabled.Get() {
+			mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+			logger.InfoContext(ctx, "failover buffering enabled")
+		}
 	}
 
-	// Build transport credentials for multipooler gRPC connections.
+	// Build transport credentials for multipooler gRPC connections. Without
+	// connConfig (single pooler) they are insecure and unused: the local
+	// pooler brings its own dial options.
 	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
+	// Wire LISTEN/NOTIFY notification manager.
+	// Uses a lazy client getter that resolves the primary pooler connection
+	// from the load balancer at subscribe time (after pooler discovery), and
+	// the gateway's leader-serving hook to reopen streams after a failover.
+	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
+	if notifMetricsErr != nil {
+		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
+	}
+	notifMgr := poolergateway.NewGRPCNotificationManager(
+		func() multipoolerpb.MultipoolerServiceClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardRef: &clustermetadatapb.ShardRef{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.ServiceClient()
+		},
+		logger,
+		notifMetrics,
+	)
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		Ctx:           mg.shutdownCtx,
-		Source:        mg.ts,
-		LocalCell:     mg.cell.Get(),
-		Logger:        logger,
-		DialOpt:       poolerTransportCreds,
-		Buffer:        mg.buffer,
-		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
-		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+		OnLeaderServing: notifMgr.OnLeaderServing,
+		Ctx:             mg.shutdownCtx,
+		Source:          mg.ts,
+		LocalCell:       mg.cell.Get(),
+		Logger:          logger,
+		DialOpt:         poolerTransportCreds,
+		LocalPooler:     mg.localPooler,
+		Buffer:          mg.buffer,
+		LowLag:          mg.replicaConfig.LowLag(),
+		HighTolerance:   mg.replicaConfig.HighTolerance(),
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
@@ -402,6 +477,19 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
+	if mg.clusterViewsEnabled.Get() {
+		mg.executor.SetClusterViewSource(mg)
+		logger.InfoContext(ctx, "cluster views enabled")
+	}
+	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
+	// comment, which subscribes mg.configReloaded, for why the consumer
+	// can't start any earlier.
+	go func() {
+		for range mg.configReloaded {
+			mg.executor.InvalidatePlanCache()
+		}
+	}()
 
 	// Initialize gateway-wide OTel metrics up front so the credential
 	// provider and listener can share the same sink. Failures here are
@@ -436,44 +524,27 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Build the full gateway record. All info (hostname, ports) is available
 	// after servenv.Init(). PidPrefix is assigned during registration below.
 	multigateway := topoclient.NewMultigateway(serviceID, cell, mg.senv.GetHostname())
+	mg.gatewayID = multigateway.Id
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
-	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+	if replicaPort := mg.replicaConfig.Port(); replicaPort > 0 {
 		multigateway.PortMap["postgres_replica"] = int32(replicaPort)
 	}
 
-	// Register gateway in topo with a unique PID prefix for cross-gateway
-	// cancel routing. The prefix is claimed atomically before the record is
-	// written; the claim file, not the record, is what makes the prefix
-	// exclusively ours. Each process claims fresh — a restarted gateway has
-	// no live connections whose cancel routing could be worth preserving.
-	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
-	defer regCancel()
-	mg.tr, err = toporeg.RegisterSynchronous(
-		regCtx,
-		func(ctx context.Context) error {
-			if multigateway.PidPrefix == 0 {
-				prefix, err := mg.claimUnusedPrefix(ctx, multigateway.Id)
-				if err != nil {
-					return err
-				}
-				multigateway.PidPrefix = prefix
-			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
-				return err
-			}
-			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
-		},
-		// The prefix claim is deliberately NOT released here: lease expiry
-		// is its only release path, so a gateway can never delete a claim
-		// that has passed to another gateway (e.g. when a prefix-lost
-		// restart shuts this process down after a competitor legitimately
-		// claimed the prefix).
-		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
-		toporeg.WithReassert(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register gateway: %w", err)
+	if mg.singlePooler() {
+		// The only gateway forwards no cancel requests, so it claims no PID
+		// prefix (connection IDs are used as-is) and its record is only for
+		// Multiadmin: register in the background, so startup and serving do
+		// not wait for the topology. A failure is logged and retried.
+		mg.tr = toporeg.Register(
+			func(ctx context.Context) error { return mg.ts.RegisterMultigateway(ctx, multigateway, true) },
+			func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+			func(string) {},
+			toporeg.WithReassert(),
+		)
+	} else if err := mg.registerWithPrefix(multigateway); err != nil {
+		return err
 	}
 	pidPrefix := multigateway.PidPrefix
 	logger.InfoContext(ctx, "registered gateway", "pid_prefix", pidPrefix)
@@ -500,31 +571,6 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	mg.pgHandler.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
 	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
-	// Wire LISTEN/NOTIFY notification manager.
-	// Uses a lazy client getter that resolves the primary pooler connection
-	// from the load balancer at subscribe time (after pooler discovery).
-	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
-	if notifMetricsErr != nil {
-		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
-	}
-	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
-			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
-				ShardKey: &clustermetadatapb.ShardKey{
-					Database:   constants.DefaultPostgresDatabase,
-					TableGroup: constants.DefaultTableGroup,
-					Shard:      constants.DefaultShard,
-				},
-				Mode: querypb.Mode_MODE_WRITABLE,
-			})
-			if err != nil || conn == nil {
-				return nil
-			}
-			return conn.ServiceClient()
-		},
-		logger,
-		notifMetrics,
-	)
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
@@ -544,7 +590,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	// Optionally create a second listener for replica-reads connections.
 	var replicaCancelFn func(pid, secret uint32) bool
-	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
+	if replicaPort := mg.replicaConfig.Port(); replicaPort > 0 {
 		replicaHandler := handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
@@ -567,11 +613,11 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
 		}
 		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
-		lowLagMs := mg.pgReplicaLowLagMs.Get()
-		highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
-		if lowLagMs > 0 || highToleranceMs > 0 {
+		lowLag := mg.replicaConfig.LowLag()
+		highTolerance := mg.replicaConfig.HighTolerance()
+		if lowLag > 0 || highTolerance > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
-				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
+				"low_lag_ms", lowLag.Milliseconds(), "high_tolerance_ms", highTolerance.Milliseconds())
 		}
 	}
 
@@ -590,23 +636,29 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Set up cross-gateway cancel request handling.
 	// The cancel manager routes to the correct listener based on the connection
 	// type (primary vs replica) carried in the cancel request / gRPC forward.
-	mg.cancelManager = NewCancelManager(
-		mg.pgListener.CancelLocalConnection,
-		replicaCancelFn,
-		pidPrefix,
-		mg.ts,
-		logger,
-		poolerTransportCreds,
-	)
-	mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
-	if mg.pgReplicaListener != nil {
-		mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+	// The only gateway has no other gateway to forward to; without a cancel
+	// handler the listener cancels its own connections.
+	if !mg.singlePooler() {
+		mg.cancelManager = NewCancelManager(
+			mg.pgListener.CancelLocalConnection,
+			replicaCancelFn,
+			pidPrefix,
+			mg.ts,
+			logger,
+			poolerTransportCreds,
+		)
+		mg.pgListener.SetCancelHandler(mg.cancelManager.ForListener(false))
+		if mg.pgReplicaListener != nil {
+			mg.pgReplicaListener.SetCancelHandler(mg.cancelManager.ForListener(true))
+		}
 	}
 	// Register gRPC services via OnRun because grpcServer.Server is only
 	// created in servenv.Run() (after Create()), which runs after Init().
 	managerServer := NewManagerServer(mg.queryRegistry, mg.pgHandler)
 	mg.senv.OnRun(func() {
-		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		if mg.cancelManager != nil {
+			mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+		}
 		managerServer.RegisterWithGRPCServer(mg.grpcServer.Server)
 	})
 
@@ -621,7 +673,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	// Start the replica listener if configured.
 	if mg.pgReplicaListener != nil {
 		go func() {
-			replicaPort := mg.pgReplicaPort.Get()
+			replicaPort := mg.replicaConfig.Port()
 			logger.InfoContext(ctx, "replica Postgres listener starting", "port", replicaPort)
 			if err := mg.pgReplicaListener.Serve(); err != nil {
 				logger.ErrorContext(ctx, "replica Postgres listener error", "error", err)
@@ -631,16 +683,14 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	logger.InfoContext(
 		ctx, "multigateway starting up",
-		"cell", mg.cell.Get(),
-		"service_id", mg.serviceID.Get(),
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),
-		"pg_replica_port", mg.pgReplicaPort.Get(),
+		"pg_replica_port", mg.replicaConfig.Port(),
 		"pid_prefix", pidPrefix,
 	)
 
-	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
+	mg.senv.HTTPHandleFunc(mg.statusPath, mg.handleIndex)
 
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -673,8 +723,50 @@ func (mg *Multigateway) RunDefault() error {
 	return mg.senv.RunDefault(mg.grpcServer)
 }
 
+// CobraPreRunE loads config (via senv) and, before doing so, subscribes to
+// config-reload notifications on mg.configReloaded so a dynamic flag change
+// can invalidate the plan cache. This is required, not just convenient: a
+// plan accepted while a dynamic flag (e.g. enable-slot-based-replication)
+// allowed it stays valid in the cache — served on later cache hits without
+// re-running analysis — until something invalidates it, so a reload that
+// changes such a flag must invalidate the cache or a stale accept/reject
+// decision keeps being served. This subscription is the whole mechanism, so
+// it depends on the notification covering every way a dynamic value changes,
+// which NotifyConfigReload's contract guarantees.
+//
+// The subscription is registered here because NotifyConfigReload must run
+// before senv's LoadConfig starts watching (it panics otherwise), but
+// mg.executor doesn't exist yet at this point — it's created in Init, which
+// runs after CobraPreRunE returns. The consumer goroutine is therefore
+// started in Init, right after mg.executor is assigned, not here: reading
+// mg.executor from a goroutine started before that assignment would race
+// Init's write to it, and a reload landing in that window would be read off
+// the channel and dropped (no executor to invalidate yet) rather than ever
+// being retried. Starting the goroutine after the assignment, on the same
+// goroutine that performed it, makes both problems structurally impossible
+// instead of guarding against them.
+//
+// mg.configReloaded is buffered by 1: NotifyConfigReload's send is
+// non-blocking (its own doc comment says as much), so an unbuffered channel
+// would silently drop a reload that lands while the consumer is already
+// mid-invalidation — a real scenario, since a single config-file save often
+// fires more than one fsnotify event. Invalidation is unconditional and
+// idempotent, so nothing is lost by coalescing a burst into fewer
+// invalidations; the buffer only needs to survive the vanishingly short
+// window between one dequeue and the next, not an unbounded backlog.
+//
+// The channel is deliberately never closed. NotifyConfigReload's underlying
+// watcher goroutine lives for the process's lifetime with no way to
+// unregister a subscriber, so closing mg.configReloaded during shutdown
+// could race a send from that goroutine — sending on a closed channel
+// panics, unlike sending on one nobody is listening to anymore, which the
+// non-blocking send already handles cleanly. Leaving the consumer goroutine
+// blocked on an open, unclosed channel at process exit is harmless: nothing
+// waits on it, and the OS reclaims it with the rest of the process.
 func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
-	return mg.senv.CobraPreRunE(cmd)
+	mg.configReloaded = make(chan struct{}, 1)
+	viperutil.NotifyConfigReload(mg.reg, mg.configReloaded)
+	return nil
 }
 
 func (mg *Multigateway) Shutdown() {
@@ -735,7 +827,44 @@ func (mg *Multigateway) Shutdown() {
 	}
 
 	mg.tr.Unregister()
-	mg.ts.Close()
+}
+
+// registerWithPrefix registers the gateway in topo with a unique PID prefix
+// for cross-gateway cancel routing, blocking startup until it succeeds. The
+// prefix is claimed atomically before the record is written; the claim file,
+// not the record, is what makes the prefix exclusively ours. Each process
+// claims fresh — a restarted gateway has no live connections whose cancel
+// routing could be worth preserving.
+func (mg *Multigateway) registerWithPrefix(multigateway *clustermetadatapb.Multigateway) error {
+	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
+	defer regCancel()
+	var err error
+	mg.tr, err = toporeg.RegisterSynchronous(
+		regCtx,
+		func(ctx context.Context) error {
+			if multigateway.PidPrefix == 0 {
+				prefix, err := mg.claimUnusedPrefix(ctx, multigateway.Id)
+				if err != nil {
+					return err
+				}
+				multigateway.PidPrefix = prefix
+			} else if err := mg.refreshPrefixClaim(ctx, multigateway.PidPrefix, multigateway.Id); err != nil {
+				return err
+			}
+			return mg.ts.RegisterMultigateway(ctx, multigateway, true)
+		},
+		// The prefix claim is deliberately NOT released here: lease expiry
+		// is its only release path, so a gateway can never delete a claim
+		// that has passed to another gateway (e.g. when a prefix-lost
+		// restart shuts this process down after a competitor legitimately
+		// claimed the prefix).
+		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
+		toporeg.WithReassert(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register gateway: %w", err)
+	}
+	return nil
 }
 
 // claimUnusedPrefix atomically claims a PID prefix for this gateway and
@@ -750,20 +879,14 @@ func (mg *Multigateway) Shutdown() {
 // atomic claim regardless.
 func (mg *Multigateway) claimUnusedPrefix(ctx context.Context, id *clustermetadatapb.ID) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
-	cells, err := mg.ts.GetCellNames(ctx)
+	// A cell may not have gateways yet: skip it.
+	gateways, err := listMultigateways(ctx, mg.ts, func(string, error) error { return nil })
 	if err != nil {
 		return 0, fmt.Errorf("getting cell names: %w", err)
 	}
-
-	for _, c := range cells {
-		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
-		if err != nil {
-			continue // Cell may not have gateways yet.
-		}
-		for _, gw := range gateways {
-			if p := gw.GetPidPrefix(); p > 0 {
-				usedPrefixes[p] = true
-			}
+	for _, gw := range gateways {
+		if p := gw.GetPidPrefix(); p > 0 {
+			usedPrefixes[p] = true
 		}
 	}
 

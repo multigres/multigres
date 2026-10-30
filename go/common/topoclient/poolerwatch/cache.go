@@ -143,8 +143,13 @@ type Hooks[T any] struct {
 // HealthStream, etc.), then bind hooks that close over those.
 type Config[T any] struct {
 	// Source is the topology backing store. The cache subscribes to it on
-	// Start to receive upserts and deletions. Required.
+	// Start to receive upserts and deletions. Mutually exclusive with Poolers.
 	Source topoclient.Store
+
+	// Poolers, if set, are the poolers the cache tracks instead of watching
+	// the topology, for a pooler known without it (one in the same process).
+	// They are added on Start. Mutually exclusive with Source.
+	Poolers []*clustermetadatapb.Multipooler
 
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
@@ -226,8 +231,8 @@ type Config[T any] struct {
 	now func() time.Time
 }
 
-// shardKey identifies a pooler shard for the byShard secondary index.
-type shardKey struct {
+// shardRef identifies a pooler shard for the byShard secondary index.
+type shardRef struct {
 	database   string
 	tableGroup string
 	shard      string
@@ -270,7 +275,7 @@ type PoolerCache[T any] struct {
 	mu      sync.Mutex
 	entries map[topoclient.ComponentID]*internalEntry[T]
 	byCell  map[string]map[topoclient.ComponentID]*internalEntry[T]
-	byShard map[shardKey]map[topoclient.ComponentID]*internalEntry[T]
+	byShard map[shardRef]map[topoclient.ComponentID]*internalEntry[T]
 	// tombstones holds SHUTDOWN poolers whose rider has been released. They are
 	// invisible to Get/GetByShard/GetByCell; surface via Tombstones() for
 	// future etcd-cleanup callers.
@@ -310,6 +315,9 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 	if config.Logger == nil {
 		panic("poolerwatch: Config.Logger is required")
 	}
+	if config.Source != nil && config.Poolers != nil {
+		panic("poolerwatch: Config.Source and Config.Poolers are mutually exclusive")
+	}
 	if config.now == nil {
 		config.now = time.Now
 	}
@@ -322,7 +330,7 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		ctx:              ctx,
 		entries:          make(map[topoclient.ComponentID]*internalEntry[T]),
 		byCell:           make(map[string]map[topoclient.ComponentID]*internalEntry[T]),
-		byShard:          make(map[shardKey]map[topoclient.ComponentID]*internalEntry[T]),
+		byShard:          make(map[shardRef]map[topoclient.ComponentID]*internalEntry[T]),
 		tombstones:       make(map[topoclient.ComponentID]*tombstoneEntry),
 		cellLastActivity: make(map[string]time.Time),
 		sweeper:          timer.NewPeriodicRunner(ctx, interval),
@@ -362,6 +370,9 @@ func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
 	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
 	if c.topoSource != nil {
 		c.topoSource.Start()
+	}
+	for _, pooler := range c.config.Poolers {
+		c.applyUpsert(pooler)
 	}
 }
 
@@ -440,7 +451,7 @@ func (c *PoolerCache[T]) GetRider(id topoclient.ComponentID) (T, bool) {
 // GetByShard returns every entry in the given (database, tableGroup, shard).
 // Order is unspecified. Returns all states; callers can filter by State.
 func (c *PoolerCache[T]) GetByShard(database, tableGroup, shard string) []Entry[T] {
-	key := shardKey{database: database, tableGroup: tableGroup, shard: shard}
+	key := shardRef{database: database, tableGroup: tableGroup, shard: shard}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	bucket := c.byShard[key]
@@ -661,9 +672,9 @@ func entrySnapshot[T any](e *internalEntry[T]) Entry[T] {
 	}
 }
 
-func shardKeyFor(p *clustermetadatapb.Multipooler) shardKey {
-	sk := p.GetShardKey()
-	return shardKey{
+func shardRefFor(p *clustermetadatapb.Multipooler) shardRef {
+	sk := p.GetShardRef()
+	return shardRef{
 		database:   sk.GetDatabase(),
 		tableGroup: sk.GetTableGroup(),
 		shard:      sk.GetShard(),
@@ -680,7 +691,7 @@ func (c *PoolerCache[T]) indexInsert(e *internalEntry[T]) {
 		}
 		bucket[e.id] = e
 	}
-	sk := shardKeyFor(e.pooler)
+	sk := shardRefFor(e.pooler)
 	bucket, ok := c.byShard[sk]
 	if !ok {
 		bucket = make(map[topoclient.ComponentID]*internalEntry[T])
@@ -697,7 +708,7 @@ func (c *PoolerCache[T]) indexRemove(e *internalEntry[T]) {
 			delete(c.byCell, cell)
 		}
 	}
-	sk := shardKeyFor(e.pooler)
+	sk := shardRefFor(e.pooler)
 	if bucket := c.byShard[sk]; bucket != nil {
 		delete(bucket, e.id)
 		if len(bucket) == 0 {
@@ -708,9 +719,9 @@ func (c *PoolerCache[T]) indexRemove(e *internalEntry[T]) {
 
 func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermetadatapb.Multipooler) {
 	prevCell := prevPooler.GetId().GetCell()
-	prevSK := shardKeyFor(prevPooler)
+	prevSK := shardRefFor(prevPooler)
 	newCell := e.pooler.GetId().GetCell()
-	newSK := shardKeyFor(e.pooler)
+	newSK := shardRefFor(e.pooler)
 	if prevCell == newCell && prevSK == newSK {
 		return
 	}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -49,6 +50,38 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+}
+
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates
+// admitting a non-temporary logical failover replication slot created via
+// plain SQL. Must be called before connections are accepted. A nil getter
+// (the default) keeps the feature off, rejecting every non-temporary slot as
+// before. See planner.Planner.SetSlotBasedReplicationEnabled.
+//
+// The executor only forwards the getter; the planner is what reads it, at
+// plan time. A plan admitted under this (or any other dynamic,
+// plan-affecting) flag then stays cached and gets served on later hits
+// without re-running analysis, so the plan cache is the one place a flipped
+// flag could still be acted on. Invalidating it is the config-reload
+// handler's job (see InvalidatePlanCache and its caller in Init), which is
+// driven by the same notification that makes the new value live.
+func (e *Executor) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	e.planner.SetSlotBasedReplicationEnabled(enabled)
+}
+
+// SetClusterViewSource wires the source of the cluster views
+// (multigres.multigateways, multigres.multipoolers). See
+// planner.Planner.SetClusterViewSource.
+func (e *Executor) SetClusterViewSource(source engine.ClusterViewSource) {
+	e.planner.SetClusterViewSource(source)
+}
+
+// InvalidatePlanCache discards every cached plan, so the next request for
+// any statement is re-planned from scratch. Call this whenever a dynamic
+// flag that affects planning decisions (e.g. enable-slot-based-replication)
+// changes value — see SetSlotBasedReplicationEnabled.
+func (e *Executor) InvalidatePlanCache() {
+	e.planCache.Invalidate()
 }
 
 // NewExecutor creates a new executor instance.
@@ -172,12 +205,22 @@ func (e *Executor) resolvePlan(
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
+	//
+	// The epoch is captured before planning, not read fresh at Put: planning
+	// may read live, mutable state (e.g. a dynamic feature flag such as
+	// enable-slot-based-replication) that Invalidate() is the designated
+	// response to changing. If a reload bumps the epoch while this plan
+	// (built under the pre-reload state) is still in flight, stamping with
+	// the captured epoch — now behind the current one — means the entry is
+	// immediately stale on the next Get, instead of Put silently caching a
+	// decision made under a policy that no longer holds.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.Put(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "plan cache miss, planned and cached",
 		"normalized_query", normalizedSQL,
 		"plan", plan.String())
@@ -260,9 +303,9 @@ func (e *Executor) PortalStreamExecute(
 // resolvePortalPlan obtains a query plan for a portal, mirroring resolvePlan but
 // for the extended protocol. The portal query already carries $1, $2, ...
 // placeholders, so there is nothing to normalize: the AST's SqlString() is used
-// directly as the cache key's SQL portion, producing the same canonical form as
-// the simple protocol path so the two protocols share cache entries regardless
-// of casing or whitespace in the original query text.
+// once per prepared statement as the cache key's SQL portion. This produces the
+// same canonical form as the simple protocol path, so both protocols share
+// cache entries regardless of casing or whitespace in the original query text.
 //
 // Returns the plan, whether it was a cache hit, the normalized SQL (empty for
 // non-cacheable statements), a fingerprint of that SQL, and any planning error.
@@ -305,9 +348,9 @@ func (e *Executor) resolvePortalPlan(
 		return plan, false, "", "", nil
 	}
 
-	normalizedSQL := astStmt.SqlString()
-	fingerprint := ast.FingerprintSQL(normalizedSQL)
+	normalizedSQL, fingerprint := portalInfo.PreparedStatementInfo.CanonicalSQLAndFingerprint()
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
+
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
 		return cachedPlan, true, normalizedSQL, fingerprint, nil
@@ -315,12 +358,14 @@ func (e *Executor) resolvePortalPlan(
 
 	// Cacheable DML is planned protocol-agnostically (zero-value PlanOptions, same
 	// as the simple path) so the cached entry is shared safely across protocols.
+	// Epoch captured before planning — see the matching comment in resolvePlan.
+	epochAtPlan := e.planCache.Epoch()
 	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, false, normalizedSQL, fingerprint, err
 	}
 
-	e.planCache.Put(cacheKey, plan)
+	e.planCache.Put(cacheKey, plan, epochAtPlan)
 	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
 		"query", normalizedSQL, "plan", plan.String())
 	return plan, false, normalizedSQL, fingerprint, nil
@@ -354,8 +399,37 @@ func (e *Executor) Describe(
 	// postgres GUC. Answer Describe locally rather than forwarding it, which the
 	// backend would reject as an unrecognized configuration parameter. Execute
 	// is already served locally via the planner (planVariableShowStmt).
-	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
+	stmt := describeAST(portalInfo, preparedStatementInfo)
+	if stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
 		return engine.MultigresServerVersionShowDescription(), nil
+	}
+
+	// A statement reading a cluster view (multigres.multipoolers, ...) names a
+	// relation the backend doesn't have. Describe the statement with each view
+	// folded to its empty, typed subquery instead: same columns, no data, and
+	// the backend can describe it. Execute folds the live rows separately.
+	psi := preparedStatementInfo
+	if portalInfo != nil {
+		psi = portalInfo.PreparedStatementInfo
+	}
+	if stmt != nil && e.planner.ClusterViewsEnabled() && engine.MayReferenceClusterView(psi.GetQuery()) && engine.ContainsClusterView(stmt) {
+		stubSQL, err := engine.ClusterViewDescribeSQL(stmt)
+		if err != nil {
+			return nil, err
+		}
+		stubPSI, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{
+			Name:       psi.GetName(),
+			Query:      stubSQL,
+			ParamTypes: psi.GetParamTypes(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if portalInfo != nil {
+			portalInfo = preparedstatement.NewPortalInfo(stubPSI, portalInfo.Portal)
+		} else {
+			preparedStatementInfo = stubPSI
+		}
 	}
 
 	// TODO: We will need to plan the query to find whether it can
@@ -364,6 +438,28 @@ func (e *Executor) Describe(
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
+}
+
+// clusterViewPrepareSQL returns sql with every cluster view folded over an
+// empty snapshot, or sql unchanged when it references none (or fails to
+// parse — the backend then reports the syntax error as before). A statement
+// the planner would reject (a write to a view, a definition over one) is
+// rejected with the same error.
+func clusterViewPrepareSQL(sql string) (string, error) {
+	if !engine.MayReferenceClusterView(sql) {
+		return sql, nil
+	}
+	stmts, _ := parser.ParseSQL(sql) // unparsable: let the backend report it
+	if len(stmts) != 1 {
+		return sql, nil
+	}
+	if err := planner.CheckClusterViewStatement(stmts[0]); err != nil {
+		return "", err
+	}
+	if !engine.ContainsClusterView(stmts[0]) {
+		return sql, nil
+	}
+	return engine.ClusterViewDescribeSQL(stmts[0])
 }
 
 // describeAST returns the parsed statement being described, from whichever of
@@ -381,23 +477,37 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 	}
 }
 
-// EagerParseInTransaction forces a backend Parse for SQL PREPARE / protocol
-// Parse inside an explicit transaction. The actual carrier is the existing
-// StreamExecute reservation path with force_unnamed_parse set; the multipooler
-// runs unnamed Parse after replaying any deferred BEGIN.
-func (e *Executor) EagerParseInTransaction(
+// PrepareInTransaction materializes a fresh named backend statement at client
+// Parse time. The carrier is the StreamExecute reservation path with
+// eager_parse_prepared_statement set; the multipooler replays any deferred
+// BEGIN and then prepares the consolidated statement, so validation and locks
+// belong to the client's transaction. ForceReparse re-Parses a stale shared
+// backend statement so a fresh client Parse reflects the current catalog.
+func (e *Executor) PrepareInTransaction(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	queryStr string,
 	paramTypes []uint32,
 ) error {
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{
-			Query:      queryStr,
-			ParamTypes: paramTypes,
-		},
-		ForceUnnamedParse: true,
+	// The backend can't prepare a statement naming a cluster view; prepare the
+	// Describe stub (views folded over an empty snapshot) instead. Execute
+	// forwards the portal with the folded statement text, which the pooler
+	// prepares separately, so the stub only has to parse and describe
+	// correctly. A statement the gateway would reject at planning time is
+	// rejected here too, so the client gets the gateway's error rather than a
+	// backend error that aborts the transaction. With the views off the text
+	// goes to the backend as written.
+	if e.planner.ClusterViewsEnabled() {
+		var err error
+		if queryStr, err = clusterViewPrepareSQL(queryStr); err != nil {
+			return err
+		}
+	}
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
+		Query:        queryStr,
+		ParamTypes:   paramTypes,
+		ForceReparse: true,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 

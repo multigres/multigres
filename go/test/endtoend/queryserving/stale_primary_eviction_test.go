@@ -23,6 +23,7 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -76,6 +77,7 @@ func TestGateway_EvictsStrandedPrimaryOnStaleHealthStream(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found, skipping stranded-primary eviction test")
 	}
+	clustersetup.RequireMultigresTopology(t, "another pooler takes over a stranded primary")
 
 	// No persistent multiorch: NewIsolated bootstraps the initial primary with a
 	// throwaway temp-multiorch that is torn down before the test body runs, so the
@@ -92,7 +94,7 @@ func TestGateway_EvictsStrandedPrimaryOnStaleHealthStream(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.WaitForMultigatewayQueryServing(t)
+	setup.WaitForQueryServing(t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary should exist after bootstrap")
@@ -124,7 +126,7 @@ func TestGateway_EvictsStrandedPrimaryOnStaleHealthStream(t *testing.T) {
 	// Fix assertion: the gateway retracts the frozen primary's routing claim
 	// because its health stream went stale. The pooler id embeds the node name,
 	// so matching both substrings pins the eviction to the frozen node.
-	line := shardsetup.WaitForLogLine(t, setup.Multigateway.LogFile, 15*time.Second,
+	line := shardsetup.WaitForLogLine(t, setup.GatewayLogFile(), 15*time.Second,
 		"routing primary retracted", primaryName)
 	require.Contains(t, line, "stale_stream", "retraction should be attributed to a stale stream")
 	t.Logf("Gateway evicted stranded primary %s: %s", primaryName, line)

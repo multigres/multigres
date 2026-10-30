@@ -20,8 +20,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc/credentials"
@@ -71,21 +69,16 @@ func (ma *MtlsAuthPlugin) checkCert(ctx context.Context) (context.Context, strin
 	if !ok {
 		return nil, AuthOutcomeNotTLS
 	}
-	for _, substring := range ma.clientCertSubstrings {
-		for _, cert := range tlsInfo.State.PeerCertificates {
-			if strings.Contains(cert.Subject.String(), substring) {
-				return ctx, AuthOutcomeSuccess
-			}
-		}
+	if certSubjectMatches(tlsInfo.State.PeerCertificates, ma.clientCertSubstrings) {
+		return ctx, AuthOutcomeSuccess
 	}
 	return nil, AuthOutcomeCertNotAuthorized
 }
 
 func mtlsAuthPluginInitializer() (Authenticator, error) {
-	substrings := strings.Split(clientCertSubstrings, ":")
-	// An empty substring matches every certificate subject, authorizing all clients.
-	if slices.Contains(substrings, "") {
-		return nil, fmt.Errorf("--grpc-auth-mtls-allowed-substrings must be a non-empty colon-separated list without empty entries, got %q", clientCertSubstrings)
+	substrings, err := parseCertSubstrings(clientCertSubstrings)
+	if err != nil {
+		return nil, fmt.Errorf("--grpc-auth-mtls-allowed-substrings: %w", err)
 	}
 	mtlsAuthPlugin := &MtlsAuthPlugin{
 		clientCertSubstrings: substrings,
@@ -93,12 +86,6 @@ func mtlsAuthPluginInitializer() (Authenticator, error) {
 	}
 	slog.Info("mtls auth plugin have initialized successfully with allowed client cert name substrings", "client_substrings", clientCertSubstrings)
 	return mtlsAuthPlugin, nil
-}
-
-// ClientCertSubstrings returns the value of the
-// `--grpc-auth-mtls-allowed-substrings` flag.
-func ClientCertSubstrings() string {
-	return clientCertSubstrings
 }
 
 func init() {

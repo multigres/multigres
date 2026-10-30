@@ -426,6 +426,57 @@ func (c *Cmd) Resume() error {
 	return c.Process.Signal(syscall.SIGCONT)
 }
 
+// IsRunningOrZombie reports whether the process is still running. Returns
+// false if the process was never started or has already exited.
+//
+// Named to flag its own limitation: against a process that has exited but
+// not yet been reaped (a zombie), this still returns true — signal 0
+// succeeds against a zombie's PID, and ProcessState/waitDone only become
+// accurate once something calls Wait(). If you need this to report exit
+// promptly, spawn `go func() { _ = cmd.Wait() }()` yourself once — Wait()
+// dedupes concurrent/repeated calls, so it's safe alongside any other
+// caller of cmd.Wait(). Only safe when Stdout/Stderr are not StdoutPipe/
+// StderrPipe with reads still pending: exec.Cmd.Wait() closes those pipes
+// once it sees the process exit, racing a concurrent reader.
+func (c *Cmd) IsRunningOrZombie() bool {
+	if c == nil || c.Process == nil {
+		return false
+	}
+	select {
+	case <-c.waitDone:
+		return false
+	default:
+	}
+	// Signal 0 checks whether the process exists without actually sending one.
+	return c.Process.Signal(syscall.Signal(0)) == nil
+}
+
+// ExitCode returns the process's exit code and true once something has
+// reaped it (via Wait, from anywhere, including a background reaper like
+// startAndReap); false if it hasn't exited yet or was never started.
+//
+// Deliberately not the same shape as the embedded exec.Cmd's
+// ProcessState.ExitCode() (a single int, -1 both when the process hasn't
+// exited and when it was killed by a signal): callers here need to tell
+// "still running" apart from "gone for any reason, including a crash" to
+// fail fast correctly, which a single overloaded -1 can't express.
+//
+// Reading ProcessState directly (as ProcessState.ExitCode() does) races a
+// concurrent Wait() — it's written without synchronization from the
+// caller's perspective. This checks waitDone first, whose close() provides
+// the happens-before edge that makes reading ProcessState safe afterward.
+func (c *Cmd) ExitCode() (code int, exited bool) {
+	if c == nil || c.Process == nil {
+		return 0, false
+	}
+	select {
+	case <-c.waitDone:
+		return c.ProcessState.ExitCode(), true
+	default:
+		return 0, false
+	}
+}
+
 // Stop gracefully stops the process: SIGTERM first, then SIGKILL if needed.
 //
 // The context controls how long to wait for graceful shutdown (SIGTERM phase).

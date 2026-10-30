@@ -20,6 +20,9 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDetachConn_ReturnsSocketAndBufferedBytes(t *testing.T) {
@@ -126,4 +129,23 @@ func TestDetachConn_NoBufferedBytes(t *testing.T) {
 	if ctx.Err() == nil {
 		t.Fatal("DetachConn must cancel the connection context")
 	}
+}
+
+// TestDialReachesAnIPv6Literal: a host that is an IPv6 address has colons of its own, so the
+// address to dial is host and port joined with brackets, not formatted with a colon.
+func TestDialReachesAnIPv6Literal(t *testing.T) {
+	lis, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	defer lis.Close()
+	go func() {
+		if c, err := lis.Accept(); err == nil {
+			_ = c.Close()
+		}
+	}()
+
+	conn, err := dial(t.Context(), &Config{Host: "::1", Port: lis.Addr().(*net.TCPAddr).Port, DialTimeout: 5 * time.Second})
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
 }

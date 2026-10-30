@@ -171,12 +171,12 @@ message Multipooler {
   // id is the unique identifier of the multipooler in the cluster.
   ID id = 1;
 
-  // shard_key identifies which shard this pooler belongs to. It is used for
+  // shard_ref identifies which shard this pooler belongs to. It is used for
   // routing requests to the correct pooler and for displaying metadata about
   // the shard in dashboards. It is not expected to change for the lifetime of
   // the pooler, but it is not immutable either — if the pooler moves to a
   // different shard, this field should be updated to reflect the new shard.
-  ShardKey shard_key = 2; //
+  ShardRef shard_ref = 2;
 
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
@@ -231,6 +231,12 @@ message Multipooler {
   // that publish path (pooler_record.go), not a constraint of the
   // RoutingState message itself — see RoutingState below.
   RoutingState routing_state = 13;
+
+  // leadership_mode is how this pooler gets its leadership. It is fixed for
+  // the life of the process. A static leader (minigres) is the only pooler of
+  // its shard: callers such as multiadmin use it for work they would
+  // otherwise send to a replica, such as backups.
+  LeadershipMode leadership_mode = 14;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
@@ -249,9 +255,12 @@ message Multigateway {
   uint32 pid_prefix = 4;
 }
 
-// ShardKey uniquely identifies a shard in the cluster.
+// ShardRef uniquely identifies a shard in the cluster.
 // This is a centralized message used across all services to identify shards.
-message ShardKey {
+// It is a shard's identity, not a table's shard key (the routing columns a
+// table declares with PRIMARY SHARD KEY). Its SQL mirror is the
+// multigres.shard_ref composite type.
+message ShardRef {
   // Database name.
   string database = 1;
 
@@ -575,6 +584,21 @@ message LsnPosition {
 message ConsensusPromises {
   TermRevocation term_revocation = 1;
   LsnPosition recruit_blocked_until = 2;
+}
+
+// LeadershipMode is how a pooler gets its leadership.
+enum LeadershipMode {
+  // LEADERSHIP_MODE_UNSPECIFIED is the proto3 zero value, published by
+  // poolers predating this field. Treated as LEADERSHIP_MODE_CONSENSUS.
+  LEADERSHIP_MODE_UNSPECIFIED = 0;
+
+  // LEADERSHIP_MODE_CONSENSUS: leadership is decided by consensus, coordinated
+  // by multiorch, among the shard's poolers.
+  LEADERSHIP_MODE_CONSENSUS = 1;
+
+  // LEADERSHIP_MODE_STATIC: the pooler is the only pooler of its shard and
+  // leads it without consensus (minigres).
+  LEADERSHIP_MODE_STATIC = 2;
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about

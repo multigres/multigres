@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -260,6 +261,73 @@ func TestStateManager_Register(t *testing.T) {
 	assert.Equal(t, 1, comp2.callCount)
 }
 
+func TestStateManager_Unregister(t *testing.T) {
+	kept := &testComponent{}
+	removed := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, kept)
+	require.NoError(t, ssm.RegisterAndSync(t.Context(), removed))
+
+	ssm.Unregister(removed)
+	ssm.Unregister(removed) // not registered any more: a no-op
+
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.Primary
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+
+	assert.Equal(t, 1, kept.callCount)
+	assert.Equal(t, 1, removed.callCount, "only the sync from RegisterAndSync, nothing after Unregister")
+}
+
+// blockingComponent parks inside OnStateChange until release is closed.
+type blockingComponent struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingComponent) OnStateChange(context.Context, servingstate.State) error {
+	close(c.entered)
+	<-c.release
+	return nil
+}
+
+// TestStateManager_UnregisterWaitsForInFlightFanOut pins the guarantee
+// closeConnectionsLocked relies on: once Unregister returns, no fan-out is
+// still inside the component's OnStateChange, so closing it next cannot race
+// a fan-out that reopens it.
+func TestStateManager_UnregisterWaitsForInFlightFanOut(t *testing.T) {
+	comp := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, comp)
+
+	mutated := make(chan error, 1)
+	go func() {
+		mutated <- ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+			s.PostgresMode = pgmode.Primary
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		})
+	}()
+	<-comp.entered
+
+	unregistered := make(chan struct{})
+	go func() {
+		ssm.Unregister(comp)
+		close(unregistered)
+	}()
+
+	select {
+	case <-unregistered:
+		t.Fatal("Unregister returned while a fan-out was still inside the component's OnStateChange")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(comp.release)
+	<-unregistered
+	require.NoError(t, <-mutated)
+	assert.Empty(t, ssm.components)
+}
+
 func TestStateManager_RegisterAndSync(t *testing.T) {
 	comp1 := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
@@ -418,27 +486,37 @@ func TestStateManager_HasDrift(t *testing.T) {
 
 	t.Run("primary drift reconciles", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_SERVING)
-		assert.True(t, ssm.hasDrift(pgmode.InRecovery, false))
+		assert.True(t, ssm.hasDrift(pgmode.InRecovery, false, false))
 	})
 
 	t.Run("draining reconciles when WAL is trusted", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DRAINING)
-		assert.True(t, ssm.hasDrift(pgmode.Primary, false))
+		assert.True(t, ssm.hasDrift(pgmode.Primary, false, false))
 	})
 
 	t.Run("draining is stable while divergence is suspected", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DRAINING)
-		assert.False(t, ssm.hasDrift(pgmode.Primary, true))
+		assert.False(t, ssm.hasDrift(pgmode.Primary, true, false))
 	})
 
 	t.Run("disabled is left alone", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DISABLED)
-		assert.False(t, ssm.hasDrift(pgmode.Primary, false))
+		assert.False(t, ssm.hasDrift(pgmode.Primary, false, false))
 	})
 
 	t.Run("no drift is a no-op", func(t *testing.T) {
 		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_SERVING)
-		assert.False(t, ssm.hasDrift(pgmode.Primary, false))
+		assert.False(t, ssm.hasDrift(pgmode.Primary, false, false))
+	})
+
+	t.Run("migration hold drifts serving to draining", func(t *testing.T) {
+		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_SERVING)
+		assert.True(t, ssm.hasDrift(pgmode.Primary, false, true))
+	})
+
+	t.Run("draining is stable under a migration hold", func(t *testing.T) {
+		ssm := newFannedOut(t, clustermetadatapb.PoolerServingStatus_DRAINING)
+		assert.False(t, ssm.hasDrift(pgmode.Primary, false, true))
 	})
 }
 
@@ -454,7 +532,7 @@ func TestStateManager_FixDrift(t *testing.T) {
 		}))
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
 
-		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, false))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, false, false))
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 	})
@@ -463,7 +541,7 @@ func TestStateManager_FixDrift(t *testing.T) {
 		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_DRAINING)
 		ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus)
 
-		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary, false))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary, false, false))
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
 	})
@@ -472,9 +550,28 @@ func TestStateManager_FixDrift(t *testing.T) {
 		r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
 		ssm := NewStateManager(newTestLogger(), r, nilConsensusStatus)
 
-		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, true))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.InRecovery, true, false))
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, r.ServingStatus())
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
+	})
+
+	t.Run("migration hold forces serving to draining", func(t *testing.T) {
+		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus)
+		require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+			s.PostgresMode = pgmode.Primary
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}))
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary, false, true))
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, r.ServingStatus())
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
+	})
+
+	t.Run("draining completes to serving when migration hold clears", func(t *testing.T) {
+		r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_DRAINING)
+		ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus)
+		require.NoError(t, ssm.fixDrift(newActionLockedCtx(t), pgmode.Primary, false, false))
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 	})
 }
 

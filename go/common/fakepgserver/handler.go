@@ -17,6 +17,7 @@ package fakepgserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -48,6 +49,11 @@ type portal struct {
 	stmt       *preparedStmt
 	params     [][]byte
 	resultFmts []int16
+}
+
+// IdleSessionTimeout implements server.IdleSessionTimeoutProvider.
+func (h *fakeHandler) IdleSessionTimeout(*server.Conn) time.Duration {
+	return time.Duration(h.server.idleSessionTimeout.Load())
 }
 
 // HandleQuery handles a simple query protocol message.
@@ -194,6 +200,17 @@ func (h *fakeHandler) ConnectionClosed(conn *server.Conn) {}
 // GetPreparedStatementInfo returns nil — fakepgserver does not manage
 // gateway-level prepared statement consolidation.
 func (h *fakeHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+	return nil
+}
+
+// SetResolvedParamTypes is a no-op — fakepgserver does not manage gateway-level
+// prepared statement consolidation.
+func (h *fakeHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+}
+
+// ResolvedParamTypeOids returns nil — fakepgserver does not manage gateway-level
+// prepared statement consolidation.
+func (h *fakeHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
 	return nil
 }
 

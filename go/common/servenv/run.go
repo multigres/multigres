@@ -30,7 +30,10 @@ import (
 
 // Run starts listening for RPC and HTTP requests,
 // and blocks until it the process gets a signal.
-func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) error {
+//
+// The gRPC servers are created before the run hooks, so services can register
+// on any of them, and served after.
+func (sv *ServEnv) Run(bindAddress string, port int, grpcServers ...*GrpcServer) error {
 	sv.PopulateListeningURL(int32(port))
 
 	// Start the HTTP server early so liveness/startup probes respond
@@ -76,18 +79,22 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 	// fine to wait on here: gRPC doesn't actually start Serve()ing until after
 	// FireRunHooks below regardless, so this has no tighter deadline than it
 	// already did.
-	if err := grpcServer.Create(); err != nil {
-		return fmt.Errorf("grpc server create: %w", err)
+	for _, grpcServer := range grpcServers {
+		if err := grpcServer.Create(sv); err != nil {
+			return fmt.Errorf("grpc server create: %w", err)
+		}
 	}
 
 	if err := sv.FireRunHooks(); err != nil {
 		return fmt.Errorf("run hooks: %w", err)
 	}
-	if err := grpcServer.Serve(sv); err != nil {
-		return fmt.Errorf("grpc server serve: %w", err)
-	}
-	if err := grpcServer.serveSocketFile(); err != nil {
-		return fmt.Errorf("grpc socket file: %w", err)
+	for _, grpcServer := range grpcServers {
+		if err := grpcServer.Serve(sv); err != nil {
+			return fmt.Errorf("grpc server serve: %w", err)
+		}
+		if err := grpcServer.serveSocketFile(); err != nil {
+			return fmt.Errorf("grpc socket file: %w", err)
+		}
 	}
 
 	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)

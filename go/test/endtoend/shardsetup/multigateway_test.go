@@ -42,7 +42,7 @@ func TestMultigatewaySetup(t *testing.T) {
 
 	// Verify multigateway instance exists
 	require.NotNil(t, setup.Multigateway, "multigateway instance should be created")
-	require.True(t, setup.Multigateway.IsRunning(), "multigateway should be running")
+	require.True(t, setup.Multigateway.IsRunningOrZombie(), "multigateway should be running")
 	require.Greater(t, setup.MultigatewayPgPort, 0, "multigateway PG port should be allocated")
 
 	// Connect to multigateway

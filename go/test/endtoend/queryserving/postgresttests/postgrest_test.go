@@ -18,7 +18,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -142,18 +141,12 @@ func TestPostgREST(t *testing.T) {
 func runGateway(t *testing.T, ctx context.Context, src, match string) *specResult {
 	t.Helper()
 
-	setup := shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),
-		// Keep pooled capacity under the generated max_connections=60 ceiling.
-		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=50"),
-	)
+	setup := newPostgRESTCluster(t)
 	setup.SetupTest(t)
 
-	primary := setup.GetPrimary(t)
 	conn := pgConn{
-		Host:      filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets"),
-		Port:      primary.Pgctld.PgPort,
+		Host:      setup.PostgresSocketDir(t),
+		Port:      setup.PostgresPort(t),
 		SuperUser: shardsetup.DefaultTestUser,
 		SuperPass: shardsetup.TestPostgresPassword,
 		Database:  "postgres",
@@ -162,7 +155,7 @@ func runGateway(t *testing.T, ctx context.Context, src, match string) *specResul
 		t.Fatalf("load fixtures on primary: %v", err)
 	}
 
-	res, err := runSpec(t, ctx, specTarget{Name: "gateway", Port: setup.MultigatewayPgPort}, match)
+	res, err := runSpec(t, ctx, specTarget{Name: "gateway", Port: setup.ClientPort()}, match)
 	if err != nil {
 		t.Fatalf("run spec suite through gateway: %v", err)
 	}

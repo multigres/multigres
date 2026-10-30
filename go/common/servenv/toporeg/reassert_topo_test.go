@@ -17,6 +17,7 @@ package toporeg
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 // TestReassert_RestoresRegistrationThroughStore drives the real registration
@@ -37,40 +39,42 @@ import (
 func TestReassert_RestoresRegistrationThroughStore(t *testing.T) {
 	shortenReassert(t)
 
-	ctx := context.Background()
-	const cell = "zone-1"
-	ts := memorytopo.NewServer(ctx, cell)
-	defer ts.Close()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		const cell = "zone-1"
+		ts := memorytopo.NewServer(ctx, cell)
+		defer ts.Close()
 
-	gateway := topoclient.NewMultigateway("gw-1", cell, "gw-1.example.com")
+		gateway := topoclient.NewMultigateway("gw-1", cell, "gw-1.example.com")
 
-	tr := Register(
-		func(ctx context.Context) error { return ts.RegisterMultigateway(ctx, gateway, true) },
-		func(ctx context.Context) error { return ts.UnregisterMultigateway(ctx, gateway.Id) },
-		func(string) {},
-		WithReassert(),
-	)
-	require.NotNil(t, tr)
+		tr := Register(
+			func(ctx context.Context) error { return ts.RegisterMultigateway(ctx, gateway, true) },
+			func(ctx context.Context) error { return ts.UnregisterMultigateway(ctx, gateway.Id) },
+			func(string) {},
+			WithReassert(),
+		)
+		require.NotNil(t, tr)
 
-	_, err := ts.GetMultigateway(ctx, gateway.Id)
-	require.NoError(t, err, "component should be registered after Register returns")
-
-	// Something removed the entry without telling the component.
-	require.NoError(t, ts.UnregisterMultigateway(ctx, gateway.Id))
-	_, err = ts.GetMultigateway(ctx, gateway.Id)
-	require.Error(t, err, "precondition: the entry is gone")
-
-	assert.Eventually(t, func() bool {
 		_, err := ts.GetMultigateway(ctx, gateway.Id)
-		return err == nil
-	}, 2*time.Second, 10*time.Millisecond,
-		"re-assertion should restore a registration removed behind the component's back")
+		require.NoError(t, err, "component should be registered after Register returns")
 
-	// And a real deregistration still wins: nothing puts it back afterwards.
-	tr.Unregister()
-	assert.Never(t, func() bool {
-		_, err := ts.GetMultigateway(ctx, gateway.Id)
-		return err == nil
-	}, 300*time.Millisecond, 10*time.Millisecond,
-		"deregistration must be final; re-assertion must not resurrect the entry")
+		// Something removed the entry without telling the component.
+		require.NoError(t, ts.UnregisterMultigateway(ctx, gateway.Id))
+		_, err = ts.GetMultigateway(ctx, gateway.Id)
+		require.Error(t, err, "precondition: the entry is gone")
+
+		assert.Eventually(t, func() bool {
+			_, err := ts.GetMultigateway(ctx, gateway.Id)
+			return err == nil
+		}, 2*time.Second, 10*time.Millisecond,
+			"re-assertion should restore a registration removed behind the component's back")
+
+		// And a real deregistration still wins: nothing puts it back afterwards.
+		tr.Unregister()
+		testpoll.Never(t, func() bool {
+			_, err := ts.GetMultigateway(ctx, gateway.Id)
+			return err == nil
+		}, 300*time.Millisecond, 10*time.Millisecond,
+			"deregistration must be final; re-assertion must not resurrect the entry")
+	})
 }

@@ -258,6 +258,8 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 
 	// Use configurable minCapacityPerUser as the minimum per-user floor.
 	// This ensures light users always have enough capacity for burst demand.
+	// These are the nominal shares; with elastic quotas the rebalancer moves
+	// capacity between the two allocators each cycle based on demand.
 	m.regularAllocator = NewFairShareAllocator(regularCapacity, regularMinPerUser)
 	m.reservedAllocator = NewFairShareAllocator(reservedCapacity, reservedMinPerUser)
 
@@ -277,6 +279,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 		"settings_cache_size", m.config.SettingsCacheSize(),
 		"global_capacity", globalCapacity,
 		"reserved_ratio", reservedRatio,
+		"elastic_quotas", m.config.ElasticQuotas(),
 		"regular_allocation", regularCapacity,
 		"reserved_allocation", reservedCapacity,
 		"rebalance_interval", m.config.RebalanceInterval(),
@@ -309,12 +312,10 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 	defer cancel()
 	pooled, err := m.adminPool.Get(queryCtx)
 	if err != nil {
-		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
-			"error", err, "global_capacity", configured)
-		return configured
+		return m.fallbackGlobalCapacity(ctx, err)
 	}
 	defer pooled.Recycle()
-	results, err := pooled.Conn.QueryWithRetry(queryCtx, globalCapacityQuery)
+	results, err := pooled.Conn.StatelessQuery(queryCtx, globalCapacityQuery)
 	if err == nil && (len(results) != 1 || len(results[0].Rows) != 1 || len(results[0].Rows[0].Values) != 3) {
 		err = fmt.Errorf("unexpected result shape for %q", globalCapacityQuery)
 	}
@@ -327,9 +328,7 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 		}
 	}
 	if err != nil {
-		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
-			"error", err, "global_capacity", configured)
-		return configured
+		return m.fallbackGlobalCapacity(ctx, err)
 	}
 	maxConns, superuserReserved, reservedConns := settings[0], settings[1], settings[2]
 	derived := deriveGlobalCapacity(maxConns, superuserReserved, reservedConns, m.config.AdminCapacity())
@@ -340,6 +339,32 @@ func (m *Manager) resolveGlobalCapacity(ctx context.Context) int64 {
 		"reserved_connections", reservedConns,
 		"admin_capacity", m.config.AdminCapacity(),
 	)
+	return derived
+}
+
+// fallbackGlobalCapacity picks the budget when the live SQL derivation fails:
+// a pgctld-reported budget seed (from the conf, so it cannot see a
+// pending-restart divergence — hence never preferred over the live query)
+// beats the flag default, which matches nothing in particular. The seed's
+// reserved-slot values are already concrete (the monitor resolves unknowns
+// to PostgreSQL's defaults when seeding).
+func (m *Manager) fallbackGlobalCapacity(ctx context.Context, cause error) int64 {
+	configured := m.config.GlobalCapacity()
+	seed := m.config.SeedConnectionBudget()
+	if seed == nil || seed.MaxConnections <= 0 {
+		m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using configured value",
+			"error", cause, "global_capacity", configured)
+		return configured
+	}
+	// Cap the result at the configured value: the fallback fires when
+	// postgres is already unqueryable, and the seed's job is to shrink the
+	// budget on small servers, never to grow it on big ones.
+	derived := min(deriveGlobalCapacity(seed.MaxConnections, seed.SuperuserReservedConnections, seed.ReservedConnections, m.config.AdminCapacity()), configured)
+	m.logger.WarnContext(ctx, "could not derive connpool global capacity from postgres; using pgctld-reported budget seed",
+		"error", cause, "global_capacity", derived,
+		"seed_max_connections", seed.MaxConnections,
+		"seed_superuser_reserved", seed.SuperuserReservedConnections,
+		"seed_reserved_connections", seed.ReservedConnections)
 	return derived
 }
 

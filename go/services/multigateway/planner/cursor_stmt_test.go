@@ -46,6 +46,30 @@ func TestPlan_DeclareCursorWithHold(t *testing.T) {
 		"plan.Type must be set so observability spans + query logs surface it correctly")
 }
 
+// TestPlan_DeclareCursorNeverAdmitsFailoverSlot proves a cursor never gets
+// failover-slot admission, even with the feature flag on and even when the
+// call spells out failover=true: DECLARE only registers the query, which
+// PostgreSQL then evaluates at FETCH (or at COMMIT, WITH HOLD) — arbitrarily
+// later in the session, under a flag value this analysis pass cannot know
+// still holds. See isImmediatelyExecutedForFailoverAdmission.
+func TestPlan_DeclareCursorNeverAdmitsFailoverSlot(t *testing.T) {
+	for _, sql := range []string{
+		"DECLARE c CURSOR WITH HOLD FOR SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+		"DECLARE c CURSOR FOR SELECT pg_create_logical_replication_slot('s1', 'pgoutput', failover => true)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+			p := NewPlanner("default", logger, nil)
+			p.SetSlotBasedReplicationEnabled(func() bool { return true })
+			conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+			_, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
+			require.ErrorContains(t, err, "requires temporary=true",
+				"a cursor defers its query past this analysis, so it must never be admitted via the failover path")
+		})
+	}
+}
+
 // TestPlan_DeclareCursorWithoutHold falls through to planDefault so the
 // transaction-scoped cursor is handled by the existing Route primitive.
 func TestPlan_DeclareCursorWithoutHold(t *testing.T) {

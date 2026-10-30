@@ -421,6 +421,11 @@ func TruncateError(oldErr error, max int) error {
 
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
 
+// ErrUnsolicitedData reports that the server sent bytes to a connection that
+// had no request outstanding. PostgreSQL does this to an idle session only when
+// ending it, so the connection must not be used for a new request.
+var ErrUnsolicitedData = errors.New("server sent data on an idle connection")
+
 // IsConnectionError returns true if err is worth a reconnect + retry.
 // It intentionally recognizes only transport failures, SQLSTATE class 08,
 // and PostgreSQL shutdown SQLSTATEs. Use IsConnectionDead for discard-only
@@ -462,9 +467,12 @@ func IsConnectionError(err error) bool {
 // must be discarded. It is an eviction/cleanup predicate, not a retry
 // predicate. Use IsConnectionError for reconnect + retry gates.
 func IsConnectionDead(err error) bool {
-	if IsConnectionError(err) {
-		return true
-	}
+	return IsConnectionError(err) || IsFatal(err)
+}
+
+// IsFatal reports whether err carries a FATAL or PANIC PgDiagnostic, which
+// ends the session it was raised on.
+func IsFatal(err error) bool {
 	var diag *PgDiagnostic
 	return errors.As(err, &diag) && diag.IsFatal()
 }

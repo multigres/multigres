@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,6 +67,17 @@ func TestRunStart(t *testing.T) {
 			setupBinaries: true,
 			expectError:   false, // Should succeed but report already running
 		},
+		{
+			name: "start refused while a restore sentinel is present",
+			setupDataDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(baseDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+				return dataDir
+			},
+			setupBinaries: true,
+			expectError:   true,
+			errorContains: "restore sentinel",
+		},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +125,30 @@ func TestRunStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckNoIncompleteRestore(t *testing.T) {
+	t.Run("no sentinel", func(t *testing.T) {
+		require.NoError(t, checkNoIncompleteRestore(t.TempDir()))
+	})
+
+	t.Run("sentinel present", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(poolerDir, constants.RestoreSentinelFile), []byte("x"), 0o644))
+		err := checkNoIncompleteRestore(poolerDir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "refusing to start PostgreSQL")
+	})
+
+	t.Run("sentinel unreadable", func(t *testing.T) {
+		// A pooler dir that is a regular file makes the stat fail with ENOTDIR,
+		// which must not be mistaken for "no sentinel".
+		poolerDir := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(poolerDir, []byte("x"), 0o644))
+		err := checkNoIncompleteRestore(poolerDir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to check restore sentinel")
+	})
 }
 
 func TestIsDataDirInitialized(t *testing.T) {
@@ -169,11 +205,11 @@ func TestReadPostmasterPID_ToleratesTruncatedFile(t *testing.T) {
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 	// Only the PID made it to disk.
-	require.NoError(t, os.WriteFile(pidFile, []byte("4242\n"), 0o644))
+	require.NoError(t, os.WriteFile(pidFile, []byte(strconv.Itoa(testutil.DeadPID)+"\n"), 0o644))
 
 	pid, err := readPostmasterPID(dataDir)
 	require.NoError(t, err)
-	assert.Equal(t, 4242, pid)
+	assert.Equal(t, testutil.DeadPID, pid)
 }
 
 // TestReadPostmasterPID_UnparseablePIDIsAnError covers the other half of
@@ -275,7 +311,7 @@ func TestCheckPostgreSQLRunning_StaleLockRemovedWhenPostgresNotResponding(t *tes
 	defer cleanup()
 
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
-	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+	testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 	binDir := filepath.Join(baseDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -305,7 +341,7 @@ func TestProbePostgreSQLRunningAndReady_DoesNotRemoveStaleLock(t *testing.T) {
 	defer cleanup()
 
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
-	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+	testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 	binDir := filepath.Join(baseDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -333,7 +369,7 @@ func TestCheckPostgreSQLRunning_RejectingConnectionsStillCountsAsRunning(t *test
 	defer cleanup()
 
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
-	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+	testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 	binDir := filepath.Join(baseDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -362,7 +398,7 @@ func TestCheckPostgreSQLRunning_UnreachablePgIsReadyReturnsError(t *testing.T) {
 	defer cleanup()
 
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
-	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+	testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 	// Deliberately no pg_isready anywhere on PATH — not even the real system
 	// one, which a test machine with PostgreSQL installed might otherwise pick up.
@@ -392,7 +428,7 @@ func TestCheckPostgreSQLRunning_BrokenExitCodeReturnsError(t *testing.T) {
 	defer cleanup()
 
 	dataDir := testutil.CreateDataDir(t, baseDir, true)
-	testutil.CreateDeadPIDFile(t, dataDir, 424242)
+	testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 	binDir := filepath.Join(baseDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -878,8 +914,9 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_timeout_test")
 		defer cleanup()
 
-		// Create initialized data directory with postgresql.conf
-		testutil.CreateDataDir(t, baseDir, true)
+		// Keep a mock server alive so a delayed poll cannot mistake this for a crash.
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		testutil.CreatePIDFile(t, dataDir, 0)
 
 		// Create mock pg_isready that always fails
 		binDir := filepath.Join(baseDir, "bin")
@@ -920,7 +957,7 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 
 		// Create PID file with non-existent PID (simulates crashed process)
-		testutil.CreateDeadPIDFile(t, dataDir, 999999)
+		testutil.CreateDeadPIDFile(t, dataDir, testutil.DeadPID)
 
 		// Create mock pg_isready that always fails
 		binDir := filepath.Join(baseDir, "bin")

@@ -583,12 +583,12 @@ func (c *Conn) CancelQuery() bool {
 }
 
 // queryContextError maps context-related errors to the appropriate PostgreSQL
-// protocol error. Cancel requests take priority since they indicate explicit
-// user action. If no context-related error is detected, the original error is
+// protocol error. Fatal diagnostics take priority because readiness is unsafe;
+// otherwise cancel requests take priority since they indicate explicit user action. If no context-related error is detected, the original error is
 // returned unchanged.
 func queryContextError(queryCtx context.Context, err error) error {
-	if err == nil {
-		return nil
+	if err == nil || fatalDiagnostic(err) != nil {
+		return err
 	}
 	// CancelRequest sets errQueryCanceled as the cause on the query context.
 	if errors.Is(context.Cause(queryCtx), errQueryCanceled) {

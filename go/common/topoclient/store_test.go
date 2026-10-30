@@ -16,7 +16,9 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -149,8 +151,37 @@ func TestOpenServerPassesTLSOptionsToSupportingFactory(t *testing.T) {
 }
 
 func TestCreateConnRejectsTLSOptionsForUnsupportedFactory(t *testing.T) {
-	_, err := createConn(newMockFactory(), GlobalCell, "/test", []string{"localhost:2379"}, &TLSOptions{})
+	_, err := createConn(newMockFactory(), GlobalCell, "/test", []string{"localhost:2379"}, &TopoConfig{TLS: &TLSOptions{}})
 	require.ErrorContains(t, err, "does not support TLS connections")
+}
+
+func TestCreateConnRoutesADialerToFactoryWithDialer(t *testing.T) {
+	factory := &mockFactoryWithDialer{mockFactory: newMockFactory()}
+	dial := func(context.Context, string) (net.Conn, error) { return nil, errors.New("unused") }
+	tlsOptions := &TLSOptions{}
+	_, err := createConn(factory, GlobalCell, "/test", []string{"localhost:2379"},
+		&TopoConfig{TLS: tlsOptions, ContextDialer: dial})
+	require.NoError(t, err)
+	require.NotNil(t, factory.dial, "CreateWithDialer was not called")
+	assert.Same(t, tlsOptions, factory.tlsOptions)
+}
+
+func TestCreateConnRejectsADialerForUnsupportedFactory(t *testing.T) {
+	dial := func(context.Context, string) (net.Conn, error) { return nil, errors.New("unused") }
+	_, err := createConn(newMockFactoryWithTLS(), GlobalCell, "/test", []string{"localhost:2379"},
+		&TopoConfig{ContextDialer: dial})
+	require.ErrorContains(t, err, "does not support a custom dialer")
+}
+
+type mockFactoryWithDialer struct {
+	*mockFactory
+	tlsOptions *TLSOptions
+	dial       ContextDialer
+}
+
+func (f *mockFactoryWithDialer) CreateWithDialer(topoName, root string, serverAddrs []string, tlsOptions *TLSOptions, dial ContextDialer) (Conn, error) {
+	f.tlsOptions, f.dial = tlsOptions, dial
+	return f.Create(topoName, root, serverAddrs)
 }
 
 type mockFactoryWithTLS struct {
@@ -305,8 +336,10 @@ func TestConnForCell_NonexistentCell(t *testing.T) {
 
 	// Try to get connection for nonexistent cell
 	conn, err := ts.ConnForCell(ctx, "nonexistent")
-	assert.Error(t, err, "ConnForCell should fail for nonexistent cell")
+	require.Error(t, err, "ConnForCell should fail for nonexistent cell")
 	assert.Nil(t, conn, "Connection should be nil")
+	assert.ErrorContains(t, err, `failed to look up cell "nonexistent" definition from global topology`)
+	assert.True(t, errors.Is(err, &TopoError{Code: NoNode}), "underlying error should still be NoNode")
 }
 
 func TestConnForCell_CanceledContext(t *testing.T) {

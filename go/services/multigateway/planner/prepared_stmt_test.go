@@ -41,20 +41,23 @@ import (
 type mockIExecute struct {
 	portalStreamExecuteCalled bool
 	// streamExecuteCalls records the observable arguments of every StreamExecute
-	// call so tests can assert on the SQL EXECUTE template and the attached
+	// call so tests can assert on the substituted SQL and the attached eager-parse
 	// prepared statement metadata for wrapped EXECUTE cases.
 	streamExecuteCalls []streamExecuteCall
+	// describeErr, when set, is returned by Describe — used to exercise the
+	// eager-Describe-at-PREPARE error path.
+	describeErr error
 }
 
 // streamExecuteCall records the observable arguments of a StreamExecute call.
 type streamExecuteCall struct {
 	sql                         string
-	executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+	eagerParsePreparedStatement *query.PreparedStatement
 	info                        engine.PlanExecInfo
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
-	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps, info: info})
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, eagerParsePreparedStatement: ps, info: info})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
@@ -64,6 +67,9 @@ func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *
 }
 
 func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+	if m.describeErr != nil {
+		return nil, m.describeErr
+	}
 	return nil, nil
 }
 
@@ -129,7 +135,7 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 	return nil, nil
 }
 
-func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
+func (m *mockHandlerExecutor) PrepareInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
 	return nil
 }
 
@@ -202,6 +208,24 @@ func TestPlanPrepareStmt(t *testing.T) {
 	assert.Equal(t, "SELECT 1", psi.Query)
 }
 
+// TestPlanPrepareStmtSurfacesDescribeErrorEagerly verifies that a PREPARE whose
+// eager Describe fails (e.g. the body references a missing relation or column)
+// surfaces the error at PREPARE time — matching PostgreSQL, which analyzes at
+// PREPARE rather than deferring to the first EXECUTE — and leaves no statement
+// registered on failure.
+func TestPlanPrepareStmtSurfacesDescribeErrorEagerly(t *testing.T) {
+	s := newTestSetup(t)
+	s.exec.describeErr = mterrors.NewFeatureNotSupported("describe failed: relation does not exist")
+
+	_, err := planAndExecute(t, s, "PREPARE p AS SELECT * FROM missing")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "describe failed")
+
+	// PostgreSQL leaves nothing registered when PREPARE fails analysis.
+	assert.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "p"),
+		"a PREPARE that fails its eager Describe must not leave the statement registered")
+}
+
 func TestPlanPrepareStmtDuplicateName(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -245,11 +269,9 @@ func TestPlanExecuteStmt(t *testing.T) {
 	assert.False(t, s.exec.portalStreamExecuteCalled, "top-level SQL EXECUTE should route as SQL, not bind a portal")
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Equal(t, "EXECUTE myplan", call.sql)
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
+	// EXECUTE now runs the substituted prepared body as an ordinary query.
+	assert.Equal(t, "SELECT 1", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement, "SQL EXECUTE no longer ships a prepared-statement template")
 }
 
 func TestPlanExecuteStmtWithParams(t *testing.T) {
@@ -265,11 +287,9 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Equal(t, "EXECUTE myplan ( 42 )", call.sql)
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Equal(t, " ( 42 )", call.executeSQLPreparedStatement.SqlSuffix)
+	// The argument is substituted for $1 and cast to the resolved parameter type.
+	assert.Equal(t, "SELECT CAST(42 AS INT)", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 func TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock(t *testing.T) {
@@ -297,6 +317,43 @@ func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
 	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
 }
 
+// TestPlanExecuteStmtCarriesPreparedBodyLogicalReplicationSlot proves EXECUTE
+// reserves a connection for a prepared body that creates a temporary logical
+// replication slot, mirroring the direct (non-prepared) statement path (see
+// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo). The slot only exists
+// on the backend that runs this EXECUTE; without the reservation the
+// connection returns to the pool and a later operation on the slot lands on
+// a different backend where it does not exist.
+func TestPlanExecuteStmtCarriesPreparedBodyLogicalReplicationSlot(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.LogicalReplicationSlot)
+}
+
+// TestPlanExecuteStmtCarriesPreparedBodySetSeed proves EXECUTE reserves a
+// connection for a prepared body that calls setseed(...), mirroring the
+// direct (non-prepared) statement path (see TestPlan_SetSeed_SetsExecInfo).
+// The seed is backend-local state with no reset command; without the
+// reservation a later random() call could land on a different, unseeded
+// backend.
+func TestPlanExecuteStmtCarriesPreparedBodySetSeed(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT setseed(0.5)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.SetSeed)
+}
+
 // TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig pins the unpinned
 // EXECUTE handling that replaces the old capture reservation: a prepared body
 // carrying a session-persisting set_config(..., false) runs on the pooled
@@ -312,9 +369,7 @@ func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, s.exec.streamExecuteCalls)
 		last := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-		require.NotNil(t, last.executeSQLPreparedStatement)
-		require.NotNil(t, last.executeSQLPreparedStatement.GetPreparedStatement())
-		return strings.ToLower(last.executeSQLPreparedStatement.GetPreparedStatement().GetQuery())
+		return strings.ToLower(last.sql)
 	}
 
 	// Unpinned session (no transaction, no reserved conn): the persisting
@@ -330,6 +385,51 @@ func TestPlanExecuteStmtRewritesUnpinnedPersistingSetConfig(t *testing.T) {
 	require.NoError(t, err)
 	body = routedBody("EXECUTE localplan('x')")
 	assert.Contains(t, body, "true", "the transaction-scoped body runs verbatim (is_local := true)")
+}
+
+// TestPlanExecuteStmtRevalidatesFailoverSlotAdmission proves EXECUTE
+// re-derives admission from the live flag rather than inheriting whatever
+// held when PREPARE registered the body: the same prepared statement is
+// admitted while the feature is on and rejected once it is off, without the
+// client re-preparing anything.
+func TestPlanExecuteStmtRevalidatesFailoverSlotAdmission(t *testing.T) {
+	s := newTestSetup(t)
+	enabled := true
+	s.p.SetSlotBasedReplicationEnabled(func() bool { return enabled })
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', failover => true)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+
+	enabled = false
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.ErrorContains(t, err, "requires temporary=true")
+}
+
+// TestPlanExecuteStmtRevertsPersistingSetConfigAlongsideFailoverSlot proves an
+// admitted failover-slot creation doesn't suppress the unpinned set_config
+// revert: a persistent slot needs no backend reservation (it is visible from
+// any backend), so the session stays unpinned and the body's persisting
+// set_config must still be flipped to transaction-scoped before running on a
+// pooled backend.
+func TestPlanExecuteStmtRevertsPersistingSetConfigAlongsideFailoverSlot(t *testing.T) {
+	s := newTestSetup(t)
+	s.p.SetSlotBasedReplicationEnabled(func() bool { return true })
+
+	_, err := planAndExecute(t, s,
+		"PREPARE myplan AS SELECT pg_create_logical_replication_slot('slot1', 'pgoutput', failover => true), set_config('application_name', 'x', false)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	body := strings.ToLower(s.exec.streamExecuteCalls[0].sql)
+	assert.Contains(t, body, "failover => true", "the admitted call is routed exactly as written")
+	assert.Contains(t, body, "application_name", "the set_config revert must still apply")
+	assert.NotContains(t, body, "'x', false", "the persisting is_local := false must be rewritten out")
 }
 
 func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
@@ -363,12 +463,10 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
-	assert.Contains(t, call.sql, "EXECUTE myplan")
-	require.NotNil(t, call.executeSQLPreparedStatement)
-	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
-	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "SMALLINT")
-	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "ARRAY")
+	// Argument expressions are preserved inside the per-parameter casts to the
+	// resolved parameter types (int, int[]).
+	assert.Equal(t, "SELECT CAST(CAST(5 AS SMALLINT) AS INT), CAST(ARRAY[1,2,3] AS _int4)", call.sql)
+	assert.Nil(t, call.eagerParsePreparedStatement)
 }
 
 func TestPlanExecuteStmtNonExistent(t *testing.T) {

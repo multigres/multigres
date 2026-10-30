@@ -34,4 +34,15 @@ const (
 
 	// ServicePgbackrest is the name of the pgbackrest service.
 	ServicePgbackrest = "pgbackrest"
+
+	// ServiceMinigres is the name of the minigres service, which runs a
+	// multigateway and a multipooler in one process.
+	ServiceMinigres = "minigres"
 )
+
+// PgServingServices lists the service names that accept client PostgreSQL
+// wire-protocol connections directly. Tooling that needs to find a cluster's
+// Postgres entry point should check membership in this list instead of
+// hardcoding a single service name, so it keeps working regardless of
+// which of these topologies a given cell is configured with.
+var PgServingServices = []string{ServiceMultigateway, ServiceMinigres}

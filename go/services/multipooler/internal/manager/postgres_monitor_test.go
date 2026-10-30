@@ -21,12 +21,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -35,6 +39,8 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
@@ -119,7 +125,7 @@ func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *Mul
 	t.Helper()
 	mp := &clustermetadatapb.Multipooler{
 		Id:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "test-pooler"},
-		ShardKey:  &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
+		ShardRef:  &clustermetadatapb.ShardRef{TableGroup: "default", Shard: "0-inf"},
 		PoolerDir: t.TempDir(),
 	}
 	pm, err := NewMultipoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
@@ -499,6 +505,67 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
+		},
+		{
+			// Sentinel from a prior interrupted restore must override the
+			// dirInitialized=true signal (a partial restore can already contain
+			// PG_VERSION), so the partial directory is removed and the restore
+			// retried instead of a doomed start.
+			name: "restore_sentinel_present_forces_restore_path",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         true,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			// With both sentinels present the bootstrap sentinel wins: bootstrap
+			// removes its stale data directory and clears the restore sentinel
+			// itself, so the restore sentinel cannot block it.
+			name: "bootstrap_sentinel_wins_over_restore_sentinel",
+			state: postgresState{
+				pgctldAvailable:          true,
+				postgresRunning:          false,
+				dirInitialized:           true,
+				bootstrapSentinelPresent: true,
+				restoreSentinelPresent:   true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionCreateFirstBackup,
+		},
+		{
+			// The repository is readable but holds no complete backup. The
+			// sentinel must still pick the restore path, which itself waits for a
+			// backup before touching the data, rather than starting postgres on
+			// the partial restore.
+			name: "restore_sentinel_without_backups_still_restores",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         true,
+				backupsAvailable:       false,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			// An interrupted restore means this shard already had a backup, so
+			// even with no data directory and no backup visible right now, the
+			// node must retry the restore rather than bootstrap a new shard.
+			name: "restore_sentinel_without_data_dir_or_backups_does_not_bootstrap",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				dirInitialized:         false,
+				backupsAvailable:       false,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionRestoreFromBackup,
 		},
 	}
 
@@ -993,6 +1060,52 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	// Reason stays the same since we're retrying
 }
 
+// TestTakeRemedialAction_SlowStartDoesNotBlockForever verifies that a wedged
+// pgctld.Start call is bounded by the caller's ctx rather than blocking the
+// monitor tick forever. It mirrors what monitorPostgresIteration does before
+// calling in: bound ctx to remedialActionTimeout(action) (see postgres_monitor.go).
+//
+// Runs under synctest so the simulated wait costs no real wall-clock time. If
+// takeRemedialAction ever stopped honoring that bound (e.g. a future case
+// reaching for an unbounded context instead), the mock's blocking read would
+// never unblock, and synctest would fail the test with a deadlock instead of
+// hanging the test run.
+func TestTakeRemedialAction_SlowStartDoesNotBlockForever(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mockPgctld := &mockPgctldClient{startBlockForever: true}
+		pm := newTestManager(t)
+		pm.pgctldClient = mockPgctld
+
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+
+		actionCtx, cancel := context.WithTimeout(lockCtx, remedialActionTimeout(remedialActionStartPostgres))
+		defer cancel()
+
+		start := time.Now()
+		actionErr := pm.takeRemedialAction(actionCtx, remedialActionStartPostgres, postgresState{})
+		elapsed := time.Since(start)
+
+		require.ErrorIs(t, actionErr, context.DeadlineExceeded)
+		assert.Equal(t, defaultRemedialActionTimeout, elapsed)
+		assert.True(t, mockPgctld.startCalled)
+	})
+}
+
+// TestRemedialActionTimeout_BackupRestoreAtLeastMatchTheirOwnBudget is a
+// regression test: Backup()/Restore() apply their own context.WithTimeout
+// using commonbackup.BackupTimeout/RestoreTimeout, but a context's deadline
+// can never be later than its parent's — so if the monitor's own outer bound
+// for these actions were ever shorter than that, it would silently truncate
+// the operation's documented budget without either side's code changing.
+func TestRemedialActionTimeout_BackupRestoreAtLeastMatchTheirOwnBudget(t *testing.T) {
+	assert.GreaterOrEqual(t, remedialActionTimeout(remedialActionCreateFirstBackup), commonbackup.BackupTimeout,
+		"first-backup's outer bound must not be tighter than Backup()'s own budget")
+	assert.GreaterOrEqual(t, remedialActionTimeout(remedialActionRestoreFromBackup), commonbackup.RestoreTimeout,
+		"restore's outer bound must not be tighter than Restore()'s own budget")
+}
+
 // TestTakeRemedialAction_RewindToLeaderFails verifies that a failed rewind
 // propagates its error out of takeRemedialAction (so the unrecoverable-FATAL-loop
 // classifier counts it). A recorded, rewind-ready foreign leader makes
@@ -1253,7 +1366,7 @@ func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryS
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1650,6 +1763,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
 		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
+		{"restoreSentinelPresent", func() postgresState { s := base; s.restoreSentinelPresent = true; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {
@@ -2376,4 +2490,96 @@ func TestStartPostgres_MarksSuspectedDivergenceAfterCrashRecovery(t *testing.T) 
 			assert.Equal(t, tt.wantSuspected, pm.consensusMgr.SuspectedDivergence())
 		})
 	}
+}
+
+// TestDiscoverPostgresState_SeedsConnectionBudget covers the Status →
+// SeedConnectionBudget translation: reported reserved GUCs (including a
+// legitimate zero) carry through, absent ones become -1 (unknown), an
+// unknown max_connections leaves the previous budget in place, and a nil
+// ConnPoolConfig must not panic.
+func TestDiscoverPostgresState_SeedsConnectionBudget(t *testing.T) {
+	ctx := t.Context()
+
+	newPM := func(resp *pgctldpb.StatusResponse) *MultipoolerManager {
+		pm := NewTestMultipoolerManager(t)
+		pm.pgctldClient = &mockPgctldClient{statusResponse: resp}
+		pm.config.ConnPoolConfig = connpoolmanager.NewConfig(viperutil.NewRegistry())
+		return pm
+	}
+
+	t.Run("reported reserves carry through, zero included", func(t *testing.T) {
+		pm := newPM(&pgctldpb.StatusResponse{
+			Status:                       pgctldpb.ServerStatus_STOPPED,
+			MaxConnections:               110,
+			SuperuserReservedConnections: proto.Int32(7),
+			ReservedConnections:          proto.Int32(0),
+		})
+		_, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+
+		b := pm.config.ConnPoolConfig.SeedConnectionBudget()
+		require.NotNil(t, b)
+		assert.Equal(t, int64(110), b.MaxConnections)
+		assert.Equal(t, int64(7), b.SuperuserReservedConnections)
+		assert.Zero(t, b.ReservedConnections, "a known zero must not be treated as unknown")
+	})
+
+	t.Run("never-reported reserves resolve to PostgreSQL defaults", func(t *testing.T) {
+		pm := newPM(&pgctldpb.StatusResponse{
+			Status:         pgctldpb.ServerStatus_STOPPED,
+			MaxConnections: 110,
+		})
+		_, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+
+		b := pm.config.ConnPoolConfig.SeedConnectionBudget()
+		require.NotNil(t, b)
+		assert.Equal(t, int64(constants.PgDefaultSuperuserReservedConnections), b.SuperuserReservedConnections)
+		assert.Equal(t, int64(constants.PgDefaultReservedConnections), b.ReservedConnections)
+	})
+
+	t.Run("transient probe gap keeps the last known reserve", func(t *testing.T) {
+		pm := newPM(&pgctldpb.StatusResponse{
+			Status:                       pgctldpb.ServerStatus_STOPPED,
+			MaxConnections:               110,
+			SuperuserReservedConnections: proto.Int32(20),
+		})
+		_, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+
+		// The next report omits the reserve (e.g. pgctld's probe transiently
+		// failed after a restart); the known 20 must not snap back to 3.
+		pm.pgctldClient = &mockPgctldClient{statusResponse: &pgctldpb.StatusResponse{
+			Status:         pgctldpb.ServerStatus_STOPPED,
+			MaxConnections: 110,
+		}}
+		_, err = pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+
+		b := pm.config.ConnPoolConfig.SeedConnectionBudget()
+		require.NotNil(t, b)
+		assert.Equal(t, int64(20), b.SuperuserReservedConnections)
+	})
+
+	t.Run("unknown max_connections keeps the previous budget", func(t *testing.T) {
+		pm := newPM(&pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED, MaxConnections: 110})
+		_, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, pm.config.ConnPoolConfig.SeedConnectionBudget())
+
+		pm.pgctldClient = &mockPgctldClient{statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED}}
+		_, err = pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+		b := pm.config.ConnPoolConfig.SeedConnectionBudget()
+		require.NotNil(t, b, "an unknown report must not clear the last-known budget")
+		assert.Equal(t, int64(110), b.MaxConnections)
+	})
+
+	t.Run("nil ConnPoolConfig does not panic", func(t *testing.T) {
+		pm := NewTestMultipoolerManager(t)
+		pm.pgctldClient = &mockPgctldClient{statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED, MaxConnections: 110}}
+		pm.config.ConnPoolConfig = nil
+		_, err := pm.discoverPostgresState(ctx)
+		require.NoError(t, err)
+	})
 }

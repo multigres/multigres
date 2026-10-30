@@ -15,6 +15,7 @@
 package etcdtopo
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -22,7 +23,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
+	"net"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,7 +49,7 @@ func TestNewTLSConfigFromPEM(t *testing.T) {
 	assert.Equal(t, uint16(tls.VersionTLS12), tlsConfig.MinVersion)
 	assert.False(t, tlsConfig.InsecureSkipVerify)
 
-	clientConfig := newEtcdClientConfig([]string{"https://etcd.example"}, tlsConfig)
+	clientConfig := newEtcdClientConfig([]string{"https://etcd.example"}, tlsConfig, nil)
 	assert.Same(t, tlsConfig, clientConfig.TLS)
 }
 
@@ -52,7 +58,7 @@ func TestNewTLSConfigFromPEMWithoutMaterialUsesPlaintext(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, tlsConfig)
 
-	clientConfig := newEtcdClientConfig([]string{"http://etcd.example"}, tlsConfig)
+	clientConfig := newEtcdClientConfig([]string{"http://etcd.example"}, tlsConfig, nil)
 	assert.Nil(t, clientConfig.TLS)
 }
 
@@ -102,6 +108,25 @@ func TestNewServerWithTLSRejectsHTTPEndpoint(t *testing.T) {
 		CertPEM: certPEM,
 		KeyPEM:  keyPEM,
 	})
+	require.ErrorContains(t, err, "TLS cannot use HTTP endpoint")
+}
+
+// The flag-configured TLS must survive adding a dialer: with it dropped, the
+// http endpoint below would be accepted and the connection would be plaintext.
+func TestCreateWithDialerKeepsFlagConfiguredTLS(t *testing.T) {
+	certPEM, keyPEM, _ := newTestTLSMaterial(t)
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "cert.pem")
+	keyPath := filepath.Join(dir, "key.pem")
+	require.NoError(t, os.WriteFile(certPath, certPEM, 0o600))
+	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
+
+	origCert, origKey, origCA := clientCertPath, clientKeyPath, serverCaPath
+	t.Cleanup(func() { clientCertPath, clientKeyPath, serverCaPath = origCert, origKey, origCA })
+	clientCertPath, clientKeyPath, serverCaPath = certPath, keyPath, ""
+
+	dial := func(context.Context, string) (net.Conn, error) { return nil, errors.New("unused") }
+	_, err := Factory{}.CreateWithDialer("global", "/root", []string{"http://etcd.example:2379"}, nil, dial)
 	require.ErrorContains(t, err, "TLS cannot use HTTP endpoint")
 }
 
@@ -191,4 +216,28 @@ func newTestTLSMaterial(t *testing.T) (certPEM, keyPEM, caPEM []byte) {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientDER}),
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
 		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+}
+
+// A process outside the cluster passes its own dialer; clientv3 must use it for
+// the member connection, with the raw host:port, even for a host the local
+// resolver cannot resolve.
+func TestCreateWithDialerRoutesMemberConnectionsThroughTheDialer(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		dials []string
+	)
+	dial := func(_ context.Context, addr string) (net.Conn, error) {
+		mu.Lock()
+		dials = append(dials, addr)
+		mu.Unlock()
+		return nil, errors.New("recording dialer refuses every dial")
+	}
+	_, err := Factory{}.CreateWithDialer("global", "/root",
+		[]string{"etcd-0.example.internal:2379"}, nil, dial)
+	require.Error(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, dials, "the dialer was never used")
+	assert.Equal(t, "etcd-0.example.internal:2379", dials[0])
 }

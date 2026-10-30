@@ -39,6 +39,23 @@ type Planner struct {
 	// txnMetrics is injected into TransactionPrimitive at creation time
 	// for recording transaction duration and count.
 	txnMetrics *engine.TransactionMetrics
+
+	// slotBasedReplicationEnabled reports, read live, whether the
+	// slot-based-replication feature is on. When true, a non-temporary
+	// logical replication slot created via plain SQL (e.g.
+	// pg_create_logical_replication_slot) with a literal failover=true is
+	// admitted instead of rejected (see rejectNonTemporaryReplicationSlot).
+	// Dynamic so it tracks config reloads; nil reads as disabled. Set via
+	// SetSlotBasedReplicationEnabled. Mirrors
+	// handler.MultigatewayHandler.SetSlotBasedReplicationEnabled, which gates
+	// the same feature for the replication-protocol preamble.
+	slotBasedReplicationEnabled func() bool
+
+	// clusterViews supplies the rows of the gateway's cluster views
+	// (multigres.multigateways, multigres.multipoolers) at execution time.
+	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
+	// every statement naming one is forwarded to the backend unchanged.
+	clusterViews engine.ClusterViewSource
 }
 
 // NewPlanner creates a new query planner.
@@ -48,6 +65,35 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger, txnMetrics *engin
 		logger:            logger,
 		txnMetrics:        txnMetrics,
 	}
+}
+
+// SetSlotBasedReplicationEnabled wires the dynamic getter that gates
+// admitting a non-temporary logical failover replication slot created via
+// plain SQL. Must be called before connections are accepted. A nil getter
+// (the default) keeps the feature off, rejecting every non-temporary slot as
+// before.
+func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
+	p.slotBasedReplicationEnabled = enabled
+}
+
+// SetClusterViewSource wires the source the cluster views read from and so
+// turns the views on (see --enable-cluster-views). Must be called before
+// connections are accepted. Left nil, the views are off: a reference to
+// multigres.multipoolers is an ordinary unknown relation to the backend.
+func (p *Planner) SetClusterViewSource(source engine.ClusterViewSource) {
+	p.clusterViews = source
+}
+
+// ClusterViewsEnabled reports whether the gateway serves the cluster views.
+func (p *Planner) ClusterViewsEnabled() bool {
+	return p.clusterViews != nil
+}
+
+// admitsFailoverSlots reports whether the planner should admit a
+// non-temporary logical replication slot created with failover=true,
+// reading the dynamic gate live.
+func (p *Planner) admitsFailoverSlots() bool {
+	return p.slotBasedReplicationEnabled != nil && p.slotBasedReplicationEnabled()
 }
 
 // PlanOptions carries planning inputs for a single Plan call.
@@ -171,23 +217,23 @@ func (p *Planner) Plan(
 	// construction already analyzed and safe. The normalizer is configured to
 	// preserve literals inside set_config calls so its args remain A_Const at
 	// this point.
-	analysis, err := analyzeStatement(stmt, unsafeConnection)
+	analysis, err := analyzeStatement(stmt, unsafeConnection, p.admitsFailoverSlots())
 	if err != nil {
 		return nil, err
 	}
 
 	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
-	// before normal dispatch. The wrapper's inner ExecuteStmt references a
-	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
-	// attach a SQL prefix/suffix template plus PreparedStatement metadata so the
-	// multipooler can resolve a pooler-consolidated backend name before running
-	// the query. See execute_unwrap.go.
+	// before normal dispatch. The inner ExecuteStmt names a gateway-managed
+	// prepared statement (e.g. "p") the backend session never sees;
+	// tryUnwrapWrappedExecute substitutes the EXECUTE arguments into the prepared
+	// body and splices the result in place of the ExecuteStmt, so `EXPLAIN EXECUTE
+	// p(5)` runs as `EXPLAIN SELECT ...` — an ordinary query. See execute_unwrap.go.
 	//
-	// Simple protocol only: the rewrite produces a Route carrying the SQL EXECUTE
-	// template, but Route.PortalStreamExecute forwards the portal as-is and
-	// ignores that metadata, so the unwrap is a no-op (or worse, an error if the
-	// statement is missing) over the extended protocol. In portal mode these
-	// wrapped forms fall through to normal dispatch and route like any query.
+	// Gated to the simple protocol: this call site passes no portal (nil), so an
+	// EXECUTE argument that is an outer bound parameter ($N from an extended-protocol
+	// Bind) cannot be resolved. Extended-protocol wrapped EXECUTE therefore falls
+	// through to normal dispatch. The substitution itself is protocol-agnostic;
+	// lifting this gate needs the portal threaded through so bound args resolve.
 	if !opts.IsPortal {
 		if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
 			return nil, err
@@ -212,6 +258,14 @@ func (p *Planner) Plan(
 	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
 	opts.PinForSetSeed = analysis.CallsSetSeed
 	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
+
+	// Writes to a cluster view and definitions persisted over one are
+	// rejected before dispatch; see CheckClusterViewStatement.
+	if p.ClusterViewsEnabled() && engine.MayReferenceClusterView(sql) {
+		if err := CheckClusterViewStatement(stmt); err != nil {
+			return nil, err
+		}
+	}
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -253,12 +307,18 @@ func (p *Planner) Plan(
 
 	case ast.T_CreateStmt:
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -267,6 +327,9 @@ func (p *Planner) Plan(
 		// Temp sequences are session-scoped like temp tables: nextval/currval
 		// on later statements must land on the same backend connection.
 		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -274,12 +337,18 @@ func (p *Planner) Plan(
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
 		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -287,6 +356,9 @@ func (p *Planner) Plan(
 	case ast.T_DeclareCursorStmt:
 		dcs := stmt.(*ast.DeclareCursorStmt)
 		if dcs.Options&ast.CURSOR_OPT_HOLD != 0 {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planHoldCursorDeclare(sql, dcs)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -300,6 +372,10 @@ func (p *Planner) Plan(
 	}
 
 	if err != nil {
+		return nil, err
+	}
+
+	if plan, err = p.wrapClusterViews(sql, stmt, plan); err != nil {
 		return nil, err
 	}
 
@@ -518,25 +594,54 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	return plan, nil
 }
 
-// routePrimitive builds the leading Route for a query. When analysis flagged a
-// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
-// rewritten out so it returns the gateway-owned value and the Route is wrapped in
-// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
-// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
-// a plain Route over the original statement. The flag is set only when a rewrite is
-// actually required, so the common case never walks the tree here.
-func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+// applyRouteRewrites applies opts.RewriteCurrentSetting if required, in a
+// single place both route-building paths (routePrimitive and planSelectStmt)
+// share, so a second rewrite that also needs to run at this layer only needs
+// to be added here once rather than in both callers in lockstep.
+//
+// A gateway-managed current_setting call is rewritten out so it returns the
+// gateway-owned value (see rewriteGatewayManagedCurrentSetting); reads
+// carries the synthetic value slots a GatewayManagedValueRoute must fill
+// from gateway state at execute time.
+//
+// stmt may already be a rewritten clone from an earlier, caller-specific pass
+// (planSelectStmt's gateway-managed set_config rewrite runs before this).
+// rewrote is false, and routeAST == stmt, when the rewrite didn't apply — it
+// is set only when the rewrite is actually required, so the common case
+// never walks the tree here.
+func applyRouteRewrites(stmt ast.Stmt, opts PlanOptions) (routeAST ast.Stmt, reads []engine.GatewayManagedSettingRead, rewrote bool, err error) {
+	routeAST = stmt
 	if opts.RewriteCurrentSetting {
-		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		rewritten, csReads, err := rewriteGatewayManagedCurrentSetting(routeAST)
 		if err != nil {
-			return nil, err
+			return nil, nil, false, err
 		}
 		if rewritten != nil {
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
-			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+			routeAST, reads, rewrote = rewritten, csReads, true
 		}
 	}
-	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+	return routeAST, reads, rewrote, nil
+}
+
+// routePrimitive builds the leading Route for a query, applying whichever
+// rewrites analysis flagged as required (see applyRouteRewrites). If no
+// rewrite applies, this is a plain Route over the original statement;
+// otherwise the Route is built from the rewritten AST's own deparse and
+// wrapped in a GatewayManagedValueRoute when there are synthetic value slots
+// to fill at execute time.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	routeAST, reads, rewrote, err := applyRouteRewrites(stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !rewrote {
+		return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+	}
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeAST.SqlString(), routeAST)
+	if len(reads) > 0 {
+		return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+	}
+	return route, nil
 }
 
 // execInfoFromOpts derives the plan-level reservation directives for a
@@ -605,6 +710,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeHoldCursorRoute
 	case *engine.CloseCursorRoute:
 		return engine.PlanTypeCloseCursorRoute
+	case *engine.ClusterViewRoute:
+		return engine.PlanTypeClusterViewRoute
 	case *engine.TransactionPrimitive:
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:

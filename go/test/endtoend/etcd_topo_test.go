@@ -75,6 +75,8 @@ func TestEtcd2Topo(t *testing.T) {
 	testLockNameWithTTL(t, ts)
 	testTryLockName(t, ts)
 	testEphemeralLeaseRenewal(t, ts, clientAddr)
+	testEphemeralUnchangedSkipsWrite(t, ts, clientAddr)
+	testRegistrationReassertSkipsWrite(t, ts, clientAddr)
 	ts.Close()
 
 	// The expiry test closes its server itself, so it gets its own.
@@ -127,6 +129,142 @@ func testEphemeralLeaseRenewal(t *testing.T, ts topoclient.Store, clientAddr str
 	require.Len(t, resp.Kvs, 1)
 	require.NotZero(t, resp.Kvs[0].Lease, "re-written file must carry a lease")
 	require.NotEqual(t, leaseID, resp.Kvs[0].Lease, "re-written file must be on a fresh lease")
+}
+
+// testEphemeralUnchangedSkipsWrite verifies that re-asserting an ephemeral
+// file that is already current costs no write: every gateway and orchestrator
+// re-asserts on a short interval, and an unconditional write per tick would
+// churn revisions and watchers on a shared etcd. It also verifies the cases
+// that must still write: changed contents, a file deleted out of band, and a
+// file holding the right contents on the wrong (or no) lease.
+func testEphemeralUnchangedSkipsWrite(t *testing.T, ts topoclient.Store, clientAddr string) {
+	ctx := context.Background()
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
+	require.NoError(t, err, "ConnForCell failed")
+
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{clientAddr}, DialTimeout: 5 * time.Second})
+	require.NoError(t, err, "raw etcd client failed")
+	defer cli.Close()
+
+	modRevision := func(key string) int64 {
+		t.Helper()
+		resp, err := cli.Get(ctx, key)
+		require.NoError(t, err)
+		require.Len(t, resp.Kvs, 1, "key %s should exist", key)
+		return resp.Kvs[0].ModRevision
+	}
+
+	for _, tc := range []struct {
+		name  string
+		file  string
+		write func(file, contents string) error
+	}{
+		{"PutEphemeral", "ephemeral/skip-put", func(f, c string) error { return conn.PutEphemeral(ctx, f, []byte(c)) }},
+		{"ClaimEphemeral", "ephemeral/skip-claim", func(f, c string) error { return conn.ClaimEphemeral(ctx, f, []byte(c)) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, tc.write(tc.file, "v1"))
+			fullKey, leaseID := findEphemeralKey(t, cli, tc.file)
+			require.NotZero(t, leaseID)
+			rev := modRevision(fullKey)
+
+			require.NoError(t, tc.write(tc.file, "v1"))
+			require.Equal(t, rev, modRevision(fullKey), "unchanged re-assert must not write")
+
+			// Same contents on no lease (e.g. a plain Update severed the
+			// binding): must rebind to our lease, or it never expires.
+			_, err := cli.Put(ctx, fullKey, "v1")
+			require.NoError(t, err)
+			require.NoError(t, tc.write(tc.file, "v1"))
+			_, gotLease := findEphemeralKey(t, cli, tc.file)
+			require.Equal(t, leaseID, gotLease, "re-assert must rebind the file to the connection's lease")
+
+			// Deleted out of band: must re-create.
+			_, err = cli.Delete(ctx, fullKey)
+			require.NoError(t, err)
+			require.NoError(t, tc.write(tc.file, "v1"))
+			_, gotLease = findEphemeralKey(t, cli, tc.file)
+			require.Equal(t, leaseID, gotLease, "re-created file must carry the connection's lease")
+		})
+	}
+
+	// Changed contents must write (PutEphemeral only; a claim with other
+	// contents is a different owner and correctly gets NodeExists).
+	fullKey, _ := findEphemeralKey(t, cli, "ephemeral/skip-put")
+	rev := modRevision(fullKey)
+	require.NoError(t, conn.PutEphemeral(ctx, "ephemeral/skip-put", []byte("v2")))
+	require.Greater(t, modRevision(fullKey), rev, "changed contents must be written")
+}
+
+// testRegistrationReassertSkipsWrite verifies that re-registering an unchanged
+// gateway or orchestrator leaves its etcd key untouched. Their records carry a
+// port_map, and proto's default encoding orders map entries differently between
+// calls, so without deterministic marshaling the byte comparison in
+// PutEphemeral fails on most calls and every re-assertion still writes.
+func testRegistrationReassertSkipsWrite(t *testing.T, ts topoclient.Store, clientAddr string) {
+	ctx := context.Background()
+
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{clientAddr}, DialTimeout: 5 * time.Second})
+	require.NoError(t, err, "raw etcd client failed")
+	defer cli.Close()
+
+	portMap := map[string]int32{
+		"grpc": 15000, "http": 15001, "postgres": 15432, "pgctld": 15100,
+		"admin": 15200, "metrics": 15300, "debug": 15400, "health": 15500,
+	}
+
+	gatewayID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: test.LocalCellName, Name: "reassert-gw",
+	}
+	orchID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH, Cell: test.LocalCellName, Name: "reassert-orch",
+	}
+
+	for _, tc := range []struct {
+		name     string
+		suffix   string
+		register func() error
+	}{
+		{
+			"Multigateway",
+			path.Join(topoclient.GatewaysPath, string(topoclient.ComponentIDString(gatewayID)), topoclient.GatewayFile),
+			func() error {
+				return ts.RegisterMultigateway(ctx, &clustermetadatapb.Multigateway{
+					Id: gatewayID, Hostname: "host1", PortMap: portMap,
+				}, true)
+			},
+		},
+		{
+			"Multiorch",
+			path.Join(topoclient.OrchsPath, string(topoclient.ComponentIDString(orchID)), topoclient.OrchFile),
+			func() error {
+				return ts.RegisterMultiorch(ctx, &clustermetadatapb.Multiorch{
+					Id: orchID, Hostname: "host1", PortMap: portMap,
+				}, true)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, tc.register())
+			fullKey, _ := findEphemeralKey(t, cli, tc.suffix)
+			resp, err := cli.Get(ctx, fullKey)
+			require.NoError(t, err)
+			require.Len(t, resp.Kvs, 1)
+			rev := resp.Kvs[0].ModRevision
+
+			// A single call differs from the stored bytes about a third of
+			// the time without the fix; this many makes a miss negligible.
+			for range 200 {
+				require.NoError(t, tc.register())
+			}
+
+			resp, err = cli.Get(ctx, fullKey)
+			require.NoError(t, err)
+			require.Len(t, resp.Kvs, 1)
+			require.Equal(t, rev, resp.Kvs[0].ModRevision,
+				"re-registering an unchanged record with a populated port_map must not write")
+		})
+	}
 }
 
 // testEphemeralExpiresOnClose verifies the core liveness promise: when the

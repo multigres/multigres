@@ -118,17 +118,13 @@ spec:
             - --table-group=default
             - --shard=0-inf
             - --service-id=$(POD_INDEX)
-            - --pooler-dir=/data
             - --pgctld-addr=localhost:16200
-            - --pg-port=5432
-            - --socket-file=/data/pg_sockets/.s.PGSQL.5432
+            # --pooler-dir, --pg-port, --pgbackrest-port, and the pgbackrest
+            # cert paths are adopted from pgctld's Status RPC; --socket-file
+            # is derived from the adopted pooler-dir and pg-port.
             - --grpc-socket-file=/data/multipooler.sock
             - --connpool-global-capacity=50
             - --service-map=grpc-pooler
-            - --pgbackrest-cert-file=/certs/pgbackrest.crt
-            - --pgbackrest-key-file=/certs/pgbackrest.key
-            - --pgbackrest-ca-file=/certs/ca.crt
-            - --pgbackrest-port=8432
             - --pprof-http=true
             # Logical-slot failover (PR #1394): admit non-temporary failover
             # slots and enable per-follower physical slots, primary_slot_name,

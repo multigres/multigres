@@ -152,6 +152,10 @@ type poolerConnection struct {
 	onHealthUpdate func(*poolerConnection)
 }
 
+// localPoolerTarget is the gRPC target for a LocalPooler; its dial options
+// ignore it.
+const localPoolerTarget = "passthrough:///local-multipooler"
+
 // newPoolerConnection creates a new connection to a multipooler instance and
 // starts health streaming automatically.
 //
@@ -165,11 +169,18 @@ func newPoolerConnection(
 	pooler *clustermetadatapb.Multipooler,
 	logger *slog.Logger,
 	grpcDialOpt grpc.DialOption,
+	local *LocalPooler,
 	onHealthUpdate func(*poolerConnection),
 ) (*poolerConnection, error) {
 	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
+	dialOpts := []grpc.DialOption{grpcDialOpt}
+	if local != nil {
+		// The pooler is in this process; its topology address is not used.
+		addr = localPoolerTarget
+		dialOpts = local.DialOptions
+	}
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
@@ -179,7 +190,7 @@ func newPoolerConnection(
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpcDialOpt),
+		grpccommon.WithDialOptions(dialOpts...),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)

@@ -64,11 +64,14 @@ func roleFromAnnotation(s string) clustermetadatapb.RoutingRole {
 // Backup performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
 func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobID string, pg2Args []string, routingRole clustermetadatapb.RoutingRole) (retBackupID string, retErr error) {
+	defer e.listCache.Invalidate()
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
-	if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardKey()); err != nil {
-		return "", mterrors.Wrap(err, "backup lease not held")
+	if !e.settings.NoBackupLease {
+		if err := topoclient.AssertBackupLockHeld(ctx, e.id.ShardRef()); err != nil {
+			return "", mterrors.Wrap(err, "backup lease not held")
+		}
 	}
 
 	cfg, err := e.requireBackupConfig()
@@ -84,8 +87,8 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 		return "", err
 	}
 
-	tableGroup := e.id.ShardKey().GetTableGroup()
-	shard := e.id.ShardKey().GetShard()
+	tableGroup := e.id.ShardRef().GetTableGroup()
+	shard := e.id.ShardRef().GetShard()
 	multipoolerName := e.id.Id().Name
 
 	// Use provided job_id or generate one (same format as multiadmin)

@@ -229,6 +229,7 @@ func analyzePLpgSQLFunction(fn *plpgsqlast.PLpgSQL_function) error {
 type varResolver struct {
 	assigns   map[string][]*plpgsqlast.PLpgSQL_expr // simple `name := expr` right-hand sides
 	tainted   map[string]bool                       // names written by a form we cannot reduce
+	lossy     map[string]bool                       // names declared with a type that can change an assigned string
 	scopes    []map[string]bool                     // lexical scope stack of in-scope DECLARE'd locals
 	resolving map[string]bool                       // names on the current resolution stack (cycle guard)
 }
@@ -244,6 +245,7 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 	r := &varResolver{
 		assigns:   map[string][]*plpgsqlast.PLpgSQL_expr{},
 		tainted:   map[string]bool{},
+		lossy:     map[string]bool{},
 		resolving: map[string]bool{},
 	}
 	plpgsqlast.Rewrite(fn, func(cursor *plpgsqlast.Cursor) bool {
@@ -257,8 +259,14 @@ func collectVarAssignments(fn *plpgsqlast.PLpgSQL_function) *varResolver {
 				switch decl := d.(type) {
 				case *plpgsqlast.PLpgSQL_var:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
+					// Flow-insensitive, like assigns: one lossy declaration taints the name.
+					if !textPreservingDeclType(decl.DataType) {
+						r.lossy[decl.Refname] = true
+					}
 				case *plpgsqlast.PLpgSQL_rec:
 					r.recordDefault(decl.Refname, decl.DefaultVal)
+					// Composite values print in their own format: never a text constant.
+					r.lossy[decl.Refname] = true
 				}
 			}
 		case *plpgsqlast.PLpgSQL_stmt_call:
@@ -800,7 +808,99 @@ func executeArgExpr(exprText string) ast.Node {
 	if !ok {
 		return nil
 	}
-	return rt.Val
+	// `EXECUTE (x)` is `EXECUTE x`: analyze the grouped expression.
+	return unwrapParens(rt.Val)
+}
+
+// unwrapParens strips ParenExpr wrappers from n. Parentheses are pure grouping,
+// so the inner expression gets the same analysis it would without them.
+func unwrapParens(n ast.Node) ast.Node {
+	for {
+		p, ok := n.(*ast.ParenExpr)
+		if !ok {
+			return n
+		}
+		n = p.Expr
+	}
+}
+
+// unwrapGrouping strips ParenExpr and text-preserving TypeCast wrappers from n, in
+// any order, so `('asc')`, `'asc'::text` and `(('asc')::text)` all reduce to the
+// literal.
+func unwrapGrouping(n ast.Node) ast.Node {
+	for {
+		next := unwrapTextCasts(unwrapParens(n))
+		if next == n {
+			return n
+		}
+		n = next
+	}
+}
+
+// unwrapTextCasts strips TypeCast wrappers while they cannot change the text, so
+// `'asc'::text` reduces to the literal. Any other cast is kept, so the value is
+// non-constant.
+func unwrapTextCasts(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok || !textPreservingCast(tc.TypeName) {
+			return n
+		}
+		n = tc.Arg
+	}
+}
+
+// textPreservingCast reports whether casting a string literal to tn leaves its
+// text unchanged: text, or varchar with no length.
+//
+// PostgreSQL substitutes a cast's output, not the literal as written, and
+// char(n), varchar(n), name and the like truncate or pad it: `' AS a --'::char(5)`
+// is analyzed with the comment but runs as `... AS a`. Every other cast is refused
+// rather than proven safe. Types are matched by name (see reduceSafeExpr).
+func textPreservingCast(tn *ast.TypeName) bool {
+	if tn == nil || tn.Setof || tn.PctType {
+		return false
+	}
+	if tn.Typmods != nil && tn.Typmods.Len() > 0 {
+		return false // varchar(n), char(n), ...
+	}
+	if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+		return false // text[]
+	}
+	if tn.Names == nil {
+		return false
+	}
+	names := make([]string, 0, tn.Names.Len())
+	for _, item := range tn.Names.Items {
+		s, ok := item.(*ast.String)
+		if !ok {
+			return false
+		}
+		names = append(names, s.SVal)
+	}
+	// As written: unquoted names are already lower-cased, so "TEXT" is another type.
+	switch len(names) {
+	case 1:
+		return names[0] == "text" || names[0] == "varchar"
+	case 2:
+		return names[0] == "pg_catalog" && (names[1] == "text" || names[1] == "varchar")
+	}
+	return false
+}
+
+// textPreservingDeclType reports whether a variable declared with type t keeps an
+// assigned string unchanged. name, "char", char(n) and varchar(n) truncate or pad
+// it, so the constants assigned to such a variable are not what %s sees.
+//
+// t.TypeName is the type as written; it is parsed and checked with
+// textPreservingCast so there is one allowlist. Anything that does not parse as a
+// plain type (such as tab.col%TYPE) is refused.
+func textPreservingDeclType(t *plpgsqlast.PLpgSQL_type) bool {
+	if t == nil {
+		return false
+	}
+	tc, ok := executeArgExpr("NULL::" + t.TypeName).(*ast.TypeCast)
+	return ok && textPreservingCast(tc.TypeName)
 }
 
 // safeExecuteSkeleton reduces an EXECUTE payload expression built from
@@ -838,7 +938,7 @@ func safeExecuteSkeleton(exprText string) (string, []ast.Node, bool) {
 // not have; matching pg_catalog.<name> only would instead reject the ubiquitous
 // unqualified idiom. Accepted as-is for now.
 func reduceSafeExpr(node ast.Node, sb *strings.Builder, values *[]ast.Node) bool {
-	switch v := node.(type) {
+	switch v := unwrapParens(node).(type) {
 	case *ast.A_Const:
 		s, ok := v.Val.(*ast.String)
 		if v.Isnull || !ok {
@@ -881,7 +981,7 @@ func reduceSafeFormat(fc *ast.FuncCall, sb *strings.Builder, values *[]ast.Node)
 	if fc.Args == nil || fc.Args.Len() < 1 {
 		return false
 	}
-	fmtConst, ok := fc.Args.Items[0].(*ast.A_Const)
+	fmtConst, ok := unwrapParens(fc.Args.Items[0]).(*ast.A_Const)
 	if !ok || fmtConst.Isnull {
 		return false
 	}
@@ -1011,7 +1111,7 @@ func reduceConstrainedFormat(fc *ast.FuncCall, res *varResolver) (variants []str
 	if fc.Args == nil || fc.Args.Len() < 1 {
 		return nil, nil, false
 	}
-	fmtConst, isConst := fc.Args.Items[0].(*ast.A_Const)
+	fmtConst, isConst := unwrapParens(fc.Args.Items[0]).(*ast.A_Const)
 	if !isConst || fmtConst.Isnull {
 		return nil, nil, false
 	}
@@ -1122,7 +1222,7 @@ func enumerateFormatVariants(literalChunks []string, svalSets [][]string) []stri
 // substitute each returned value and re-analyze the result, a hostile constant
 // is still caught; the only requirement here is that the set be complete.
 func constStringValues(node ast.Node, res *varResolver, visited map[string]bool) ([]string, bool) {
-	switch n := unwrapTypeCast(node).(type) {
+	switch n := unwrapGrouping(node).(type) {
 	case *ast.A_Const:
 		if n.Isnull {
 			return nil, false
@@ -1162,7 +1262,8 @@ func constStringValues(node ast.Node, res *varResolver, visited map[string]bool)
 			return nil, false
 		}
 		name := s.SVal
-		if !res.resolvable(name) || visited[name] {
+		// A lossy type changes the text before %s sees it.
+		if !res.resolvable(name) || visited[name] || res.lossy[name] {
 			return nil, false
 		}
 		exprs, ok := res.assigns[name]
@@ -1265,7 +1366,11 @@ func analyzeBodyFragment(stmt ast.Stmt) error {
 	if err := rejectBodySessionStateStmt(stmt); err != nil {
 		return err
 	}
-	analysis, err := analyzeFunctionCalls(stmt, true /* reject */)
+	// admitFailoverSlots is always false here: a replication slot created
+	// inside a PL/pgSQL body is out of scope for failover-slot admission,
+	// which only covers a directly-executed pg_create_logical_replication_slot
+	// call (see rejectNonTemporaryReplicationSlot).
+	analysis, err := analyzeFunctionCalls(stmt, true /* reject */, false /* admitFailoverSlots */)
 	if err != nil {
 		return err
 	}

@@ -163,6 +163,10 @@ type mockMultipoolerServiceClient struct {
 	authErr      error
 }
 
+func (m *mockMultipoolerServiceClient) ExecuteStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.ExecuteStreamRequest, multipoolerservice.ExecuteStreamResponse], error) {
+	return nil, status.Error(codes.Unimplemented, "mock uses legacy StreamExecute")
+}
+
 func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
 	if m.bidiStreamErr != nil {
 		return nil, m.bidiStreamErr
@@ -229,11 +233,16 @@ var _ multipoolerservice.MultipoolerServiceClient = (*mockMultipoolerServiceClie
 
 // newTestGRPCQueryService creates a grpcQueryService with a mock client for testing.
 func newTestGRPCQueryService(client multipoolerservice.MultipoolerServiceClient) *grpcQueryService {
+	// These unit tests exercise dedicated RPC adapters. Model a connection that
+	// has negotiated per-call authorization rather than a disabled stream pool.
+	pool := newStreamPool(client, nil)
+	pool.perCallAuthorization.Store(true)
 	return &grpcQueryService{
-		client:      client,
-		logger:      slog.Default(),
-		poolerID:    "test-pooler",
-		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
+		executeStreams: pool,
+		client:         client,
+		logger:         slog.Default(),
+		poolerID:       "test-pooler",
+		copyStreams:    make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 
@@ -286,6 +295,30 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
 	require.True(t, mockStream.recvCalled.Load(), "Recv should be called to drain stream on error")
 	// copyStreams should be empty
+	require.Len(t, svc.copyStreams, 0)
+}
+
+// TestCopyReady_SendInitiateEOFUsesStreamStatus tests that when the server ends
+// the stream before INITIATE is sent, the status from Recv replaces Send's io.EOF.
+func TestCopyReady_SendInitiateEOFUsesStreamStatus(t *testing.T) {
+	mockStream := &mockBidiStream{
+		sendErr: io.EOF,
+		recvErr: status.Error(codes.DeadlineExceeded, "remote deadline"),
+	}
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
+
+	_, _, _, err := svc.CopyReady(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		"COPY t FROM STDIN",
+		&query.ExecuteOptions{},
+		nil,
+	)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diagnostic)
+	require.Equal(t, "FATAL", diagnostic.Severity)
+	require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
 	require.Len(t, svc.copyStreams, 0)
 }
 

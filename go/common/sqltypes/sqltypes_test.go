@@ -73,6 +73,10 @@ func TestParseBool(t *testing.T) {
 		{"off prefix of", "of", false, true},
 		{"zero", "0", false, true},
 		{"padded uppercase", "  TRUE  ", true, true},
+		{"ASCII whitespace", "\t\r\n\v\f TRUE \t\r\n\v\f", true, true},
+		{"non-breaking space", "\u00a0true\u00a0", false, false},
+		{"em space", "\u2003false\u2003", false, false},
+		{"long s is not ASCII s", "falſe", false, false},
 		{"ambiguous o", "o", false, false},
 		{"invalid", "maybe", false, false},
 	}

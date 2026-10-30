@@ -35,7 +35,7 @@ func TestMultiStatementTransactionSemantics(t *testing.T) {
 	}
 
 	setup := getSharedSetup(t)
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
 			ctx := utils.WithTimeout(t, 30*time.Second)
 			db, err := sql.Open("postgres", shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5"))

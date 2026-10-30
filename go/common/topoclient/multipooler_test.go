@@ -61,7 +61,7 @@ func getMultipooler(database string, shard string, cell string, uid uint32) *clu
 			Cell:      cell,
 			Name:      strconv.FormatUint(uint64(uid), 10),
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: "default",
 			Shard:      shard,
@@ -78,7 +78,7 @@ func getMultipooler(database string, shard string, cell string, uid uint32) *clu
 func checkMultipoolersEqual(t *testing.T, expected, actual *clustermetadatapb.Multipooler) {
 	t.Helper()
 	require.Equal(t, expected.Id.String(), actual.Id.String())
-	require.True(t, proto.Equal(expected.ShardKey, actual.ShardKey), "ShardKey mismatch: expected %v, got %v", expected.ShardKey, actual.ShardKey)
+	require.True(t, proto.Equal(expected.ShardRef, actual.ShardRef), "ShardRef mismatch: expected %v, got %v", expected.ShardRef, actual.ShardRef)
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.ServingStatus, actual.ServingStatus)
 	require.Equal(t, expected.PortMap, actual.PortMap)
@@ -133,7 +133,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -161,7 +161,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -179,7 +179,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(2),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -197,7 +197,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(3),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -215,7 +215,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(4),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -241,7 +241,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": int32(1)},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "tg1",
 						Shard:      shard,
@@ -257,7 +257,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": int32(2)},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "tg1",
 						Shard:      shard,
@@ -292,7 +292,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(1),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -310,7 +310,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(2),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard,
@@ -328,7 +328,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(3),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard + "2",
@@ -346,7 +346,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					PortMap: map[string]int32{
 						"grpc": int32(4),
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "default",
 						Shard:      shard + "2",
@@ -379,7 +379,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": int32(1)},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "tg1",
 						Shard:      "shard1",
@@ -395,7 +395,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": int32(2)},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "tg1",
 						Shard:      "shard2",
@@ -428,7 +428,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": int32(1)},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   database,
 						TableGroup: "tg1",
 						Shard:      "shard1",
@@ -508,7 +508,7 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 					},
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": int32(i + 1)},
-					ShardKey:      expectedMP.GetShardKey(),
+					ShardRef:      expectedMP.GetShardRef(),
 					Type:          expectedMP.Type,
 					ServingStatus: expectedMP.ServingStatus,
 				}
@@ -600,7 +600,7 @@ func TestMultipoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "november",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -637,7 +637,7 @@ func TestMultipoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "oscar",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -664,7 +664,7 @@ func TestMultipoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "papa",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -705,7 +705,7 @@ func TestMultipoolerCRUDOperations(t *testing.T) {
 						Cell:      cell,
 						Name:      "quebec",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -766,7 +766,7 @@ func TestGetMultipoolerIDsByCell(t *testing.T) {
 							Cell:      cell1,
 							Name:      "bravo",
 						},
-						ShardKey: &clustermetadatapb.ShardKey{
+						ShardRef: &clustermetadatapb.ShardRef{
 							Database:   "db1",
 							TableGroup: "default",
 							Shard:      "shard1",
@@ -782,7 +782,7 @@ func TestGetMultipoolerIDsByCell(t *testing.T) {
 							Cell:      cell1,
 							Name:      "charlie",
 						},
-						ShardKey: &clustermetadatapb.ShardKey{
+						ShardRef: &clustermetadatapb.ShardRef{
 							Database:   "db2",
 							TableGroup: "default",
 							Shard:      "shard2",
@@ -868,7 +868,7 @@ func TestUpdateMultipoolerFields(t *testing.T) {
 				}
 				multipooler := &clustermetadatapb.Multipooler{
 					Id: id,
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -905,7 +905,7 @@ func TestUpdateMultipoolerFields(t *testing.T) {
 				}
 				multipooler := &clustermetadatapb.Multipooler{
 					Id: id,
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -939,7 +939,7 @@ func TestUpdateMultipoolerFields(t *testing.T) {
 				}
 				multipooler := &clustermetadatapb.Multipooler{
 					Id: id,
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -971,7 +971,7 @@ func TestUpdateMultipoolerFields(t *testing.T) {
 				}
 				multipooler := &clustermetadatapb.Multipooler{
 					Id: id,
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1031,7 +1031,7 @@ func TestInitMultipooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "zulu",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1059,7 +1059,7 @@ func TestInitMultipooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "xray",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1077,7 +1077,7 @@ func TestInitMultipooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "xray",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1105,7 +1105,7 @@ func TestInitMultipooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "whiskey",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1123,7 +1123,7 @@ func TestInitMultipooler(t *testing.T) {
 						Cell:      cell,
 						Name:      "whiskey",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1181,7 +1181,7 @@ func TestNewMultipooler(t *testing.T) {
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
-			require.Nil(t, result.ShardKey, "factory leaves ShardKey unset; caller fills it")
+			require.Nil(t, result.ShardRef, "factory leaves ShardRef unset; caller fills it")
 			require.NotNil(t, result.PortMap)
 		})
 	}
@@ -1218,7 +1218,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test1",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "testdb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1233,7 +1233,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 
 				retrieved, err := ts.GetMultipooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "testdb", retrieved.ShardKey.Database)
+				require.Equal(t, "testdb", retrieved.ShardRef.Database)
 			},
 		},
 		{
@@ -1245,7 +1245,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test2",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "originaldb",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1270,7 +1270,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 
 				updated, err := ts.GetMultipooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "originaldb", updated.ShardKey.Database) // Database preserved
+				require.Equal(t, "originaldb", updated.ShardRef.Database) // Database preserved
 				require.Equal(t, "host2.example.com", updated.Hostname)
 				require.NotEqual(t, oldVersion, updated.Version())
 			},
@@ -1284,7 +1284,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 						Cell:      cell,
 						Name:      "db-test3",
 					},
-					ShardKey: &clustermetadatapb.ShardKey{
+					ShardRef: &clustermetadatapb.ShardRef{
 						Database:   "",
 						TableGroup: "default",
 						Shard:      "testshard",
@@ -1299,7 +1299,7 @@ func TestMultipoolerDatabaseField(t *testing.T) {
 
 				retrieved, err := ts.GetMultipooler(ctx, multipooler.Id)
 				require.NoError(t, err)
-				require.Equal(t, "", retrieved.ShardKey.Database)
+				require.Equal(t, "", retrieved.ShardRef.Database)
 			},
 		},
 	}
@@ -1385,7 +1385,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 		multipoolers := []*clustermetadatapb.Multipooler{
 			{
 				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "1"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "default",
 					Shard:      "-8",
@@ -1397,7 +1397,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 			},
 			{
 				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "2"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "default",
 					Shard:      "8-",
@@ -1409,7 +1409,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 			},
 			{
 				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "3"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db2",
 					TableGroup: "default",
 					Shard:      "-8",
@@ -1421,7 +1421,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 			},
 			{
 				Id: &clustermetadatapb.ID{Cell: "zone1", Name: "4"},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db2",
 					TableGroup: "default",
 					Shard:      "8-",
@@ -1471,7 +1471,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "1",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "default",
 					Shard:      "-8",
@@ -1487,7 +1487,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "2",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "default",
 					Shard:      "8-",
@@ -1518,7 +1518,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 
 		// Verify only db1 multipoolers are returned
 		for _, info := range multipoolerInfos {
-			require.Equal(t, "db1", info.GetShardKey().GetDatabase())
+			require.Equal(t, "db1", info.GetShardRef().GetDatabase())
 		}
 
 		// Verify cell boundary: multipoolers are NOT accessible from other cells
@@ -1540,7 +1540,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "1",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db2",
 					TableGroup: "tg1",
 					Shard:      "-8",
@@ -1556,7 +1556,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "2",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db2",
 					TableGroup: "tg1",
 					Shard:      "8-",
@@ -1587,9 +1587,9 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 		require.Len(t, multipoolerInfos, 1)
 
 		// Verify correct multipooler is returned
-		require.Equal(t, "db2", multipoolerInfos[0].GetShardKey().GetDatabase())
-		require.Equal(t, "tg1", multipoolerInfos[0].GetShardKey().GetTableGroup())
-		require.Equal(t, "-8", multipoolerInfos[0].GetShardKey().GetShard())
+		require.Equal(t, "db2", multipoolerInfos[0].GetShardRef().GetDatabase())
+		require.Equal(t, "tg1", multipoolerInfos[0].GetShardRef().GetTableGroup())
+		require.Equal(t, "-8", multipoolerInfos[0].GetShardRef().GetShard())
 
 		// Verify cell boundary: multipoolers are NOT accessible from other cells
 		otherCellInfos, err := ts.GetMultipoolersByCell(ctx, "zone2", nil)
@@ -1635,7 +1635,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "1",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "-8",
@@ -1651,7 +1651,7 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 				Cell:      "zone2",
 				Name:      "1",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "default",
 				Shard:      "-8",

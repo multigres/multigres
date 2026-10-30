@@ -2075,8 +2075,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	'-' a_expr %prec UMINUS
 			{
-				name := ast.NewNodeList(ast.NewString("-"))
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+				$$ = doNegate($2, 0)
 			}
 		|	a_expr '+' a_expr
 			{

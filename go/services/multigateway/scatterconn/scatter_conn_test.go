@@ -101,6 +101,9 @@ type mockGateway struct {
 	releaseReservedConnectionKeepSticky  bool
 	releaseReservedConnectionReturnState *querypb.ReservedState
 	releaseReservedConnectionErr         error
+
+	// DiscardTempTables tracking
+	discardTempTablesErr error
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -194,7 +197,7 @@ func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, 
 }
 
 func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Target, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
-	return nil, nil, nil
+	return nil, nil, m.discardTempTablesErr
 }
 
 func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
@@ -1011,7 +1014,7 @@ func TestScatterConn_ConcludeTransaction_RollbackAndChainOnDestroyedConnFails(t 
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
 	target := &querypb.Target{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: "tg1",
 		},
 		Mode: querypb.Mode_MODE_WRITABLE,
@@ -1590,7 +1593,7 @@ func TestScatterConn_StreamReplication(t *testing.T) {
 	require.NotNil(t, gw.streamReplicationInit)
 	require.Same(t, init, gw.streamReplicationInit, "the same init must be forwarded, not a copy")
 	require.Equal(t, "repluser", gw.streamReplicationInit.User, "caller-populated fields must survive")
-	require.Equal(t, &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "0"}, gw.streamReplicationInit.Target.ShardKey)
+	require.Equal(t, &clustermetadatapb.ShardRef{TableGroup: "tg1", Shard: "0"}, gw.streamReplicationInit.Target.ShardRef)
 	require.Equal(t, querypb.Mode_MODE_WRITABLE, gw.streamReplicationInit.Target.Mode,
 		"replication must route WRITABLE (leader) regardless of session replica-targeting")
 }

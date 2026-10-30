@@ -32,7 +32,7 @@ PGPROTO_VER = 4.6.6
 export PGPROTO_VER
 
 # List of all commands to build
-CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
+CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver minigres
 BIN_DIR = bin
 
 GIT_COMMIT ?= unknown
@@ -42,7 +42,7 @@ RELEASE_LDFLAGS = -w -s \
 	-X $(SERVENV_PACKAGE).gitCommit=$(GIT_COMMIT) \
 	-X $(SERVENV_PACKAGE).commitDate=$(COMMIT_DATE)
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics pgcatalog generate help
 
 ##@ General
 
@@ -67,13 +67,31 @@ PROTO_SRCS = $(shell find proto -name '*.proto')
 PROTO_GO_OUTS = pb
 
 # Proto source files for TypeScript generation (exclude google vendor protos)
-PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
+PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/migratorservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
 TS_PROTO_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-es
 TS_CONNECT_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-connect-es
 TS_PROTO_OUT = $(MTROOT)/web/multiadmin/lib/api/generated
 
 # Generate protobuf files
-proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
+proto: tools $(PROTO_GO_OUTS) proto-ts openapi ## Generate protobuf files and the REST API specification.
+
+.PHONY: openapi openapi-lint openapi-check
+openapi: tools ## Generate and validate the Multiadmin REST OpenAPI 3.1 specification.
+	@mkdir -p docs/api
+	@raw=$$(mktemp); trap 'rm -f "$$raw"' EXIT; \
+	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
+		--plugin=$(MTROOT)/bin/protoc-gen-connect-openapi \
+		--connect-openapi_out=$$(dirname "$$raw") \
+		--connect-openapi_opt='features=google.api.http;gnostic,content-types=json,without-default-tags,with-google-error-detail,with-proto-annotations,format=json,path='$$(basename "$$raw") \
+		--proto_path=$(MTROOT)/proto $(MTROOT)/proto/multiadminservice.proto && \
+	go run ./tools/openapi/normalize "$$raw" docs/api/multiadmin.openapi.yaml
+	$(MAKE) openapi-lint
+
+openapi-lint: ## Validate the generated REST specification against OpenAPI 3.1.
+	go run ./tools/openapi/lint docs/api/multiadmin.openapi.yaml
+
+openapi-check: openapi-lint ## Check REST documentation quality (requires Node.js 22.12+).
+	npm exec --yes --package=@redocly/cli@2.54.3 -- redocly lint docs/api/multiadmin.openapi.yaml --extends recommended-strict
 
 # Generate TypeScript types and connect service descriptors from proto files
 proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_ES_PLUGIN)
@@ -99,6 +117,7 @@ pb: $(PROTO_SRCS)
 	--plugin=$(MTROOT)/bin/protoc-gen-go --go_out=. \
 	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
+	--go_opt=Mgoogle/rpc/status.proto=google.golang.org/genproto/googleapis/rpc/status \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
 	--plugin=$(MTROOT)/bin/protoc-gen-connect-go --connect-go_out=. \
 	--connect-go_opt=module=github.com/multigres/multigres \
@@ -116,7 +135,7 @@ parser: ## Generate PostgreSQL parser from grammar.
 	go generate ./go/common/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser metrics ## Alias for parser and metrics catalog.
+generate: parser metrics pgcatalog ## Alias for parser, metrics catalog, and pgcatalog tables.
 
 # Generate the metric catalog (go/observability/metriccatalog) from OpenTelemetry
 # instrument definitions across the codebase.
@@ -124,6 +143,13 @@ metrics: ## Generate the Prometheus metric catalog/keep-list.
 	@echo "$$(date): Generating metric catalog"
 	go run ./go/tools/metricsgen/main
 	@echo "Metric catalog generation completed"
+
+# Generate the builtin PostgreSQL catalog tables (go/common/pgcatalog) from the
+# vendored pg_*.dat files.
+pgcatalog: ## Generate the builtin PostgreSQL catalog tables.
+	@echo "$$(date): Generating pgcatalog tables"
+	go run ./go/tools/pgcataloggen/main
+	@echo "pgcatalog generation completed"
 
 ##@ Build
 
@@ -152,7 +178,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	done
 
 # Build everything (proto + parser + binaries)
-build-all: proto parser metrics build ## Build everything (proto + parser + metrics + binaries).
+build-all: proto parser metrics pgcatalog build ## Build everything (proto + parser + metrics + pgcatalog + binaries).
 
 # TODO(sougou): images is a temporary convenience target for a demo.
 # To run it, you need to have Docker installed.

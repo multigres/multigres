@@ -26,6 +26,7 @@ import (
 // Expire runs pgbackrest expire. Caller must hold the action lock.
 // Returns the IDs of backups that were removed.
 func (e *Engine) Expire(ctx context.Context, overrides map[string]string) ([]string, error) {
+	defer e.listCache.Invalidate()
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}

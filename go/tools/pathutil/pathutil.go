@@ -95,6 +95,16 @@ func prependModuleSubdirsToPath(subdirs ...string) error {
 // prepended before bin/ to enable automatic coverage collection from subprocess
 // executions. If bin/cov/ doesn't exist, PATH lookup will skip it harmlessly.
 func PrependBinToPath() error {
+	// Under `go test -cover` the go command points GOCOVERDIR at a private
+	// temp dir and only folds counters from the test binary itself into the
+	// profile, so coverage written by spawned services would be silently
+	// discarded. MULTIGRES_SUBPROCESS_GOCOVERDIR redirects children to a
+	// directory the caller owns; the test binary's own profile is unaffected
+	// because it is written via the -test.gocoverdir flag, not the env var.
+	if dir := os.Getenv("MULTIGRES_SUBPROCESS_GOCOVERDIR"); dir != "" {
+		_ = os.Setenv("GOCOVERDIR", dir)
+	}
+
 	// Check if coverage collection is requested via GOCOVERDIR
 	if gocoverdir := os.Getenv("GOCOVERDIR"); gocoverdir != "" {
 		// GOCOVERDIR is set, so prepend bin/cov before bin

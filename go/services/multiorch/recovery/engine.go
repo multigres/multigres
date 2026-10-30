@@ -222,9 +222,6 @@ type Engine struct {
 	// against a shard's observed TermRevocation without coordinating.
 	recruitmentBackoff ha.BackoffSchedule
 
-	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
-	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
-
 	// Context for shutting down loops
 	shutdownCtx context.Context
 	cancel      context.CancelFunc
@@ -298,9 +295,6 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
-
-	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
-		WithLogger(logger))
 
 	return engine
 }
@@ -431,8 +425,9 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 	for _, p := range re.detectedProblems {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
-			DBNamespace:  p.ShardKey.Database,
-			Shard:        p.ShardKey.Shard,
+			ProblemCode:  string(p.Code),
+			DBNamespace:  p.ShardRef.Database,
+			Shard:        p.ShardRef.Shard,
 			EntityID:     p.EntityID(),
 		})
 	}
@@ -451,8 +446,8 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 		}
 		data = append(data, StreamHealthData{
 			PoolerID:          topoclient.ComponentIDString(state.Health().Multipooler.Id),
-			DBNamespace:       state.Health().Multipooler.GetShardKey().GetDatabase(),
-			Shard:             state.Health().Multipooler.GetShardKey().GetShard(),
+			DBNamespace:       state.Health().Multipooler.GetShardRef().GetDatabase(),
+			Shard:             state.Health().Multipooler.GetShardRef().GetShard(),
 			Connected:         state.Health().StreamConnected,
 			SnapshotsReceived: state.Health().StreamSnapshotsReceived,
 		})
@@ -500,7 +495,7 @@ func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
 // GetPoolerHealthForShard returns health information for all poolers in a shard.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*store.Pooler {
-	return store.FindPoolersInShard(re.poolerCache, &clustermetadatapb.ShardKey{
+	return store.FindPoolersInShard(re.poolerCache, &clustermetadatapb.ShardRef{
 		Database:   database,
 		TableGroup: tableGroup,
 		Shard:      shard,
@@ -557,13 +552,10 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	re.logger.DebugContext(ctx, "TriggerRecoveryNow: polling all poolers and waiting for snapshots") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	re.pollAndWaitForNewSnapshots(ctx)
 
-	// Expire all grace period deadlines so the next recovery cycle acts on
-	// non-failover problems immediately instead of waiting. Failover problems
-	// are gated on collective recruitment backoff instead (see
-	// Engine.readyToExecute) and are not force-expired here — MaxCycles=0's
-	// retry loop below still resolves them within the RPC's own timeout, just
-	// via a few extra cycles rather than instantly.
-	re.recoveryGracePeriodTracker.ForceExpireAll()
+	// Failover problems stay gated on collective recruitment backoff (see
+	// Engine.readyToExecute) and are not forced here — MaxCycles=0's retry loop
+	// below still resolves them within the RPC's own timeout, just via a few
+	// extra cycles rather than instantly.
 
 	// Create channel to wait for first cycle completion
 	cycleDone := make(chan error, 1)

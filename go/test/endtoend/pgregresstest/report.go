@@ -194,8 +194,8 @@ func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) 
 // (republishing the JSON updates the badge with no markdown edits).
 //
 // Filenames are the suite label slug: regression.json, isolation.json,
-// contrib-extension.json, and overall.json. These names are part of the public
-// badge URL, so keep them stable.
+// contrib-extension.json, external-extension.json, and overall.json. These
+// names are part of the public badge URL, so keep them stable.
 func (pb *PostgresBuilder) WriteBadgeEndpoints(t *testing.T, suites []SuiteResult) error {
 	t.Helper()
 

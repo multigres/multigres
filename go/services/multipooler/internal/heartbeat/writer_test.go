@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteHeartbeat(t *testing.T) {
@@ -77,6 +79,147 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestWriteQuorumCommitLSNDeferredByOneTick verifies the deferred-write
+// invariant: lastProven only ever advances to the value captured (via
+// RETURNING) by the write that just succeeded, never the write's own not-yet-
+// committed candidate. It also carries the ts captured on that same tick.
+func TestWriteQuorumCommitLSNDeferredByOneTick(t *testing.T) {
+	queryService := mock.NewQueryService()
+	clock := time.Now()
+	tw := newTestWriter(t, queryService, nil)
+	tw.now = func() time.Time { return clock }
+
+	_, _, have := tw.LastProven()
+	assert.False(t, have, "no proven value before the first write")
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/100"}},
+	))
+	require.NoError(t, tw.write(t.Context(), true))
+	lsn, ts, have := tw.LastProven()
+	require.True(t, have, "first write's RETURNING value becomes the candidate")
+	assert.Equal(t, "0/100", lsn.String())
+	assert.Equal(t, clock, ts, "paired ts is this tick's own capture time")
+
+	clock = clock.Add(1 * time.Second)
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/200"}},
+	))
+	require.NoError(t, tw.write(t.Context(), true))
+	lsn, ts, have = tw.LastProven()
+	require.True(t, have)
+	assert.Equal(t, "0/200", lsn.String(), "second write's own RETURNING value replaces the candidate")
+	assert.Equal(t, clock, ts, "paired ts advances to the second tick's capture time")
+}
+
+// TestRaiseProvenNeverMovesBackwards: a seeded proof is reported as the leader's own
+// proven watermark right away, and an older one never replaces a newer one, whether
+// the newer came from a seed or from the writer's own write.
+func TestRaiseProvenNeverMovesBackwards(t *testing.T) {
+	tw := newTestWriter(t, mock.NewQueryService(), nil)
+	lsn := func(s string) pgutil.LSN {
+		l, err := pgutil.ParseLSN(s)
+		require.NoError(t, err)
+		return l
+	}
+	t0 := time.Now()
+
+	_, _, have := tw.LastProven()
+	require.False(t, have)
+
+	tw.raiseProven(lsn("0/100"), t0)
+	got, ts, have := tw.LastProven()
+	require.True(t, have, "a seed is visible immediately, before the writer's first write")
+	assert.Equal(t, "0/100", got.String())
+	assert.Equal(t, t0, ts)
+
+	tw.raiseProven(lsn("0/50"), t0.Add(-time.Second))
+	got, ts, _ = tw.LastProven()
+	assert.Equal(t, "0/100", got.String(), "an older seed must not replace a newer proof")
+	assert.Equal(t, t0, ts)
+
+	tw.raiseProven(lsn("0/200"), t0.Add(time.Second))
+	got, ts, _ = tw.LastProven()
+	assert.Equal(t, "0/200", got.String(), "a newer seed replaces it")
+	assert.Equal(t, t0.Add(time.Second), ts)
+}
+
+// TestWriteProvenSkipsTheQuorumWaitAndKeepsTheProof: the forced write carries the
+// proven watermark and skips the synchronous-commit wait, and its own RETURNING
+// LSN (not quorum-acked) must not replace the proof.
+func TestWriteProvenSkipsTheQuorumWaitAndKeepsTheProof(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
+	at := time.Now()
+
+	queryService.AddQueryPatternOnce("(?s).*set_config\\('synchronous_commit', 'off', true\\).*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/900"}},
+	))
+	proven, err := pgutil.ParseLSN("0/100")
+	require.NoError(t, err)
+	require.NoError(t, tw.WriteProven(t.Context(), proven, at))
+
+	lsn, ts, have := tw.LastProven()
+	require.True(t, have)
+	assert.Equal(t, "0/100", lsn.String())
+	assert.Equal(t, at, ts)
+}
+
+// TestOnlyTheForcedWriteChangesTheCommitMode: a normal tick must leave the
+// configured synchronous_commit alone; only WriteProven turns it off.
+func TestOnlyTheForcedWriteChangesTheCommitMode(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
+	var queries []string
+	queryService.AddQueryPatternWithCallback("(?s)INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"}, [][]any{{"0/900"}},
+	), func(q string) { queries = append(queries, q) })
+
+	require.NoError(t, tw.write(t.Context(), true))
+	proven, err := pgutil.ParseLSN("0/100")
+	require.NoError(t, err)
+	require.NoError(t, tw.WriteProven(t.Context(), proven, time.Now()))
+
+	require.Len(t, queries, 2)
+	assert.NotContains(t, queries[0], "synchronous_commit", "normal tick")
+	assert.Contains(t, queries[1], "set_config('synchronous_commit', 'off', true)", "forced write")
+}
+
+// TestWriteKeepsPreviousCandidateOnUnparsableReturning covers the best-effort
+// path: if RETURNING can't be parsed, the previous proven candidate must
+// survive untouched rather than being cleared or replaced by garbage.
+func TestWriteKeepsPreviousCandidateOnUnparsableReturning(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"0/100"}},
+	))
+	require.NoError(t, tw.write(t.Context(), true))
+	lsn, _, have := tw.LastProven()
+	require.True(t, have)
+	assert.Equal(t, "0/100", lsn.String())
+
+	// A write can still succeed (INSERT committed) even if RETURNING comes back
+	// garbage or empty -- that must not clobber the existing candidate.
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult(
+		[]string{"pg_current_wal_lsn"},
+		[][]any{{"garbage"}},
+	))
+	require.NoError(t, tw.write(t.Context(), true))
+	lsn, _, _ = tw.LastProven()
+	assert.Equal(t, "0/100", lsn.String(), "unparsable RETURNING keeps the previous candidate")
+
+	queryService.AddQueryPatternOnce("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	require.NoError(t, tw.write(t.Context(), true))
+	lsn, _, _ = tw.LastProven()
+	assert.Equal(t, "0/100", lsn.String(), "empty RETURNING result keeps the previous candidate")
 }
 
 // TestWriteHeartbeatError tests that write errors are logged but don't crash the writer.

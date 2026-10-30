@@ -130,7 +130,7 @@ func setupStreamingTestWithCallback(
 			Name:      "test-pooler",
 		},
 		Hostname: "127.0.0.1",
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: "default",
 			Shard:      "0",
 		},
@@ -141,7 +141,7 @@ func setupStreamingTestWithCallback(
 	}
 
 	logger := slog.Default()
-	conn, err := newPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
+	conn, err := newPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil, onHealthUpdate)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Shutdown()

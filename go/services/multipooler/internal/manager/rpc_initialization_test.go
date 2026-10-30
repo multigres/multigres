@@ -37,7 +37,7 @@ import (
 )
 
 // NewTestMultipoolerManager builds a MultipoolerManager for tests with a
-// minimal Multipooler (MVP table_group/shard, a temp PoolerDir, and a valid
+// minimal Multipooler (default table_group/shard, a temp PoolerDir, and a valid
 // service ID). Tests override pm.record fields, pm.pgctldClient, etc.
 // as needed.
 func NewTestMultipoolerManager(t *testing.T) *MultipoolerManager {
@@ -48,7 +48,7 @@ func NewTestMultipoolerManager(t *testing.T) *MultipoolerManager {
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: "default",
 			Shard:      "0-inf",
 		},
@@ -165,7 +165,7 @@ func TestHelperMethods(t *testing.T) {
 
 		multipooler := &clustermetadatapb.Multipooler{
 			Id: serviceID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testgroup",
 				Shard:      "shard-123",
@@ -335,9 +335,12 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 type mockPgctldClient struct {
 	statusResponse     *pgctldpb.StatusResponse
 	statusError        error
+	statusBlockForever bool
 	startResponse      *pgctldpb.StartResponse
 	startCalled        bool
+	startRequest       *pgctldpb.StartRequest
 	startError         error
+	startBlockForever  bool
 	restartCalled      bool
 	restartError       error
 	reloadConfigCalled bool
@@ -345,9 +348,18 @@ type mockPgctldClient struct {
 	pgRewindResponse   *pgctldpb.PgRewindResponse
 	pgRewindError      error
 	pgRewindCalls      int
+	// pgRewindOnCall, if set, runs on every PgRewind call.
+	pgRewindOnCall func(*pgctldpb.PgRewindRequest)
+	pgRewindReqs   []*pgctldpb.PgRewindRequest
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
+	if m.statusBlockForever {
+		// Simulates a wedged pgctld call: never returns on its own, only
+		// when the caller's ctx is bounded and expires.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if m.statusError != nil {
 		return nil, m.statusError
 	}
@@ -361,6 +373,13 @@ func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusReque
 
 func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
 	m.startCalled = true
+	m.startRequest = req
+	if m.startBlockForever {
+		// Simulates a wedged pgctld call: never returns on its own, only
+		// when the caller's ctx is bounded and expires.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if m.startError != nil {
 		return nil, m.startError
 	}
@@ -400,6 +419,10 @@ func (m *mockPgctldClient) Version(ctx context.Context, req *pgctldpb.VersionReq
 
 func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
 	m.pgRewindCalls++
+	m.pgRewindReqs = append(m.pgRewindReqs, req)
+	if m.pgRewindOnCall != nil {
+		m.pgRewindOnCall(req)
+	}
 	if m.pgRewindError != nil {
 		return m.pgRewindResponse, m.pgRewindError
 	}

@@ -113,6 +113,13 @@ func (h *testHandler) GetPreparedStatementInfo(connID uint32, name string) *prep
 	return nil
 }
 
+func (h *testHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+}
+
+func (h *testHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return nil
+}
+
 // testConn wraps both read and write buffers for testing.
 type testConn struct {
 	readBuf  *bytes.Buffer

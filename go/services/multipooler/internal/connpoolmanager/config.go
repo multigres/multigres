@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -67,10 +68,9 @@ type ConnectionConfig struct {
 type pgPasswordSource int
 
 const (
-	pwSourceNone   pgPasswordSource = iota
-	pwSourceEnv                     // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
-	pwSourceOption                  // --connpool-admin-password flag
-	pwSourceFile                    // password file path (flag or env var)
+	pwSourceNone pgPasswordSource = iota
+	pwSourceEnv                   // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
+	pwSourceFile                  // password file path (flag or env var)
 )
 
 // Config holds viper-backed configuration values for the connection pool manager.
@@ -84,8 +84,12 @@ type Config struct {
 	// Used by the admin pool for kill operations and internal system queries
 	// (heartbeat, replication tracking).
 	// Configured via POSTGRES_USER / POSTGRES_PASSWORD environment variables.
-	pgUser         viperutil.Value[string]
-	pgPassword     viperutil.Value[string]
+	pgUser viperutil.Value[string]
+	// There is deliberately no pgPassword viper value: the password is
+	// resolved directly from the environment or the password file by
+	// ResolvePgPassword (a CLI flag would be visible in `ps`, and binding
+	// the secret into viper would expose it in config debug dumps). See the
+	// identity/secrets contract in go/common/constants/postgres.go.
 	pgPasswordFile viperutil.Value[string]
 	// pgPasswordCached caches the file-resolved password so the hot path
 	// (PgPassword()) does not touch disk. Populated by ResolvePgPassword at
@@ -98,6 +102,11 @@ type Config struct {
 	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
 	// tests that exercise only the env-var or file paths).
 	flagSet *pflag.FlagSet
+	// seedBudget is a server-reported connection-budget fallback seed (see
+	// SetSeedConnectionBudget). Atomic pointer: refreshed by the postgres
+	// monitor's Status polls, read at every pool (re)open. Nil until first
+	// seeded.
+	seedBudget atomic.Pointer[SeedConnectionBudget]
 	// reg is the registry the values below were configured against, saved so
 	// explicitness checks can ask whether a key was present in the loaded
 	// config file (Registry.InStaticConfig).
@@ -148,6 +157,11 @@ type Config struct {
 	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
 	// Regular pools get (1 - reservedRatio) of the global capacity.
 	reservedRatio viperutil.Value[float64]
+
+	// Elastic quotas lets each pool class borrow the other class's unused
+	// share of the global capacity. When false, the reserved ratio is a fixed
+	// ceiling for both classes.
+	elasticQuotas viperutil.Value[bool]
 
 	// --- Rebalancer configuration ---
 
@@ -231,11 +245,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "connpool-admin-user",
 			EnvVars:  []string{"CONNPOOL_ADMIN_USER", constants.PgUserEnvVar},
 		}),
-		pgPassword: viperutil.Configure(reg, "connpool.pg.password", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "connpool-admin-password",
-			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
-		}),
 		pgPasswordFile: viperutil.Configure(reg, "connpool.pg.password-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "connpool-admin-password-file",
@@ -308,6 +317,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  reservedRatio,
 			FlagName: "connpool-reserved-ratio",
 		}),
+		elasticQuotas: viperutil.Configure(reg, "connpool.elastic-quotas", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "connpool-elastic-quotas",
+			EnvVars:  []string{"CONNPOOL_ELASTIC_QUOTAS"},
+		}),
 
 		// Rebalancer
 		rebalanceInterval: viperutil.Configure(reg, "connpool.rebalance-interval", viperutil.Options[time.Duration]{
@@ -344,8 +358,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	c.flagSet = fs
 	// PostgreSQL superuser credentials
 	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (env: CONNPOOL_ADMIN_USER or POSTGRES_USER)")
-	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD). --connpool-admin-password-file takes precedence.")
-	fs.String("connpool-admin-password-file", c.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL superuser password (plaintext, docker-library/postgres convention). Takes precedence over --connpool-admin-password (env: CONNPOOL_ADMIN_PASSWORD_FILE or POSTGRES_PASSWORD_FILE).")
+	fs.String("connpool-admin-password-file", c.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL superuser password (plaintext, docker-library/postgres convention). Takes precedence over the CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env vars; there is deliberately no password CLI flag (env: CONNPOOL_ADMIN_PASSWORD_FILE or POSTGRES_PASSWORD_FILE).")
 
 	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
 	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
@@ -373,6 +386,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Fair share allocation flags
 	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools). When not set, derived from the server's max_connections at pool open (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
+	fs.Bool("connpool-elastic-quotas", c.elasticQuotas.Default(), "Let regular and reserved pools borrow each other's unused share of global capacity; the reserved ratio is then a target under contention, not a ceiling (env: CONNPOOL_ELASTIC_QUOTAS)")
 
 	// Rebalancer flags
 	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
@@ -384,7 +398,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 
 	viperutil.BindFlags(fs,
 		c.pgUser,
-		c.pgPassword,
 		c.pgPasswordFile,
 		c.pgSSLMode,
 		c.pgSSLRootCert,
@@ -399,6 +412,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
+		c.elasticQuotas,
 		c.rebalanceInterval,
 		c.demandWindow,
 		c.inactiveTimeout,
@@ -429,7 +443,7 @@ func (c *Config) PgPassword() (string, pgPasswordSource) {
 }
 
 // ResolvePgPassword chooses the password source and caches the result so
-// subsequent PgPassword() calls return it. Three independent inputs are
+// subsequent PgPassword() calls return it. Two independent inputs are
 // considered, in strict precedence order — once a higher-precedence input is
 // "explicitly set" it is authoritative and lower-precedence inputs are NOT
 // consulted, even when the higher-precedence value turns out to be empty
@@ -440,12 +454,14 @@ func (c *Config) PgPassword() (string, pgPasswordSource) {
 //     - Path explicitly empty                  → error.
 //     - Path set, file content empty           → error.
 //     - Path set, file content non-empty       → use it, source=File.
-//  2. Flag option: --connpool-admin-password.
-//     - Flag set to empty                      → error.
-//     - Flag set to non-empty                  → use it, source=Option.
-//  3. Env var: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD.
+//  2. Env var: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD.
 //     - Env set to empty                       → error.
 //     - Env set to non-empty                   → use it, source=Env.
+//
+// There is deliberately no --connpool-admin-password CLI flag: a password on
+// the command line is visible in `ps` and shell history, and pgctld resolves
+// the same credential env-only — the two sides read the same environment (the
+// identity/secrets contract in go/common/constants/postgres.go).
 //
 // Reached the end with no input explicitly set: error "not configured".
 // "Explicitly set" is distinct from "viperutil resolved to empty" — viperutil
@@ -470,20 +486,7 @@ func (c *Config) ResolvePgPassword() error {
 		c.pgPasswordSource = pwSourceFile
 		return nil
 	}
-	// Row 3, 4: --connpool-admin-password flag explicitly set.
-	if c.flagSet != nil {
-		if flag := c.flagSet.Lookup("connpool-admin-password"); flag != nil && flag.Changed {
-			v := flag.Value.String()
-			if v == "" {
-				c.pgPasswordSource = pwSourceNone
-				return errors.New("--connpool-admin-password is set to the empty string; unset it or provide a non-empty password")
-			}
-			c.pgPasswordCached = v
-			c.pgPasswordSource = pwSourceOption
-			return nil
-		}
-	}
-	// Row 5, 6: env vars. CONNPOOL_ADMIN_PASSWORD checked before POSTGRES_PASSWORD.
+	// Row 3, 4: env vars. CONNPOOL_ADMIN_PASSWORD checked before POSTGRES_PASSWORD.
 	for _, name := range []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar} {
 		if v, ok := os.LookupEnv(name); ok {
 			if v == "" {
@@ -495,9 +498,9 @@ func (c *Config) ResolvePgPassword() error {
 			return nil
 		}
 	}
-	// Row 7: no source configured.
+	// Row 5: no source configured.
 	c.pgPasswordSource = pwSourceNone
-	return errors.New("admin password not configured: set CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD env var, --connpool-admin-password flag, or --connpool-admin-password-file / CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE to point at a password file")
+	return errors.New("admin password not configured: set CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD env var, or --connpool-admin-password-file / CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE to point at a password file")
 }
 
 // passwordFileExplicit reports whether the file-path input was explicitly
@@ -618,6 +621,34 @@ func (c *Config) GlobalCapacity() int64 {
 	return c.globalCapacity.Get()
 }
 
+// SeedConnectionBudget is a server-reported connection budget (from pgctld's
+// Status RPC, which resolves the values from the conf via postgres -C) used
+// only as a fallback seed when the live SQL derivation at pool open fails.
+// All fields are concrete values ready for derivation — the producer (the
+// postgres monitor) resolves unknowns to PostgreSQL's defaults and carries
+// the last known value across transient probe gaps, so there is no sentinel
+// for consumers to decode.
+type SeedConnectionBudget struct {
+	// MaxConnections is the server's configured max_connections; always > 0
+	// when the budget was seeded (postgres enforces >= 1).
+	MaxConnections int64
+	// SuperuserReservedConnections and ReservedConnections are the server's
+	// reserved-slot GUCs (reserved_connections is PG 16+). Zero is a
+	// legitimate value for both.
+	SuperuserReservedConnections int64
+	ReservedConnections          int64
+}
+
+// SetSeedConnectionBudget records the latest server-reported budget.
+func (c *Config) SetSeedConnectionBudget(b SeedConnectionBudget) {
+	c.seedBudget.Store(&b)
+}
+
+// SeedConnectionBudget returns the recorded budget; nil when never seeded.
+func (c *Config) SeedConnectionBudget() *SeedConnectionBudget {
+	return c.seedBudget.Load()
+}
+
 // GlobalCapacityExplicit reports whether the operator explicitly configured
 // the global capacity (flag, env var, or config file). When false, the manager
 // derives the capacity from the server's max_connections at admin-pool open.
@@ -641,6 +672,11 @@ func (c *Config) GlobalCapacityExplicit() bool {
 // Regular pools get (1 - reservedRatio) of the global capacity.
 func (c *Config) ReservedRatio() float64 {
 	return c.reservedRatio.Get()
+}
+
+// ElasticQuotas reports whether pool classes may borrow each other's unused capacity.
+func (c *Config) ElasticQuotas() bool {
+	return c.elasticQuotas.Get()
 }
 
 // RebalanceInterval returns how often the rebalancer runs to adjust pool capacities.

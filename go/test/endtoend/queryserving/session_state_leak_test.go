@@ -52,8 +52,8 @@ func TestHiddenFunctionStateDoesNotLeak(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 2*time.Minute)
 
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5")
 	primary, err := sql.Open("postgres", primaryDSN)
 	require.NoError(t, err)
 	defer primary.Close()
@@ -98,11 +98,13 @@ func TestHiddenFunctionStateDoesNotLeak(t *testing.T) {
 
 // scrubSweepWait bounds how long a scrubber test waits for the contaminated
 // backend to be replaced. The scrubber probes one idle connection per tick
-// (default 10s) and rotates across the clean stack plus 16 settings stacks,
-// checking the most recently returned connection of whichever stack is next.
-// In a full-suite run earlier tests leave many settings stacks populated, so
-// the contaminated connection's stack can be up to 17 ticks away: 170s worst
-// case, observed at 89s. Standalone runs finish in one or two ticks.
+// (default 10s) and works in passes: each tick probes, from the next
+// non-empty stack in rotation, the topmost connection not yet probed in the
+// current pass. In a full-suite run earlier tests leave many stacks populated
+// with several idle connections each, so the contaminated connection can be
+// up to one full pass away: the total number of idle connections, times the
+// tick. Observed at 89s under the old top-only probing. Standalone runs
+// finish in one or two ticks.
 const scrubSweepWait = 4 * time.Minute
 
 // TestSessionScrubberReplacesHiddenState verifies the pool's session-state
@@ -125,8 +127,8 @@ func TestSessionScrubberReplacesHiddenState(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
 
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5")
 	primary, err := sql.Open("postgres", primaryDSN)
 	require.NoError(t, err)
 	defer primary.Close()
@@ -146,7 +148,7 @@ func TestSessionScrubberReplacesHiddenState(t *testing.T) {
 	require.NoError(t, warmup.QueryRowContext(ctx, "SELECT 1").Scan(&one))
 	require.NoError(t, warmup.Close())
 	time.Sleep(15 * time.Second)
-	quietLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	quietLog, err := os.ReadFile(setup.PoolerLogFile(t))
 	require.NoError(t, err)
 	require.NotContains(t, string(quietLog), "session-state divergence detected",
 		"normal traffic must not diverge: connection bootstrap created session state outside the settings label")
@@ -180,7 +182,7 @@ func TestSessionScrubberReplacesHiddenState(t *testing.T) {
 
 	// The replacement must have been the scrubber's doing, not routine pool
 	// churn: the multipooler logged the divergence with the leaked GUC name.
-	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	poolerLog, err := os.ReadFile(setup.PoolerLogFile(t))
 	require.NoError(t, err)
 	require.Contains(t, string(poolerLog), "session-state divergence detected",
 		"multipooler log should record the scrubber replacing the backend")
@@ -215,8 +217,8 @@ func TestSessionScrubberReplacesHiddenAdvisoryLock(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
 
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5")
 	primary, err := sql.Open("postgres", primaryDSN)
 	require.NoError(t, err)
 	defer primary.Close()
@@ -252,7 +254,7 @@ func TestSessionScrubberReplacesHiddenAdvisoryLock(t *testing.T) {
 		return alive == 0
 	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden advisory lock (pid %d)", leakedPID)
 
-	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	poolerLog, err := os.ReadFile(setup.PoolerLogFile(t))
 	require.NoError(t, err)
 	require.Contains(t, string(poolerLog), "advisory_locks",
 		"multipooler log should attribute the replacement to the advisory-lock checker")
@@ -280,8 +282,8 @@ func TestSessionScrubberReplacesHiddenTempObjects(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
 
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5")
 	primary, err := sql.Open("postgres", primaryDSN)
 	require.NoError(t, err)
 	defer primary.Close()
@@ -319,7 +321,7 @@ func TestSessionScrubberReplacesHiddenTempObjects(t *testing.T) {
 		return alive == 0
 	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden temp objects (pid %d)", leakedPID)
 
-	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	poolerLog, err := os.ReadFile(setup.PoolerLogFile(t))
 	require.NoError(t, err)
 	require.Contains(t, string(poolerLog), "temp_objects",
 		"multipooler log should attribute the replacement to the temp-object checker")
@@ -348,8 +350,8 @@ func TestSessionScrubberReplacesHiddenHoldableCursor(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, scrubSweepWait+2*time.Minute)
 
-	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
-	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.GetPrimary(t).Pgctld.PgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	primaryDSN := shardsetup.GetTestUserDSN("localhost", setup.PostgresPort(t), "sslmode=disable", "connect_timeout=5")
 	primary, err := sql.Open("postgres", primaryDSN)
 	require.NoError(t, err)
 	defer primary.Close()
@@ -379,7 +381,7 @@ func TestSessionScrubberReplacesHiddenHoldableCursor(t *testing.T) {
 		return alive == 0
 	}, scrubSweepWait, time.Second, "scrubber should have replaced the backend holding the hidden WITH HOLD cursor (pid %d)", leakedPID)
 
-	poolerLog, err := os.ReadFile(setup.PrimaryMultipooler(t).LogFile)
+	poolerLog, err := os.ReadFile(setup.PoolerLogFile(t))
 	require.NoError(t, err)
 	require.Contains(t, string(poolerLog), "holdable_cursors",
 		"multipooler log should attribute the replacement to the holdable-cursor checker")

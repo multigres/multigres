@@ -18,13 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // StaleLeaderAnalyzer detects stale leaders that came back online after failover.
@@ -50,23 +50,28 @@ func (a *StaleLeaderAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewDemoteStaleLeaderAction()
 }
 
-func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *StaleLeaderAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// The shard's leader is the pooler named by the highest known consensus rule.
+	// The shard's leader is the pooler named by the highest intended rule.
 	// Any reachable pooler whose own consensus status says it believes itself the
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
-	leaderID := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId()
+	//
+	// Demoting the others is safe even if the named leader has not been promoted
+	// yet. A newer rule, even one only proposed, exists only after its coordinator
+	// recruited (and so revoked) enough of the previous cohort that earlier leaders
+	// can no longer commit.
+	leaderID := sa.HighestIntendedRule().IntendedLeaderID()
 	if leaderID == nil {
 		return nil, nil
 	}
 
-	var staleLeaders []*store.Pooler
-	for _, pa := range sa.Analyses {
-		hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+	var staleLeaders []*multiorchdatapb.PoolerHealthState
+	for _, pa := range sa.Poolers {
+		hs, ok := snapshot.HealthWithin(pa, sa.Now, sa.AvailabilityPolicy.ObservationFreshness)
 		if !ok || commonconsensus.SelfConsensusRole(hs.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 			continue
 		}
@@ -85,8 +90,6 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	// priority.
 	slices.SortFunc(staleLeaders, compareLeaderTimeline)
 
-	leaderPosition := commonconsensus.FormatRulePosition(sa.HighestPosition)
-
 	// Assign descending priorities so the most-stale leader (sorted first)
 	// gets PriorityHigh, the next gets PriorityHigh-1, etc.
 	problems := make([]types.Problem, 0, len(staleLeaders))
@@ -95,15 +98,15 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 			Code:      types.ProblemStaleLeader,
 			CheckName: "StaleLeader",
 			PoolerID:  poolerID(stale),
-			ShardKey:  sa.ShardKey,
+			ShardRef:  sa.ShardRef,
 			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_position %s) is stale, current leader %s (leader_position %s)",
 				poolerID(stale).Name,
-				commonconsensus.FormatRulePosition(stale.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()),
+				commonconsensus.FormatRulePosition(stale.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
-				leaderPosition),
+				sa.HighestIntendedRule().String()),
 			Priority:       types.PriorityHigh - types.Priority(i),
 			Scope:          types.ScopePooler,
-			DetectedAt:     time.Now(),
+			DetectedAt:     sa.Now,
 			RecoveryAction: a.factory.NewDemoteStaleLeaderAction(),
 		})
 	}

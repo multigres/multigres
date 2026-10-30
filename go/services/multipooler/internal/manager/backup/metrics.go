@@ -49,7 +49,9 @@ type Metrics struct {
 	completeCount        metric.Int64ObservableGauge
 	failuresSinceSuccess metric.Int64ObservableGauge
 	ready                metric.Int64ObservableGauge
-	walArchiveLag        metric.Float64ObservableGauge
+	archiveLag           metric.Float64ObservableGauge
+	lastArchiveAge       metric.Float64ObservableGauge
+	pendingSegments      metric.Int64ObservableGauge
 	inProgress           metric.Int64ObservableGauge
 	inProgressDuration   metric.Float64ObservableGauge
 	leaseHeld            metric.Int64ObservableGauge
@@ -161,10 +163,30 @@ func NewMetrics() (*Metrics, error) {
 	)
 	errs = append(errs, err)
 
-	m.walArchiveLag, err = meter.Float64ObservableGauge(
+	// archive_lag_seconds is the archiving backlog: the age of the oldest WAL
+	// segment still awaiting archive, which is 0 when caught up, so an idle
+	// database does not inflate it. This is the alertable series; it keeps the
+	// historical metric name so the existing alert rule needs no change.
+	m.archiveLag, err = meter.Float64ObservableGauge(
 		"pgbackrest.wal.archive_lag_seconds",
-		metric.WithDescription("Seconds since the last WAL segment was archived (primary only); not emitted if unknown"),
+		metric.WithDescription("Age of the oldest WAL segment still awaiting archive (primary only); 0 when caught up, so unaffected by an idle database. The PITR archiving backlog to alert on."),
 		metric.WithUnit("s"),
+	)
+	errs = append(errs, err)
+
+	// last_archive_age_seconds is the previous wall-clock semantics of
+	// archive_lag_seconds: seconds since the last archive, which grows while
+	// idle. Kept for observability under a distinct name; not for alerting.
+	m.lastArchiveAge, err = meter.Float64ObservableGauge(
+		"pgbackrest.wal.last_archive_age_seconds",
+		metric.WithDescription("Wall-clock seconds since the last WAL segment was archived (primary only); grows while idle. Observability only — use archive_lag_seconds for alerting."),
+		metric.WithUnit("s"),
+	)
+	errs = append(errs, err)
+
+	m.pendingSegments, err = meter.Int64ObservableGauge(
+		"pgbackrest.wal.pending_segments",
+		metric.WithDescription("Number of completed WAL segments awaiting archive (primary only); 0 when caught up"),
 	)
 	errs = append(errs, err)
 
@@ -201,8 +223,10 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 	meter := otel.Meter(meterName)
 	_, err := meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
-			// One consistent read; derive ages from timestamps at observe
-			// time so they stay accurate between polls.
+			// One consistent read. Ages anchored on a fixed past event are
+			// derived here, at observe time, so they stay accurate between
+			// polls. The archive backlog is not such an age and is reported as
+			// measured — see below.
 			snap := tracker.Snapshot()
 			now := time.Now()
 
@@ -218,8 +242,29 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			}
 			o.ObserveInt64(m.ready, readyVal, metric.WithAttributes(attribute.String("reason", snap.Reason)))
 
-			if !snap.LastArchived.IsZero() {
-				o.ObserveFloat64(m.walArchiveLag, now.Sub(snap.LastArchived).Seconds())
+			// Both archiver gauges below depend on a reading that only the
+			// archiver poller refreshes. Once that reading ages out, neither is
+			// emitted: a gap is a signal alerting can act on, whereas a stale
+			// value is indistinguishable from a live one.
+			archiverFresh := snap.ArchiverFresh(now)
+
+			// Wall-clock recency (observability): seconds since the last
+			// archive. Grows while idle; emitted only once something has been
+			// archived.
+			if archiverFresh && !snap.LastArchived.IsZero() {
+				o.ObserveFloat64(m.lastArchiveAge, now.Sub(snap.LastArchived).Seconds())
+			}
+
+			// Archiving backlog (alertable): reported exactly as the poller
+			// measured it. It is deliberately not recomputed from OldestPending
+			// against the clock here — the backlog collapses to zero the moment
+			// that segment is archived, so deriving it would report a queue that
+			// has already drained and grow the figure for as long as the reading
+			// stood. A caught-up primary measures 0 and emits it, so alerting
+			// still sees a continuous series.
+			if snap.ArchiverOnPrimary && archiverFresh {
+				o.ObserveFloat64(m.archiveLag, snap.ArchiveLagSeconds)
+				o.ObserveInt64(m.pendingSegments, snap.PendingCount)
 			}
 
 			inProgressVal := int64(0)
@@ -239,7 +284,8 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			return nil
 		},
 		m.lastSuccessAge, m.completeCount, m.failuresSinceSuccess, m.ready,
-		m.walArchiveLag, m.inProgress, m.inProgressDuration, m.leaseHeld,
+		m.archiveLag, m.lastArchiveAge, m.pendingSegments,
+		m.inProgress, m.inProgressDuration, m.leaseHeld,
 	)
 	return err
 }

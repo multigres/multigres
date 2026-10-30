@@ -27,7 +27,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -162,8 +161,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	user := e.getUserFromOptions(options)
 	e.logger.DebugContext(ctx, "executing query",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"user", user,
 		"query", sql)
@@ -215,10 +214,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// conn; the defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
-	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
+	// Execute the query - the regular.Conn.StatelessQuery returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated.
-	// Uses retry variant since this is a stateless pool query.
-	results, err := conn.Conn.QueryWithRetry(ctx, sql)
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	results, err := conn.Conn.StatelessQuery(ctx, sql)
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
@@ -241,10 +241,9 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 // When reservationOptions is set on an existing reserved connection, the reasons are
 // OR'd into the reservation (e.g., adding ReasonTransaction to a temp-table-reserved conn).
 //
-// If options.ExecuteSqlPreparedStatement is set, the multipooler first resolves
-// the underlying prepared statement through pooler-level consolidation
-// (ensurePrepared, ppstmt*) on the chosen backend connection, then materializes
-// the SQL prefix/suffix wrapper before `sql` runs.
+// If options.EagerParsePreparedStatement is set, the multipooler prepares that
+// consolidated statement on the reserved backend (eager parse inside an
+// explicit transaction) instead of executing `sql`.
 //
 // Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) StreamExecute(
@@ -278,14 +277,14 @@ func (e *Executor) StreamExecute(
 	user := e.getUserFromOptions(options)
 	reasons := protoutil.GetReasons(reservationOptions)
 	e.logger.DebugContext(ctx, "stream executing query",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"user", user,
 		"query", sql)
 
-	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
+	eagerParsePreparedStmt := options.GetEagerParsePreparedStatement()
+	eagerParse := eagerParsePreparedStmt != nil
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -300,21 +299,10 @@ func (e *Executor) StreamExecute(
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
 		if eagerParse {
-			return e.eagerParseOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
+			return e.eagerParseOnReservedConn(ctx, reservedConn, eagerParsePreparedStmt, reservationOptions)
 		}
 
-		// If the query references a SQL-level prepared statement wrapper,
-		// materialize it now before delegating to the reserved execution helper.
-		querySQL := sql
-		if executeSQLPreparedStmt != nil {
-			var err error
-			querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
-			if err != nil {
-				return e.reservedConnError(reservedConn, "failed to materialize SQL EXECUTE prepared statement on reserved connection", err)
-			}
-		}
-
-		return e.streamExecuteOnReservedConnWithOptions(ctx, reservedConn, querySQL, reservationOptions, options, callback)
+		return e.streamExecuteOnReservedConnWithOptions(ctx, reservedConn, sql, reservationOptions, options, callback)
 	}
 
 	// Case 2: Create a new reserved connection
@@ -351,29 +339,12 @@ func (e *Executor) StreamExecute(
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	if eagerParse {
-		return nil, errors.New("eager unnamed Parse requires a reserved transaction")
+		return nil, errors.New("eager parse requires a reserved transaction")
 	}
 
-	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
-	// the retry-on-connection-error variant of QueryStreaming: reconnect wipes
-	// per-connection prepared-statement state (regular_conn.go Reconnect:
-	// "Prepared statements don't survive reconnection"), so after a silent
-	// reconnect the materialized EXECUTE would fail with "prepared statement
-	// does not exist". Skip the retry for this rare path; the caller can reissue
-	// the query at the application level on transient failures.
-	if executeSQLPreparedStmt != nil {
-		querySQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn.Conn, executeSQLPreparedStmt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
-		}
-		if err := conn.Conn.QueryStreaming(ctx, querySQL, callback); err != nil {
-			return nil, wrapQueryError(err)
-		}
-		return nil, nil
-	}
-
-	// Use streaming query execution with retry since this is a stateless pool query.
-	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
+	// A pooled autocommit query carries no session state, so the stateless
+	// variant may replace a closed socket before sending.
+	if err := conn.Conn.StatelessQueryStreaming(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
 
@@ -421,20 +392,13 @@ func (e *Executor) reserveAndStreamExecute(
 	// tracking is enabled, stamping happens before BEGIN so lock-detection can map
 	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
-	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
-	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
+	eagerParsePreparedStmt := options.GetEagerParsePreparedStatement()
+	eagerParse := eagerParsePreparedStmt != nil
+	if beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			if executeSQLPreparedStmt != nil && !eagerParse {
-				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt); err != nil {
-					return err
-				}
-			}
-			if beginTx {
-				e.trackVpidOnRegular(ctx, conn, options)
-				if _, err := conn.Query(ctx, beginQuery); err != nil {
-					return fmt.Errorf("failed to begin transaction: %w", err)
-				}
+			e.trackVpidOnRegular(ctx, conn, options)
+			if _, err := conn.Query(ctx, beginQuery); err != nil {
+				return fmt.Errorf("failed to begin transaction: %w", err)
 			}
 			return nil
 		}
@@ -492,7 +456,7 @@ func (e *Executor) reserveAndStreamExecute(
 	}
 
 	if eagerParse {
-		if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
+		if err := e.prepareOnly(ctx, reservedConn.Conn(), eagerParsePreparedStmt); err != nil {
 			if mterrors.IsConnectionDead(err) {
 				if beginTx {
 					_ = reservedConn.Rollback(ctx)
@@ -508,21 +472,11 @@ func (e *Executor) reserveAndStreamExecute(
 	// Execute the actual query and stream results to the callback as they arrive,
 	// matching the non-reserved StreamExecute path. This avoids buffering the entire
 	// result set in memory for large queries inside transactions.
-	querySQL := sql
-	if executeSQLPreparedStmt != nil {
-		querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
-		if err != nil {
-			if beginTx {
-				_ = reservedConn.Rollback(ctx)
-			}
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
-		}
-	}
+	//
 	// Opaque row passthrough for this statement; reset immediately after so the
 	// reserved connection does not carry the mode into later transaction statements.
 	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
-	streamErr := reservedConn.QueryStreaming(ctx, querySQL, callback)
+	streamErr := reservedConn.QueryStreaming(ctx, sql, callback)
 	reservedConn.Conn().SetPassthroughRow(false)
 	if err := streamErr; err != nil {
 		// If this call opened the client's explicit transaction, a PostgreSQL-level
@@ -660,20 +614,26 @@ func (e *Executor) eagerParseOnReservedConn(
 		reservedConn.AddReservationReason(reasons)
 	}
 
-	if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), stmt); err != nil {
+	if err := e.prepareOnly(ctx, reservedConn.Conn(), stmt); err != nil {
 		return e.reservedConnError(reservedConn, "failed to eager parse transaction PREPARE", err)
 	}
 	return e.buildReservedState(reservedConn), nil
 }
 
-func (e *Executor) forceUnnamedParse(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+// prepareOnly prepares the consolidated named statement (ppstmt*) on the
+// reserved backend without executing SQL, for a PREPARE/Parse issued inside an
+// explicit transaction. Running the backend Parse here (after any deferred
+// BEGIN) preserves PostgreSQL's prepare-time validation and lock acquisition,
+// and leaves the statement ready for a later Describe/Execute to reuse. When
+// stmt.ForceReparse is set the existing statement is dropped and re-Parsed, so
+// a fresh client Parse recovers from a schema change that left the shared
+// backend statement stale (see ensurePrepared).
+func (e *Executor) prepareOnly(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
 	if stmt == nil {
 		return errors.New("prepared statement is required")
 	}
-	if err := conn.Parse(ctx, "", stmt.Query, stmt.ParamTypes); err != nil {
-		return fmt.Errorf("failed to parse statement: %w", err)
-	}
-	return nil
+	_, err := e.ensurePrepared(ctx, conn, stmt)
+	return err
 }
 
 // streamExecuteOnReservedConn executes a query on an existing reserved
@@ -972,7 +932,7 @@ func (e *Executor) PortalStreamExecute(
 	portalOptions *multipoolerpb.PortalExecuteOptions,
 	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (*query.ReservedState, error) {
+) (reservedState *query.ReservedState, err error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -982,6 +942,25 @@ func (e *Executor) PortalStreamExecute(
 	if portal == nil {
 		return nil, errors.New("portal is required")
 	}
+
+	// Record the portal execution in mg.pooler.query.* like the simple-query
+	// paths do. The extended protocol is what drivers use, so without this the
+	// pooler's own query metrics missed most traffic and the otelgrpc rpc.*
+	// metrics were the only per-statement signal. Rows are counted through the
+	// callback; pool_type is decided below once the branch is known.
+	poolType := poolTypeRegular
+	start := time.Now()
+	var rowsStreamed int64
+	origCallback := callback
+	callback = func(ctx context.Context, r *sqltypes.Result) error {
+		if r != nil {
+			rowsStreamed += int64(r.RowCount())
+		}
+		return origCallback(ctx, r)
+	}
+	defer func() {
+		e.metrics.recordQuery(ctx, poolType, time.Since(start), rowsStreamed, err)
+	}()
 
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
@@ -995,8 +974,8 @@ func (e *Executor) PortalStreamExecute(
 	}
 
 	e.logger.DebugContext(ctx, "portal stream execute",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"user", user,
 		"statement", preparedStatement.Name,
 		"portal", portal.Name,
@@ -1015,6 +994,7 @@ func (e *Executor) PortalStreamExecute(
 	// 3. reservationOptions carries reasons (caller wants this portal to reserve
 	//    a backend, e.g. it opens a transaction or temp table)
 	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 || reasons != 0 {
+		poolType = poolTypeReserved
 		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, reservationOptions, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
@@ -1072,10 +1052,12 @@ func (e *Executor) portalExecuteWithReserved(
 		// the validate hook (before any BEGIN below) is safe; the prepared
 		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
+		acqStart := time.Now()
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))...)
+		e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
 		if err != nil {
 			return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for user %s: %w", user, err))
 		}
@@ -1284,7 +1266,7 @@ func cachedPlanRetry[T any](
 	op func(canonicalName string) (T, error),
 ) (T, error) {
 	result, err := op(canonicalName)
-	if err != nil && mterrors.IsCachedPlanError(err) {
+	if err != nil && mterrors.IsStalePreparedStatementError(err) {
 		_ = conn.CloseStatement(ctx, canonicalName)
 		conn.State().DeletePreparedStatement(canonicalName)
 
@@ -1318,7 +1300,9 @@ func (e *Executor) portalExecuteWithRegular(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
+	acqStart := time.Now()
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
 		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
@@ -1453,8 +1437,8 @@ func (e *Executor) Describe(
 	}
 
 	e.logger.DebugContext(ctx, "describe",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"user", user,
 		"has_statement", preparedStatement != nil,
 		"has_portal", portal != nil,
@@ -1531,26 +1515,6 @@ func (e *Executor) Describe(
 	return desc, nil
 }
 
-// materializeExecuteSQLPreparedStatement resolves a SQL-level EXECUTE wrapper
-// through the pooler consolidator, ensures the backend connection has the
-// resulting ppstmt* prepared statement, and substitutes that name between the
-// gateway-provided SQL prefix/suffix.
-func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, conn *regular.Conn, stmt *query.ExecuteSqlPreparedStatement) (string, error) {
-	if stmt == nil {
-		return "", errors.New("SQL EXECUTE prepared statement is required")
-	}
-	preparedStatement := stmt.GetPreparedStatement()
-	if preparedStatement == nil {
-		return "", errors.New("SQL EXECUTE prepared statement metadata is required")
-	}
-
-	canonicalName, err := e.ensurePrepared(ctx, conn, preparedStatement)
-	if err != nil {
-		return "", err
-	}
-	return stmt.GetSqlPrefix() + ast.QuoteIdentifier(canonicalName) + stmt.GetSqlSuffix(), nil
-}
-
 // ensurePrepared ensures the prepared statement is available on the connection.
 // It uses the PoolerConsolidator to get a canonical name by (query, paramTypes),
 // then checks the connection state to avoid redundant parsing.
@@ -1562,8 +1526,21 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	connState := conn.State()
 	existing := connState.GetPreparedStatement(canonicalName)
 	if existing != nil && existing.Query == stmt.Query {
-		// Statement already prepared on this connection, reuse it
-		return canonicalName, nil
+		if !stmt.GetForceReparse() {
+			// Statement already prepared on this connection, reuse it
+			return canonicalName, nil
+		}
+		// The client issued a fresh Parse for this query (force_reparse), which in
+		// PostgreSQL always re-plans against the current catalog. The consolidated
+		// backend statement on THIS connection may have been Parsed before a schema
+		// change, so drop and re-Parse it rather than hand back a stale plan. This
+		// covers the in-transaction path (a transaction is pinned to one backend,
+		// so re-Parsing it here is sufficient); the reactive cachedPlanRetry heal
+		// backstops the autocommit case where a later Bind/Execute lands on a
+		// different pooled backend that still has the stale statement. Uses the
+		// same invalidation primitives as that heal.
+		_ = conn.CloseStatement(ctx, canonicalName)
+		connState.DeletePreparedStatement(canonicalName)
 	}
 
 	// Parse the statement on this connection
@@ -2190,9 +2167,21 @@ func int32ToInt16Slice(in []int32) []int16 {
 // wrapQueryError wraps query execution errors with context.
 // PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
 // the display boundary (writeError) extracts the underlying diagnostic via errors.As.
+//
+// A lost backend socket (EOF, ECONNRESET, ...) carries no diagnostic, so the
+// gateway would report it as XX000 internal_error, which clients treat as not
+// retryable. Such errors get a 08006 connection_failure diagnostic instead.
+// The statement may have run before the socket broke, so the client must not
+// assume it did not. Severity stays ERROR: the gateway session survives and
+// the next statement gets a fresh backend.
 func wrapQueryError(err error) error {
 	if err == nil {
 		return nil
+	}
+	var diag *mterrors.PgDiagnostic
+	if !errors.As(err, &diag) && mterrors.IsConnectionError(err) {
+		err = mterrors.NewPgError("ERROR", mterrors.PgSSConnectionFailure,
+			"connection to server lost", err.Error())
 	}
 	return mterrors.Wrapf(err, "query execution failed")
 }

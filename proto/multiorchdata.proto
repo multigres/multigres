@@ -36,9 +36,8 @@ message PoolerHealthState {
   // serving_status, hostname, port_map.
   clustermetadata.Multipooler multipooler = 1;
 
-  // Timestamps for staleness detection
-  google.protobuf.Timestamp last_check_attempted = 4;
-  google.protobuf.Timestamp last_check_successful = 5;
+  // When multiorch last received a successful health snapshot from the pooler,
+  // for staleness detection.
   google.protobuf.Timestamp last_seen = 6;
 
   // Consensus status from ConsensusStatus RPC (for divergence detection)
@@ -59,20 +58,10 @@ message PoolerHealthState {
   // Whether a ManagerHealthStream stream is currently active for this pooler.
   bool stream_connected = 20;
 
-  // The time at which the current stream was established.
-  google.protobuf.Timestamp stream_connected_since = 21;
-
   // Full health status from the most recent successful Status RPC or
   // ManagerHealthStream snapshot. Nil until the first successful check.
   multipoolermanagerdata.Status status = 22;
 
   // Monotonic counter of health snapshots received on the current or past streams.
   int64 stream_snapshots_received = 23;
-
-  // When the pooler reported it captured the most recent snapshot, on the
-  // pooler's own clock (copied verbatim from ManagerHealthSnapshot.captured_at).
-  // Distinct from last_seen/last_check_successful, which are stamped with the
-  // orchestrator's clock on receipt. Comparing this against an orchestrator
-  // timestamp must account for clock skew between the hosts.
-  google.protobuf.Timestamp pooler_captured_at = 24;
 }

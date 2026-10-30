@@ -68,7 +68,8 @@ func (m *Manager) rebalance(ctx context.Context) {
 		reservedDemands[user] = pool.ReservedDemand()
 	}
 
-	// 2. Compute fair allocations
+	// 2. Split the shared budget between classes, then fairly among users.
+	m.splitClassCapacity(ctx, regularDemands, reservedDemands)
 	regularAllocs := m.regularAllocator.Allocate(regularDemands)
 	reservedAllocs := m.reservedAllocator.Allocate(reservedDemands)
 
@@ -95,6 +96,36 @@ func (m *Manager) rebalance(ctx context.Context) {
 
 	// 4. Garbage collect inactive pools
 	m.garbageCollectInactivePools(ctx)
+}
+
+// splitClassCapacity sets each class allocator's budget for this cycle. With
+// elastic quotas, a class whose summed demand exceeds its nominal share
+// borrows whatever the other class is not demanding (see splitClassCapacity).
+// Otherwise the nominal split stands. Only called from the rebalancer goroutine.
+func (m *Manager) splitClassCapacity(ctx context.Context, regularDemands, reservedDemands map[string]int64) {
+	if !m.config.ElasticQuotas() {
+		return
+	}
+	var regularDemand, reservedDemand int64
+	for _, d := range regularDemands {
+		regularDemand += d
+	}
+	for _, d := range reservedDemands {
+		reservedDemand += d
+	}
+	// Every user pool keeps one slot per class, up to the class's nominal
+	// share (see splitClassCapacity).
+	minCap := int64(len(regularDemands))
+	regularCap, reservedCap := splitClassCapacity(m.globalCapacity.Load(), m.config.ReservedRatio(), regularDemand, reservedDemand, minCap)
+	if regularCap != m.regularAllocator.Capacity() || reservedCap != m.reservedAllocator.Capacity() {
+		m.logger.InfoContext(ctx, "class capacity split updated",
+			"regular_demand", regularDemand,
+			"reserved_demand", reservedDemand,
+			"regular_capacity", regularCap,
+			"reserved_capacity", reservedCap)
+	}
+	m.regularAllocator.SetCapacity(regularCap)
+	m.reservedAllocator.SetCapacity(reservedCap)
 }
 
 // garbageCollectInactivePools removes user pools that have been inactive

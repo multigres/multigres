@@ -39,7 +39,7 @@ func newTestStore(t *testing.T) topoclient.Store {
 	return ts
 }
 
-var testShardKey = &clustermetadatapb.ShardKey{
+var testShardRef = &clustermetadatapb.ShardRef{
 	Database:   "testdb",
 	TableGroup: constants.DefaultTableGroup,
 	Shard:      "0",
@@ -54,23 +54,23 @@ func TestTryLockBackup(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Acquire backup lock
-	lockCtx, unlock, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-1")
+	lockCtx, unlock, err := ts.TryLockBackup(ctx, shardRef, "backup by pooler-1")
 	require.NoError(t, err)
 
 	// Verify the lock is held
-	err = topoclient.AssertBackupLockHeld(lockCtx, shardKey)
+	err = topoclient.AssertBackupLockHeld(lockCtx, shardRef)
 	require.NoError(t, err)
 
 	// Second acquire should fail immediately (not block)
-	_, _, err = ts.TryLockBackup(ctx, shardKey, "backup by pooler-2")
+	_, _, err = ts.TryLockBackup(ctx, shardRef, "backup by pooler-2")
 	require.Error(t, err)
 
 	// Different shard should succeed
-	shardKey2 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
-	_, unlock2, err := ts.TryLockBackup(ctx, shardKey2, "backup by pooler-1")
+	shardRef2 := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+	_, unlock2, err := ts.TryLockBackup(ctx, shardRef2, "backup by pooler-1")
 	require.NoError(t, err)
 	var unlockErr error
 	unlock2(&unlockErr)
@@ -81,7 +81,7 @@ func TestTryLockBackup(t *testing.T) {
 	require.NoError(t, unlockErr)
 
 	// Should be acquirable again after release
-	_, unlock3, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-2")
+	_, unlock3, err := ts.TryLockBackup(ctx, shardRef, "backup by pooler-2")
 	require.NoError(t, err)
 	unlock3(&unlockErr)
 	require.NoError(t, unlockErr)
@@ -96,25 +96,25 @@ func TestForceUnlockBackup(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Acquire backup lock
-	_, _, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-1")
+	_, _, err := ts.TryLockBackup(ctx, shardRef, "backup by pooler-1")
 	require.NoError(t, err)
 
 	// Force unlock should succeed
-	err = ts.RevokeBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardRef)
 	require.NoError(t, err)
 
 	// Should be acquirable again after force unlock
-	_, unlock, err := ts.TryLockBackup(ctx, shardKey, "backup by pooler-2")
+	_, unlock, err := ts.TryLockBackup(ctx, shardRef, "backup by pooler-2")
 	require.NoError(t, err)
 	var unlockErr error
 	unlock(&unlockErr)
 	require.NoError(t, unlockErr)
 
 	// Force unlock when no lock exists should be a no-op
-	err = ts.RevokeBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardRef)
 	require.NoError(t, err)
 }
 
@@ -127,24 +127,24 @@ func TestAssertBackupLockHeld(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	// Assert should fail when no lock is held
-	err := topoclient.AssertBackupLockHeld(ctx, shardKey)
+	err := topoclient.AssertBackupLockHeld(ctx, shardRef)
 	require.Error(t, err)
 
 	// Acquire and check
-	lockCtx, unlock, err := ts.TryLockBackup(ctx, shardKey, "backup")
+	lockCtx, unlock, err := ts.TryLockBackup(ctx, shardRef, "backup")
 	require.NoError(t, err)
 
-	err = topoclient.AssertBackupLockHeld(lockCtx, shardKey)
+	err = topoclient.AssertBackupLockHeld(lockCtx, shardRef)
 	require.NoError(t, err)
 
 	// Force unlock — assert should fail on memorytopo after force unlock
-	err = ts.RevokeBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardRef)
 	require.NoError(t, err)
 
-	err = topoclient.AssertBackupLockHeld(lockCtx, shardKey)
+	err = topoclient.AssertBackupLockHeld(lockCtx, shardRef)
 	require.Error(t, err)
 
 	// Clean up the lock descriptor
@@ -158,16 +158,16 @@ func TestWithBackupLease(t *testing.T) {
 	logger := slog.Default()
 
 	called := false
-	err := ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+	err := ts.WithBackupLease(ctx, testShardRef, "pooler-1", "backup", logger, func(ctx context.Context) error {
 		called = true
-		require.NoError(t, topoclient.AssertBackupLockHeld(ctx, testShardKey))
+		require.NoError(t, topoclient.AssertBackupLockHeld(ctx, testShardRef))
 		return nil
 	})
 	require.NoError(t, err)
 	assert.True(t, called)
 
 	// Should be acquirable again after release
-	err = ts.WithBackupLease(ctx, testShardKey, "pooler-2", "backup", logger, func(ctx context.Context) error {
+	err = ts.WithBackupLease(ctx, testShardRef, "pooler-2", "backup", logger, func(ctx context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestWithBackupLeaseFailsWhenLocked(t *testing.T) {
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+		done <- ts.WithBackupLease(ctx, testShardRef, "pooler-1", "backup", logger, func(ctx context.Context) error {
 			close(held)
 			<-ctx.Done()
 			return nil
@@ -190,13 +190,13 @@ func TestWithBackupLeaseFailsWhenLocked(t *testing.T) {
 	<-held
 
 	// Second acquire should fail immediately
-	err := ts.WithBackupLease(ctx, testShardKey, "pooler-2", "backup", logger, func(ctx context.Context) error {
+	err := ts.WithBackupLease(ctx, testShardRef, "pooler-2", "backup", logger, func(ctx context.Context) error {
 		return nil
 	})
 	require.Error(t, err)
 
 	// Clean up: revoke so the goroutine finishes
-	require.NoError(t, ts.RevokeBackup(ctx, testShardKey))
+	require.NoError(t, ts.RevokeBackup(ctx, testShardRef))
 	<-done
 }
 
@@ -209,10 +209,10 @@ func TestWithStolenBackupLease(t *testing.T) {
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	acquire := func(ctx context.Context, action string) (context.Context, func(*error), error) {
-		return ts.TryLockBackup(ctx, testShardKey, action)
+		return ts.TryLockBackup(ctx, testShardRef, action)
 	}
-	revoke := func(ctx context.Context) error { return ts.RevokeBackup(ctx, testShardKey) }
-	check := func(ctx context.Context) error { return topoclient.AssertBackupLockHeld(ctx, testShardKey) }
+	revoke := func(ctx context.Context) error { return ts.RevokeBackup(ctx, testShardRef) }
+	check := func(ctx context.Context) error { return topoclient.AssertBackupLockHeld(ctx, testShardRef) }
 	go func() {
 		done <- topoclient.WithLease(ctx, "backup by pooler-1", acquire, revoke, check, func(ctx context.Context) error {
 			close(held)
@@ -226,7 +226,7 @@ func TestWithStolenBackupLease(t *testing.T) {
 
 	// Steal the lease
 	called := false
-	err := ts.WithStolenBackupLease(ctx, testShardKey, "pooler-2", "failover-backup", logger, func(ctx context.Context) error {
+	err := ts.WithStolenBackupLease(ctx, testShardRef, "pooler-2", "failover-backup", logger, func(ctx context.Context) error {
 		called = true
 		return nil
 	})
@@ -245,7 +245,7 @@ func TestWithStolenBackupLeaseWhenNoLockExists(t *testing.T) {
 
 	// Steal when no lock exists should succeed (acquire directly)
 	called := false
-	err := ts.WithStolenBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+	err := ts.WithStolenBackupLease(ctx, testShardRef, "pooler-1", "backup", logger, func(ctx context.Context) error {
 		called = true
 		return nil
 	})
@@ -258,14 +258,14 @@ func TestWithBackupLeaseDifferentShards(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.Default()
 
-	shardKey2 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+	shardRef2 := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 
-	err := ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+	err := ts.WithBackupLease(ctx, testShardRef, "pooler-1", "backup", logger, func(ctx context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)
 
-	err = ts.WithBackupLease(ctx, shardKey2, "pooler-1", "backup", logger, func(ctx context.Context) error {
+	err = ts.WithBackupLease(ctx, shardRef2, "pooler-1", "backup", logger, func(ctx context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)

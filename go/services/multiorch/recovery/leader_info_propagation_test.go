@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -141,7 +142,7 @@ func TestShouldPropagateLeaderInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldPropagateLeaderInfo(tt.rp, tt.lastSeen, now, leaderAddress, tt.leaderRewindReady, currentPosition)
+			got := shouldPropagateLeaderInfo(tt.rp, tt.lastSeen, now, leaderAddress, tt.leaderRewindReady, commonconsensus.NewRuleTransition(currentPosition))
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -193,7 +194,7 @@ func TestPropagateLeaderInfoToPooler_CachesSuccessfulSetPrimary(t *testing.T) {
 	leaderAddress := leaderInfoTestAddress("leader")
 	position := &clustermetadatapb.RulePosition{Decision: leaderInfoTestRule(5)}
 
-	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderAddress, true, position)
+	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderAddress, true, commonconsensus.NewRuleTransition(position))
 
 	require.Equal(t, []string{"SetPrimary(multipooler-zone1-p1)"}, fake.GetCallLog(), "SetPrimary must actually have been called")
 	got := pooler.Health().GetConsensusStatus().GetReplicationPrimary()
@@ -223,7 +224,7 @@ func TestPropagateLeaderInfoToPooler_NeverRegressesCachedPrimary(t *testing.T) {
 	}, nil)
 
 	stalePosition := &clustermetadatapb.RulePosition{Decision: leaderInfoTestRule(3)}
-	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderInfoTestAddress("stale-leader"), false, stalePosition)
+	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderInfoTestAddress("stale-leader"), false, commonconsensus.NewRuleTransition(stalePosition))
 
 	require.Equal(t, []string{"SetPrimary(multipooler-zone1-p1)"}, fake.GetCallLog(), "SetPrimary must actually have been called with the stale info")
 	got := pooler.Health().GetConsensusStatus().GetReplicationPrimary()

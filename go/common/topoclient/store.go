@@ -67,6 +67,7 @@ import (
 	"log"
 	"log/slog"
 	"maps"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -75,6 +76,7 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -126,6 +128,19 @@ type TLSOptions struct {
 	KeyPEM  []byte
 	CAPEM   []byte
 	Config  *tls.Config
+}
+
+// ContextDialer opens the network connection to a topology server address
+// (host:port).
+type ContextDialer func(ctx context.Context, addr string) (net.Conn, error)
+
+// FactoryWithDialer creates topology connections whose network connections go
+// through a caller-provided dialer, for a process that cannot reach the
+// topology servers directly (one outside the cluster, tunnelling through the
+// Kubernetes API). tlsOptions may be nil.
+type FactoryWithDialer interface {
+	Factory
+	CreateWithDialer(topoName, root string, serverAddrs []string, tlsOptions *TLSOptions, dial ContextDialer) (Conn, error)
 }
 
 // FactoryWithTLS creates topology connections with caller-provided TLS options.
@@ -226,35 +241,38 @@ type Store interface {
 	// Connection provider for accessing cell-specific connections
 	ConnProvider
 
+	// Recovery signals for cell connections
+	ConnRecoveryProvider
+
 	// LockShard acquires a lock on the specified shard.
 	// See shard_lock.go for full documentation.
-	LockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error)
+	LockShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string, opts ...LockOption) (context.Context, func(*error), error)
 
 	// TryLockShard attempts to acquire a lock on the specified shard without blocking.
 	// See shard_lock.go for full documentation.
-	TryLockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+	TryLockShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string) (context.Context, func(*error), error)
 
 	// TryLockBackup attempts to acquire a backup lock on the specified shard without blocking.
 	// See backup_lock.go for full documentation.
-	TryLockBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+	TryLockBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string) (context.Context, func(*error), error)
 
 	// ClaimShardInitialization atomically claims the right to initialize a shard.
 	// Persists both the claimer ID and the proposed cohort. On crash-retry the
 	// committed cohort is returned so the caller reuses the same members.
 	// Returns won=false if a different coordinator already owns the claim.
-	ClaimShardInitialization(ctx context.Context, shardKey *clustermetadatapb.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
+	ClaimShardInitialization(ctx context.Context, shardRef *clustermetadatapb.ShardRef, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
 
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
-	RevokeBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey) error
+	RevokeBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
 
 	// WithBackupLease acquires a backup lease, runs fn, and releases the lease when fn returns.
 	// See backup_lock.go for full documentation.
-	WithBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+	WithBackupLease(ctx context.Context, shardRef *clustermetadatapb.ShardRef, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
 
 	// WithStolenBackupLease acquires a backup lease (stealing if necessary), runs fn, and releases.
 	// See backup_lock.go for full documentation.
-	WithStolenBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+	WithStolenBackupLease(ctx context.Context, shardRef *clustermetadatapb.ShardRef, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
 
 	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
 	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
@@ -272,6 +290,17 @@ type ConnProvider interface {
 
 	// Status returns the connection status for all cells
 	Status() map[string]string
+}
+
+// ConnRecoveryProvider reports when the connection to a cell's topology
+// server was lost and regained. See ConnRecovery.
+type ConnRecoveryProvider interface {
+	// ConnRecoveries returns the recovery channel of the connection for cell.
+	// The channel is closed when that connection is replaced or closed, for
+	// example after the cell's server addresses change. The caller then calls
+	// ConnRecoveries again to follow the new connection. A connection that
+	// cannot report recoveries yields a channel that never fires.
+	ConnRecoveries(ctx context.Context, cell string) (<-chan struct{}, error)
 }
 
 // store is the main topology store implementation. It supports two ways of creation:
@@ -330,7 +359,10 @@ type cellConn struct {
 // TopoConfig holds topology connection settings.
 type TopoConfig struct {
 	// TLS applies to connections created by this topology store.
-	TLS                    *TLSOptions
+	TLS *TLSOptions
+	// ContextDialer, when set, carries every connection this topology store
+	// makes. The implementation must support it (FactoryWithDialer).
+	ContextDialer          ContextDialer
 	globalServerAddresses  viperutil.Value[[]string]
 	globalRoot             viperutil.Value[string]
 	readConcurrency        viperutil.Value[int64]
@@ -415,7 +447,14 @@ func (tc *TopoConfig) SetRemoteOperationTimeout(d time.Duration) {
 	tc.remoteOperationTimeout.Set(d)
 }
 
-func createConn(factory Factory, topoName, root string, serverAddrs []string, tlsOptions *TLSOptions) (Conn, error) {
+func createConn(factory Factory, topoName, root string, serverAddrs []string, config *TopoConfig) (Conn, error) {
+	tlsOptions := tlsOptionsFromConfig(config)
+	if config != nil && config.ContextDialer != nil {
+		if dialFactory, ok := factory.(FactoryWithDialer); ok {
+			return dialFactory.CreateWithDialer(topoName, root, serverAddrs, tlsOptions, config.ContextDialer)
+		}
+		return nil, fmt.Errorf("topology factory %T does not support a custom dialer", factory)
+	}
 	if tlsOptions != nil {
 		if tlsFactory, ok := factory.(FactoryWithTLS); ok {
 			return tlsFactory.CreateWithTLS(topoName, root, serverAddrs, tlsOptions)
@@ -469,7 +508,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 	ts.status[GlobalCell] = ""
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return createConn(factory, GlobalCell, root, serverAddrs, tlsOptionsFromConfig(config))
+			return createConn(factory, GlobalCell, root, serverAddrs, config)
 		},
 		func(s string) {
 			ts.setStatus(GlobalCell, s)
@@ -541,7 +580,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// We can use the GlobalReadOnlyCell for this call.
 	ci, err := ts.GetCell(ctx, cell)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.Wrapf(err, "failed to look up cell %q definition from global topology", cell)
 	}
 
 	ts.cellConnsMu.Lock()
@@ -566,7 +605,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	ts.setStatus(cell, "")
 	conn := NewWrapperConn(
 		func() (Conn, error) {
-			return createConn(ts.factory, cell, ci.Root, ci.ServerAddresses, tlsOptionsFromConfig(ts.config))
+			return createConn(ts.factory, cell, ci.Root, ci.ServerAddresses, ts.config)
 		},
 		func(s string) {
 			ts.setStatus(cell, s)
@@ -581,6 +620,18 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		conn: conn,
 	}
 	return conn, nil
+}
+
+// ConnRecoveries is part of the ConnRecoveryProvider interface.
+func (ts *store) ConnRecoveries(ctx context.Context, cell string) (<-chan struct{}, error) {
+	conn, err := ts.ConnForCell(ctx, cell)
+	if err != nil {
+		return nil, err
+	}
+	if rc, ok := conn.(ConnRecovery); ok {
+		return rc.Recoveries(), nil
+	}
+	return nil, nil
 }
 
 // cellsEqual compares two Cell protos for equality.

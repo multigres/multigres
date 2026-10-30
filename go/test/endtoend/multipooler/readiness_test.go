@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -101,7 +102,7 @@ func TestMultipoolerReadinessReflectsGRPCNotPostgres(t *testing.T) {
 	// The decoupling property: with postgres dead but the gRPC server still
 	// serving, /ready must remain 200 the whole time. If readiness were coupled
 	// to postgres it would flip to 503 here.
-	require.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		return readyStatusCode(t, httpPort) != http.StatusOK
 	}, 15*time.Second, 1*time.Second, "/ready must stay 200 while postgres is down (readiness reflects gRPC, not postgres)")
 

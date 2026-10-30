@@ -73,6 +73,13 @@ type InternalQueryService interface {
 	// the multigres schema DDL that grants privileges alongside CREATE.
 	QueryAdminMultiStatement(ctx context.Context, query string) error
 
+	// QueryAdminNoQueryText is QueryAdmin without recording the SQL text in
+	// tracing spans. Use only when the query text itself carries a secret
+	// that QueryAdmin's blanket IncludeQueryText would otherwise attach to the
+	// span in plaintext (e.g. CREATE SUBSCRIPTION's quoted CONNECTION conninfo,
+	// which may hold a password).
+	QueryAdminNoQueryText(ctx context.Context, query string) (*sqltypes.Result, error)
+
 	// Begin starts a transaction on a reserved connection and returns a handle
 	// for issuing queries within it. Reserved connections are the mechanism for
 	// holding a backend outside the regular pool's checkout/recycle cycle, which
@@ -135,8 +142,8 @@ var _ InternalQueryService = (*Executor)(nil)
 // regular and admin query methods share the run* helpers below and differ only
 // in the borrower they pass.
 type pooledQueryConn interface {
-	QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error)
-	QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
+	StatelessQuery(ctx context.Context, sql string) ([]*sqltypes.Result, error)
+	StatelessQueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error)
 }
 
 // connBorrower acquires a pool connection and returns it with a release function
@@ -172,7 +179,28 @@ func runSingleQuery(ctx context.Context, borrow connBorrower, queryStr string) (
 	}
 	defer release()
 
-	results, err := conn.QueryWithRetry(ctx, queryStr)
+	results, err := conn.StatelessQuery(ctx, queryStr)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, errors.New("unexpected number of results")
+	}
+	return results[0], nil
+}
+
+// runSingleQueryNoQueryText is runSingleQuery without SQL-text tracing, for a
+// query whose text itself carries a secret (see QueryAdminNoQueryText's doc
+// comment on InternalQueryService).
+func runSingleQueryNoQueryText(ctx context.Context, borrow connBorrower, queryStr string) (*sqltypes.Result, error) {
+	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{IncludeQueryText: false})
+	conn, release, err := borrow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	results, err := conn.StatelessQuery(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +219,7 @@ func runSingleQueryArgs(ctx context.Context, borrow connBorrower, sql string, ar
 	}
 	defer release()
 
-	results, err := conn.QueryArgsWithRetry(ctx, sql, args...)
+	results, err := conn.StatelessQueryArgs(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +239,7 @@ func runMultiStatement(ctx context.Context, borrow connBorrower, queryStr string
 	}
 	defer release()
 
-	_, err = conn.QueryWithRetry(ctx, queryStr)
+	_, err = conn.StatelessQuery(ctx, queryStr)
 	return err
 }
 

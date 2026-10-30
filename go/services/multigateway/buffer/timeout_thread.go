@@ -138,6 +138,6 @@ func (tt *timeoutThread) evictHead() {
 	tt.buf.bufferSizeSema.Release(1)
 	tt.buf.stats.addQueueDepth(tt.buf.ctx, -1)
 	close(head.done)
-	tt.buf.stats.recordEvicted(tt.buf.ctx, string(commontypes.FormatShardKey(head.shardKey)), "window_exceeded")
-	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", commontypes.FormatShardKey(head.shardKey))
+	tt.buf.stats.recordEvicted(tt.buf.ctx, string(commontypes.FormatShardRef(head.shardRef)), "window_exceeded")
+	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", commontypes.FormatShardRef(head.shardRef))
 }

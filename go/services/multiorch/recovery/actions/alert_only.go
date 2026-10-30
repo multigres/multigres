@@ -25,6 +25,11 @@ import (
 // Compile-time assertion that AlertOnlyAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*AlertOnlyAction)(nil)
 
+// AlertOnlyActionName is AlertOnlyAction's RecoveryMetadata().Name, exported
+// so callers can identify it without string-matching a literal (e.g. to skip
+// treating it like a real recovery attempt in logs/metrics).
+const AlertOnlyActionName = "AlertOnly"
+
 // AlertOnlyAction is the recovery action for non-actionable problems — ones an
 // orchestrator has detected but cannot fix on its own (e.g. ShardStuck,
 // ShardAtRisk). It performs no remediation; surfacing the problem is the whole
@@ -45,9 +50,9 @@ func (a *AlertOnlyAction) Execute(ctx context.Context, rechecked types.Rechecked
 	problem := rechecked.Problem
 	a.logger.WarnContext(ctx, "non-actionable problem detected; human intervention required",
 		"problem_code", problem.Code,
-		"database", problem.ShardKey.GetDatabase(),
-		"tablegroup", problem.ShardKey.GetTableGroup(),
-		"shard", problem.ShardKey.GetShard(),
+		"database", problem.ShardRef.GetDatabase(),
+		"tablegroup", problem.ShardRef.GetTableGroup(),
+		"shard", problem.ShardRef.GetShard(),
 		"description", problem.Description,
 	)
 	return nil
@@ -55,7 +60,7 @@ func (a *AlertOnlyAction) Execute(ctx context.Context, rechecked types.Rechecked
 
 func (a *AlertOnlyAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
-		Name:        "AlertOnly",
+		Name:        AlertOnlyActionName,
 		Description: "Records a non-actionable problem for alerting; performs no remediation",
 		Timeout:     5 * time.Second,
 	}
@@ -64,9 +69,4 @@ func (a *AlertOnlyAction) Metadata() types.RecoveryMetadata {
 // RequiresHealthyLeader is false: alerting never touches the leader.
 func (a *AlertOnlyAction) RequiresHealthyLeader() bool {
 	return false
-}
-
-// GracePeriod is nil: there is nothing to defer for an alert.
-func (a *AlertOnlyAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
 }

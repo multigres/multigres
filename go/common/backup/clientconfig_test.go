@@ -62,6 +62,14 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, "pgbackrest", "lock"), global.Key("lock-path").String())
 	assert.Equal(t, "zst", global.Key("compress-type").String())
 
+	// Asynchronous archiving is unconditional, single repo included. pg1-path
+	// is mandatory for async archive-push, and archive-push-queue-max must
+	// never be rendered: with a queue limit pgbackrest acknowledges and drops
+	// WAL instead of keeping it in pg_wal until it reaches the repo.
+	assert.Equal(t, "y", global.Key("archive-async").String())
+	assert.False(t, global.HasKey("archive-push-queue-max"), "a push queue limit would let pgbackrest drop WAL")
+	assert.Equal(t, "/var/lib/postgresql/data", cfg.Section("multigres").Key("pg1-path").String())
+
 	// Retention settings must appear in [global] for all backend types
 	assert.Equal(t, "7", global.Key("repo1-retention-full").String())
 	assert.Equal(t, "1", global.Key("repo1-retention-diff").String())
@@ -249,9 +257,11 @@ func TestWriteClientConfig_MultiRepo(t *testing.T) {
 	assert.Equal(t, keys[2], stanza.Key("repo2-cipher-pass").String())
 	assert.Equal(t, CipherType, stanza.Key("repo2-cipher-type").String())
 
-	// Per-repo retention, and asynchronous archiving once >1 repo is rendered.
+	// Per-repo retention. Archiving stays asynchronous with >1 repo: a down
+	// repo must not hold the healthy ones one segment behind.
 	assert.Equal(t, RetentionFull, global.Key("repo2-retention-full").String())
 	assert.Equal(t, "y", global.Key("archive-async").String())
+	assert.False(t, global.HasKey("archive-push-queue-max"))
 
 	info, err := os.Stat(configPath)
 	require.NoError(t, err)

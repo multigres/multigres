@@ -141,6 +141,9 @@ linters:
             - "!**/go/services/multigateway/**/*.go"
             - "!**/go/cmd/multigateway/*.go"
             - "!**/go/cmd/multigateway/**/*.go"
+            # minigres runs the multigateway and the multipooler in one process.
+            - "!**/go/cmd/minigres/*.go"
+            - "!**/go/cmd/minigres/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -163,6 +166,9 @@ linters:
             - "!**/go/services/multipooler/**/*.go"
             - "!**/go/cmd/multipooler/*.go"
             - "!**/go/cmd/multipooler/**/*.go"
+            # minigres runs the multigateway and the multipooler in one process.
+            - "!**/go/cmd/minigres/*.go"
+            - "!**/go/cmd/minigres/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -326,7 +332,12 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(common/parser|common/pgprotocol|tools/ruleguard)
+        # Anchored on a path *segment* boundary rather than "^go/" -- in a git
+        # worktree whose directory name differs from the main checkout,
+        # golangci-lint reports paths relative to the main checkout instead
+        # of the worktree root (e.g. "../../multigres/go/..."), which a "^go/"
+        # anchor would miss.
+        path: (^|/)go/(common/parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec
@@ -370,6 +381,13 @@ linters:
           - staticcheck
         path: _test\.go$
         text: "SA1019: .*Type is deprecated: Marked as deprecated in clustermetadata"
+issues:
+  # Default is 3, which silently drops issues once a linter reports more than
+  # 3 with identical message text. When those duplicates span more than one
+  # package in a single run, which 3 survive is non-deterministic (the
+  # surviving issues can change file/package between otherwise-identical
+  # runs of the same code). Show every issue instead of truncating.
+  max-same-issues: 0
 formatters:
   enable:
     - gofumpt

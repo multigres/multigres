@@ -269,8 +269,6 @@ func TestPostgreSQLRegression(t *testing.T) {
 				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 
-			logSuiteResults(t, "Regression", results)
-
 			// Count expected tests from schedule (only for full suite runs)
 			var expectedRegress int
 			if os.Getenv("PGREGRESS_TESTS") == "" {
@@ -280,6 +278,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 					t.Logf("Regression schedule has %d tests; %d executed", n, results.TotalTests)
 				}
 			}
+
+			logSuiteResults(t, "Regression", results, expectedRegress)
 
 			suites = append(suites, SuiteResult{
 				Name:          "Regression Tests",
@@ -324,8 +324,6 @@ func TestPostgreSQLRegression(t *testing.T) {
 			isolationDir := filepath.Join(builder.BuildDir, "src", "test", "isolation")
 			builder.VerifyIsolationWithPatches(suiteCtx, results, isolationDir)
 
-			logSuiteResults(t, "Isolation", results)
-
 			// Count expected tests from schedule (only for full suite runs)
 			var expectedIsolation int
 			if os.Getenv("PGISOLATION_TESTS") == "" {
@@ -335,6 +333,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 					t.Logf("Isolation schedule has %d tests; %d executed", n, results.TotalTests)
 				}
 			}
+
+			logSuiteResults(t, "Isolation", results, expectedIsolation)
 
 			suites = append(suites, SuiteResult{
 				Name:          "Isolation Tests",
@@ -377,7 +377,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				return
 			}
 
-			logSuiteResults(t, "Contrib", results)
+			logSuiteResults(t, "Contrib", results, 0)
 
 			suites = append(suites, SuiteResult{
 				Name:    "Contrib Extension Tests",
@@ -428,7 +428,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				return
 			}
 
-			logSuiteResults(t, "External", results)
+			logSuiteResults(t, "External", results, 0)
 
 			suites = append(suites, SuiteResult{
 				Name:    "External Extension Tests",
@@ -455,8 +455,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 	}
 }
 
-// logSuiteResults logs structured results for a test suite to the test output.
-func logSuiteResults(t *testing.T, suiteName string, results *TestResults) {
+// logSuiteResults logs structured results for a test suite to the test output
+// and fails the suite when any test failed, the run timed out, or fewer than
+// expected tests executed (expected is 0 when the schedule size is unknown,
+// e.g. a PGREGRESS_TESTS subset run).
+func logSuiteResults(t *testing.T, suiteName string, results *TestResults, expected int) {
 	t.Helper()
 
 	t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -493,11 +496,19 @@ func logSuiteResults(t *testing.T, suiteName string, results *TestResults) {
 			t.Logf("  ❌ %s - %s", failure.TestName, failure.Error)
 		}
 		t.Logf("")
-		t.Logf("⚠️  WARNING: %d %s test(s) failed.", results.FailedTests, suiteName)
-		t.Logf("   This is logged for investigation but won't fail the Go test.")
-		t.Logf("   Review the test output above for details.")
+		t.Errorf("%d %s test(s) failed. See failed tests above for details.", results.FailedTests, suiteName)
 	} else if results.PassedTests > 0 {
 		t.Logf("")
 		t.Logf("✅ All %d %s tests passed!", results.PassedTests, suiteName)
+	}
+
+	// Tests that never ran cannot have passed: a suite cut short by the
+	// deadline, or one that executed fewer tests than its schedule lists,
+	// would otherwise report only the tests it reached and stay green.
+	if results.TimedOut {
+		t.Errorf("%s suite timed out after %d test(s); the rest never ran.", suiteName, results.TotalTests)
+	}
+	if expected > 0 && results.TotalTests < expected {
+		t.Errorf("%s suite executed %d of %d scheduled test(s).", suiteName, results.TotalTests, expected)
 	}
 }

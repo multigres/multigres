@@ -114,24 +114,27 @@ messages until `ReadyForQuery` to keep connections clean. Connection-level error
 (read failures, broken pipes) cause the connection to be closed rather than
 returned to the pool.
 
-**Stale-Connection Retry:**
+**Stale-Connection Recovery:**
 
-A pooled socket can be silently closed by PostgreSQL while it sits idle (idle
-session timeout, server restart, etc.). The first write on that socket fails
-with a connection-class error (EOF, EPIPE, FATAL 57P0x). The regular pool
-recovers transparently in two places, both bounded by
-`constants.MaxConnPoolRetryAttempts` attempts with `constants.ConnPoolRetryBackoff`
-between them:
+A pooled socket can be closed by PostgreSQL while it sits idle (idle session
+timeout, server restart, failover, `pg_terminate_backend`). PostgreSQL writes a
+FATAL to the socket before closing it, and a query sent afterwards reads that
+FATAL back as if it were the reply. The regular pool recovers transparently in
+two places:
 
 - `regular.Pool.GetWithSettings` retries when applying SETs hits a stale socket
-  during acquisition (the underlying connpool closes the conn but does not
-  retry on its own); each attempt dials a fresh replacement.
-- `Conn.QueryWithRetry` / `QueryStreamingWithRetry` / `QueryArgsWithRetry`
-  reconnect the same socket in place via `retryOnConnectionError` and re-run
-  the op.
+  during acquisition, up to `constants.MaxConnPoolRetryAttempts` attempts with
+  `constants.ConnPoolRetryBackoff` between them. Replaying SETs is harmless.
+- `Conn.StatelessQuery` / `StatelessQueryStreaming` / `StatelessQueryArgs`
+  check the idle socket with `client.Conn.CheckIdle` before sending: a
+  non-blocking peek that sends nothing. If PostgreSQL already closed it, the
+  socket is reconnected in place and the query is sent on the fresh session.
 
-Together these cover both acquisition-time and execution-time stale-socket
-failures for the non-reserved query path.
+A query is never sent twice. Once it has been sent, a lost connection does not
+show whether PostgreSQL ran it (it may have committed an INSERT or consumed a
+sequence value before the backend died), so the error goes to the client, as
+it would for a client connected directly to PostgreSQL. The admin pool follows
+the same rule.
 
 #### ReservedPool
 
@@ -207,8 +210,11 @@ This is the reserved-pool analog of the regular pool's
 `retryOnConnectionError`. It is wired by every executor call site that
 allocates a fresh reserved conn:
 
-- `reserveAndStreamExecute` — `ensurePreparedWithName` runs in validate when
-  the request carries a wrapped EXECUTE prepared statement.
+- `reserveAndStreamExecute` — SQL EXECUTE materialization uses
+  `ensurePrepared` in validation when the request carries an EXECUTE wrapper.
+  A transaction's `prepare_only` request instead replays BEGIN in validation
+  and prepares the named statement after acquiring the reservation, inside
+  that transaction. This preserves Parse-time locks and error handling.
 - `portalExecuteWithReserved` (new-conn branch) — `ensurePrepared` runs in
   validate; the post-acquire `ensurePrepared` becomes a no-op (deduped by
   per-connection state).
@@ -332,6 +338,23 @@ Derived:
   globalRegularCapacity  = 500 * 0.8 = 400
   globalReservedCapacity = 500 * 0.2 = 100
 ```
+
+With **elastic quotas** (`--connpool-elastic-quotas`, on by default) these are
+targets under contention, not ceilings. Each rebalance cycle re-splits the
+global capacity from the summed demand of both classes:
+
+1. Each class gets `min(demand, target)`.
+2. Unused capacity is lent to whichever class demands more than its target.
+3. Capacity nobody demands is split by the ratio as burst headroom.
+4. Each class keeps a floor of `min(userPools, target)` slots so every user
+   pool stays usable in both classes.
+
+So a single user running only transactions can hold 499 of 500 slots on the
+reserved side, and when regular demand returns the split drifts back toward
+80/20 as reserved connections are released (nothing is preempted; the shrink
+is applied as connections are recycled, exactly like a per-user shrink).
+Borrowing lags demand by up to one rebalance interval plus the demand window.
+Set `--connpool-elastic-quotas=false` to pin the ratio as a hard split.
 
 A `FairShareAllocator` instance manages each resource type independently. This
 mirrors the `DemandTracker` design (also resource-agnostic, one per pool type).
@@ -472,16 +495,19 @@ Rebalancing runs as a **periodic background goroutine**:
 │     └─ regularTracker.GetPeakAndRotate() for each user          │
 │     └─ reservedTracker.GetPeakAndRotate() for each user         │
 │                                                                  │
-│  2. Run fair share algorithm (two allocators, one per resource)  │
+│  2. Split global capacity between classes by summed demand       │
+│     └─ splitClassCapacity() (elastic quotas; else fixed ratio)  │
+│                                                                  │
+│  3. Run fair share algorithm (two allocators, one per resource)  │
 │     └─ regularAlloc.Allocate(regularDemands)                    │
 │     └─ reservedAlloc.Allocate(reservedDemands)                  │
 │                                                                  │
-│  3. Apply new capacities                                         │
+│  4. Apply new capacities                                         │
 │     └─ pool.SetCapacity(ctx, newRegularCap, newReservedCap)     │
 │        (non-blocking - excess borrowed connections closed on     │
 │         recycle)                                                 │
 │                                                                  │
-│  4. Garbage collect inactive pools                               │
+│  5. Garbage collect inactive pools                               │
 │     └─ Remove pools with no activity for > inactive timeout     │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -585,15 +611,22 @@ escapes gateway tracking — a `set_config` hidden in a routine body, a
 tracking bug, out-of-band DDL — would silently leak to the next borrower.
 The scrubber is the detection net for that class of failure.
 
-A background worker per pool pops one idle connection per tick (rotating
-across the clean stack and all settings buckets), runs every registered
-**state checker** against it, and either returns it — with its idle clock
-intact, so scrubbing never defeats idle-timeout shrinking — or, on any
-divergence, closes it and eagerly opens a replacement into the same slot
+A background worker per pool takes one idle connection per tick, runs every
+registered **state checker** against it, and either returns it — at the
+depth of its stack it was taken from, with its idle clock intact, so
+scrubbing never promotes a cold connection into client traffic and never
+defeats idle-timeout shrinking — or, on any divergence, closes it and
+eagerly opens a replacement into the same slot
 (eager because a freed slot cannot wake a waitlisted client). Divergent
 backends are always replaced, never reconciled: divergence means tracking
 was bypassed, and what a checker observes is only part of what the untracked
-code may have done. A probe that fails or times out is treated the same way:
+code may have done. Selection works in passes so every idle connection is
+covered: each tick takes, from the next non-empty stack in rotation, the
+topmost connection not yet probed in the current pass and marks it; once
+every idle connection in every stack carries the current pass number the
+next pass begins. Simply probing the top of a stack each tick would never
+reach the connections beneath it, since clients also take and return
+connections at the top. A probe that fails or times out is treated the same way:
 an unverified backend may still carry hidden state, and a client could
 induce probe failures deliberately, so the scrubber fails closed and
 replaces it (churn is bounded to one connection per tick). While a probe is
@@ -852,6 +885,7 @@ These flags control how pool capacities are distributed across users:
 | ---------------------------------- | ------- | ---------------------------------------------- |
 | `--connpool-global-capacity`       | 100     | Total PostgreSQL connections to manage         |
 | `--connpool-reserved-ratio`        | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-elastic-quotas`        | true    | Let classes borrow each other's unused share   |
 | `--connpool-rebalance-interval`    | 10s     | How often to run rebalancing                   |
 | `--connpool-demand-window`         | 30s     | Sliding window for peak demand tracking        |
 | `--connpool-inactive-timeout`      | 5m      | Remove user pools after this inactivity        |
@@ -869,15 +903,19 @@ globalReservedCapacity = globalCapacity * reservedRatio
 | Flag                        | Default    | Env Var                                        | Description                                            |
 | --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
 | `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
-| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password                          |
+| (no password flag)          | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password (env or file only)       |
 | `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
 
 `CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
-takes precedence over `POSTGRES_PASSWORD` when both are set.
+takes precedence over `POSTGRES_PASSWORD` when both are set. There is deliberately no
+password CLI flag — a password on the command line is visible in `ps` and shell
+history; use the env vars or `--connpool-admin-password-file`.
 
-> **Deprecated:** `--connpool-admin-user`, `--connpool-admin-password`, `CONNPOOL_ADMIN_USER`,
-> and `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
-> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead.
+> **Deprecated:** `--connpool-admin-user`, `CONNPOOL_ADMIN_USER`, and
+> `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
+> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead (`--connpool-admin-password`
+> has been removed). The `POSTGRES_*` variables are the identity/secrets contract
+> shared with pgctld — see `go/common/constants/postgres.go`.
 
 ### Per-User Pool Flags (Timeouts Only)
 

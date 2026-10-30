@@ -22,6 +22,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	migrator "github.com/multigres/multigres/go/pb/migrator"
 	multiadmin "github.com/multigres/multigres/go/pb/multiadmin"
 	http "net/http"
 	strings "strings"
@@ -101,47 +102,170 @@ const (
 	// MultiadminServiceSwitchPrimaryProcedure is the fully-qualified name of the MultiadminService's
 	// SwitchPrimary RPC.
 	MultiadminServiceSwitchPrimaryProcedure = "/multiadmin.MultiadminService/SwitchPrimary"
+	// MultiadminServiceCreateMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// CreateMigration RPC.
+	MultiadminServiceCreateMigrationProcedure = "/multiadmin.MultiadminService/CreateMigration"
+	// MultiadminServiceGetMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// GetMigration RPC.
+	MultiadminServiceGetMigrationProcedure = "/multiadmin.MultiadminService/GetMigration"
+	// MultiadminServiceListMigrationsProcedure is the fully-qualified name of the MultiadminService's
+	// ListMigrations RPC.
+	MultiadminServiceListMigrationsProcedure = "/multiadmin.MultiadminService/ListMigrations"
+	// MultiadminServiceGetMigrationJournalProcedure is the fully-qualified name of the
+	// MultiadminService's GetMigrationJournal RPC.
+	MultiadminServiceGetMigrationJournalProcedure = "/multiadmin.MultiadminService/GetMigrationJournal"
+	// MultiadminServiceSetMigrationDirectionProcedure is the fully-qualified name of the
+	// MultiadminService's SetMigrationDirection RPC.
+	MultiadminServiceSetMigrationDirectionProcedure = "/multiadmin.MultiadminService/SetMigrationDirection"
+	// MultiadminServiceDropMigrationProcedure is the fully-qualified name of the MultiadminService's
+	// DropMigration RPC.
+	MultiadminServiceDropMigrationProcedure = "/multiadmin.MultiadminService/DropMigration"
+	// MultiadminServiceCreateConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// CreateConnection RPC.
+	MultiadminServiceCreateConnectionProcedure = "/multiadmin.MultiadminService/CreateConnection"
+	// MultiadminServiceGetConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// GetConnection RPC.
+	MultiadminServiceGetConnectionProcedure = "/multiadmin.MultiadminService/GetConnection"
+	// MultiadminServiceListConnectionsProcedure is the fully-qualified name of the MultiadminService's
+	// ListConnections RPC.
+	MultiadminServiceListConnectionsProcedure = "/multiadmin.MultiadminService/ListConnections"
+	// MultiadminServiceDropConnectionProcedure is the fully-qualified name of the MultiadminService's
+	// DropConnection RPC.
+	MultiadminServiceDropConnectionProcedure = "/multiadmin.MultiadminService/DropConnection"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
 type MultiadminServiceClient interface {
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -151,6 +275,16 @@ type MultiadminServiceClient interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -158,7 +292,39 @@ type MultiadminServiceClient interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error)
+	// GetMigration returns status for one migration, addressed by ref (id or name).
+	GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error)
+	// ListMigrations returns the ids of every migration.
+	ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error)
+	// GetMigrationJournal returns a migration's append-only audit journal
+	// (oldest first).
+	GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error)
+	// SetMigrationDirection sets the active direction: on a not-yet-started
+	// migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+	// the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// CreateConnection stores a named source conninfo, shard-scoped.
+	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
+	// GetConnection returns one connection, addressed by ref (id or name).
+	GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error)
+	// ListConnections returns every stored connection in full.
+	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
+	// DropConnection removes a connection.
+	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -280,6 +446,66 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 			connect.WithClientOptions(opts...),
 		),
+		createMigration: connect.NewClient[migrator.CreateMigrationRequest, migrator.CreateMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		getMigration: connect.NewClient[migrator.GetMigrationRequest, migrator.GetMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		listMigrations: connect.NewClient[migrator.ListMigrationsRequest, migrator.ListMigrationsResponse](
+			httpClient,
+			baseURL+MultiadminServiceListMigrationsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ListMigrations")),
+			connect.WithClientOptions(opts...),
+		),
+		getMigrationJournal: connect.NewClient[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetMigrationJournalProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetMigrationJournal")),
+			connect.WithClientOptions(opts...),
+		),
+		setMigrationDirection: connect.NewClient[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceSetMigrationDirectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SetMigrationDirection")),
+			connect.WithClientOptions(opts...),
+		),
+		dropMigration: connect.NewClient[migrator.DropMigrationRequest, migrator.DropMigrationResponse](
+			httpClient,
+			baseURL+MultiadminServiceDropMigrationProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
+			connect.WithClientOptions(opts...),
+		),
+		createConnection: connect.NewClient[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceCreateConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("CreateConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		getConnection: connect.NewClient[migrator.GetConnectionRequest, migrator.GetConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		listConnections: connect.NewClient[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse](
+			httpClient,
+			baseURL+MultiadminServiceListConnectionsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ListConnections")),
+			connect.WithClientOptions(opts...),
+		),
+		dropConnection: connect.NewClient[migrator.DropConnectionRequest, migrator.DropConnectionResponse](
+			httpClient,
+			baseURL+MultiadminServiceDropConnectionProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -303,6 +529,16 @@ type multiadminServiceClient struct {
 	getGatewayConsolidator     *connect.Client[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse]
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 	switchPrimary              *connect.Client[multiadmin.SwitchPrimaryRequest, multiadmin.SwitchPrimaryResponse]
+	createMigration            *connect.Client[migrator.CreateMigrationRequest, migrator.CreateMigrationResponse]
+	getMigration               *connect.Client[migrator.GetMigrationRequest, migrator.GetMigrationResponse]
+	listMigrations             *connect.Client[migrator.ListMigrationsRequest, migrator.ListMigrationsResponse]
+	getMigrationJournal        *connect.Client[migrator.GetMigrationJournalRequest, migrator.GetMigrationJournalResponse]
+	setMigrationDirection      *connect.Client[migrator.SetMigrationDirectionRequest, migrator.SetMigrationDirectionResponse]
+	dropMigration              *connect.Client[migrator.DropMigrationRequest, migrator.DropMigrationResponse]
+	createConnection           *connect.Client[migrator.CreateConnectionRequest, migrator.CreateConnectionResponse]
+	getConnection              *connect.Client[migrator.GetConnectionRequest, migrator.GetConnectionResponse]
+	listConnections            *connect.Client[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse]
+	dropConnection             *connect.Client[migrator.DropConnectionRequest, migrator.DropConnectionResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -395,45 +631,188 @@ func (c *multiadminServiceClient) SwitchPrimary(ctx context.Context, req *connec
 	return c.switchPrimary.CallUnary(ctx, req)
 }
 
+// CreateMigration calls multiadmin.MultiadminService.CreateMigration.
+func (c *multiadminServiceClient) CreateMigration(ctx context.Context, req *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error) {
+	return c.createMigration.CallUnary(ctx, req)
+}
+
+// GetMigration calls multiadmin.MultiadminService.GetMigration.
+func (c *multiadminServiceClient) GetMigration(ctx context.Context, req *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error) {
+	return c.getMigration.CallUnary(ctx, req)
+}
+
+// ListMigrations calls multiadmin.MultiadminService.ListMigrations.
+func (c *multiadminServiceClient) ListMigrations(ctx context.Context, req *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error) {
+	return c.listMigrations.CallUnary(ctx, req)
+}
+
+// GetMigrationJournal calls multiadmin.MultiadminService.GetMigrationJournal.
+func (c *multiadminServiceClient) GetMigrationJournal(ctx context.Context, req *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error) {
+	return c.getMigrationJournal.CallUnary(ctx, req)
+}
+
+// SetMigrationDirection calls multiadmin.MultiadminService.SetMigrationDirection.
+func (c *multiadminServiceClient) SetMigrationDirection(ctx context.Context, req *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error) {
+	return c.setMigrationDirection.CallUnary(ctx, req)
+}
+
+// DropMigration calls multiadmin.MultiadminService.DropMigration.
+func (c *multiadminServiceClient) DropMigration(ctx context.Context, req *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
+	return c.dropMigration.CallUnary(ctx, req)
+}
+
+// CreateConnection calls multiadmin.MultiadminService.CreateConnection.
+func (c *multiadminServiceClient) CreateConnection(ctx context.Context, req *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {
+	return c.createConnection.CallUnary(ctx, req)
+}
+
+// GetConnection calls multiadmin.MultiadminService.GetConnection.
+func (c *multiadminServiceClient) GetConnection(ctx context.Context, req *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error) {
+	return c.getConnection.CallUnary(ctx, req)
+}
+
+// ListConnections calls multiadmin.MultiadminService.ListConnections.
+func (c *multiadminServiceClient) ListConnections(ctx context.Context, req *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error) {
+	return c.listConnections.CallUnary(ctx, req)
+}
+
+// DropConnection calls multiadmin.MultiadminService.DropConnection.
+func (c *multiadminServiceClient) DropConnection(ctx context.Context, req *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
+	return c.dropConnection.CallUnary(ctx, req)
+}
+
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
 type MultiadminServiceHandler interface {
 	// GetCell retrieves information about a specific cell
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the cell name is missing. NotFound (5) means topology reports no such
+	// cell; other topology failures become Internal (13). This read can be retried with bounded backoff
+	// after a transient dependency failure.
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology reports no such
+	// database; other topology failures become Internal (13). This read can be retried with bounded
+	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error)
 	// GetDatabaseNames retrieves all database names in the cluster
+	//
+	// Errors and recovery:
+	// Topology lookup failures become Internal (13). Retry this read with bounded backoff after a
+	// transient dependency failure; an error is not an empty inventory.
 	GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error)
 	// GetGateways retrieves gateways filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error)
 	// GetPoolers retrieves poolers filtered by cells and/or database
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error)
 	// GetOrchs retrieves orchestrators filtered by cells
+	//
+	// Errors and recovery:
+	// Failure to enumerate cells becomes Internal (13). Failures in individual cells become Unknown (2);
+	// the REST error response does not include partial inventory. Retry this read with bounded backoff and
+	// do not treat lookup failure as resource absence.
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
+	//
+	// Errors and recovery:
+	// HTTP 200 means a job was accepted, not that the backup completed. Save jobId and poll
+	// GetBackupJobStatus with database, tableGroup, and shard; eventual failure is reported as
+	// JOB_STATUS_FAILED in a successful status response. Pooler selection failures become
+	// FailedPrecondition (9), including topology failures. There is no client-supplied idempotency key. If
+	// the response is lost, a job may already be running: reconcile job status and backup inventory before
+	// submitting another backup. An empty inventory alone does not rule out an in-progress job.
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
+	//
+	// Errors and recovery:
+	// After multiadmin restarts, polling needs database and tableGroup (and the original shard) to fall
+	// back to a pooler. NotFound (5) currently covers missing local state without fallback context, pooler
+	// selection failure, every pooler RPC error, and confirmed missing backup metadata. A 404 therefore
+	// does not prove the job disappeared. Preserve the job ID, check the shard context and pooler health,
+	// and retry this read with bounded backoff; do not stop monitoring solely because of 404. Check the
+	// returned status and errorMessage to distinguish job failure from lookup failure.
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
-	// GetBackups lists backup artifacts with optional filtering
+	// GetBackups lists backup artifacts for a database and table group.
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream listing error becomes Internal (13),
+	// including timeouts. Neither error proves the backup inventory is empty. Restore dependency health
+	// and retry this read with bounded backoff.
 	GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error)
 	// ExpireBackups removes old backups according to retention policy
+	//
+	// Errors and recovery:
+	// Missing database or tableGroup returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream expiration error becomes Internal (13).
+	// Expiration may have removed backups before an error or timeout. Re-read the backup inventory and
+	// review retention overrides before retrying; errors do not imply rollback.
 	ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error)
 	// VerifyBackups runs pgbackrest verify for a shard.
+	//
+	// Errors and recovery:
+	// Missing database, tableGroup, or shard returns InvalidArgument (3). Pooler selection failures become
+	// NotFound (5), including topology failures; every downstream verification error becomes Internal
+	// (13). Verification is synchronous and has no job ID to poll. After a timeout, inspect pooler
+	// execution state before launching another verification to avoid overlapping runs.
 	VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream Status error becomes
+	// Unavailable (14), including timeouts and operation rejections. Retry this read with bounded backoff;
+	// code 14 alone does not identify the underlying cause.
 	GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete pooler ID. A missing topology record returns NotFound
+	// (5), while other topology errors become Internal (13). Every downstream update error becomes
+	// Unavailable (14). An error or lost response does not prove the setting was unchanged. Confirm the
+	// intended setting and reconcile the pooler state before retrying the update.
 	SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
 	// MultigatewayManager.GetQueryRegistry RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
 	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) indicates an incomplete gateway ID. A missing topology record returns NotFound
+	// (5); other topology failures become Internal (13). Missing gateway gRPC configuration returns
+	// FailedPrecondition (9). Dial failures and downstream RPC errors become Unavailable (14), regardless
+	// of their original code. Retry this read with bounded backoff after checking gateway health and
+	// configuration.
 	GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -443,6 +822,16 @@ type MultiadminServiceHandler interface {
 	// unsafe_derive_cert is set, derived by multiadmin from a Status probe of
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
+	//
+	// Errors and recovery:
+	// Missing shard, proposal, or certificate choice returns InvalidArgument (3). Dependency, quorum, and
+	// multiorch failures can occur before or after recruitment has modified consensus state. An error,
+	// timeout, or lost response does not guarantee rollback, and this API provides no idempotency key.
+	// Before retrying, use GetPoolers and GetPoolerStatus to inspect the shard and involved cohort:
+	// compare currentPosition, termRevocation, and replicationPrimary against the intended transition.
+	// Confirm the installed rule and serving leader, or reconcile the partially applied transition before
+	// preparing another request. An unreachable member leaves its state uncertain; do not derive a new
+	// unsafe certificate or assume an old certificate is still valid solely from the error code.
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 	// SwitchPrimary performs a graceful switchover for a shard. It quiesces
 	// writes on the current leader, restarts it as a standby, and publishes
@@ -450,7 +839,39 @@ type MultiadminServiceHandler interface {
 	// leader through the normal consensus flow. The RPC returns as soon as the
 	// old primary has been quiesced — it does not wait for the new leader to
 	// appear.
+	//
+	// Errors and recovery:
+	// FailedPrecondition (9), mapped to HTTP 400, means no standby was found for promotion. NotFound (5)
+	// means discovery found no primary; cell lookup failures can also hide a primary. Every
+	// ResignLeadership error becomes Internal (13), including timeouts and rejected preconditions.
+	// Demotion may already have occurred when an error or lost response is observed. Before retrying, use
+	// GetPoolers and GetPoolerStatus to inspect the old leader and candidates and allow an in-progress
+	// election to settle. A successful response confirms the old primary was quiesced; it does not confirm
+	// that a replacement primary is serving. Blind retry can demote the replacement primary.
 	SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error)
+	// CreateMigration records a migration's configuration (no database changes).
+	CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error)
+	// GetMigration returns status for one migration, addressed by ref (id or name).
+	GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error)
+	// ListMigrations returns the ids of every migration.
+	ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error)
+	// GetMigrationJournal returns a migration's append-only audit journal
+	// (oldest first).
+	GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error)
+	// SetMigrationDirection sets the active direction: on a not-yet-started
+	// migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+	// the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+	SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error)
+	// DropMigration tears down and removes a migration.
+	DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error)
+	// CreateConnection stores a named source conninfo, shard-scoped.
+	CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error)
+	// GetConnection returns one connection, addressed by ref (id or name).
+	GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error)
+	// ListConnections returns every stored connection in full.
+	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
+	// DropConnection removes a connection.
+	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -568,6 +989,66 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("SwitchPrimary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceCreateMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateMigrationProcedure,
+		svc.CreateMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetMigrationProcedure,
+		svc.GetMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceListMigrationsHandler := connect.NewUnaryHandler(
+		MultiadminServiceListMigrationsProcedure,
+		svc.ListMigrations,
+		connect.WithSchema(multiadminServiceMethods.ByName("ListMigrations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetMigrationJournalHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetMigrationJournalProcedure,
+		svc.GetMigrationJournal,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetMigrationJournal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceSetMigrationDirectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceSetMigrationDirectionProcedure,
+		svc.SetMigrationDirection,
+		connect.WithSchema(multiadminServiceMethods.ByName("SetMigrationDirection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceDropMigrationHandler := connect.NewUnaryHandler(
+		MultiadminServiceDropMigrationProcedure,
+		svc.DropMigration,
+		connect.WithSchema(multiadminServiceMethods.ByName("DropMigration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceCreateConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceCreateConnectionProcedure,
+		svc.CreateConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("CreateConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceGetConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetConnectionProcedure,
+		svc.GetConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceListConnectionsHandler := connect.NewUnaryHandler(
+		MultiadminServiceListConnectionsProcedure,
+		svc.ListConnections,
+		connect.WithSchema(multiadminServiceMethods.ByName("ListConnections")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceDropConnectionHandler := connect.NewUnaryHandler(
+		MultiadminServiceDropConnectionProcedure,
+		svc.DropConnection,
+		connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -606,6 +1087,26 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		case MultiadminServiceSwitchPrimaryProcedure:
 			multiadminServiceSwitchPrimaryHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateMigrationProcedure:
+			multiadminServiceCreateMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetMigrationProcedure:
+			multiadminServiceGetMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceListMigrationsProcedure:
+			multiadminServiceListMigrationsHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetMigrationJournalProcedure:
+			multiadminServiceGetMigrationJournalHandler.ServeHTTP(w, r)
+		case MultiadminServiceSetMigrationDirectionProcedure:
+			multiadminServiceSetMigrationDirectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceDropMigrationProcedure:
+			multiadminServiceDropMigrationHandler.ServeHTTP(w, r)
+		case MultiadminServiceCreateConnectionProcedure:
+			multiadminServiceCreateConnectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetConnectionProcedure:
+			multiadminServiceGetConnectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceListConnectionsProcedure:
+			multiadminServiceListConnectionsHandler.ServeHTTP(w, r)
+		case MultiadminServiceDropConnectionProcedure:
+			multiadminServiceDropConnectionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -685,4 +1186,44 @@ func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Co
 
 func (UnimplementedMultiadminServiceHandler) SwitchPrimary(context.Context, *connect.Request[multiadmin.SwitchPrimaryRequest]) (*connect.Response[multiadmin.SwitchPrimaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SwitchPrimary is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateMigration(context.Context, *connect.Request[migrator.CreateMigrationRequest]) (*connect.Response[migrator.CreateMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetMigration(context.Context, *connect.Request[migrator.GetMigrationRequest]) (*connect.Response[migrator.GetMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ListMigrations(context.Context, *connect.Request[migrator.ListMigrationsRequest]) (*connect.Response[migrator.ListMigrationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ListMigrations is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetMigrationJournal(context.Context, *connect.Request[migrator.GetMigrationJournalRequest]) (*connect.Response[migrator.GetMigrationJournalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetMigrationJournal is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SetMigrationDirection(context.Context, *connect.Request[migrator.SetMigrationDirectionRequest]) (*connect.Response[migrator.SetMigrationDirectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SetMigrationDirection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) DropMigration(context.Context, *connect.Request[migrator.DropMigrationRequest]) (*connect.Response[migrator.DropMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropMigration is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) CreateConnection(context.Context, *connect.Request[migrator.CreateConnectionRequest]) (*connect.Response[migrator.CreateConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.CreateConnection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetConnection(context.Context, *connect.Request[migrator.GetConnectionRequest]) (*connect.Response[migrator.GetConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetConnection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ListConnections is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropConnection is not implemented"))
 }

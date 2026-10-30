@@ -154,11 +154,14 @@ type midStreamFailServer struct {
 	multipoolerservice.UnimplementedMultipoolerServiceServer
 }
 
-func (s *midStreamFailServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	stream grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	if err := stream.Send(&multipoolerservice.StreamExecuteResponse{}); err != nil {
+func (s *midStreamFailServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Result: &multipoolerservice.ExecuteStreamResponse_Response{Response: &multipoolerservice.StreamExecuteResponse{}}}); err != nil {
 		return err
 	}
 	return status.Error(codes.Unavailable, "transport is closing")
@@ -192,11 +195,18 @@ type promotedPoolerServer struct {
 	*controllableHealthServer
 }
 
-func (s *promotedPoolerServer) StreamExecute(
-	_ *multipoolerservice.StreamExecuteRequest,
-	_ grpc.ServerStreamingServer[multipoolerservice.StreamExecuteResponse],
-) error {
-	return nil
+func (s *promotedPoolerServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
+	if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Ready: true, SupportedOperations: []multipoolerservice.ExecuteStreamOperation{multipoolerservice.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
+		return err
+	}
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return err
+		}
+		if err := stream.Send(&multipoolerservice.ExecuteStreamResponse{Completion: status.New(codes.OK, "").Proto()}); err != nil {
+			return err
+		}
+	}
 }
 
 // newTestLBFrozenHealth is newTestLBWithLeaderServing with one twist: the
@@ -205,7 +215,7 @@ func (s *promotedPoolerServer) StreamExecute(
 // claim. This is the deterministic version of the production stale-endpoint
 // window: the pod is dead, but the gateway has not yet observed the health
 // stream error, so routing still targets the dead address.
-func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb.ShardKey), frozenPooler string) *loadBalancer {
+func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb.ShardRef), frozenPooler string) *loadBalancer {
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	ctx := t.Context()
@@ -227,7 +237,7 @@ func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb
 			if p.GetId().GetName() == frozenPooler {
 				cb = nil
 			}
-			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, cb)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, nil, cb)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil
@@ -300,7 +310,7 @@ func TestPoolerGateway_BuffersDialFailureAgainstStalePrimary(t *testing.T) {
 		}
 		probeCtx, cancelProbe := context.WithCancel(requestCtx)
 		cancelProbe()
-		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardKey())
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardRef())
 		if errors.Is(err, context.Canceled) {
 			break
 		}

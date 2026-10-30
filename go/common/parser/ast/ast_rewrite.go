@@ -256,6 +256,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfDeleteStmt(parent, node, replacer)
 	case *DiscardStmt:
 		return a.rewriteRefOfDiscardStmt(parent, node, replacer)
+	case *DistinctExpr:
+		return a.rewriteRefOfDistinctExpr(parent, node, replacer)
 	case *DoStmt:
 		return a.rewriteRefOfDoStmt(parent, node, replacer)
 	case *DropOwnedStmt:
@@ -410,6 +412,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfNotifyStmt(parent, node, replacer)
 	case *Null:
 		return a.rewriteRefOfNull(parent, node, replacer)
+	case *NullIfExpr:
+		return a.rewriteRefOfNullIfExpr(parent, node, replacer)
 	case *NullTest:
 		return a.rewriteRefOfNullTest(parent, node, replacer)
 	case *ObjectWithArgs:
@@ -5203,6 +5207,40 @@ func (a *application) rewriteRefOfDiscardStmt(parent Node, node *DiscardStmt, re
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfDistinctExpr(parent Node, node *DistinctExpr, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Args, func(newNode, parent Node) {
+		parent.(*DistinctExpr).Args = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfDoStmt(parent Node, node *DoStmt, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -5595,6 +5633,8 @@ func (a *application) rewriteExpr(parent Node, node Expr, replacer replacerFunc)
 		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
 	case *CurrentOfExpr:
 		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
+	case *DistinctExpr:
+		return a.rewriteRefOfDistinctExpr(parent, node, replacer)
 	case *FieldSelect:
 		return a.rewriteRefOfFieldSelect(parent, node, replacer)
 	case *FieldStore:
@@ -5645,6 +5685,8 @@ func (a *application) rewriteExpr(parent Node, node Expr, replacer replacerFunc)
 		return a.rewriteRefOfNamedArgExpr(parent, node, replacer)
 	case *NextValueExpr:
 		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
+	case *NullIfExpr:
+		return a.rewriteRefOfNullIfExpr(parent, node, replacer)
 	case *NullTest:
 		return a.rewriteRefOfNullTest(parent, node, replacer)
 	case *OnConflictExpr:
@@ -5755,6 +5797,8 @@ func (a *application) rewriteExpression(parent Node, node Expression, replacer r
 		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
 	case *CurrentOfExpr:
 		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
+	case *DistinctExpr:
+		return a.rewriteRefOfDistinctExpr(parent, node, replacer)
 	case *FieldSelect:
 		return a.rewriteRefOfFieldSelect(parent, node, replacer)
 	case *FieldStore:
@@ -5813,6 +5857,8 @@ func (a *application) rewriteExpression(parent Node, node Expression, replacer r
 		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
 	case *Null:
 		return a.rewriteRefOfNull(parent, node, replacer)
+	case *NullIfExpr:
+		return a.rewriteRefOfNullIfExpr(parent, node, replacer)
 	case *NullTest:
 		return a.rewriteRefOfNullTest(parent, node, replacer)
 	case *OnConflictExpr:
@@ -8584,6 +8630,40 @@ func (a *application) rewriteRefOfNull(parent Node, node *Null, replacer replace
 			a.cur.parent = parent
 			a.cur.node = node
 		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfNullIfExpr(parent Node, node *NullIfExpr, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Args, func(newNode, parent Node) {
+		parent.(*NullIfExpr).Args = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
 		if !a.post(&a.cur) {
 			return false
 		}

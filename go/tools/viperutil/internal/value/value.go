@@ -37,6 +37,7 @@ type Registerable interface {
 	Key() string
 	Registry() registry.Bindable
 	Flag(fs *pflag.FlagSet) (*pflag.Flag, error)
+	FlagAlias() string
 }
 
 // Base is the base functionality shared by Static and Dynamic values. It
@@ -50,12 +51,19 @@ type Base[T any] struct {
 
 	Aliases  []string
 	FlagName string
-	EnvVars  []string
+	// FlagKey is FlagName behind the registry's key prefix, if any.
+	FlagKey string
+	EnvVars []string
 }
 
 func (val *Base[T]) Key() string { return val.KeyName }
-func (val *Base[T]) Default() T  { return val.DefaultVal }
-func (val *Base[T]) Get() T      { return val.BoundGetFunc(val.Key()) }
+
+// FlagAlias is the key BindFlags aliases to Key when the flag name differs
+// from it. For a registry with a key prefix it carries the same prefix, so
+// values in different views with the same flag name never share an alias.
+func (val *Base[T]) FlagAlias() string { return val.FlagKey }
+func (val *Base[T]) Default() T        { return val.DefaultVal }
+func (val *Base[T]) Get() T            { return val.BoundGetFunc(val.Key()) }
 
 // ErrNoFlagDefined is returned when a Value has a FlagName set, but the given
 // FlagSet does not define a flag with that name.
@@ -108,8 +116,8 @@ func BindFlags(fs *pflag.FlagSet, values ...Registerable) {
 		}
 
 		_ = val.Registry().BindPFlag(val.Key(), flag)
-		if flag.Name != val.Key() {
-			val.Registry().RegisterAlias(flag.Name, val.Key())
+		if alias := val.FlagAlias(); alias != val.Key() {
+			val.Registry().RegisterAlias(alias, val.Key())
 		}
 	}
 }

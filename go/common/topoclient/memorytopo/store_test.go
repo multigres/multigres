@@ -102,3 +102,34 @@ func TestLockNameWithTTLExpiration(t *testing.T) {
 	err = lockDesc.Unlock(ctx)
 	require.Error(t, err, "Unlock should fail after TTL expiration")
 }
+
+func TestConnRecoveries(t *testing.T) {
+	ctx := t.Context()
+	const cell = "zone1"
+	ts, factory := NewServerAndFactory(ctx, cell)
+
+	recoveries, err := ts.ConnRecoveries(ctx, cell)
+	require.NoError(t, err)
+	require.NotNil(t, recoveries)
+
+	select {
+	case <-recoveries:
+		t.Fatal("recovery reported before any outage")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	factory.SimulateRecovery(cell)
+	select {
+	case <-recoveries:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no recovery reported")
+	}
+
+	require.NoError(t, ts.Close())
+	select {
+	case _, ok := <-recoveries:
+		require.False(t, ok, "closing the store must close the recovery channel")
+	case <-time.After(5 * time.Second):
+		t.Fatal("recovery channel not closed after Close")
+	}
+}

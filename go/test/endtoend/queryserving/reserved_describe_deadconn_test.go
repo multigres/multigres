@@ -44,7 +44,7 @@ func TestReservedDescribeDeadConnReturnsCleanError(t *testing.T) {
 	// This is a gateway/pooler-specific path (reserved connections); run against the
 	// multigateway target.
 	var port int
-	for _, target := range setup.GetComparisonTargets(t) {
+	for _, target := range setup.ComparisonTargets(t) {
 		if target.Name == "multigateway" {
 			port = target.Port
 		}

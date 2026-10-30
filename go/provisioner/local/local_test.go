@@ -335,3 +335,37 @@ func TestCheckRequiredBinaryVersions(t *testing.T) {
 		})
 	}
 }
+
+// TestCellServiceSpecs_Configured verifies that ProvisionDatabase's fan-out
+// queues exactly the services a cell's config actually populates — a
+// classic cell matches the multigateway/multipooler/multiorch specs and not
+// minigres, and a minigres cell matches only minigres. This is the "config
+// decides the path" invariant the fan-out loop in ProvisionDatabase relies
+// on instead of branching on a topology concept.
+func TestCellServiceSpecs_Configured(t *testing.T) {
+	classicCell := CellServicesConfig{
+		Multigateway: MultigatewayConfig{Path: "/bin/multigateway"},
+		Multipooler:  MultipoolerConfig{Path: "/bin/multipooler"},
+		Multiorch:    MultiorchConfig{Path: "/bin/multiorch"},
+	}
+	minigresCell := CellServicesConfig{
+		Minigres: MinigresConfig{Path: "/bin/minigres"},
+	}
+	emptyCell := CellServicesConfig{}
+
+	configuredServices := func(cell CellServicesConfig) []string {
+		var got []string
+		for _, spec := range cellServiceSpecs {
+			if spec.configured(cell) {
+				got = append(got, spec.name)
+			}
+		}
+		return got
+	}
+
+	assert.ElementsMatch(t,
+		[]string{constants.ServiceMultigateway, constants.ServiceMultipooler, constants.ServiceMultiorch},
+		configuredServices(classicCell))
+	assert.ElementsMatch(t, []string{constants.ServiceMinigres}, configuredServices(minigresCell))
+	assert.Empty(t, configuredServices(emptyCell))
+}

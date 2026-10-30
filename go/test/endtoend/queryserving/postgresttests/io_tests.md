@@ -21,7 +21,15 @@ statement_timeout, hoisted transaction settings, and prepared statements.
   each spawned postgrest (see `test/io/conftest.py::baseenv`). The image installs
   a `postgrest` shim that additionally sources `PGPORT`/`PGPASSWORD`/`PGSSLMODE`
   (written by the entrypoint from the `docker run -e` env), so we repoint over
-  TCP + password without patching upstream test files.
+  TCP + password without changing upstream connection handling.
+- **Startup allowance**: the image changes the upstream `run()` helper's
+  default startup timeout from 1 to 5 seconds. Cold schema-cache initialization
+  (`SELECT name FROM pg_timezone_names`) took about one second on CI, causing
+  `test_role_settings` to time out waiting for `/ready` before its assertions.
+  This adjustment applies to both gateway and direct-PostgreSQL runs; explicit
+  per-test timeouts and all assertions remain unchanged. The image build fails
+  if the expected upstream default changes. The image tag includes a harness
+  revision so cached images pick up this adjustment.
 - **Auth**: the gateway authenticates each client role by SCRAM against
   `pg_authid`, so every login role PostgREST connects as needs a password. The io
   fixtures create several passwordless login roles (`timeout_authenticator`,

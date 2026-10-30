@@ -24,28 +24,52 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSSuccessfulCompletion    = "00000" // successful_completion (used by NOTICE messages)
-	PgSSProtocolViolation       = "08P01" // protocol_violation
-	PgSSConnectionFailure       = "08006" // connection_failure
-	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
-	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
-	PgSSActiveTransaction       = "25001" // active_sql_transaction
-	PgSSNoActiveTransaction     = "25P01" // no_active_sql_transaction
-	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
-	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
-	PgSSAuthFailed              = "28P01" // invalid_password
-	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
-	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
-	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
-	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
-	PgSSSyntaxError             = "42601" // syntax_error
-	PgSSUndefinedObject         = "42704" // undefined_object
-	PgSSQueryCanceled           = "57014" // query_canceled
-	PgSSCannotConnectNow        = "57P03" // cannot_connect_now
-	PgSSIdleSessionTimeout      = "57P05" // idle_session_timeout
-	PgSSInternalError           = "XX000" // internal_error
-	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
-	PgSSSerializationFailure    = "40001" // serialization_failure
+	PgSSSuccessfulCompletion      = "00000" // successful_completion (used by NOTICE messages)
+	PgSSProtocolViolation         = "08P01" // protocol_violation
+	PgSSConnectionFailure         = "08006" // connection_failure
+	PgSSFeatureNotSupported       = "0A000" // feature_not_supported
+	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
+	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
+	PgSSUndefinedFunction         = "42883" // undefined_function
+	PgSSUndefinedTable            = "42P01" // undefined_table
+	PgSSActiveTransaction         = "25001" // active_sql_transaction
+	PgSSNoActiveTransaction       = "25P01" // no_active_sql_transaction
+	PgSSInFailedTransaction       = "25P02" // in_failed_sql_transaction
+	PgSSInvalidSQLStatementName   = "26000" // invalid_sql_statement_name
+	PgSSAuthFailed                = "28P01" // invalid_password
+	PgSSInvalidAuthSpec           = "28000" // invalid_authorization_specification
+	PgSSInvalidCursorName         = "34000" // invalid_cursor_name
+	PgSSDuplicatePreparedStmt     = "42P05" // duplicate_prepared_statement
+	PgSSInsufficientPrivilege     = "42501" // insufficient_privilege
+	PgSSSyntaxError               = "42601" // syntax_error
+	PgSSUndefinedObject           = "42704" // undefined_object
+	PgSSQueryCanceled             = "57014" // query_canceled
+	PgSSAdminShutdown             = "57P01" // admin_shutdown
+	PgSSCannotConnectNow          = "57P03" // cannot_connect_now
+	PgSSIdleSessionTimeout        = "57P05" // idle_session_timeout
+	PgSSInternalError             = "XX000" // internal_error
+	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
+	PgSSSerializationFailure      = "40001" // serialization_failure
+)
+
+// PostgreSQL data exceptions raised by scalar evaluation.
+const (
+	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
+	PgSSDivisionByZero                  = "22012" // division_by_zero
+	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
+	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
+)
+
+// SQLSTATEs raised by expression analysis (postgres src/backend/parser).
+const (
+	PgSSIndeterminateDatatype = "42P18" // indeterminate_datatype
+	PgSSUndefinedParameter    = "42P02" // undefined_parameter
+	PgSSAmbiguousParameter    = "42P08" // ambiguous_parameter
+	PgSSAmbiguousFunction     = "42725" // ambiguous_function
+	PgSSDatatypeMismatch      = "42804" // datatype_mismatch
+	PgSSWrongObjectType       = "42809" // wrong_object_type
+	PgSSCannotCoerce          = "42846" // cannot_coerce
+	PgSSTooManyArguments      = "54023" // too_many_arguments
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
@@ -79,12 +103,15 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // period. The message deliberately does not name a specific cause: it isn't
 // determinable at this call site, and naming the wrong one (e.g. blaming
 // "planned failover" for what's actually a routine idle timeout) misleads
-// whoever reads it during an incident. The message is also deliberately not
-// transaction-specific: a reserved connection may hold a transaction or only
-// non-transactional session state (temp tables, portals, COPY, LISTEN), and
-// the same termination applies to all of them. SQLSTATE 40001
-// (serialization_failure) so clients and ORMs retry their in-flight work; the
-// connection's state was rolled back, so a retry is the correct recovery.
+// whoever reads it during an incident.
+//
+// The multipooler raises this for any lost reservation: once the connection is
+// gone it no longer knows what the reservation held. The multigateway does, and
+// passes this error to the client only when the reservation held nothing but a
+// transaction. SQLSTATE 40001 (serialization_failure) so clients and ORMs retry
+// the transaction, which was rolled back with the connection. When the
+// reservation also held session state a retry cannot restore, the multigateway
+// ends the session with NewSessionStateLost instead.
 //
 // This is deliberately NOT MTF01: the connection is gone, so there is nothing
 // to buffer or auto-retry inside the cluster — only the client can replay it.
@@ -92,6 +119,22 @@ func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
 		"reserved connection terminated; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
+}
+
+// NewSessionStateLost creates the PgDiagnostic that ends a client session whose
+// reserved connection was lost while it held session state the client relies on
+// (temp tables, session advisory locks, a seeded PRNG, WITH HOLD cursors, ...).
+// The next statement would otherwise run on a fresh backend that has none of it,
+// silently: a lock another session can now take, a temp table that no longer
+// shadows a permanent one. A retry cannot bring that state back, so the session
+// ends and the client reconnects. lostState names what was lost.
+//
+// SQLSTATE 57P01 (admin_shutdown), severity FATAL: what PostgreSQL sends when it
+// terminates a backend, which drivers and poolers treat as a lost connection.
+func NewSessionStateLost(lostState string) *PgDiagnostic {
+	return NewPgError("FATAL", PgSSAdminShutdown,
+		"terminating connection because the backend holding its session state was lost",
+		"Lost session state: "+lostState+".")
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
@@ -295,6 +338,15 @@ func NewUnrecognizedParameter(name string) *PgDiagnostic {
 func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSInvalidSQLStatementName,
 		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
+}
+
+// NewWrongNumberOfParametersError creates a PgDiagnostic for an EXECUTE whose
+// argument count does not match the prepared statement's parameter count.
+// SQLSTATE 42601 (syntax_error), matching PostgreSQL's ExecuteQuery check.
+func NewWrongNumberOfParametersError(name string, expected, got int) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError,
+		fmt.Sprintf("wrong number of parameters for prepared statement \"%s\"", name),
+		fmt.Sprintf("Expected %d parameters but got %d.", expected, got))
 }
 
 // NewInvalidPortalError creates a PgDiagnostic for a reference to

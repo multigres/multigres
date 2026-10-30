@@ -15,21 +15,18 @@
 package manager
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/multigres/multigres/go/common/constants"
 )
 
 // rewind_sentinel.go implements a durable, on-disk marker for an in-progress
-// pg_rewind, mirroring the bootstrap sentinel (see rpc_first_backup.go). pg_rewind
-// mutates the target data directory in place and is not transactional: if it is
-// interrupted (typically the pod is killed mid-rewind, exceeding the shutdown
-// grace period), the directory is left partially rewound — unstartable and, per
-// PostgreSQL guidance, generally unrecoverable.
+// rewind recovery, mirroring the bootstrap sentinel (see rpc_first_backup.go).
+// The recovery temporarily enables archive restore and pg_rewind mutates the
+// target data directory in place, so an interruption can leave either unsafe
+// archive recovery enabled or a partially rewound directory.
 //
-// restartAsStandbyLocked writes the sentinel just before the mutating pg_rewind
-// runs and removes it only after postgres is verified back up as a standby. Its
+// runPgRewind writes the sentinel before enabling archive restore and
+// restartAsStandbyLocked removes it only after postgres is verified back up as a
+// standby. Its
 // presence on a later monitor tick is therefore the authoritative signal that a
 // prior rewind did not complete — the one durable signal that survives a process
 // restart (the in-memory suspectedDivergence flag does not). The monitor uses it
@@ -37,56 +34,8 @@ import (
 // half-rewound directory, and to let the unrecoverable-recovery classifier
 // quarantine the node if repair keeps failing.
 
-// rewindSentinelPath is the on-disk location of the rewind sentinel. It lives in
-// pooler_dir (not PGDATA) so it is not captured by pgBackRest backups, and on the
-// pooler's local volume so it survives a pod restart on the same PVC.
-func (pm *MultipoolerManager) rewindSentinelPath() string {
-	return filepath.Join(pm.record.PoolerDir(), constants.RewindSentinelFile)
-}
-
-// hasRewindSentinel reports whether the sentinel file exists. A non-existent file
-// is (false, nil); any other stat failure (e.g. permissions) is surfaced as an
-// error so callers don't silently treat it as "not present".
-func (pm *MultipoolerManager) hasRewindSentinel() (bool, error) {
-	_, err := os.Stat(pm.rewindSentinelPath())
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
-}
-
-// writeRewindSentinel creates the sentinel and fsyncs both the file and its
-// parent directory so the marker is durable across an OS crash — the sentinel is
-// only useful if it reliably outlives the very interruption it guards against.
-func (pm *MultipoolerManager) writeRewindSentinel() error {
-	path := pm.rewindSentinelPath()
-	if err := os.WriteFile(path, []byte("pg_rewind in progress\n"), 0o644); err != nil {
-		return err
-	}
-	if err := fsyncPath(path); err != nil {
-		return err
-	}
-	// fsync the directory so the new directory entry itself is durable.
-	return fsyncPath(filepath.Dir(path))
-}
-
-// removeRewindSentinel deletes the sentinel; a missing file is not an error.
-func (pm *MultipoolerManager) removeRewindSentinel() error {
-	if err := os.Remove(pm.rewindSentinelPath()); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// fsyncPath opens path (a file or directory) and fsyncs it.
-func fsyncPath(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return f.Sync()
+// rewindSentinel returns the rewind sentinel. Like every sentinel it lives in
+// pooler_dir; see sentinel.go.
+func (pm *MultipoolerManager) rewindSentinel() sentinel {
+	return pm.newSentinel(constants.RewindSentinelFile, "pg_rewind in progress\n")
 }

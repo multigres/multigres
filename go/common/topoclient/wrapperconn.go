@@ -36,7 +36,13 @@ type WrapperConn struct {
 	wrapped  Conn
 	retrying bool
 	closed   bool
+
+	// recoveries is the stable channel behind Recoveries. It outlives the
+	// connections the wrapper swaps in and out, and is closed by Close.
+	recoveries chan struct{}
 }
+
+var _ ConnRecovery = (*WrapperConn)(nil)
 
 // NewWrapperConn creates a new connection wrapper that uses newFunc to establish connections.
 // If the initial connection attempt fails, it starts automatic retry logic in a goroutine.
@@ -44,16 +50,42 @@ func NewWrapperConn(newFunc func() (Conn, error), alarm func(string)) *WrapperCo
 	if alarm == nil {
 		alarm = func(string) {}
 	}
-	c := &WrapperConn{newFunc: newFunc, alarm: alarm}
+	c := &WrapperConn{newFunc: newFunc, alarm: alarm, recoveries: make(chan struct{}, 1)}
 
 	conn, err := newFunc()
 	if err != nil {
 		c.handleConnectionError(nil, err)
 	} else {
 		c.wrapped = conn
+		c.forwardRecoveries(conn)
 	}
 
 	return c
+}
+
+// Recoveries is part of the ConnRecovery interface. It fires when the wrapped
+// connection reports a regained link, and when the wrapper itself replaces a
+// failed connection with a new one.
+func (c *WrapperConn) Recoveries() <-chan struct{} {
+	return c.recoveries
+}
+
+// forwardRecoveries relays the recoveries of conn, if it reports any, to the
+// wrapper's channel until conn closes.
+func (c *WrapperConn) forwardRecoveries(conn Conn) {
+	rc, ok := conn.(ConnRecovery)
+	if !ok {
+		return
+	}
+	go func() {
+		for range rc.Recoveries() {
+			c.mu.Lock()
+			if !c.closed {
+				notifyRecovery(c.recoveries)
+			}
+			c.mu.Unlock()
+		}
+	}()
 }
 
 // handleConnectionError examines the error and triggers reconnection for retriable errors.
@@ -61,7 +93,7 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 	// If there is no connection, we want to retry irrespective of the error.
 	if conn == nil {
 		slog.Error("connection error, will keep retrying", "error", err)
-		go c.retryConnection(err)
+		go c.retryConnection(ConnFailNoConnection, err)
 		return
 	}
 	if err == nil {
@@ -69,25 +101,25 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 	}
 	if strings.Contains(err.Error(), "context deadline exceeded") {
 		slog.Error("connection error, will keep retrying", "error", err)
-		go c.retryConnection(err)
+		go c.retryConnection(ConnFailDeadlineExceeded, err)
 		return
 	}
 	if strings.Contains(err.Error(), "context canceled") {
 		slog.Error("connection error, will keep retrying", "error", err)
-		go c.retryConnection(err)
+		go c.retryConnection(ConnFailCanceled, err)
 		return
 	}
 	switch mterrors.Code(err) {
 	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
 		slog.Error("connection error, will keep retrying", "error", err)
-		go c.retryConnection(err)
+		go c.retryConnection(ConnFailUnavailable, err)
 	}
 }
 
 // retryConnection goes into a retry loop until a connection is established.
 // It ensures that it goes into the loop only if it's already not retrying.
 // retryConnection terminates if Conn is closed.
-func (c *WrapperConn) retryConnection(err error) {
+func (c *WrapperConn) retryConnection(reason ConnectionFailureReason, err error) {
 	// Use defer to protect us from unexpected panics
 	mustReturn := func() bool {
 		c.mu.Lock()
@@ -109,6 +141,9 @@ func (c *WrapperConn) retryConnection(err error) {
 	if mustReturn {
 		return
 	}
+
+	// Count only reconnects that actually start, not every call that fails while one is running.
+	recordConnectionFailure(context.TODO(), reason)
 	c.alarm(err.Error())
 
 	// There is a race condition:
@@ -159,6 +194,8 @@ func (c *WrapperConn) retryConnection(err error) {
 				return false
 			}
 			c.wrapped = conn
+			c.forwardRecoveries(conn)
+			notifyRecovery(c.recoveries)
 			return false
 		}()
 		if !mustContinue {
@@ -166,9 +203,15 @@ func (c *WrapperConn) retryConnection(err error) {
 		}
 		// For safety, set alarms when we're not holding internal locks.
 		if err != nil {
+			recordConnectionFailure(context.TODO(), ConnFailReconnectFailed)
 			c.alarm(err.Error())
 		}
 	}
+}
+
+// observe records the duration and result of a call made through the wrapper.
+func (c *WrapperConn) observe(ctx context.Context, op Operation, start time.Time, err *error) {
+	recordOperation(ctx, op, start, *err)
 }
 
 func (c *WrapperConn) getConnection() (Conn, error) {
@@ -182,7 +225,8 @@ func (c *WrapperConn) getConnection() (Conn, error) {
 }
 
 // ListDir lists the contents of a directory in the topology server.
-func (c *WrapperConn) ListDir(ctx context.Context, dirPath string, full bool) ([]DirEntry, error) {
+func (c *WrapperConn) ListDir(ctx context.Context, dirPath string, full bool) (entries []DirEntry, err error) {
+	defer c.observe(ctx, OpListDir, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -193,7 +237,8 @@ func (c *WrapperConn) ListDir(ctx context.Context, dirPath string, full bool) ([
 }
 
 // Create creates a new file in the topology server with the given contents.
-func (c *WrapperConn) Create(ctx context.Context, filePath string, contents []byte) (Version, error) {
+func (c *WrapperConn) Create(ctx context.Context, filePath string, contents []byte) (version Version, err error) {
+	defer c.observe(ctx, OpCreate, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -204,29 +249,32 @@ func (c *WrapperConn) Create(ctx context.Context, filePath string, contents []by
 }
 
 // Update updates an existing file in the topology server with new contents and version.
-func (c *WrapperConn) Update(ctx context.Context, filePath string, contents []byte, version Version) (Version, error) {
+func (c *WrapperConn) Update(ctx context.Context, filePath string, contents []byte, version Version) (result Version, err error) {
+	defer c.observe(ctx, OpUpdate, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
 	}
-	result, err := conn.Update(ctx, filePath, contents, version)
+	result, err = conn.Update(ctx, filePath, contents, version)
 	c.handleConnectionError(conn, err)
 	return result, err
 }
 
 // Get retrieves the contents and version of a file from the topology server.
-func (c *WrapperConn) Get(ctx context.Context, filePath string) ([]byte, Version, error) {
+func (c *WrapperConn) Get(ctx context.Context, filePath string) (data []byte, version Version, err error) {
+	defer c.observe(ctx, OpGet, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
 	}
-	data, version, err := conn.Get(ctx, filePath)
+	data, version, err = conn.Get(ctx, filePath)
 	c.handleConnectionError(conn, err)
 	return data, version, err
 }
 
 // GetVersion retrieves the contents of a specific version of a file from the topology server.
-func (c *WrapperConn) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
+func (c *WrapperConn) GetVersion(ctx context.Context, filePath string, version int64) (data []byte, err error) {
+	defer c.observe(ctx, OpGetVersion, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -237,7 +285,8 @@ func (c *WrapperConn) GetVersion(ctx context.Context, filePath string, version i
 }
 
 // List returns key-value information for all files matching the given path prefix.
-func (c *WrapperConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo, error) {
+func (c *WrapperConn) List(ctx context.Context, filePathPrefix string) (kvs []KVInfo, err error) {
+	defer c.observe(ctx, OpList, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -248,7 +297,8 @@ func (c *WrapperConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo
 }
 
 // Delete removes a file from the topology server with the specified version.
-func (c *WrapperConn) Delete(ctx context.Context, filePath string, version Version) error {
+func (c *WrapperConn) Delete(ctx context.Context, filePath string, version Version) (err error) {
+	defer c.observe(ctx, OpDelete, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -264,7 +314,8 @@ func (c *WrapperConn) Delete(ctx context.Context, filePath string, version Versi
 // its own liveness binding — anything written through the old one expires.
 // This wrapper does not track or re-create those files; the component that
 // owns the registration re-asserts it (see servenv/toporeg).
-func (c *WrapperConn) PutEphemeral(ctx context.Context, filePath string, contents []byte) error {
+func (c *WrapperConn) PutEphemeral(ctx context.Context, filePath string, contents []byte) (err error) {
+	defer c.observe(ctx, OpPutEphemeral, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -277,7 +328,8 @@ func (c *WrapperConn) PutEphemeral(ctx context.Context, filePath string, content
 // ClaimEphemeral atomically claims or refreshes a process-liveness-bound
 // file; see Conn.ClaimEphemeral. Like PutEphemeral, the wrapper keeps no
 // record — the owner re-asserts the claim (toporeg.WithReassert).
-func (c *WrapperConn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) error {
+func (c *WrapperConn) ClaimEphemeral(ctx context.Context, filePath string, contents []byte) (err error) {
+	defer c.observe(ctx, OpClaimEphemeral, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -332,7 +384,8 @@ func (c *WrapperConn) LockNameWithTTL(ctx context.Context, dirPath, contents str
 }
 
 // TryLockName attempts to acquire a named distributed lock without blocking.
-func (c *WrapperConn) TryLockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
+func (c *WrapperConn) TryLockName(ctx context.Context, dirPath, contents string) (desc LockDescriptor, err error) {
+	defer c.observe(ctx, OpTryLockName, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -343,7 +396,8 @@ func (c *WrapperConn) TryLockName(ctx context.Context, dirPath, contents string)
 }
 
 // TryLock attempts to acquire a distributed lock without blocking.
-func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
+func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (desc LockDescriptor, err error) {
+	defer c.observe(ctx, OpTryLock, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -354,7 +408,8 @@ func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (Lo
 }
 
 // TryLockWithLease atomically creates a lease-backed key.
-func (c *WrapperConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
+func (c *WrapperConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (desc LockDescriptor, err error) {
+	defer c.observe(ctx, OpTryLockWithLease, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -365,7 +420,8 @@ func (c *WrapperConn) TryLockWithLease(ctx context.Context, key, contents string
 }
 
 // RevokeLockWithLease forcefully removes the ephemeral lock at the given key.
-func (c *WrapperConn) RevokeLockWithLease(ctx context.Context, key string) error {
+func (c *WrapperConn) RevokeLockWithLease(ctx context.Context, key string) (err error) {
+	defer c.observe(ctx, OpRevokeLockWithLease, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -377,6 +433,7 @@ func (c *WrapperConn) RevokeLockWithLease(ctx context.Context, key string) error
 
 // Watch monitors a file for changes and returns the current state and a channel for updates.
 func (c *WrapperConn) Watch(ctx context.Context, filePath string) (current *WatchData, changes <-chan *WatchData, err error) {
+	defer c.observe(ctx, OpWatch, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
@@ -387,12 +444,13 @@ func (c *WrapperConn) Watch(ctx context.Context, filePath string) (current *Watc
 }
 
 // WatchRecursive monitors a directory recursively for changes and returns current state and update channel.
-func (c *WrapperConn) WatchRecursive(ctx context.Context, path string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error) {
+func (c *WrapperConn) WatchRecursive(ctx context.Context, path string) (current []*WatchDataRecursive, changes <-chan *WatchDataRecursive, err error) {
+	defer c.observe(ctx, OpWatchRecursive, time.Now(), &err)
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
 	}
-	current, changes, err := conn.WatchRecursive(ctx, path)
+	current, changes, err = conn.WatchRecursive(ctx, path)
 	c.handleConnectionError(conn, err)
 	return current, changes, err
 }
@@ -402,7 +460,10 @@ func (c *WrapperConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.closed = true
+	if !c.closed {
+		c.closed = true
+		close(c.recoveries)
+	}
 	if c.wrapped != nil {
 		err := c.wrapped.Close()
 		c.wrapped = nil

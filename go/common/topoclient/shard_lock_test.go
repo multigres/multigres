@@ -43,9 +43,9 @@ var _ LockDescriptor = (*fakeLockDescriptor)(nil)
 
 // lockedShardContext returns a context that appears to have a lock on the given shard.
 // This is useful for testing code that requires a shard lock to be held.
-func lockedShardContext(shardKey *clustermetadatapb.ShardKey) context.Context {
+func lockedShardContext(shardRef *clustermetadatapb.ShardRef) context.Context {
 	ctx := context.Background()
-	resourceName := (&shardLock{shardKey: shardKey}).ResourceName()
+	resourceName := (&shardLock{shardRef: shardRef}).ResourceName()
 	return context.WithValue(ctx, locksKey, &locksInfo{
 		info: map[string]*lockInfo{
 			resourceName: {
@@ -56,34 +56,34 @@ func lockedShardContext(shardKey *clustermetadatapb.ShardKey) context.Context {
 }
 
 func TestCheckShardLocked(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	t.Run("returns error when no lock info in context", func(t *testing.T) {
 		ctx := context.Background()
-		err := CheckShardLocked(ctx, shardKey)
+		err := CheckShardLocked(ctx, shardRef)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "is not locked (no locksInfo)")
 	})
 
 	t.Run("returns error when shard is not locked", func(t *testing.T) {
 		// Create a context with lock info, but for a different shard
-		otherShardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other-shard"}
-		ctx := lockedShardContext(otherShardKey)
-		err := CheckShardLocked(ctx, shardKey)
+		otherShardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other-shard"}
+		ctx := lockedShardContext(otherShardRef)
+		err := CheckShardLocked(ctx, shardRef)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "is not locked (no lockInfo in map)")
 	})
 
 	t.Run("returns nil when shard is locked", func(t *testing.T) {
-		ctx := lockedShardContext(shardKey)
-		err := CheckShardLocked(ctx, shardKey)
+		ctx := lockedShardContext(shardRef)
+		err := CheckShardLocked(ctx, shardRef)
 		require.NoError(t, err)
 	})
 }
 
 func TestShardLockInterface(t *testing.T) {
 	lock := &shardLock{
-		shardKey: &clustermetadatapb.ShardKey{Database: "mydb", TableGroup: constants.DefaultTableGroup, Shard: "0"},
+		shardRef: &clustermetadatapb.ShardRef{Database: "mydb", TableGroup: constants.DefaultTableGroup, Shard: "0"},
 	}
 
 	t.Run("Type returns shard", func(t *testing.T) {
@@ -101,10 +101,10 @@ func TestShardLockInterface(t *testing.T) {
 
 func TestShardLockResourceNameUniqueness(t *testing.T) {
 	// Test that different shards have different resource names
-	lock1 := &shardLock{shardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}}
-	lock2 := &shardLock{shardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}}
-	lock3 := &shardLock{shardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg2", Shard: "0"}}
-	lock4 := &shardLock{shardKey: &clustermetadatapb.ShardKey{Database: "db2", TableGroup: "tg1", Shard: "0"}}
+	lock1 := &shardLock{shardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"}}
+	lock2 := &shardLock{shardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "1"}}
+	lock3 := &shardLock{shardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg2", Shard: "0"}}
+	lock4 := &shardLock{shardRef: &clustermetadatapb.ShardRef{Database: "db2", TableGroup: "tg1", Shard: "0"}}
 
 	require.NotEqual(t, lock1.ResourceName(), lock2.ResourceName())
 	require.NotEqual(t, lock1.ResourceName(), lock3.ResourceName())
@@ -116,26 +116,26 @@ func TestShardLockResourceNameUniqueness(t *testing.T) {
 
 func TestLockedShardContextMultipleShards(t *testing.T) {
 	// Test that we can have multiple shards locked in the same context
-	shardKey1 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
-	shardKey2 := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+	shardRef1 := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardRef2 := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 
 	// Create context with first shard locked
-	ctx := lockedShardContext(shardKey1)
+	ctx := lockedShardContext(shardRef1)
 
 	// Add second shard to the same context
-	resourceName2 := (&shardLock{shardKey: shardKey2}).ResourceName()
+	resourceName2 := (&shardLock{shardRef: shardRef2}).ResourceName()
 	locksInfoVal := ctx.Value(locksKey).(*locksInfo)
 	locksInfoVal.info[resourceName2] = &lockInfo{
 		lockDescriptor: fakeLockDescriptor{},
 	}
 
 	// Both shards should be locked
-	require.NoError(t, CheckShardLocked(ctx, shardKey1))
-	require.NoError(t, CheckShardLocked(ctx, shardKey2))
+	require.NoError(t, CheckShardLocked(ctx, shardRef1))
+	require.NoError(t, CheckShardLocked(ctx, shardRef2))
 
 	// A different shard should not be locked
-	otherShardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other"}
-	err := CheckShardLocked(ctx, otherShardKey)
+	otherShardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other"}
+	err := CheckShardLocked(ctx, otherShardRef)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "is not locked (no lockInfo in map)")
 }

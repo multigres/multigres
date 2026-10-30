@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
@@ -753,6 +754,49 @@ func TestGetPrimaryLSN(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestGetConnectedFollowerIDs(t *testing.T) {
+	t.Run("excludes logical replication connections", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
+		var gotQuery string
+		mockQueryService.AddQueryPatternWithCallback("FROM pg_stat_replication",
+			mock.MakeQueryResult([]string{"application_name"}, nil),
+			func(q string) { gotQuery = q })
+
+		followers, err := pm.getConnectedFollowerIDs(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, followers)
+		assert.Contains(t, gotQuery, "application_name NOT LIKE '"+constants.LogicalReplicationConnAppNamePrefix+"%'",
+			"gateway logical replication connections (%s<n>) are not followers and must be excluded",
+			constants.LogicalReplicationConnAppNamePrefix)
+	})
+
+	t.Run("parses follower application names", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
+		mockQueryService.AddQueryPatternOnce("FROM pg_stat_replication",
+			mock.MakeQueryResult([]string{"application_name"}, [][]any{
+				{"zone1_replica-1"},
+				{"zone2_replica-2"},
+			}))
+
+		followers, err := pm.getConnectedFollowerIDs(context.Background())
+		require.NoError(t, err)
+		require.Len(t, followers, 2)
+		assert.Equal(t, "zone1", followers[0].GetCell())
+		assert.Equal(t, "replica-1", followers[0].GetName())
+		assert.Equal(t, "zone2", followers[1].GetCell())
+		assert.Equal(t, "replica-2", followers[1].GetName())
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+
+	t.Run("query error", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
+		mockQueryService.AddQueryPatternOnceWithError("FROM pg_stat_replication", errors.New("connection done"))
+
+		_, err := pm.getConnectedFollowerIDs(context.Background())
+		assert.Error(t, err)
+	})
 }
 
 func TestGetStandbyReplayLSN(t *testing.T) {

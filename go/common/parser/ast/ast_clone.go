@@ -256,6 +256,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfDeleteStmt(in)
 	case *DiscardStmt:
 		return CloneRefOfDiscardStmt(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *DoStmt:
 		return CloneRefOfDoStmt(in)
 	case *DropOwnedStmt:
@@ -410,6 +412,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfNotifyStmt(in)
 	case *Null:
 		return CloneRefOfNull(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *ObjectWithArgs:
@@ -1452,6 +1456,7 @@ func CloneRefOfConst(n *Const) *Const {
 	}
 	out := *n
 	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Constvalue = CloneDatum(n.Constvalue)
 	return &out
 }
 
@@ -1995,6 +2000,17 @@ func CloneRefOfDiscardStmt(n *DiscardStmt) *DiscardStmt {
 	return &out
 }
 
+// CloneRefOfDistinctExpr creates a deep clone of the input.
+func CloneRefOfDistinctExpr(n *DistinctExpr) *DistinctExpr {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Args = CloneRefOfNodeList(n.Args)
+	return &out
+}
+
 // CloneRefOfDoStmt creates a deep clone of the input.
 func CloneRefOfDoStmt(n *DoStmt) *DoStmt {
 	if n == nil {
@@ -2158,6 +2174,8 @@ func CloneExpr(in Expr) Expr {
 		return CloneRefOfConvertRowtypeExpr(in)
 	case *CurrentOfExpr:
 		return CloneRefOfCurrentOfExpr(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *FieldSelect:
 		return CloneRefOfFieldSelect(in)
 	case *FieldStore:
@@ -2208,6 +2226,8 @@ func CloneExpr(in Expr) Expr {
 		return CloneRefOfNamedArgExpr(in)
 	case *NextValueExpr:
 		return CloneRefOfNextValueExpr(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *OnConflictExpr:
@@ -2318,6 +2338,8 @@ func CloneExpression(in Expression) Expression {
 		return CloneRefOfConvertRowtypeExpr(in)
 	case *CurrentOfExpr:
 		return CloneRefOfCurrentOfExpr(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *FieldSelect:
 		return CloneRefOfFieldSelect(in)
 	case *FieldStore:
@@ -2376,6 +2398,8 @@ func CloneExpression(in Expression) Expression {
 		return CloneRefOfNextValueExpr(in)
 	case *Null:
 		return CloneRefOfNull(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *OnConflictExpr:
@@ -3251,6 +3275,17 @@ func CloneRefOfNull(n *Null) *Null {
 	}
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfNullIfExpr creates a deep clone of the input.
+func CloneRefOfNullIfExpr(n *NullIfExpr) *NullIfExpr {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Args = CloneRefOfNodeList(n.Args)
 	return &out
 }
 
@@ -4690,6 +4725,11 @@ func CloneSliceOfInt32(n []int32) []int32 {
 	return res
 }
 
+// CloneDatum creates a deep clone of the input.
+func CloneDatum(n Datum) Datum {
+	return *CloneRefOfDatum(&n)
+}
+
 // CloneSliceOfRefOfConstraint creates a deep clone of the input.
 func CloneSliceOfRefOfConstraint(n []*Constraint) []*Constraint {
 	if n == nil {
@@ -4870,4 +4910,13 @@ func CloneSliceOfBool(n []bool) []bool {
 	res := make([]bool, len(n))
 	copy(res, n)
 	return res
+}
+
+// CloneRefOfDatum creates a deep clone of the input.
+func CloneRefOfDatum(n *Datum) *Datum {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	return &out
 }

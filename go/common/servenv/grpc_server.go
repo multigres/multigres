@@ -18,6 +18,7 @@ package servenv
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,9 +41,11 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // This file handles gRPC server, on its own port.
@@ -91,6 +94,9 @@ type GrpcServer struct {
 	// initialWindowSize sets window size for stream.
 	initialWindowSize viperutil.Value[int]
 
+	// streamWorkers reuse grown goroutine stacks across incoming RPCs.
+	streamWorkers viperutil.Value[uint32]
+
 	// keepAliveEnforcementPolicyMinTime sets the keepalive enforcement policy on the server.
 	keepAliveEnforcementPolicyMinTime viperutil.Value[time.Duration]
 
@@ -103,14 +109,14 @@ type GrpcServer struct {
 	// keepaliveTimeout is the wait time after keepalive ping before closing the connection
 	keepaliveTimeout viperutil.Value[time.Duration]
 
-	// cert is the certificate file path for TLS
+	// cert, key and ca are the deprecated --grpc-cert/-key/-ca flags, kept as
+	// real, independently viper-backed flags rather than aliases of
+	// --tls-cert/-key/-ca - see the alias-vs-fallback note on Create for why.
+	// They apply to the gRPC listener only: --tls-cert/-key/-ca are what is
+	// shared with HTTP, and these three predate that sharing.
 	cert viperutil.Value[string]
-
-	// key is the private key file path for TLS
-	key viperutil.Value[string]
-
-	// ca is the CA file path for TLS
-	ca viperutil.Value[string]
+	key  viperutil.Value[string]
+	ca   viperutil.Value[string]
 
 	// crl is the Certificate Revocation List file path
 	crl viperutil.Value[string]
@@ -134,11 +140,27 @@ type GrpcServer struct {
 
 	// socketFile is the named socket for RPCs
 	socketFile viperutil.Value[string]
+
+	// sv is the paired ServEnv, set by Create. It is where --tls-cert/-key/-ca
+	// now live, shared with the HTTP listener - see the field doc there.
+	sv *ServEnv
+
+	// memListener is set by NewInMemoryGrpcServer: the server serves on it,
+	// without TLS or auth, instead of a port.
+	memListener *bufconn.Listener
+
+	// otelInstrumentation controls whether the OpenTelemetry gRPC stats
+	// handler is attached to this process's gRPC server and clients. The
+	// handler runs on every RPC, which on the gateway to pooler hop is once
+	// per SQL statement, so operators can switch it off where its spans are
+	// not exported or its rpc.* metrics are not consumed.
+	otelInstrumentation viperutil.Value[bool]
 }
 
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
 func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
-	return &GrpcServer{
+	g := &GrpcServer{
+		streamWorkers: viperutil.Configure(reg, "grpc-stream-workers", viperutil.Options[uint32]{Default: 64, FlagName: "grpc-stream-workers"}),
 		auth: viperutil.Configure(reg, "grpc-auth-mode", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-auth-mode",
@@ -229,11 +251,87 @@ func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 			FlagName: "grpc-socket-file",
 			Dynamic:  false,
 		}),
+		otelInstrumentation: viperutil.Configure(reg, "grpc-otel-instrumentation", viperutil.Options[bool]{
+			Default:  true,
+			FlagName: "grpc-otel-instrumentation",
+			EnvVars:  []string{"GRPC_OTEL_INSTRUMENTATION"},
+			Dynamic:  false,
+		}),
 	}
+	// gRPC clients are created by grpccommon.NewClient, which cannot see this
+	// server's flags. Hand it the decision as a function so it reads the
+	// parsed value at dial time, whichever happens first.
+	grpccommon.SetOTelInstrumentationEnabled(g.OTelInstrumentationEnabled)
+	return g
+}
+
+// inMemoryBufferSize is each in-memory connection's buffer; it does not limit
+// message size.
+const inMemoryBufferSize = 1 << 20
+
+// NewInMemoryGrpcServer returns a gRPC server that only the same process can
+// reach (in minigres, the multigateway calling the multipooler): no flags, no
+// port, no TLS, no auth, and the external server's limits and OpenTelemetry
+// setting. Clients connect with DialOptions.
+func NewInMemoryGrpcServer(external *GrpcServer) *GrpcServer {
+	// A private registry: settings not copied below keep their defaults.
+	g := NewGrpcServer(viperutil.NewRegistry())
+	g.maxConnectionAge = external.maxConnectionAge
+	g.maxConnectionAgeGrace = external.maxConnectionAgeGrace
+	g.initialConnWindowSize = external.initialConnWindowSize
+	g.initialWindowSize = external.initialWindowSize
+	g.streamWorkers = external.streamWorkers
+	g.keepAliveEnforcementPolicyMinTime = external.keepAliveEnforcementPolicyMinTime
+	g.keepAliveEnforcementPolicyPermitWithoutStream = external.keepAliveEnforcementPolicyPermitWithoutStream
+	g.keepaliveTime = external.keepaliveTime
+	g.keepaliveTimeout = external.keepaliveTimeout
+	g.otelInstrumentation = external.otelInstrumentation
+	g.memListener = bufconn.Listen(inMemoryBufferSize)
+	// NewGrpcServer repointed the process-wide client OpenTelemetry switch.
+	grpccommon.SetOTelInstrumentationEnabled(external.OTelInstrumentationEnabled)
+	return g
+}
+
+// isInMemory reports whether the server was built by NewInMemoryGrpcServer.
+func (g *GrpcServer) isInMemory() bool {
+	return g.memListener != nil
+}
+
+// DialOptions returns what a client in the same process passes to
+// grpc.NewClient to reach a server built by NewInMemoryGrpcServer, with any
+// target: a dialer into its listener and plaintext credentials. Nil for any
+// other server.
+func (g *GrpcServer) DialOptions() []grpc.DialOption {
+	if !g.isInMemory() {
+		return nil
+	}
+	return []grpc.DialOption{
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return g.memListener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+}
+
+// OTelInstrumentationEnabled reports whether OpenTelemetry gRPC
+// instrumentation is attached to this process's gRPC server and clients
+// (--grpc-otel-instrumentation, default true).
+func (g *GrpcServer) OTelInstrumentationEnabled() bool {
+	return g.otelInstrumentation.Get()
+}
+
+// otelServerOption returns the server option that attaches the OpenTelemetry
+// gRPC stats handler, or nil when instrumentation is disabled.
+func (g *GrpcServer) otelServerOption() grpc.ServerOption {
+	if !g.OTelInstrumentationEnabled() {
+		return nil
+	}
+	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }
 
 // RegisterFlags registers all gRPC server flags with the given FlagSet
 func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Uint32("grpc-stream-workers", g.streamWorkers.Default(), "Reusable gRPC handler workers (0 disables reuse; busy workers fall back to new goroutines)")
 	fs.String("grpc-auth-mode", g.auth.Default(), "gRPC auth plugin to use (e.g., 'mtls', 'jwt')")
 	fs.Int("grpc-port", g.port.Default(), "Port to listen on for gRPC calls. If zero, do not listen.")
 	fs.String("grpc-bind-address", g.bindAddress.Default(), "Bind address for gRPC calls. If empty, listen on all addresses.")
@@ -243,17 +341,35 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("grpc-server-initial-window-size", g.initialWindowSize.Default(), "gRPC server initial window size")
 	fs.Duration("grpc-server-keepalive-enforcement-policy-min-time", g.keepAliveEnforcementPolicyMinTime.Default(), "gRPC server minimum keepalive time")
 	fs.Bool("grpc-server-keepalive-enforcement-policy-permit-without-stream", g.keepAliveEnforcementPolicyPermitWithoutStream.Default(), "gRPC server permit client keepalive pings even when there are no active streams (RPCs)")
-	fs.String("grpc-cert", g.cert.Default(), "server certificate to use for gRPC connections, requires grpc-key, enables TLS")
-	fs.String("grpc-key", g.key.Default(), "server private key to use for gRPC connections, requires grpc-cert, enables TLS")
-	fs.String("grpc-ca", g.ca.Default(), "server CA to use for gRPC connections, requires TLS, and enforces client certificate check")
 	fs.String("grpc-crl", g.crl.Default(), "path to a certificate revocation list in PEM format (not yet implemented; startup fails if set)")
 	fs.Bool("grpc-enable-optional-tls", g.enableOptionalTLS.Default(), "enable optional TLS mode for mixed TLS/plaintext on one port (not yet implemented; startup fails if enabled)")
 	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
 	fs.String("grpc-socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
+	fs.Bool("grpc-otel-instrumentation", g.otelInstrumentation.Default(), "Attach OpenTelemetry instrumentation (spans and rpc.* metrics) to this process's gRPC server and clients. It runs on every RPC; disable it where traces are not exported and the rpc.* metrics are not consumed (env: GRPC_OTEL_INSTRUMENTATION).")
+
+	// Deprecated: superseded by --tls-cert/-key/-ca, which also cover the
+	// HTTP listener. These configure gRPC alone and remain fully functional -
+	// Create falls back to them when --tls-cert/-key/-ca are unset - but are
+	// hidden from --help and warn on use.
+	fs.String("grpc-cert", g.cert.Default(), "deprecated: use --tls-cert")
+	fs.String("grpc-key", g.key.Default(), "deprecated: use --tls-key")
+	fs.String("grpc-ca", g.ca.Default(), "deprecated: use --tls-ca")
+	// MarkDeprecated only errors if the named flag was not registered above -
+	// a programmer error, not a runtime condition - so panic surfaces it
+	// immediately rather than silently leaving a flag undeprecated.
+	mustDeprecate := func(name, replacement string) {
+		if err := fs.MarkDeprecated(name, "use --"+replacement+" instead"); err != nil {
+			panic(err)
+		}
+	}
+	mustDeprecate("grpc-cert", "tls-cert")
+	mustDeprecate("grpc-key", "tls-key")
+	mustDeprecate("grpc-ca", "tls-ca")
 
 	viperutil.BindFlags(fs,
+		g.streamWorkers,
 		g.auth,
 		g.port,
 		g.bindAddress,
@@ -265,29 +381,44 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 		g.keepAliveEnforcementPolicyPermitWithoutStream,
 		g.keepaliveTime,
 		g.keepaliveTimeout,
-		g.cert,
-		g.key,
-		g.ca,
 		g.crl,
 		g.enableOptionalTLS,
 		g.serverCA,
 		g.socketFile,
+		g.cert,
+		g.key,
+		g.ca,
+		g.otelInstrumentation,
 	)
 }
 
-// Cert returns the certificate path
+// Cert returns the certificate path gRPC actually uses, once Create has run:
+// --tls-cert if set, else the deprecated --grpc-cert.
 func (g *GrpcServer) Cert() string {
-	return g.cert.Get()
+	return resolveTLSPath(g.sv.tlsCert.Get(), g.cert.Get())
 }
 
-// CA returns the CA path
+// CA returns the CA path gRPC actually uses, once Create has run: --tls-ca if
+// set, else the deprecated --grpc-ca.
 func (g *GrpcServer) CA() string {
-	return g.ca.Get()
+	return resolveTLSPath(g.sv.tlsCA.Get(), g.ca.Get())
 }
 
-// Key returns the key path
+// Key returns the key path gRPC actually uses, once Create has run: --tls-key
+// if set, else the deprecated --grpc-key.
 func (g *GrpcServer) Key() string {
-	return g.key.Get()
+	return resolveTLSPath(g.sv.tlsKey.Get(), g.key.Get())
+}
+
+// resolveTLSPath prefers the canonical --tls-* value and falls back to the
+// deprecated --grpc-* one only when the canonical flag is unset. Used only for
+// gRPC: HTTP TLS is new in this codebase, so it has no deprecated flag of its
+// own to fall back to - it reads --tls-cert/-key/-ca directly.
+func resolveTLSPath(canonical, deprecated string) string {
+	if canonical != "" {
+		return canonical
+	}
+	return deprecated
 }
 
 // Port returns the gRPC port
@@ -307,6 +438,10 @@ func (g *GrpcServer) SocketFile() string {
 
 // IsEnabled returns true if gRPC server is enabled
 func (g *GrpcServer) IsEnabled() bool {
+	if g.isInMemory() {
+		return true
+	}
+
 	if g.port.Get() != 0 {
 		return true
 	}
@@ -320,7 +455,9 @@ func (g *GrpcServer) IsEnabled() bool {
 
 // Create creates the gRPC server instance.
 // It has to be called after flags are parsed, but before services register themselves.
-func (g *GrpcServer) Create() error {
+func (g *GrpcServer) Create(sv *ServEnv) error {
+	g.sv = sv
+
 	// Resolve the configured auth plugin (if any) before the IsEnabled()
 	// gate below. Some deployments run with gRPC serving disabled
 	// (grpc-port=0, HTTP-only) but still want servenv's own HTTP endpoints
@@ -348,18 +485,35 @@ func (g *GrpcServer) Create() error {
 
 	var opts []grpc.ServerOption
 
-	// Build TLS config if cert and key files are provided.
-	// When --grpc-ca is also set, mutual TLS is enabled (client certs required).
+	// Build TLS config from --tls-cert/-key/-ca (shared with the HTTP
+	// listener, see ServEnv), falling back to the deprecated --grpc-cert/-key/-ca
+	// when the canonical flag is unset. A genuine alias (one flag under two
+	// names) cannot be made to work here: it would need either a pflag
+	// NormalizeFunc, which never sees a value that arrives only via a config
+	// file, or a viperutil alias, which viper resolves by migrating
+	// already-present values at registration time - too early, since
+	// registration always runs before the config file is read. Two
+	// independent, ordinarily-bound flags with this explicit fallback sidestep
+	// both failure modes: each name works from the CLI, an env var, or a
+	// config file exactly like any other flag, and the precedence between them
+	// is plain Go, not an artifact of load order.
+	// When --tls-ca is also set, mutual TLS is enabled (client certs required).
 	// BuildServerTLSConfig validates the cert/key/ca combinations.
-	tlsConfig, err := grpccommon.BuildServerTLSConfig(
-		g.cert.Get(), g.key.Get(), g.ca.Get(), g.serverCA.Get(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to configure gRPC TLS: %w", err)
-	}
-	if tlsConfig != nil {
-		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
-		slog.Info("gRPC TLS enabled", "cert", g.cert.Get(), "mtls", g.ca.Get() != "")
+	// The --tls-* files are for network listeners, not the in-memory one.
+	var tlsConfig *tls.Config
+	if !g.isInMemory() {
+		cert := resolveTLSPath(sv.tlsCert.Get(), g.cert.Get())
+		key := resolveTLSPath(sv.tlsKey.Get(), g.key.Get())
+		ca := resolveTLSPath(sv.tlsCA.Get(), g.ca.Get())
+		var err error
+		tlsConfig, err = grpccommon.BuildServerTLSConfig(cert, key, ca, g.serverCA.Get())
+		if err != nil {
+			return fmt.Errorf("failed to configure gRPC TLS: %w", err)
+		}
+		if tlsConfig != nil {
+			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			slog.Info("gRPC TLS enabled", "cert", cert, "mtls", ca != "")
+		}
 	}
 
 	// Validate that mtls auth is not used without transport TLS. Without
@@ -367,7 +521,7 @@ func (g *GrpcServer) Create() error {
 	// certificate check can never succeed with no TLS handshake to inspect)
 	// instead of failing loudly at startup.
 	if g.auth.Get() == "mtls" && tlsConfig == nil {
-		return fmt.Errorf("--grpc-auth-mode=%s requires --grpc-cert and --grpc-key for transport TLS", g.auth.Get())
+		return fmt.Errorf("--grpc-auth-mode=%s requires --tls-cert and --tls-key (or the deprecated --grpc-cert/--grpc-key) for transport TLS", g.auth.Get())
 	}
 
 	// Override the default max message size for both send and receive
@@ -402,12 +556,19 @@ func (g *GrpcServer) Create() error {
 
 	opts = append(opts, grpc.KeepaliveParams(g.keepaliveServerParameters()))
 
-	// Add OpenTelemetry instrumentation for distributed tracing and metrics
-	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
-	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	// OpenTelemetry instrumentation for distributed tracing and rpc.* metrics.
+	// The stats handler does its work (header extraction, span and metric
+	// attribute sets) on every RPC whether or not anything is exported, so it
+	// is optional.
+	if opt := g.otelServerOption(); opt != nil {
+		opts = append(opts, opt)
+	} else {
+		slog.Info("gRPC OpenTelemetry instrumentation disabled")
+	}
 
 	opts = append(opts, g.interceptors()...)
 
+	opts = append(opts, grpc.NumStreamWorkers(g.streamWorkers.Get()))
 	g.Server = grpc.NewServer(opts...)
 	return nil
 }
@@ -503,7 +664,7 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 // Serve starts the gRPC server and begins listening for requests
 func (g *GrpcServer) Serve(sv *ServEnv) error {
 	// skip if not enabled
-	if g.port.Get() == 0 {
+	if !g.isInMemory() && g.port.Get() == 0 {
 		return nil
 	}
 
@@ -522,11 +683,18 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 		healthServer.SetServingStatus(service, healthpb.HealthCheckResponse_SERVING)
 	}
 
-	// listen on the port
-	slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
-	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
-	if err != nil {
-		return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
+	var listener net.Listener
+	if g.isInMemory() {
+		slog.Info("listening for gRPC calls in memory")
+		listener = g.memListener
+	} else {
+		// listen on the port
+		slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
+		var err error
+		listener, err = net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
+		if err != nil {
+			return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
+		}
 	}
 
 	// and serve on it

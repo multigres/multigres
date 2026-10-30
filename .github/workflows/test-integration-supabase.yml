@@ -50,6 +50,19 @@ jobs:
       - name: Build integration test runner image
         run: .github/scripts/build-supabase-postgres-test-image.sh
 
+      # The test container runs as the image's postgres user, which does not
+      # own the bind-mounted checkout or Go cache (both owned by the runner
+      # user). Open up only what it writes: bin/, the Go cache, and the test
+      # result files in the workspace root. The sticky bit lets it create
+      # files in the root without replacing runner-owned entries, so the
+      # tracked tree, including scripts that later steps run on the host,
+      # stays read-only to it.
+      - name: Make output paths writable for the container user
+        run: |
+          mkdir -p /tmp/go-cache "${GITHUB_WORKSPACE}/bin"
+          chmod a+rwx /tmp/go-cache "${GITHUB_WORKSPACE}/bin"
+          chmod 1777 "${GITHUB_WORKSPACE}"
+
       - name: Run integration tests
         id: integration-tests
         # continue-on-error lets the Trunk upload step below gate the job
@@ -59,11 +72,12 @@ jobs:
           TEST_PRINT_LOGS: "1"
           AWS_ACCESS_KEY_ID: test-access-key
           AWS_SECRET_ACCESS_KEY: test-secret-key
-          RERUN_FAILS: "3"
-        run: .github/scripts/run-integration-tests-supabase.sh
+        run: |
+          rm -f integration-test-results.{jsonl,xml}
+          .github/scripts/run-integration-tests-supabase.sh
 
-      - name: Upload test results to Trunk
-        if: ${{ !cancelled() }}
+      - name: Upload results and apply Trunk quarantine
+        if: ${{ !cancelled() && steps.integration-tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
           junit-paths: integration-test-results.xml
@@ -87,6 +101,7 @@ jobs:
           name: Integration Tests (Supabase Postgres)
           path: integration-test-results.jsonl
           reporter: golang-json
+          fail-on-error: "false" # Trunk owns the test failure decision.
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && github.event_name == 'push' }}

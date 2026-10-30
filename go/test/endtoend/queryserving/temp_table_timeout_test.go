@@ -47,7 +47,7 @@ func TestMultigateway_TempTableSurvivesStatementTimeout(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()
@@ -67,8 +67,17 @@ func TestMultigateway_TempTableSurvivesStatementTimeout(t *testing.T) {
 	// A statement the server cancels via statement_timeout.
 	_, err = c.ExecContext(ctx, "SET statement_timeout TO 100")
 	require.NoError(t, err)
-	_, err = c.ExecContext(ctx, "SELECT pg_sleep(5)")
-	require.Error(t, err, "pg_sleep should be cancelled by statement_timeout")
+	// Keep the short timeout active for the immediately following statement.
+	// It must not spend its deadline queued behind cancellation on this same
+	// reserved backend. Repeat to catch the old gateway/pooler deadline race.
+	for range 5 {
+		_, err = c.ExecContext(ctx, "SELECT pg_sleep(5)")
+		require.Error(t, err, "pg_sleep should be cancelled by statement_timeout")
+		var id int
+		err = c.QueryRowContext(ctx, "SELECT id FROM _inputs").Scan(&id)
+		require.NoError(t, err, "next statement must start after cancellation cleanup")
+		require.Equal(t, 1, id)
+	}
 	_, err = c.ExecContext(ctx, "SET statement_timeout TO 0")
 	require.NoError(t, err)
 
@@ -94,7 +103,7 @@ func TestMultigateway_StatementTimeoutInTransaction(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer db.Close()

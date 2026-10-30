@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/tools/testpoll"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,7 +160,7 @@ func TestPutEphemeral_NotRestoredByWrapperAfterReconnection(t *testing.T) {
 	wrapper.handleConnectionError(conn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "test error"))
 	factory.waitForNewConn(initialCount)
 
-	assert.Never(t, func() bool {
+	testpoll.Never(t, func() bool {
 		_, _, err := wrapper.Get(ctx, "gateways/gw-1/Gateway")
 		return err == nil
 	}, 200*time.Millisecond, 20*time.Millisecond,
@@ -747,7 +748,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	// Start retryConnection manually in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		wrapper.retryConnection(errors.New("test error"))
+		wrapper.retryConnection(ConnFailUnavailable, errors.New("test error"))
 		done <- true
 	}()
 

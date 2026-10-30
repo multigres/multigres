@@ -616,3 +616,16 @@ func TestGetRollbackSessionSettings(t *testing.T) {
 	state.CommitTransaction()
 	assert.Nil(t, state.GetRollbackSessionSettings(), "frames dropped at commit → nil")
 }
+
+func TestReparsePendingEndsWithTransaction(t *testing.T) {
+	for _, commit := range []bool{true, false} {
+		state := NewMultigatewayConnectionState()
+		state.MarkReparsePending("stmt")
+		if commit {
+			state.CommitTransaction()
+		} else {
+			state.RollbackTransaction()
+		}
+		assert.False(t, state.ConsumeReparsePending("stmt"), "a later transaction must not inherit an unused rewrite refresh")
+	}
+}

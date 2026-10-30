@@ -22,6 +22,7 @@ import (
 	"text/template"
 
 	"github.com/multigres/multigres/config"
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 // ServerConfigOpts holds options for generating pgbackrest-server.conf.
@@ -66,6 +67,7 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 		return "", fmt.Errorf("failed to parse pgbackrest server config template: %w", err)
 	}
 
+	certFile, keyFile, caFile := constants.PgBackRestCertFiles(opts.CertDir)
 	templateData := struct {
 		LogPath        string
 		LockPath       string
@@ -80,9 +82,9 @@ func WriteServerConfig(opts ServerConfigOpts) (string, error) {
 	}{
 		LogPath:        logPath,
 		LockPath:       lockPath,
-		ServerCertFile: filepath.Join(opts.CertDir, "pgbackrest.crt"),
-		ServerKeyFile:  filepath.Join(opts.CertDir, "pgbackrest.key"),
-		ServerCAFile:   filepath.Join(opts.CertDir, "ca.crt"),
+		ServerCertFile: certFile,
+		ServerKeyFile:  keyFile,
+		ServerCAFile:   caFile,
 		ServerPort:     opts.Port,
 		Pg1SocketPath:  opts.Pg1SocketPath,
 		Pg1Port:        opts.Pg1Port,

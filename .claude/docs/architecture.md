@@ -8,6 +8,7 @@
 - **multiorch** - Cluster orchestration for consensus and failover
 - **multiadmin** - Administrative service for cluster management
 - **multigres** - CLI tool for cluster management
+- **minigres** - Multigateway and multipooler in one process, for a database served by a single pooler with no replicas (see `docs/general/minigres.md`)
 
 ## Data Flow
 

@@ -48,7 +48,7 @@ func TestMultigateway_UnsafeStatementRejection(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -151,7 +151,7 @@ func TestMultigateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -217,7 +217,7 @@ func TestMultigateway_UnsafeStatementRejection_InTransaction(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
