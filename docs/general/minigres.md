@@ -13,12 +13,14 @@ Minigres evolves.
 
 - **One process** with one servenv, one HTTP server and one etcd connection,
   shared by both halves, and two gRPC servers: an in-memory one for the
-  queries between the halves, and a TCP one for the admin services.
+  calls between the halves that are not direct, and a TCP one for the admin
+  services.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler in memory.** Queries, authentication,
-  LISTEN/NOTIFY and the health stream go over the in-memory gRPC server and
-  never leave the process. The gateway learns of the pooler from the pooler
+- **The multigateway reaches the pooler in memory.** Queries are plain Go
+  calls into the pooler; authentication, LISTEN/NOTIFY, logical replication
+  and the health stream go over the in-memory gRPC server. None leave the
+  process. The gateway learns of the pooler from the pooler
   itself, not from etcd, so it never sees other instances' poolers. An
   in-process health subscription, replacing the health stream, is planned work.
 - **pgctld runs as its own process**, as in Multigres.
@@ -153,7 +155,8 @@ no port, no TLS and no auth, and the external server's limits. The serving loop
 starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
 also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
 the in-memory server's dial options (`DialOptions`) and the pooler's record
-(`Record`). The gateway then reads that pooler's record in memory instead of
+(`Record`), and its query service (`QueryService`, from
+`Multipooler.LocalQueryService`). The gateway then reads that pooler's record in memory instead of
 watching etcd, keeps only that pooler (the pooler cache's filter), and connects
 to it in memory; the Multigres binaries pass none and use every pooler
 in the topology.
@@ -181,10 +184,22 @@ in the topology.
   health stream. Even when many Minigres
   instances share one etcd, queries never reach another instance and readiness
   counts only its own pooler.
-- **It connects in memory.** The pooler serves its query service
-  (`MultipoolerService`) only on an in-memory gRPC server, and the
-  gateway connects there, without TLS. Queries, authentication, LISTEN/NOTIFY
-  and the health stream never leave the process.
+- **Queries are direct calls.** Every query-path call (statements, portals,
+  Describe, COPY, transaction ends, reserved-connection release) calls the
+  pooler's query service directly, in the gateway's goroutine and context: the
+  same admission (`StartRequest`, reservation-reason validation) and executor
+  the pooler's gRPC handler calls, with nothing marshalled. A statement timeout
+  or cancellation reaches the client as the same error as over gRPC. At
+  shutdown the pooler refuses new direct calls and waits for running ones
+  before closing its pools, as the gRPC server's graceful stop does.
+- **The rest connects in memory.** The pooler serves its gRPC query service
+  (`MultipoolerService`) only on an in-memory gRPC server, and the gateway
+  connects there, without TLS, for authentication, LISTEN/NOTIFY, logical
+  replication (`StreamReplication`) and the health stream.
+- **Observability differs on the query path.** The direct path has no
+  pooler-side operation span and no transport metrics: traces go from the
+  gateway's spans straight to the pooler's internal spans, and the gateway's
+  stream-pool metrics (`mg.gateway.query_stream.*`) stay empty in Minigres.
 - **The external gRPC port carries the admin services.** The pooler manager and
   gateway manager services stay on the TCP port, for Multiadmin and the test
   harness. Calling the query service on that port returns `Unimplemented`.

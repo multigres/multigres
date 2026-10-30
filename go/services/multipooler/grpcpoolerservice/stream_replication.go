@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	commonrepl "github.com/multigres/multigres/go/common/replication"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
 )
@@ -72,7 +73,7 @@ func (s *poolerService) StreamReplication(stream multipoolerpb.MultipoolerServic
 
 	// A replication stream opens a fresh, dedicated, session-pinned backend, so
 	// it is admitted like a new reservation (rejected during graceful drain).
-	if err := s.pooler.StartRequest(init.GetTarget(), admissionKind(0, true)); err != nil {
+	if err := s.pooler.StartRequest(init.GetTarget(), poolerserver.AdmissionKind(0, true)); err != nil {
 		s.pooler.ReplicationMetrics().RecordSetupError(replication.SetupErrorAdmissionRejected)
 		return mterrors.ToGRPC(err)
 	}
