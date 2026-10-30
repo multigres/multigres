@@ -108,6 +108,28 @@ service MultipoolerManager {
       returns (multipoolermanagerdata.ReconcileFollowersResponse);
 
   //
+  // Routing rules (catalog primary only)
+  //
+
+  // SetRoutingRules replaces every routing rule of an operation and increments
+  // the database's routing version, in one catalog transaction. A change that
+  // is already in effect returns the current version and writes nothing.
+  // Served only by the primary of the default tablegroup, which holds the
+  // catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+  // the primary and retries. A stale expected_routing_version or a change the
+  // catalog does not allow returns FAILED_PRECONDITION.
+  //
+  // Until the pooler admission fence exists, rules must change only while the
+  // affected application traffic is quiesced.
+  rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest)
+      returns (multipoolermanagerdata.SetRoutingRulesResponse);
+
+  // DeleteRoutingRules deletes every routing rule of an operation, with the
+  // same rules as SetRoutingRules.
+  rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
+      returns (multipoolermanagerdata.DeleteRoutingRulesResponse);
+
+  //
   // PostgreSQL Configuration Reload
   //
 

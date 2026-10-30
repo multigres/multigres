@@ -39,6 +39,8 @@ tags:
     name: migrations
   - description: Stored source connections for table migrations.
     name: connections
+  - description: Routing rules that send a database's traffic elsewhere while an operation moves its data.
+    name: routing
 paths:
   /api/v1/backups:
     get:
@@ -434,6 +436,155 @@ paths:
       summary: List database names
       tags:
         - databases
+  /api/v1/databases/{database}/routing:
+    get:
+      description: GetRoutingSnapshot returns a database's routing rules and routing version.
+      operationId: multiadmin.MultiadminService.GetRoutingSnapshot
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: |-
+            since_version is the routing version the caller already holds, or 0.
+             Reserved for incremental snapshots; the full snapshot is returned today.
+          in: query
+          name: sinceVersion
+          schema:
+            pattern: ^-?[0-9]+$
+            title: since_version
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.GetRoutingSnapshotResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Get a database's routing
+      tags:
+        - routing
+  /api/v1/databases/{database}/routing/operations/{operation_id}/rules:
+    delete:
+      description: DeleteRoutingRules deletes every routing rule of an operation.
+      operationId: multiadmin.MultiadminService.DeleteRoutingRules
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: operation_id is the operation that owns the rules (a UUID).
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+        - description: |-
+            expected_routing_version is the routing version the change is based on.
+             Deleting the rules of an operation that has none succeeds whatever its
+             value.
+          in: query
+          name: expectedRoutingVersion
+          schema:
+            pattern: ^-?[0-9]+$
+            title: expected_routing_version
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.DeleteRoutingRulesResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Delete an operation's routing rules
+      tags:
+        - routing
+    put:
+      description: |-
+        SetRoutingRules replaces every routing rule of an operation. A change
+         already in effect succeeds without changing the routing version.
+      operationId: multiadmin.MultiadminService.SetRoutingRules
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: |-
+            operation_id is the operation that owns the rules (a UUID). It must exist
+             and not have finished.
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: SetRoutingRulesRequest replaces every routing rule of an operation.
+              properties:
+                expectedRoutingVersion:
+                  description: |-
+                    expected_routing_version is the routing version the change is based on.
+                     A change already in effect succeeds whatever its value.
+                  pattern: ^-?[0-9]+$
+                  title: expected_routing_version
+                  type: string
+                rules:
+                  description: rules are the operation's new rules. Shard rules only for now.
+                  items:
+                    $ref: '#/components/schemas/multipoolermanagerdata.ShardRoutingRuleSpec'
+                  title: rules
+                  type: array
+              title: SetRoutingRulesRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.SetRoutingRulesResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Set an operation's routing rules
+      tags:
+        - routing
   /api/v1/databases/{name}:
     get:
       description: |-
@@ -3698,6 +3849,46 @@ components:
           type: array
       title: QueryStatSnapshot
       type: object
+    multipoolermanagerdata.DeleteRoutingRulesResponse:
+      additionalProperties: false
+      description: DeleteRoutingRulesResponse returns the routing version after the change.
+      properties:
+        routingVersion:
+          pattern: ^-?[0-9]+$
+          title: routing_version
+          type: string
+      title: DeleteRoutingRulesResponse
+      type: object
+    multipoolermanagerdata.GetRoutingSnapshotResponse:
+      additionalProperties: false
+      description: |-
+        GetRoutingSnapshotResponse is a database's routing, read in one consistent
+         snapshot of its catalog.
+      properties:
+        full:
+          description: |-
+            full is set when rules holds every rule rather than changes since
+             since_version. Always set today.
+          title: full
+          type: boolean
+        planEpoch:
+          description: plan_epoch increases when the inputs of query plans change.
+          pattern: ^-?[0-9]+$
+          title: plan_epoch
+          type: string
+        routingVersion:
+          description: routing_version increases with every change to effective routing.
+          pattern: ^-?[0-9]+$
+          title: routing_version
+          type: string
+        rules:
+          description: rules are the routing rules, in rule_id order.
+          items:
+            $ref: '#/components/schemas/multipoolermanagerdata.RoutingRule'
+          title: rules
+          type: array
+      title: GetRoutingSnapshotResponse
+      type: object
     multipoolermanagerdata.PostgresAction:
       description: PostgresAction identifies a long-running postgres manager operation.
       enum:
@@ -3808,6 +3999,109 @@ components:
           description: Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
           title: sync_replication_config
       title: PrimaryStatus
+      type: object
+    multipoolermanagerdata.RoutingRule:
+      additionalProperties: false
+      description: |-
+        RoutingRule is one rule of a database's routing: traffic the catalog would
+         send to the source is served by the target while the owning operation runs.
+         A gateway applies a rule as a single hop on top of the catalog; a rule's
+         target is never routed again.
+      properties:
+        createdVersion:
+          description: created_version is the routing version that introduced the rule.
+          pattern: ^-?[0-9]+$
+          title: created_version
+          type: string
+        fromTable:
+          $ref: '#/components/schemas/multipoolermanagerdata.RoutingTableName'
+          description: from_table is the overridden table. Set only for table rules.
+          title: from_table
+        fromTablegroup:
+          description: from_tablegroup is the tablegroup whose traffic the rule overrides.
+          title: from_tablegroup
+          type: string
+        operationId:
+          description: operation_id is the operation that owns the rule (a UUID).
+          title: operation_id
+          type: string
+        ruleId:
+          description: rule_id identifies the rule within its database's catalog.
+          pattern: ^-?[0-9]+$
+          title: rule_id
+          type: string
+        scope:
+          $ref: '#/components/schemas/multipoolermanagerdata.RoutingRuleScope'
+          title: scope
+        toKeyRange:
+          $ref: '#/components/schemas/clustermetadata.KeyRange'
+          description: to_key_range is to_shard's key range. An unset start or end is unbounded.
+          title: to_key_range
+        toShard:
+          description: |-
+            to_shard is the shard that serves the traffic. Set only for shard rules;
+             the rule covers exactly this shard's range.
+          title: to_shard
+          type: string
+        toShardKey:
+          description: |-
+            to_shard_key is the name of the table's shard key in the target
+             tablegroup. Set only for table rules that change the key.
+          title: to_shard_key
+          type: string
+        toTablegroup:
+          description: to_tablegroup is the tablegroup that serves the traffic.
+          title: to_tablegroup
+          type: string
+      title: RoutingRule
+      type: object
+    multipoolermanagerdata.RoutingRuleScope:
+      description: RoutingRuleScope is the kind of a routing rule.
+      enum:
+        - ROUTING_RULE_SCOPE_UNSPECIFIED
+        - ROUTING_RULE_SCOPE_TABLEGROUP
+        - ROUTING_RULE_SCOPE_TABLE
+      title: RoutingRuleScope
+      type: string
+    multipoolermanagerdata.RoutingTableName:
+      additionalProperties: false
+      description: RoutingTableName names a table by schema and name.
+      properties:
+        name:
+          title: name
+          type: string
+        schema:
+          title: schema
+          type: string
+      title: RoutingTableName
+      type: object
+    multipoolermanagerdata.SetRoutingRulesResponse:
+      additionalProperties: false
+      description: SetRoutingRulesResponse returns the routing version after the change.
+      properties:
+        routingVersion:
+          pattern: ^-?[0-9]+$
+          title: routing_version
+          type: string
+      title: SetRoutingRulesResponse
+      type: object
+    multipoolermanagerdata.ShardRoutingRuleSpec:
+      additionalProperties: false
+      description: |-
+        ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+         of from_tablegroup in to_shard's range are served by to_shard of
+         to_tablegroup.
+      properties:
+        fromTablegroup:
+          title: from_tablegroup
+          type: string
+        toShard:
+          title: to_shard
+          type: string
+        toTablegroup:
+          title: to_tablegroup
+          type: string
+      title: ShardRoutingRuleSpec
       type: object
     multipoolermanagerdata.StandbyReplicationStatus:
       additionalProperties: false

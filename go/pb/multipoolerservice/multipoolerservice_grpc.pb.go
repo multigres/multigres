@@ -25,6 +25,7 @@ package multipoolerservice
 
 import (
 	context "context"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -42,6 +43,7 @@ const (
 	MultipoolerService_PortalStreamExecute_FullMethodName       = "/multipoolerservice.MultipoolerService/PortalStreamExecute"
 	MultipoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultipoolerService/Describe"
 	MultipoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultipoolerService/GetAuthCredentials"
+	MultipoolerService_GetRoutingSnapshot_FullMethodName        = "/multipoolerservice.MultipoolerService/GetRoutingSnapshot"
 	MultipoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultipoolerService/CopyBidiExecute"
 	MultipoolerService_StreamReplication_FullMethodName         = "/multipoolerservice.MultipoolerService/StreamReplication"
 	MultipoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultipoolerService/ConcludeTransaction"
@@ -82,6 +84,12 @@ type MultipoolerServiceClient interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version,
+	// read in one consistent snapshot of its catalog. Gateways poll it. Served
+	// only by the primary of the default tablegroup, which holds the catalog;
+	// any other pooler returns UNAVAILABLE. It is control traffic: it never
+	// goes through query admission.
+	GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
@@ -214,6 +222,16 @@ func (c *multipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *G
 	return out, nil
 }
 
+func (c *multipoolerServiceClient) GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetRoutingSnapshotResponse)
+	err := c.cc.Invoke(ctx, MultipoolerService_GetRoutingSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[3], MultipoolerService_CopyBidiExecute_FullMethodName, cOpts...)
@@ -333,6 +351,12 @@ type MultipoolerServiceServer interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version,
+	// read in one consistent snapshot of its catalog. Gateways poll it. Served
+	// only by the primary of the default tablegroup, which holds the catalog;
+	// any other pooler returns UNAVAILABLE. It is control traffic: it never
+	// goes through query admission.
+	GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
@@ -401,6 +425,9 @@ func (UnimplementedMultipoolerServiceServer) Describe(context.Context, *Describe
 }
 func (UnimplementedMultipoolerServiceServer) GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthCredentials not implemented")
+}
+func (UnimplementedMultipoolerServiceServer) GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingSnapshot not implemented")
 }
 func (UnimplementedMultipoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method CopyBidiExecute not implemented")
@@ -527,6 +554,24 @@ func _MultipoolerService_GetAuthCredentials_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerService_GetRoutingSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetRoutingSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerServiceServer).GetRoutingSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerService_GetRoutingSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerServiceServer).GetRoutingSnapshot(ctx, req.(*multipoolermanagerdata.GetRoutingSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MultipoolerServiceServer).CopyBidiExecute(&grpc.GenericServerStream[CopyBidiExecuteRequest, CopyBidiExecuteResponse]{ServerStream: stream})
 }
@@ -631,6 +676,10 @@ var MultipoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAuthCredentials",
 			Handler:    _MultipoolerService_GetAuthCredentials_Handler,
+		},
+		{
+			MethodName: "GetRoutingSnapshot",
+			Handler:    _MultipoolerService_GetRoutingSnapshot_Handler,
 		},
 		{
 			MethodName: "ConcludeTransaction",

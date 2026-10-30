@@ -83,6 +83,21 @@ CREATE TABLE IF NOT EXISTS multigres.connections (
 	owner_role    text NOT NULL DEFAULT '',
 	created_at    timestamptz NOT NULL DEFAULT now()
 )
+== table
+CREATE TABLE IF NOT EXISTS multigres.routing_rule (
+	rule_id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	operation_id       uuid   NOT NULL REFERENCES multigres.operation (operation_id),
+	scope              text   NOT NULL CHECK (scope IN ('tablegroup', 'table')),
+	from_tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	from_table_id      bigint REFERENCES multigres.tablegroup_table (table_id),
+	to_tablegroup_id   bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	to_shard_id        bigint REFERENCES multigres.shard (shard_id),
+	to_shard_key_id    bigint REFERENCES multigres.shard_key (shard_key_id),
+	created_at         timestamptz NOT NULL DEFAULT now(),
+	created_version    bigint NOT NULL,
+	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
+	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
+)
 == seed
 INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING
 == seed

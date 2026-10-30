@@ -26,6 +26,7 @@ package multipoolerservice
 import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpc "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	query "github.com/multigres/multigres/go/pb/query"
 	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -3076,7 +3077,7 @@ var File_multipoolerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x17google/rpc/status.proto\x1a\vmtrpc.proto\x1a\vquery.proto\"\xcc\x01\n" +
+	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x17google/rpc/status.proto\x1a\vmtrpc.proto\x1a\x1cmultipoolermanagerdata.proto\x1a\vquery.proto\"\xcc\x01\n" +
 	"\x13ExecuteQueryRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12\x19\n" +
@@ -3293,14 +3294,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +
-	"\x1fTRANSACTION_CONCLUSION_ROLLBACK\x10\x022\xda\v\n" +
+	"\x1fTRANSACTION_CONCLUSION_ROLLBACK\x10\x022\xd7\f\n" +
 	"\x12MultipoolerService\x12a\n" +
 	"\fExecuteQuery\x12'.multipoolerservice.ExecuteQueryRequest\x1a(.multipoolerservice.ExecuteQueryResponse\x12f\n" +
 	"\rStreamExecute\x12(.multipoolerservice.StreamExecuteRequest\x1a).multipoolerservice.StreamExecuteResponse0\x01\x12h\n" +
 	"\rExecuteStream\x12(.multipoolerservice.ExecuteStreamRequest\x1a).multipoolerservice.ExecuteStreamResponse(\x010\x01\x12x\n" +
 	"\x13PortalStreamExecute\x12..multipoolerservice.PortalStreamExecuteRequest\x1a/.multipoolerservice.PortalStreamExecuteResponse0\x01\x12U\n" +
 	"\bDescribe\x12#.multipoolerservice.DescribeRequest\x1a$.multipoolerservice.DescribeResponse\x12s\n" +
-	"\x12GetAuthCredentials\x12-.multipoolerservice.GetAuthCredentialsRequest\x1a..multipoolerservice.GetAuthCredentialsResponse\x12n\n" +
+	"\x12GetAuthCredentials\x12-.multipoolerservice.GetAuthCredentialsRequest\x1a..multipoolerservice.GetAuthCredentialsResponse\x12{\n" +
+	"\x12GetRoutingSnapshot\x121.multipoolermanagerdata.GetRoutingSnapshotRequest\x1a2.multipoolermanagerdata.GetRoutingSnapshotResponse\x12n\n" +
 	"\x0fCopyBidiExecute\x12*.multipoolerservice.CopyBidiExecuteRequest\x1a+.multipoolerservice.CopyBidiExecuteResponse(\x010\x01\x12t\n" +
 	"\x11StreamReplication\x12,.multipoolerservice.StreamReplicationRequest\x1a-.multipoolerservice.StreamReplicationResponse(\x010\x01\x12v\n" +
 	"\x13ConcludeTransaction\x12..multipoolerservice.ConcludeTransactionRequest\x1a/.multipoolerservice.ConcludeTransactionResponse\x12p\n" +
@@ -3324,65 +3326,67 @@ func file_multipoolerservice_proto_rawDescGZIP() []byte {
 var file_multipoolerservice_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_multipoolerservice_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_multipoolerservice_proto_goTypes = []any{
-	(ExecuteStreamOperation)(0),               // 0: multipoolerservice.ExecuteStreamOperation
-	(ReplicationMode)(0),                      // 1: multipoolerservice.ReplicationMode
-	(ReservationReason)(0),                    // 2: multipoolerservice.ReservationReason
-	(TransactionConclusion)(0),                // 3: multipoolerservice.TransactionConclusion
-	(CopyBidiExecuteRequest_Phase)(0),         // 4: multipoolerservice.CopyBidiExecuteRequest.Phase
-	(CopyBidiExecuteRequest_Direction)(0),     // 5: multipoolerservice.CopyBidiExecuteRequest.Direction
-	(CopyBidiExecuteResponse_Phase)(0),        // 6: multipoolerservice.CopyBidiExecuteResponse.Phase
-	(*ExecuteQueryRequest)(nil),               // 7: multipoolerservice.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil),              // 8: multipoolerservice.ExecuteQueryResponse
-	(*StreamExecuteRequest)(nil),              // 9: multipoolerservice.StreamExecuteRequest
-	(*StreamExecuteResponse)(nil),             // 10: multipoolerservice.StreamExecuteResponse
-	(*ExecuteStreamRequest)(nil),              // 11: multipoolerservice.ExecuteStreamRequest
-	(*ExecuteStreamResponse)(nil),             // 12: multipoolerservice.ExecuteStreamResponse
-	(*PortalStreamExecuteRequest)(nil),        // 13: multipoolerservice.PortalStreamExecuteRequest
-	(*PortalExecuteOptions)(nil),              // 14: multipoolerservice.PortalExecuteOptions
-	(*PortalStreamExecuteResponse)(nil),       // 15: multipoolerservice.PortalStreamExecuteResponse
-	(*DescribeRequest)(nil),                   // 16: multipoolerservice.DescribeRequest
-	(*DescribeResponse)(nil),                  // 17: multipoolerservice.DescribeResponse
-	(*GetAuthCredentialsRequest)(nil),         // 18: multipoolerservice.GetAuthCredentialsRequest
-	(*GetAuthCredentialsResponse)(nil),        // 19: multipoolerservice.GetAuthCredentialsResponse
-	(*CopyBidiExecuteRequest)(nil),            // 20: multipoolerservice.CopyBidiExecuteRequest
-	(*CopyBidiExecuteResponse)(nil),           // 21: multipoolerservice.CopyBidiExecuteResponse
-	(*StreamReplicationInit)(nil),             // 22: multipoolerservice.StreamReplicationInit
-	(*StreamReplicationRequest)(nil),          // 23: multipoolerservice.StreamReplicationRequest
-	(*StreamReplicationReady)(nil),            // 24: multipoolerservice.StreamReplicationReady
-	(*StreamReplicationError)(nil),            // 25: multipoolerservice.StreamReplicationError
-	(*StreamReplicationResponse)(nil),         // 26: multipoolerservice.StreamReplicationResponse
-	(*ConcludeTransactionRequest)(nil),        // 27: multipoolerservice.ConcludeTransactionRequest
-	(*SessionSettingsSnapshot)(nil),           // 28: multipoolerservice.SessionSettingsSnapshot
-	(*ConcludeTransactionResponse)(nil),       // 29: multipoolerservice.ConcludeTransactionResponse
-	(*DiscardTempTablesRequest)(nil),          // 30: multipoolerservice.DiscardTempTablesRequest
-	(*DiscardTempTablesResponse)(nil),         // 31: multipoolerservice.DiscardTempTablesResponse
-	(*ReleaseReservedConnectionRequest)(nil),  // 32: multipoolerservice.ReleaseReservedConnectionRequest
-	(*ReleaseReservedConnectionResponse)(nil), // 33: multipoolerservice.ReleaseReservedConnectionResponse
-	(*StreamPoolerHealthRequest)(nil),         // 34: multipoolerservice.StreamPoolerHealthRequest
-	(*StreamPoolerHealthResponse)(nil),        // 35: multipoolerservice.StreamPoolerHealthResponse
-	(*NotificationStreamRequest)(nil),         // 36: multipoolerservice.NotificationStreamRequest
-	(*NotificationStreamResponse)(nil),        // 37: multipoolerservice.NotificationStreamResponse
-	(*CopyStreamInput)(nil),                   // 38: multipoolerservice.CopyStreamInput
-	nil,                                       // 39: multipoolerservice.ExecuteStreamRequest.PropagationEntry
-	nil,                                       // 40: multipoolerservice.SessionSettingsSnapshot.VarsEntry
-	(*query.Target)(nil),                      // 41: query.Target
-	(*mtrpc.CallerID)(nil),                    // 42: mtrpc.CallerID
-	(*query.ExecuteOptions)(nil),              // 43: query.ExecuteOptions
-	(*query.QueryResult)(nil),                 // 44: query.QueryResult
-	(*query.ReservedState)(nil),               // 45: query.ReservedState
-	(*query.ReservationOptions)(nil),          // 46: query.ReservationOptions
-	(*query.QueryResultPayload)(nil),          // 47: query.QueryResultPayload
-	(*status.Status)(nil),                     // 48: google.rpc.Status
-	(*query.PreparedStatement)(nil),           // 49: query.PreparedStatement
-	(*query.Portal)(nil),                      // 50: query.Portal
-	(*query.StatementDescription)(nil),        // 51: query.StatementDescription
-	(*query.PgDiagnostic)(nil),                // 52: query.PgDiagnostic
-	(*query.UserAuth)(nil),                    // 53: query.UserAuth
-	(*clustermetadata.ID)(nil),                // 54: clustermetadata.ID
-	(clustermetadata.PoolerServingStatus)(0),  // 55: clustermetadata.PoolerServingStatus
-	(*clustermetadata.RoutingState)(nil),      // 56: clustermetadata.RoutingState
-	(*durationpb.Duration)(nil),               // 57: google.protobuf.Duration
-	(*query.PgNotification)(nil),              // 58: query.PgNotification
+	(ExecuteStreamOperation)(0),                               // 0: multipoolerservice.ExecuteStreamOperation
+	(ReplicationMode)(0),                                      // 1: multipoolerservice.ReplicationMode
+	(ReservationReason)(0),                                    // 2: multipoolerservice.ReservationReason
+	(TransactionConclusion)(0),                                // 3: multipoolerservice.TransactionConclusion
+	(CopyBidiExecuteRequest_Phase)(0),                         // 4: multipoolerservice.CopyBidiExecuteRequest.Phase
+	(CopyBidiExecuteRequest_Direction)(0),                     // 5: multipoolerservice.CopyBidiExecuteRequest.Direction
+	(CopyBidiExecuteResponse_Phase)(0),                        // 6: multipoolerservice.CopyBidiExecuteResponse.Phase
+	(*ExecuteQueryRequest)(nil),                               // 7: multipoolerservice.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),                              // 8: multipoolerservice.ExecuteQueryResponse
+	(*StreamExecuteRequest)(nil),                              // 9: multipoolerservice.StreamExecuteRequest
+	(*StreamExecuteResponse)(nil),                             // 10: multipoolerservice.StreamExecuteResponse
+	(*ExecuteStreamRequest)(nil),                              // 11: multipoolerservice.ExecuteStreamRequest
+	(*ExecuteStreamResponse)(nil),                             // 12: multipoolerservice.ExecuteStreamResponse
+	(*PortalStreamExecuteRequest)(nil),                        // 13: multipoolerservice.PortalStreamExecuteRequest
+	(*PortalExecuteOptions)(nil),                              // 14: multipoolerservice.PortalExecuteOptions
+	(*PortalStreamExecuteResponse)(nil),                       // 15: multipoolerservice.PortalStreamExecuteResponse
+	(*DescribeRequest)(nil),                                   // 16: multipoolerservice.DescribeRequest
+	(*DescribeResponse)(nil),                                  // 17: multipoolerservice.DescribeResponse
+	(*GetAuthCredentialsRequest)(nil),                         // 18: multipoolerservice.GetAuthCredentialsRequest
+	(*GetAuthCredentialsResponse)(nil),                        // 19: multipoolerservice.GetAuthCredentialsResponse
+	(*CopyBidiExecuteRequest)(nil),                            // 20: multipoolerservice.CopyBidiExecuteRequest
+	(*CopyBidiExecuteResponse)(nil),                           // 21: multipoolerservice.CopyBidiExecuteResponse
+	(*StreamReplicationInit)(nil),                             // 22: multipoolerservice.StreamReplicationInit
+	(*StreamReplicationRequest)(nil),                          // 23: multipoolerservice.StreamReplicationRequest
+	(*StreamReplicationReady)(nil),                            // 24: multipoolerservice.StreamReplicationReady
+	(*StreamReplicationError)(nil),                            // 25: multipoolerservice.StreamReplicationError
+	(*StreamReplicationResponse)(nil),                         // 26: multipoolerservice.StreamReplicationResponse
+	(*ConcludeTransactionRequest)(nil),                        // 27: multipoolerservice.ConcludeTransactionRequest
+	(*SessionSettingsSnapshot)(nil),                           // 28: multipoolerservice.SessionSettingsSnapshot
+	(*ConcludeTransactionResponse)(nil),                       // 29: multipoolerservice.ConcludeTransactionResponse
+	(*DiscardTempTablesRequest)(nil),                          // 30: multipoolerservice.DiscardTempTablesRequest
+	(*DiscardTempTablesResponse)(nil),                         // 31: multipoolerservice.DiscardTempTablesResponse
+	(*ReleaseReservedConnectionRequest)(nil),                  // 32: multipoolerservice.ReleaseReservedConnectionRequest
+	(*ReleaseReservedConnectionResponse)(nil),                 // 33: multipoolerservice.ReleaseReservedConnectionResponse
+	(*StreamPoolerHealthRequest)(nil),                         // 34: multipoolerservice.StreamPoolerHealthRequest
+	(*StreamPoolerHealthResponse)(nil),                        // 35: multipoolerservice.StreamPoolerHealthResponse
+	(*NotificationStreamRequest)(nil),                         // 36: multipoolerservice.NotificationStreamRequest
+	(*NotificationStreamResponse)(nil),                        // 37: multipoolerservice.NotificationStreamResponse
+	(*CopyStreamInput)(nil),                                   // 38: multipoolerservice.CopyStreamInput
+	nil,                                                       // 39: multipoolerservice.ExecuteStreamRequest.PropagationEntry
+	nil,                                                       // 40: multipoolerservice.SessionSettingsSnapshot.VarsEntry
+	(*query.Target)(nil),                                      // 41: query.Target
+	(*mtrpc.CallerID)(nil),                                    // 42: mtrpc.CallerID
+	(*query.ExecuteOptions)(nil),                              // 43: query.ExecuteOptions
+	(*query.QueryResult)(nil),                                 // 44: query.QueryResult
+	(*query.ReservedState)(nil),                               // 45: query.ReservedState
+	(*query.ReservationOptions)(nil),                          // 46: query.ReservationOptions
+	(*query.QueryResultPayload)(nil),                          // 47: query.QueryResultPayload
+	(*status.Status)(nil),                                     // 48: google.rpc.Status
+	(*query.PreparedStatement)(nil),                           // 49: query.PreparedStatement
+	(*query.Portal)(nil),                                      // 50: query.Portal
+	(*query.StatementDescription)(nil),                        // 51: query.StatementDescription
+	(*query.PgDiagnostic)(nil),                                // 52: query.PgDiagnostic
+	(*query.UserAuth)(nil),                                    // 53: query.UserAuth
+	(*clustermetadata.ID)(nil),                                // 54: clustermetadata.ID
+	(clustermetadata.PoolerServingStatus)(0),                  // 55: clustermetadata.PoolerServingStatus
+	(*clustermetadata.RoutingState)(nil),                      // 56: clustermetadata.RoutingState
+	(*durationpb.Duration)(nil),                               // 57: google.protobuf.Duration
+	(*query.PgNotification)(nil),                              // 58: query.PgNotification
+	(*multipoolermanagerdata.GetRoutingSnapshotRequest)(nil),  // 59: multipoolermanagerdata.GetRoutingSnapshotRequest
+	(*multipoolermanagerdata.GetRoutingSnapshotResponse)(nil), // 60: multipoolermanagerdata.GetRoutingSnapshotResponse
 }
 var file_multipoolerservice_proto_depIdxs = []int32{
 	41,  // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
@@ -3480,28 +3484,30 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	13,  // 92: multipoolerservice.MultipoolerService.PortalStreamExecute:input_type -> multipoolerservice.PortalStreamExecuteRequest
 	16,  // 93: multipoolerservice.MultipoolerService.Describe:input_type -> multipoolerservice.DescribeRequest
 	18,  // 94: multipoolerservice.MultipoolerService.GetAuthCredentials:input_type -> multipoolerservice.GetAuthCredentialsRequest
-	20,  // 95: multipoolerservice.MultipoolerService.CopyBidiExecute:input_type -> multipoolerservice.CopyBidiExecuteRequest
-	23,  // 96: multipoolerservice.MultipoolerService.StreamReplication:input_type -> multipoolerservice.StreamReplicationRequest
-	27,  // 97: multipoolerservice.MultipoolerService.ConcludeTransaction:input_type -> multipoolerservice.ConcludeTransactionRequest
-	30,  // 98: multipoolerservice.MultipoolerService.DiscardTempTables:input_type -> multipoolerservice.DiscardTempTablesRequest
-	32,  // 99: multipoolerservice.MultipoolerService.ReleaseReservedConnection:input_type -> multipoolerservice.ReleaseReservedConnectionRequest
-	34,  // 100: multipoolerservice.MultipoolerService.StreamPoolerHealth:input_type -> multipoolerservice.StreamPoolerHealthRequest
-	36,  // 101: multipoolerservice.MultipoolerService.NotificationStream:input_type -> multipoolerservice.NotificationStreamRequest
-	8,   // 102: multipoolerservice.MultipoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
-	10,  // 103: multipoolerservice.MultipoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
-	12,  // 104: multipoolerservice.MultipoolerService.ExecuteStream:output_type -> multipoolerservice.ExecuteStreamResponse
-	15,  // 105: multipoolerservice.MultipoolerService.PortalStreamExecute:output_type -> multipoolerservice.PortalStreamExecuteResponse
-	17,  // 106: multipoolerservice.MultipoolerService.Describe:output_type -> multipoolerservice.DescribeResponse
-	19,  // 107: multipoolerservice.MultipoolerService.GetAuthCredentials:output_type -> multipoolerservice.GetAuthCredentialsResponse
-	21,  // 108: multipoolerservice.MultipoolerService.CopyBidiExecute:output_type -> multipoolerservice.CopyBidiExecuteResponse
-	26,  // 109: multipoolerservice.MultipoolerService.StreamReplication:output_type -> multipoolerservice.StreamReplicationResponse
-	29,  // 110: multipoolerservice.MultipoolerService.ConcludeTransaction:output_type -> multipoolerservice.ConcludeTransactionResponse
-	31,  // 111: multipoolerservice.MultipoolerService.DiscardTempTables:output_type -> multipoolerservice.DiscardTempTablesResponse
-	33,  // 112: multipoolerservice.MultipoolerService.ReleaseReservedConnection:output_type -> multipoolerservice.ReleaseReservedConnectionResponse
-	35,  // 113: multipoolerservice.MultipoolerService.StreamPoolerHealth:output_type -> multipoolerservice.StreamPoolerHealthResponse
-	37,  // 114: multipoolerservice.MultipoolerService.NotificationStream:output_type -> multipoolerservice.NotificationStreamResponse
-	102, // [102:115] is the sub-list for method output_type
-	89,  // [89:102] is the sub-list for method input_type
+	59,  // 95: multipoolerservice.MultipoolerService.GetRoutingSnapshot:input_type -> multipoolermanagerdata.GetRoutingSnapshotRequest
+	20,  // 96: multipoolerservice.MultipoolerService.CopyBidiExecute:input_type -> multipoolerservice.CopyBidiExecuteRequest
+	23,  // 97: multipoolerservice.MultipoolerService.StreamReplication:input_type -> multipoolerservice.StreamReplicationRequest
+	27,  // 98: multipoolerservice.MultipoolerService.ConcludeTransaction:input_type -> multipoolerservice.ConcludeTransactionRequest
+	30,  // 99: multipoolerservice.MultipoolerService.DiscardTempTables:input_type -> multipoolerservice.DiscardTempTablesRequest
+	32,  // 100: multipoolerservice.MultipoolerService.ReleaseReservedConnection:input_type -> multipoolerservice.ReleaseReservedConnectionRequest
+	34,  // 101: multipoolerservice.MultipoolerService.StreamPoolerHealth:input_type -> multipoolerservice.StreamPoolerHealthRequest
+	36,  // 102: multipoolerservice.MultipoolerService.NotificationStream:input_type -> multipoolerservice.NotificationStreamRequest
+	8,   // 103: multipoolerservice.MultipoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
+	10,  // 104: multipoolerservice.MultipoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
+	12,  // 105: multipoolerservice.MultipoolerService.ExecuteStream:output_type -> multipoolerservice.ExecuteStreamResponse
+	15,  // 106: multipoolerservice.MultipoolerService.PortalStreamExecute:output_type -> multipoolerservice.PortalStreamExecuteResponse
+	17,  // 107: multipoolerservice.MultipoolerService.Describe:output_type -> multipoolerservice.DescribeResponse
+	19,  // 108: multipoolerservice.MultipoolerService.GetAuthCredentials:output_type -> multipoolerservice.GetAuthCredentialsResponse
+	60,  // 109: multipoolerservice.MultipoolerService.GetRoutingSnapshot:output_type -> multipoolermanagerdata.GetRoutingSnapshotResponse
+	21,  // 110: multipoolerservice.MultipoolerService.CopyBidiExecute:output_type -> multipoolerservice.CopyBidiExecuteResponse
+	26,  // 111: multipoolerservice.MultipoolerService.StreamReplication:output_type -> multipoolerservice.StreamReplicationResponse
+	29,  // 112: multipoolerservice.MultipoolerService.ConcludeTransaction:output_type -> multipoolerservice.ConcludeTransactionResponse
+	31,  // 113: multipoolerservice.MultipoolerService.DiscardTempTables:output_type -> multipoolerservice.DiscardTempTablesResponse
+	33,  // 114: multipoolerservice.MultipoolerService.ReleaseReservedConnection:output_type -> multipoolerservice.ReleaseReservedConnectionResponse
+	35,  // 115: multipoolerservice.MultipoolerService.StreamPoolerHealth:output_type -> multipoolerservice.StreamPoolerHealthResponse
+	37,  // 116: multipoolerservice.MultipoolerService.NotificationStream:output_type -> multipoolerservice.NotificationStreamResponse
+	103, // [103:117] is the sub-list for method output_type
+	89,  // [89:103] is the sub-list for method input_type
 	89,  // [89:89] is the sub-list for extension type_name
 	89,  // [89:89] is the sub-list for extension extendee
 	0,   // [0:89] is the sub-list for field type_name

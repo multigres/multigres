@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
@@ -600,4 +601,85 @@ func TestPoolerGateway_StreamReplication_NoLeaderPropagatesError(t *testing.T) {
 	assert.Nil(t, stream)
 	assert.True(t, mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE,
 		"no-leader error should be UNAVAILABLE, got %v", err)
+}
+
+func TestCatalogControlTarget(t *testing.T) {
+	target := catalogControlTarget("db1")
+	assert.True(t, target.GetControl(), "control traffic is marked so no routing rule rewrites it")
+	assert.Equal(t, "db1", target.GetShardRef().GetDatabase())
+	assert.Equal(t, constants.DefaultTableGroup, target.GetShardRef().GetTableGroup())
+	assert.Equal(t, constants.DefaultShard, target.GetShardRef().GetShard())
+	assert.Equal(t, query.Mode_MODE_WRITABLE, target.GetMode())
+}
+
+func TestGetRoutingSnapshot_ReadsTheCatalogPrimary(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	conn := connForTest(t, lb, primary)
+	require.NotNil(t, conn)
+	conn.cancel()
+	<-conn.checkConnDone
+	want := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 4, Full: true}
+	conn.client = &mockMultipoolerServiceClient{routingResponse: want}
+	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+	for _, wait := range []bool{false, true} {
+		got, err := pg.GetRoutingSnapshot(t.Context(), constants.DefaultPostgresDatabase, wait)
+		require.NoError(t, err)
+		assert.Equal(t, int64(4), got.GetRoutingVersion())
+
+		// Without a primary and without a failover buffer the read fails at
+		// once.
+		_, err = pg.GetRoutingSnapshot(t.Context(), "otherdb", wait)
+		require.Error(t, err)
+	}
+}
+
+// A first-use snapshot read that finds no catalog primary (a planned
+// failover) waits in the failover buffer and succeeds on the new primary,
+// as a credential lookup or a query would.
+func TestGetRoutingSnapshot_WaitsOutAFailover(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := pg.GetRoutingSnapshot(ctx, constants.DefaultPostgresDatabase, true)
+		done <- result{resp, err}
+	}()
+
+	sk := catalogControlTarget(constants.DefaultPostgresDatabase).GetShardRef()
+	require.Eventually(t, func() bool {
+		probe, cancelProbe := context.WithCancel(ctx)
+		cancelProbe()
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probe, sk)
+		return errors.Is(err, context.Canceled)
+	}, 5*time.Second, time.Millisecond, "the read should wait in the buffer, not fail")
+	select {
+	case r := <-done:
+		t.Fatalf("read returned before a primary appeared: %v", r.err)
+	default:
+	}
+
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	conn := connForTest(t, lb, primary)
+	conn.cancel()
+	<-conn.checkConnDone
+	conn.client = &mockMultipoolerServiceClient{routingResponse: &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 9}}
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING, primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	r := <-done
+	require.NoError(t, r.err)
+	assert.Equal(t, int64(9), r.resp.GetRoutingVersion())
 }
