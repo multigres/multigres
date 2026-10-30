@@ -104,6 +104,11 @@ type RolAuthInfo struct {
 	// this attribute (or rolsuper) for any connection started with the
 	// replication=true / replication=database startup parameter.
 	IsReplicationRole bool
+
+	// CanCreateMigration mirrors whether this role could itself perform the
+	// logical-replication setup a migration drives: either rolsuper, or
+	// database CREATE privilege plus membership in pg_create_subscription.
+	CanCreateMigration bool
 }
 
 // GetRolAuthInfo retrieves the auth-relevant pg_authid columns for a given username:
@@ -123,25 +128,33 @@ type RolAuthInfo struct {
 // login-disabled is checked before password validity.
 func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInfo, error) {
 	// Query pg_authid for the password hash, the two login-time predicates PG
-	// itself evaluates, and rolreplication. Expressing validity in SQL avoids
-	// timestamp parsing and matches PG's own `now()` semantics (both are
-	// evaluated server-side).
+	// itself evaluates, rolreplication, and the migration-DDL capability
+	// check. Expressing validity in SQL avoids timestamp parsing and matches
+	// PG's own `now()` semantics (both are evaluated server-side).
 	//
 	// Note: PG's own has_rolreplication() short-circuits to true for
 	// superusers regardless of rolreplication (miscinit.c:734-750). We do
-	// not include rolsuper in the SELECT because the gateway only consults
-	// IsReplicationRole after SCRAM has already authenticated the role —
-	// reaching that check at all means the role passed login-disabled and
-	// password-validity predicates, and any superuser intended for
-	// replication is expected to also have rolreplication=true. If a
-	// superuser-only-without-rolreplication ever needs walsender access,
-	// extend RolAuthInfo with IsSuperuser and OR it in at the gateway.
+	// not separately include rolsuper for the rolreplication column because
+	// the gateway only consults IsReplicationRole after SCRAM has already
+	// authenticated the role — reaching that check at all means the role
+	// passed login-disabled and password-validity predicates, and any
+	// superuser intended for replication is expected to also have
+	// rolreplication=true. If a superuser-only-without-rolreplication ever
+	// needs walsender access, extend RolAuthInfo with IsSuperuser and OR it
+	// in at the gateway. can_create_migration below does need an explicit
+	// rolsuper OR, since pg_has_role does not treat superuser as implicitly
+	// a member of every predefined role.
 	sql := fmt.Sprintf(
 		"SELECT rolpassword, rolcanlogin, "+
 			"(rolvaliduntil IS NULL OR rolvaliduntil > now()) AS password_valid, "+
-			"rolreplication "+
+			"rolreplication, "+
+			"rolsuper OR ("+
+			"has_database_privilege(rolname, current_database(), 'CREATE') "+
+			"AND pg_has_role(rolname, 'pg_create_subscription', 'USAGE')"+
+			") AS can_create_migration "+
 			"FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
-		ast.QuoteStringLiteral(username))
+		ast.QuoteStringLiteral(username),
+	)
 
 	results, err := c.StatelessQuery(ctx, sql)
 	if err != nil {
@@ -154,7 +167,7 @@ func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInf
 	}
 
 	row := results[0].StructuredRows()[0].Values
-	if len(row) < 4 {
+	if len(row) < 5 {
 		return nil, fmt.Errorf("unexpected pg_authid result shape: %d columns", len(row))
 	}
 
@@ -172,7 +185,8 @@ func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInf
 	}
 
 	info := &RolAuthInfo{
-		IsReplicationRole: parsePgBool(row[3]),
+		IsReplicationRole:  parsePgBool(row[3]),
+		CanCreateMigration: parsePgBool(row[4]),
 	}
 	// Extract the password hash (may be NULL/empty if no password set).
 	if !row[0].IsNull() {
