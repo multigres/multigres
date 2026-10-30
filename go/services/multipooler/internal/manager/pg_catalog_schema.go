@@ -194,6 +194,25 @@ var catalogTables = []string{
 	updated_at       timestamptz NOT NULL DEFAULT now()
 )`,
 	connectionsTableSQL,
+	// A routing rule says that traffic the catalog would send to a
+	// tablegroup (scope 'tablegroup': the target shard's range of it) or
+	// to a table (scope 'table') is served elsewhere while its operation
+	// runs. The rules are validated in Go (routing_rules.go) under the
+	// catalog_state row lock rather than by constraints here.
+	`CREATE TABLE IF NOT EXISTS multigres.routing_rule (
+	rule_id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	operation_id       uuid   NOT NULL REFERENCES multigres.operation (operation_id),
+	scope              text   NOT NULL CHECK (scope IN ('tablegroup', 'table')),
+	from_tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	from_table_id      bigint REFERENCES multigres.tablegroup_table (table_id),
+	to_tablegroup_id   bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	to_shard_id        bigint REFERENCES multigres.shard (shard_id),
+	to_shard_key_id    bigint REFERENCES multigres.shard_key (shard_key_id),
+	created_at         timestamptz NOT NULL DEFAULT now(),
+	created_version    bigint NOT NULL,
+	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
+	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
+)`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent
