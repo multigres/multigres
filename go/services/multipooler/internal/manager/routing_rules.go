@@ -307,7 +307,8 @@ func (cat *routingCatalog) checkNewRules(insert []routingRule) error {
 		//   - Everything this validation reads (tablegroup and shard states,
 		//     operation states, tablegroup_table rows) must be written under
 		//     the catalog_state row lock (lockRoutingStateSQL), as rule
-		//     writes are, or a concurrent write can slip past a check.
+		//     writes and ensureImportTarget are, or a concurrent write can
+		//     slip past a check.
 		//   - The reverse of this guard: while a rule from the default
 		//     tablegroup exists, registering a table in the default
 		//     tablegroup must be refused, or the rule silently overrides the
