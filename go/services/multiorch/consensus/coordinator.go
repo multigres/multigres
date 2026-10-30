@@ -155,10 +155,10 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 // replacement pod, can tie with the members, and appointing it would leave the
 // leader outside the cohort of the rule it leads.
 func failoverCandidates(r commonconsensus.RecruitmentResult) ([]*clustermetadatapb.ConsensusStatus, error) {
-	if len(r.EligibleLeaders) == 0 {
+	if len(r.RecruitsWithAllDurableWrites) == 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
 	}
-	candidates := cohortMemberStatuses(r.EligibleLeaders, r.OutgoingRule.GetCohortMembers())
+	candidates := cohortMemberStatuses(r.RecruitsWithAllDurableWrites, r.OutgoingRule.GetCohortMembers())
 	if len(candidates) == 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leader is a member of the outgoing cohort")
 	}

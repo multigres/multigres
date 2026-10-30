@@ -389,7 +389,7 @@ func buildFailoverProposal(
 		return nil, errors.New("no leader selected for failover proposal")
 	}
 	// Not verified here that leader is actually a member of
-	// result.EligibleLeaders: validateProposal (called by both
+	// result.RecruitsWithAllDurableWrites: validateProposal (called by both
 	// BuildSafeProposal and CheckProposalPossible right after this function
 	// returns) already rejects a proposal whose leader isn't eligible.
 
@@ -429,10 +429,10 @@ func buildBootstrapProposal(
 	policy *clustermetadatapb.DurabilityPolicy,
 	addressByID map[string]*clustermetadatapb.PoolerAddress,
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	if len(result.EligibleLeaders) == 0 {
+	if len(result.RecruitsWithAllDurableWrites) == 0 {
 		return nil, errors.New("no eligible leaders for bootstrap proposal")
 	}
-	leader := result.EligibleLeaders[0]
+	leader := result.RecruitsWithAllDurableWrites[0]
 	addr, ok := addressByID[topoclient.ClusterIDString(leader.GetId())]
 	if !ok {
 		return nil, fmt.Errorf("leader %s not found in cohort", leader.GetId().GetName())

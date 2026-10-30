@@ -38,8 +38,8 @@ type RecruitmentResult struct {
 	// been filtered by whether they could accept it via ValidateRevocation.
 	TermRevocation *clustermetadatapb.TermRevocation
 
-	// OutgoingRule is the ShardRule at the outgoing rule number, shared by
-	// every entry in EligibleLeaders. It may be an undecided proposal rather
+	// OutgoingRule is the ShardRule at the outgoing rule number, shared by every
+	// entry in RecruitsWithAllDurableWrites. It may be an undecided proposal rather
 	// than a decision — see OutgoingRuleDecided. In practice this is never
 	// nil: every node always carries at least the initial {0,1} row written
 	// during initdb, so the public constructors (NewTermRevocation, cert
@@ -58,16 +58,14 @@ type RecruitmentResult struct {
 	// new proposal changes cohort or policy.
 	OutgoingRuleDecided bool
 
-	// EligibleLeaders are the recruited nodes with the best WAL position.
-	// For nodes with a recorded rule, this is those matching OutgoingRule's rule
-	// number with the highest LSN. For bootstrap (no rule), this is all nodes
-	// tied at the highest LSN. The buildProposal callback must choose its
-	// leader from this set.
-	EligibleLeaders []*clustermetadatapb.ConsensusStatus
+	// RecruitsWithAllDurableWrites are the recruits at or above the minimum durable
+	// position (see revokedOutgoingRule.minimumDurablePosition). The buildProposal
+	// callback must choose its leader from this set.
+	RecruitsWithAllDurableWrites []*clustermetadatapb.ConsensusStatus
 
 	// outgoing is the typed outgoing rule that OutgoingRule exposes to builders:
-	// revoked, and finalizable by the recruits. EligibleLeaders rest on it, and
-	// validateProposal reads the revocation basis from it.
+	// revoked, and finalizable by the recruits. RecruitsWithAllDurableWrites rest on
+	// it, and validateProposal reads the revocation basis from it.
 	outgoing finalizableOutgoingRule
 }
 
@@ -78,16 +76,16 @@ func newRecruitmentResult(
 	revocation *clustermetadatapb.TermRevocation,
 	outgoing finalizableOutgoingRule,
 ) (RecruitmentResult, error) {
-	eligible, err := outgoing.eligibleLeaders()
+	eligible, err := outgoing.recruitsWithAllDurableWrites()
 	if err != nil {
 		return RecruitmentResult{}, err
 	}
 	return RecruitmentResult{
-		TermRevocation:      revocation,
-		OutgoingRule:        outgoing.transition.PossiblyUndecidedRule(),
-		OutgoingRuleDecided: outgoing.transition.IsDecided(),
-		EligibleLeaders:     eligible,
-		outgoing:            outgoing,
+		TermRevocation:               revocation,
+		OutgoingRule:                 outgoing.transition.PossiblyUndecidedRule(),
+		OutgoingRuleDecided:          outgoing.transition.IsDecided(),
+		RecruitsWithAllDurableWrites: eligible,
+		outgoing:                     outgoing,
 	}, nil
 }
 
@@ -417,53 +415,6 @@ func discoverOutgoingRulePosition(
 	return recruitsRecordingRule, outgoingPosition, nil
 }
 
-// narrowByLSN narrows mostAdvanced (recruits already confirmed to share the
-// same RulePosition, decided, matching the coordinator's expected outgoing
-// rule — see buildProposalCore) to those additionally tied at the highest
-// LSN at or above minLSN: RulePosition alone doesn't capture ordinary WAL
-// streaming progress within the same decided rule, so the buildProposal
-// callback still needs an LSN-based choice among them.
-//
-// minLSN (see certMinLSN) narrows leader eligibility only — a recruit below
-// it still counted toward the position check above, since that check must
-// catch a stale/unfrozen view regardless of LSN, but it can't itself be
-// selected as leader here.
-func narrowByLSN(
-	mostAdvanced []*clustermetadatapb.ConsensusStatus,
-	minLSN pgutil.LSN,
-) ([]*clustermetadatapb.ConsensusStatus, error) {
-	var bestLSN pgutil.LSN
-	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
-	for _, cs := range mostAdvanced {
-		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
-		if err != nil || lsn < minLSN {
-			// The caller's filterByValidPosition guarantees all surviving statuses
-			// have parseable LSNs, so a parse failure here is unreachable in practice.
-			continue
-		}
-		if lsn > bestLSN {
-			bestLSN = lsn
-			eligibleLeaders = eligibleLeaders[:0]
-		}
-		if lsn >= bestLSN {
-			// There may be multiple poolers that have the most advanced LSN.
-			eligibleLeaders = append(eligibleLeaders, cs)
-		}
-	}
-
-	if len(eligibleLeaders) == 0 {
-		if minLSN > 0 {
-			return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minLSN)
-		}
-		// Unreachable: mostAdvanced is non-empty (checked by the caller) and
-		// every entry in it came from recruitedStatuses, which
-		// filterByValidPosition guarantees has a parseable LSN.
-		return nil, errors.New("no eligible leaders found among recruited nodes")
-	}
-
-	return eligibleLeaders, nil
-}
-
 // validateProposal checks structural validity and cohort quorum for the proposal.
 // The proposed leader must be among the eligible leaders, the proposed rule and
 // durability policy must be valid, and the cohort must satisfy achievability and
@@ -490,15 +441,15 @@ func validateProposal(
 	}
 	leaderKey := topoclient.ClusterIDString(leaderID)
 	foundLeader := false
-	for _, cs := range result.EligibleLeaders {
+	for _, cs := range result.RecruitsWithAllDurableWrites {
 		if topoclient.ClusterIDString(cs.GetId()) == leaderKey {
 			foundLeader = true
 			break
 		}
 	}
 	if !foundLeader {
-		eligibleKeys := make([]string, len(result.EligibleLeaders))
-		for i, cs := range result.EligibleLeaders {
+		eligibleKeys := make([]string, len(result.RecruitsWithAllDurableWrites))
+		for i, cs := range result.RecruitsWithAllDurableWrites {
 			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
 		}
 		return fmt.Errorf("proposed leader %s is not among eligible leaders %v", leaderKey, eligibleKeys)
