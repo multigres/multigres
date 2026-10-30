@@ -76,3 +76,12 @@ func (s *MultiadminServer) DeleteRoutingRules(ctx context.Context, req *multipoo
 	}
 	return s.rpcClient.DeleteRoutingRules(ctx, pooler, req)
 }
+
+// EnsureImportTarget forwards to the database's catalog primary.
+func (s *MultiadminServer) EnsureImportTarget(ctx context.Context, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	pooler, err := s.catalogPrimary(ctx, req.GetDatabase())
+	if err != nil {
+		return nil, err
+	}
+	return s.rpcClient.EnsureImportTarget(ctx, pooler, req)
+}

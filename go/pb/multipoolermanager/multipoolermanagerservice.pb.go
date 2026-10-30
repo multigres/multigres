@@ -39,7 +39,7 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xbf\x0e\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xbc\x0f\n" +
 	"\x12MultipoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12u\n" +
@@ -56,7 +56,8 @@ const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\x1aSetPostgresRestartsEnabled\x129.multipoolermanagerdata.SetPostgresRestartsEnabledRequest\x1a:.multipoolermanagerdata.SetPostgresRestartsEnabledResponse\x12{\n" +
 	"\x12ReconcileFollowers\x121.multipoolermanagerdata.ReconcileFollowersRequest\x1a2.multipoolermanagerdata.ReconcileFollowersResponse\x12r\n" +
 	"\x0fSetRoutingRules\x12..multipoolermanagerdata.SetRoutingRulesRequest\x1a/.multipoolermanagerdata.SetRoutingRulesResponse\x12{\n" +
-	"\x12DeleteRoutingRules\x121.multipoolermanagerdata.DeleteRoutingRulesRequest\x1a2.multipoolermanagerdata.DeleteRoutingRulesResponse\x12i\n" +
+	"\x12DeleteRoutingRules\x121.multipoolermanagerdata.DeleteRoutingRulesRequest\x1a2.multipoolermanagerdata.DeleteRoutingRulesResponse\x12{\n" +
+	"\x12EnsureImportTarget\x121.multipoolermanagerdata.EnsureImportTargetRequest\x1a2.multipoolermanagerdata.EnsureImportTargetResponse\x12i\n" +
 	"\fReloadConfig\x12+.multipoolermanagerdata.ReloadConfigRequest\x1a,.multipoolermanagerdata.ReloadConfigResponse\x12\x88\x01\n" +
 	"\x13ManagerHealthStream\x128.multipoolermanagerdata.ManagerHealthStreamClientMessage\x1a3.multipoolermanagerdata.ManagerHealthStreamResponse(\x010\x01B9Z7github.com/multigres/multigres/go/pb/multipoolermanagerb\x06proto3"
 
@@ -75,24 +76,26 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.ReconcileFollowersRequest)(nil),          // 11: multipoolermanagerdata.ReconcileFollowersRequest
 	(*multipoolermanagerdata.SetRoutingRulesRequest)(nil),             // 12: multipoolermanagerdata.SetRoutingRulesRequest
 	(*multipoolermanagerdata.DeleteRoutingRulesRequest)(nil),          // 13: multipoolermanagerdata.DeleteRoutingRulesRequest
-	(*multipoolermanagerdata.ReloadConfigRequest)(nil),                // 14: multipoolermanagerdata.ReloadConfigRequest
-	(*multipoolermanagerdata.ManagerHealthStreamClientMessage)(nil),   // 15: multipoolermanagerdata.ManagerHealthStreamClientMessage
-	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                 // 16: multipoolermanagerdata.WaitForLSNResponse
-	(*multipoolermanagerdata.StartReplicationResponse)(nil),           // 17: multipoolermanagerdata.StartReplicationResponse
-	(*multipoolermanagerdata.StopReplicationResponse)(nil),            // 18: multipoolermanagerdata.StopReplicationResponse
-	(*multipoolermanagerdata.StatusResponse)(nil),                     // 19: multipoolermanagerdata.StatusResponse
-	(*multipoolermanagerdata.BackupResponse)(nil),                     // 20: multipoolermanagerdata.BackupResponse
-	(*multipoolermanagerdata.GetBackupsResponse)(nil),                 // 21: multipoolermanagerdata.GetBackupsResponse
-	(*multipoolermanagerdata.GetBackupByJobIdResponse)(nil),           // 22: multipoolermanagerdata.GetBackupByJobIdResponse
-	(*multipoolermanagerdata.ExpireBackupsResponse)(nil),              // 23: multipoolermanagerdata.ExpireBackupsResponse
-	(*multipoolermanagerdata.VerifyBackupsResponse)(nil),              // 24: multipoolermanagerdata.VerifyBackupsResponse
-	(*multipoolermanagerdata.ResignLeadershipResponse)(nil),           // 25: multipoolermanagerdata.ResignLeadershipResponse
-	(*multipoolermanagerdata.SetPostgresRestartsEnabledResponse)(nil), // 26: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
-	(*multipoolermanagerdata.ReconcileFollowersResponse)(nil),         // 27: multipoolermanagerdata.ReconcileFollowersResponse
-	(*multipoolermanagerdata.SetRoutingRulesResponse)(nil),            // 28: multipoolermanagerdata.SetRoutingRulesResponse
-	(*multipoolermanagerdata.DeleteRoutingRulesResponse)(nil),         // 29: multipoolermanagerdata.DeleteRoutingRulesResponse
-	(*multipoolermanagerdata.ReloadConfigResponse)(nil),               // 30: multipoolermanagerdata.ReloadConfigResponse
-	(*multipoolermanagerdata.ManagerHealthStreamResponse)(nil),        // 31: multipoolermanagerdata.ManagerHealthStreamResponse
+	(*multipoolermanagerdata.EnsureImportTargetRequest)(nil),          // 14: multipoolermanagerdata.EnsureImportTargetRequest
+	(*multipoolermanagerdata.ReloadConfigRequest)(nil),                // 15: multipoolermanagerdata.ReloadConfigRequest
+	(*multipoolermanagerdata.ManagerHealthStreamClientMessage)(nil),   // 16: multipoolermanagerdata.ManagerHealthStreamClientMessage
+	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                 // 17: multipoolermanagerdata.WaitForLSNResponse
+	(*multipoolermanagerdata.StartReplicationResponse)(nil),           // 18: multipoolermanagerdata.StartReplicationResponse
+	(*multipoolermanagerdata.StopReplicationResponse)(nil),            // 19: multipoolermanagerdata.StopReplicationResponse
+	(*multipoolermanagerdata.StatusResponse)(nil),                     // 20: multipoolermanagerdata.StatusResponse
+	(*multipoolermanagerdata.BackupResponse)(nil),                     // 21: multipoolermanagerdata.BackupResponse
+	(*multipoolermanagerdata.GetBackupsResponse)(nil),                 // 22: multipoolermanagerdata.GetBackupsResponse
+	(*multipoolermanagerdata.GetBackupByJobIdResponse)(nil),           // 23: multipoolermanagerdata.GetBackupByJobIdResponse
+	(*multipoolermanagerdata.ExpireBackupsResponse)(nil),              // 24: multipoolermanagerdata.ExpireBackupsResponse
+	(*multipoolermanagerdata.VerifyBackupsResponse)(nil),              // 25: multipoolermanagerdata.VerifyBackupsResponse
+	(*multipoolermanagerdata.ResignLeadershipResponse)(nil),           // 26: multipoolermanagerdata.ResignLeadershipResponse
+	(*multipoolermanagerdata.SetPostgresRestartsEnabledResponse)(nil), // 27: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	(*multipoolermanagerdata.ReconcileFollowersResponse)(nil),         // 28: multipoolermanagerdata.ReconcileFollowersResponse
+	(*multipoolermanagerdata.SetRoutingRulesResponse)(nil),            // 29: multipoolermanagerdata.SetRoutingRulesResponse
+	(*multipoolermanagerdata.DeleteRoutingRulesResponse)(nil),         // 30: multipoolermanagerdata.DeleteRoutingRulesResponse
+	(*multipoolermanagerdata.EnsureImportTargetResponse)(nil),         // 31: multipoolermanagerdata.EnsureImportTargetResponse
+	(*multipoolermanagerdata.ReloadConfigResponse)(nil),               // 32: multipoolermanagerdata.ReloadConfigResponse
+	(*multipoolermanagerdata.ManagerHealthStreamResponse)(nil),        // 33: multipoolermanagerdata.ManagerHealthStreamResponse
 }
 var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	0,  // 0: multipoolermanager.MultipoolerManager.WaitForLSN:input_type -> multipoolermanagerdata.WaitForLSNRequest
@@ -109,26 +112,28 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	11, // 11: multipoolermanager.MultipoolerManager.ReconcileFollowers:input_type -> multipoolermanagerdata.ReconcileFollowersRequest
 	12, // 12: multipoolermanager.MultipoolerManager.SetRoutingRules:input_type -> multipoolermanagerdata.SetRoutingRulesRequest
 	13, // 13: multipoolermanager.MultipoolerManager.DeleteRoutingRules:input_type -> multipoolermanagerdata.DeleteRoutingRulesRequest
-	14, // 14: multipoolermanager.MultipoolerManager.ReloadConfig:input_type -> multipoolermanagerdata.ReloadConfigRequest
-	15, // 15: multipoolermanager.MultipoolerManager.ManagerHealthStream:input_type -> multipoolermanagerdata.ManagerHealthStreamClientMessage
-	16, // 16: multipoolermanager.MultipoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
-	17, // 17: multipoolermanager.MultipoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
-	18, // 18: multipoolermanager.MultipoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
-	19, // 19: multipoolermanager.MultipoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
-	20, // 20: multipoolermanager.MultipoolerManager.Backup:output_type -> multipoolermanagerdata.BackupResponse
-	21, // 21: multipoolermanager.MultipoolerManager.GetBackups:output_type -> multipoolermanagerdata.GetBackupsResponse
-	22, // 22: multipoolermanager.MultipoolerManager.GetBackupByJobId:output_type -> multipoolermanagerdata.GetBackupByJobIdResponse
-	23, // 23: multipoolermanager.MultipoolerManager.ExpireBackups:output_type -> multipoolermanagerdata.ExpireBackupsResponse
-	24, // 24: multipoolermanager.MultipoolerManager.VerifyBackups:output_type -> multipoolermanagerdata.VerifyBackupsResponse
-	25, // 25: multipoolermanager.MultipoolerManager.ResignLeadership:output_type -> multipoolermanagerdata.ResignLeadershipResponse
-	26, // 26: multipoolermanager.MultipoolerManager.SetPostgresRestartsEnabled:output_type -> multipoolermanagerdata.SetPostgresRestartsEnabledResponse
-	27, // 27: multipoolermanager.MultipoolerManager.ReconcileFollowers:output_type -> multipoolermanagerdata.ReconcileFollowersResponse
-	28, // 28: multipoolermanager.MultipoolerManager.SetRoutingRules:output_type -> multipoolermanagerdata.SetRoutingRulesResponse
-	29, // 29: multipoolermanager.MultipoolerManager.DeleteRoutingRules:output_type -> multipoolermanagerdata.DeleteRoutingRulesResponse
-	30, // 30: multipoolermanager.MultipoolerManager.ReloadConfig:output_type -> multipoolermanagerdata.ReloadConfigResponse
-	31, // 31: multipoolermanager.MultipoolerManager.ManagerHealthStream:output_type -> multipoolermanagerdata.ManagerHealthStreamResponse
-	16, // [16:32] is the sub-list for method output_type
-	0,  // [0:16] is the sub-list for method input_type
+	14, // 14: multipoolermanager.MultipoolerManager.EnsureImportTarget:input_type -> multipoolermanagerdata.EnsureImportTargetRequest
+	15, // 15: multipoolermanager.MultipoolerManager.ReloadConfig:input_type -> multipoolermanagerdata.ReloadConfigRequest
+	16, // 16: multipoolermanager.MultipoolerManager.ManagerHealthStream:input_type -> multipoolermanagerdata.ManagerHealthStreamClientMessage
+	17, // 17: multipoolermanager.MultipoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
+	18, // 18: multipoolermanager.MultipoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
+	19, // 19: multipoolermanager.MultipoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
+	20, // 20: multipoolermanager.MultipoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
+	21, // 21: multipoolermanager.MultipoolerManager.Backup:output_type -> multipoolermanagerdata.BackupResponse
+	22, // 22: multipoolermanager.MultipoolerManager.GetBackups:output_type -> multipoolermanagerdata.GetBackupsResponse
+	23, // 23: multipoolermanager.MultipoolerManager.GetBackupByJobId:output_type -> multipoolermanagerdata.GetBackupByJobIdResponse
+	24, // 24: multipoolermanager.MultipoolerManager.ExpireBackups:output_type -> multipoolermanagerdata.ExpireBackupsResponse
+	25, // 25: multipoolermanager.MultipoolerManager.VerifyBackups:output_type -> multipoolermanagerdata.VerifyBackupsResponse
+	26, // 26: multipoolermanager.MultipoolerManager.ResignLeadership:output_type -> multipoolermanagerdata.ResignLeadershipResponse
+	27, // 27: multipoolermanager.MultipoolerManager.SetPostgresRestartsEnabled:output_type -> multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	28, // 28: multipoolermanager.MultipoolerManager.ReconcileFollowers:output_type -> multipoolermanagerdata.ReconcileFollowersResponse
+	29, // 29: multipoolermanager.MultipoolerManager.SetRoutingRules:output_type -> multipoolermanagerdata.SetRoutingRulesResponse
+	30, // 30: multipoolermanager.MultipoolerManager.DeleteRoutingRules:output_type -> multipoolermanagerdata.DeleteRoutingRulesResponse
+	31, // 31: multipoolermanager.MultipoolerManager.EnsureImportTarget:output_type -> multipoolermanagerdata.EnsureImportTargetResponse
+	32, // 32: multipoolermanager.MultipoolerManager.ReloadConfig:output_type -> multipoolermanagerdata.ReloadConfigResponse
+	33, // 33: multipoolermanager.MultipoolerManager.ManagerHealthStream:output_type -> multipoolermanagerdata.ManagerHealthStreamResponse
+	17, // [17:34] is the sub-list for method output_type
+	0,  // [0:17] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

@@ -20,7 +20,7 @@
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
-import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, GetRoutingSnapshotRequest, GetRoutingSnapshotResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, EnsureImportTargetRequest, EnsureImportTargetResponse, GetRoutingSnapshotRequest, GetRoutingSnapshotResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -503,6 +503,22 @@ export const MultiadminService = {
       name: "DeleteRoutingRules",
       I: DeleteRoutingRulesRequest,
       O: DeleteRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * EnsureImportTarget creates, if absent, an import operation and the
+     * tablegroup it imports into with its 0-inf shard. It changes no routing.
+     * This RPC is temporary, for the first version of imports, and will be
+     * deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+     * plus the import's PREPARE step (registering its tables, the default rule
+     * and fencing) will replace it.
+     *
+     * @generated from rpc multiadmin.MultiadminService.EnsureImportTarget
+     */
+    ensureImportTarget: {
+      name: "EnsureImportTarget",
+      I: EnsureImportTargetRequest,
+      O: EnsureImportTargetResponse,
       kind: MethodKind.Unary,
     },
   }

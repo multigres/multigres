@@ -96,6 +96,8 @@ func TestRoutingRPCs_OnlyOnCatalogPrimary(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "SetRoutingRules: %v", err)
 	_, err = pm.DeleteRoutingRules(ctx, &multipoolermanagerdatapb.DeleteRoutingRulesRequest{Database: routingTestDatabase, OperationId: importOp})
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "DeleteRoutingRules: %v", err)
+	_, err = pm.EnsureImportTarget(ctx, &multipoolermanagerdatapb.EnsureImportTargetRequest{Database: routingTestDatabase, OperationId: importOp, Tablegroup: "srctg"})
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "EnsureImportTarget: %v", err)
 
 	assert.False(t, began, "a refused routing RPC must not open a transaction")
 }
@@ -247,4 +249,25 @@ func TestDeleteRoutingRules_DeletesAndBumps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), resp.GetRoutingVersion())
 	assert.Equal(t, []string{deleteOperationRulesSQL, bumpRoutingVersionSQL, "COMMIT"}, queries[len(queries)-3:])
+}
+
+func TestEnsureImportTarget_ReadCommittedAndCommits(t *testing.T) {
+	pm, m := newRoutingTestManager(t, constants.DefaultTableGroup, constants.DefaultShard, true)
+	var queries []string
+	record := func(q string) { queries = append(queries, q) }
+	m.AddQueryPatternWithCallback(exactPattern(insertTablegroupSQL),
+		mock.MakeQueryResult([]string{"tablegroup_id"}, [][]any{{2}}), record)
+	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
+
+	_, err := pm.EnsureImportTarget(context.Background(), &multipoolermanagerdatapb.EnsureImportTargetRequest{
+		Database: routingTestDatabase, OperationId: importOp, Tablegroup: "srctg",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"BEGIN", setReadCommittedSQL, lockRoutingStateSQL,
+		selectOperationForUpdateSQL, insertOperationSQL, selectOtherOperationOnTablegroupSQL,
+		selectTablegroupByNameSQL, insertTablegroupSQL,
+		selectShardNamesSQL, insertFullShardSQL,
+		"COMMIT",
+	}, queries)
 }

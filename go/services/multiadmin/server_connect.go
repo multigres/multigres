@@ -349,3 +349,12 @@ func (a *connectAdapter) DeleteRoutingRules(ctx context.Context, req *connect.Re
 	}
 	return connect.NewResponse(resp), nil
 }
+
+// EnsureImportTarget forwards to the database's catalog primary.
+func (a *connectAdapter) EnsureImportTarget(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdatapb.EnsureImportTargetResponse], error) {
+	resp, err := a.MultiadminServer.EnsureImportTarget(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

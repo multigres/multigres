@@ -66,6 +66,7 @@ const (
 	MultiadminService_GetRoutingSnapshot_FullMethodName         = "/multiadmin.MultiadminService/GetRoutingSnapshot"
 	MultiadminService_SetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/SetRoutingRules"
 	MultiadminService_DeleteRoutingRules_FullMethodName         = "/multiadmin.MultiadminService/DeleteRoutingRules"
+	MultiadminService_EnsureImportTarget_FullMethodName         = "/multiadmin.MultiadminService/EnsureImportTarget"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -270,6 +271,13 @@ type MultiadminServiceClient interface {
 	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -590,6 +598,16 @@ func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, in *mu
 	return out, nil
 }
 
+func (c *multiadminServiceClient) EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.EnsureImportTargetResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_EnsureImportTarget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -792,6 +810,13 @@ type MultiadminServiceServer interface {
 	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -894,6 +919,9 @@ func (UnimplementedMultiadminServiceServer) SetRoutingRules(context.Context, *mu
 }
 func (UnimplementedMultiadminServiceServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnsureImportTarget not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -1474,6 +1502,24 @@ func _MultiadminService_DeleteRoutingRules_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_EnsureImportTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.EnsureImportTargetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).EnsureImportTarget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_EnsureImportTarget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).EnsureImportTarget(ctx, req.(*multipoolermanagerdata.EnsureImportTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1604,6 +1650,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteRoutingRules",
 			Handler:    _MultiadminService_DeleteRoutingRules_Handler,
+		},
+		{
+			MethodName: "EnsureImportTarget",
+			Handler:    _MultiadminService_EnsureImportTarget_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

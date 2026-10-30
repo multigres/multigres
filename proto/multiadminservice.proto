@@ -826,6 +826,29 @@ service MultiadminService {
     };
     option (google.api.http) = {delete: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"};
   }
+
+  // EnsureImportTarget creates, if absent, an import operation and the
+  // tablegroup it imports into with its 0-inf shard. It changes no routing.
+  // This RPC is temporary, for the first version of imports, and will be
+  // deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+  // plus the import's PREPARE step (registering its tables, the default rule
+  // and fencing) will replace it.
+  rpc EnsureImportTarget(multipoolermanagerdata.EnsureImportTargetRequest) returns (multipoolermanagerdata.EnsureImportTargetResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Create an import's operation and target tablegroup (temporary)"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      put: "/api/v1/databases/{database}/routing/operations/{operation_id}/import-target"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve

@@ -209,3 +209,128 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureImportTarget(t *testing.T) {
+	opRow := func(kind, state, tablegroup string) *sqltypes.Result {
+		return mock.MakeQueryResult([]string{"kind", "state", "tablegroup"}, [][]any{{kind, state, tablegroup}})
+	}
+	tgRow := func(state string) *sqltypes.Result {
+		return mock.MakeQueryResult([]string{"tablegroup_id", "state"}, [][]any{{2, state}})
+	}
+	shards := func(names ...string) *sqltypes.Result {
+		rows := make([][]any, len(names))
+		for i, n := range names {
+			rows[i] = []any{n}
+		}
+		return mock.MakeQueryResult([]string{"shard_name"}, rows)
+	}
+
+	tests := []struct {
+		name       string
+		tablegroup string
+		results    map[string]*sqltypes.Result
+		wantWrites []string
+		code       mtrpcpb.Code
+		contains   string
+	}{
+		{
+			name:       "creates everything",
+			tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{
+				insertTablegroupSQL: mock.MakeQueryResult([]string{"tablegroup_id"}, [][]any{{2}}),
+			},
+			wantWrites: []string{insertOperationSQL, insertTablegroupSQL, insertFullShardSQL},
+		},
+		{
+			name:       "already in place",
+			tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{
+				selectOperationForUpdateSQL: opRow(importOperationKind, "preparing", "srctg"),
+				selectTablegroupByNameSQL:   tgRow("active"),
+				selectShardNamesSQL:         shards(constants.DefaultShard),
+			},
+		},
+		{
+			name:       "existing tablegroup without a shard",
+			tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{
+				selectOperationForUpdateSQL: opRow(importOperationKind, "preparing", "srctg"),
+				selectTablegroupByNameSQL:   tgRow("active"),
+			},
+			wantWrites: []string{insertFullShardSQL},
+		},
+		{
+			name: "default tablegroup", tablegroup: constants.DefaultTableGroup,
+			code: mtrpcpb.Code_INVALID_ARGUMENT, contains: "cannot target the default tablegroup",
+		},
+		{name: "no tablegroup", code: mtrpcpb.Code_INVALID_ARGUMENT, contains: "invalid tablegroup"},
+		{
+			name: "operation of another kind", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{selectOperationForUpdateSQL: opRow("reshard", "preparing", "")},
+			code:    mtrpcpb.Code_FAILED_PRECONDITION, contains: "is a reshard, not an import",
+		},
+		{
+			name: "finished operation", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{selectOperationForUpdateSQL: opRow(importOperationKind, "completed", "srctg")},
+			code:    mtrpcpb.Code_FAILED_PRECONDITION, contains: "is completed",
+		},
+		{
+			name: "operation imports elsewhere", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{selectOperationForUpdateSQL: opRow(importOperationKind, "preparing", "other")},
+			code:    mtrpcpb.Code_FAILED_PRECONDITION, contains: `imports into tablegroup "other", not "srctg"`,
+		},
+		{
+			name: "tablegroup imported by another operation", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{
+				selectOtherOperationOnTablegroupSQL: mock.MakeQueryResult([]string{"operation_id"}, [][]any{{otherOp}}),
+			},
+			code: mtrpcpb.Code_FAILED_PRECONDITION, contains: `tablegroup "srctg" is already the target of operation ` + otherOp,
+		},
+		{
+			name: "tablegroup being dropped", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{selectTablegroupByNameSQL: tgRow("dropping")},
+			code:    mtrpcpb.Code_FAILED_PRECONDITION, contains: "is being dropped",
+		},
+		{
+			name: "tablegroup with other shards", tablegroup: "srctg",
+			results: map[string]*sqltypes.Result{
+				selectTablegroupByNameSQL: tgRow("active"),
+				selectShardNamesSQL:       shards("0-80", "80-inf"),
+			},
+			code: mtrpcpb.Code_FAILED_PRECONDITION, contains: "already has shards other than 0-inf",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := &fakeRoutingTx{results: tt.results}
+			err := ensureImportTarget(context.Background(), tx, importOp, tt.tablegroup)
+			if tt.code != mtrpcpb.Code_OK {
+				require.Error(t, err)
+				assert.Equal(t, tt.code, mterrors.Code(err), "error: %v", err)
+				assert.Contains(t, err.Error(), tt.contains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, lockRoutingStateSQL, tx.calls[0].sql, "the catalog_state lock comes first")
+			var writes []string
+			for _, c := range tx.calls {
+				switch c.sql {
+				case insertOperationSQL, insertTablegroupSQL, insertFullShardSQL:
+					writes = append(writes, c.sql)
+				}
+				if c.sql == insertOperationSQL {
+					assert.Equal(t, []any{importOp, importOperationKind, importOperationInitialState, `{"tablegroup":"srctg"}`}, c.args)
+				}
+			}
+			assert.Equal(t, tt.wantWrites, writes)
+		})
+	}
+
+	t.Run("operation id not a uuid", func(t *testing.T) {
+		tx := &fakeRoutingTx{}
+		err := ensureImportTarget(context.Background(), tx, "op-1", "srctg")
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
+		assert.Empty(t, tx.calls, "a non-uuid operation id must not reach the ::uuid cast")
+	})
+}

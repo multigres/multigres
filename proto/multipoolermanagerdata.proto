@@ -876,3 +876,19 @@ message DeleteRoutingRulesRequest {
 message DeleteRoutingRulesResponse {
   int64 routing_version = 1;
 }
+
+// EnsureImportTargetRequest creates, if they do not exist, an import
+// operation and the tablegroup it imports into, with its single 0-inf shard.
+message EnsureImportTargetRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the import operation (a UUID).
+  string operation_id = 2;
+  // tablegroup is the tablegroup the import serves the source database from.
+  // It may not be the default tablegroup.
+  string tablegroup = 3;
+}
+
+// EnsureImportTargetResponse confirms the operation, the tablegroup and its
+// shard exist.
+message EnsureImportTargetResponse {}

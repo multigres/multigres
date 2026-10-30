@@ -103,9 +103,14 @@ func TestMultiadminRoutingForwarders(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(7), resp.GetRoutingVersion())
 	})
+	t.Run("EnsureImportTarget", func(t *testing.T) {
+		_, err := s.EnsureImportTarget(ctx, &multipoolermanagerdatapb.EnsureImportTargetRequest{Database: "db1", OperationId: "op", Tablegroup: "srctg"})
+		require.NoError(t, err)
+	})
 	assert.Equal(t, []string{
 		"SetRoutingRules(" + string(leader) + ")",
 		"DeleteRoutingRules(" + string(leader) + ")",
+		"EnsureImportTarget(" + string(leader) + ")",
 	}, fake.GetCallLog(), "every call goes to the catalog primary")
 
 	t.Run("GetRoutingSnapshot", func(t *testing.T) {

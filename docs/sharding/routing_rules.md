@@ -127,10 +127,68 @@ The catalog primary serves the RPCs; multiadmin forwards them to it.
 | RPC                  | Multiadmin REST                                                                                        | Service            |
 | -------------------- | ------------------------------------------------------------------------------------------------------ | ------------------ |
 | `GetRoutingSnapshot` | `GET /api/v1/databases/{database}/routing`                                                             | MultipoolerService |
+| `EnsureImportTarget` | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/import-target`                     | MultipoolerManager |
 | `SetRoutingRules`    | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/rules`                             | MultipoolerManager |
 | `DeleteRoutingRules` | `DELETE /api/v1/databases/{database}/routing/operations/{operation_id}/rules?expectedRoutingVersion=N` | MultipoolerManager |
+
+`EnsureImportTarget` creates, if absent, the import operation, the tablegroup
+it imports into and that tablegroup's `0-inf` shard. It changes no routing.
+The RPC is temporary, for the first version of imports, and will be
+deprecated. Tablegroup creation (the equivalent of `CREATE TABLEGROUP`) plus
+the import's PREPARE step (registering its tables, the default rule and
+fencing) will replace it.
 
 Errors: a pooler that is not the catalog primary answers `UNAVAILABLE` (find
 the primary and retry); a stale expected version or a change the catalog does
 not allow answers `FAILED_PRECONDITION`; a malformed request answers
 `INVALID_ARGUMENT`.
+
+## Example: serving a database from an external PostgreSQL
+
+This routes the application traffic of database `app` to an external
+PostgreSQL fronted by unmanaged poolers of tablegroup `srctg`, shard `0-inf`,
+and back. `$MULTIADMIN` is multiadmin's HTTP address.
+
+1. Copy the external PostgreSQL's roles into `app` verbatim.
+   `pg_dumpall --roles-only` emits `CREATE ROLE` for roles that may already
+   exist; edit those (and the bootstrap superuser) out, then load the rest:
+
+   ```bash
+   pg_dumpall --roles-only --dbname="$SOURCE_URL" > roles.sql
+   ```
+
+   ```bash
+   psql "$APP_DEFAULT_PRIMARY_URL" --file=roles.sql
+   ```
+
+2. Create the import operation and the target tablegroup:
+
+   ```bash
+   curl -X PUT "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/import-target" -H 'Content-Type: application/json' \
+     -d '{"tablegroup": "srctg"}'
+   ```
+
+3. Read the current routing version:
+
+   ```bash
+   curl "$MULTIADMIN/api/v1/databases/app/routing"
+   ```
+
+4. Quiesce the application, then route `default` to `srctg`, passing the version
+   from step 3:
+
+   ```bash
+   curl -X PUT "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/rules" -H 'Content-Type: application/json' \
+     -d '{"rules": [{"fromTablegroup": "default", "toTablegroup": "srctg", "toShard": "0-inf"}], "expectedRoutingVersion": "0"}'
+   ```
+
+5. Within one poll interval, every gateway sends `app`'s application traffic
+   to `srctg`. Verify through a gateway, for example by reading a row that only
+   the external PostgreSQL has, and check `GET .../routing` lists the rule.
+
+6. To route back, quiesce the application and delete the rule, passing the
+   version the previous call returned:
+
+   ```bash
+   curl -X DELETE "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/rules?expectedRoutingVersion=1"
+   ```

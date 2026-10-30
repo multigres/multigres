@@ -475,6 +475,67 @@ paths:
       summary: Get a database's routing
       tags:
         - routing
+  /api/v1/databases/{database}/routing/operations/{operation_id}/import-target:
+    put:
+      description: |-
+        EnsureImportTarget creates, if absent, an import operation and the
+         tablegroup it imports into with its 0-inf shard. It changes no routing.
+         This RPC is temporary, for the first version of imports, and will be
+         deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+         plus the import's PREPARE step (registering its tables, the default rule
+         and fencing) will replace it.
+      operationId: multiadmin.MultiadminService.EnsureImportTarget
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: operation_id is the import operation (a UUID).
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                EnsureImportTargetRequest creates, if they do not exist, an import
+                 operation and the tablegroup it imports into, with its single 0-inf shard.
+              properties:
+                tablegroup:
+                  description: |-
+                    tablegroup is the tablegroup the import serves the source database from.
+                     It may not be the default tablegroup.
+                  title: tablegroup
+                  type: string
+              title: EnsureImportTargetRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.EnsureImportTargetResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create an import's operation and target tablegroup (temporary)
+      tags:
+        - routing
   /api/v1/databases/{database}/routing/operations/{operation_id}/rules:
     delete:
       description: DeleteRoutingRules deletes every routing rule of an operation.
@@ -3858,6 +3919,13 @@ components:
           title: routing_version
           type: string
       title: DeleteRoutingRulesResponse
+      type: object
+    multipoolermanagerdata.EnsureImportTargetResponse:
+      additionalProperties: false
+      description: |-
+        EnsureImportTargetResponse confirms the operation, the tablegroup and its
+         shard exist.
+      title: EnsureImportTargetResponse
       type: object
     multipoolermanagerdata.GetRoutingSnapshotResponse:
       additionalProperties: false
