@@ -108,6 +108,15 @@ func TestValidateUnixSocketPathLengthWithWorkingDirectory(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// versionOutput is what `pgbackrest version` prints for a semver constant,
+// so a bump of the constant needs no edit here.
+func versionOutput(semverConst string) string {
+	return "pgBackRest " + strings.TrimPrefix(semverConst, "v") + "\n"
+}
+
+// minPgbackrestOutput is the output at exactly the minimum.
+var minPgbackrestOutput = versionOutput(constants.MinPgBackrestVersion)
+
 func TestCheckPgBackrestVersion_Parse(t *testing.T) {
 	p := &localProvisioner{}
 	tests := []struct {
@@ -115,10 +124,10 @@ func TestCheckPgBackrestVersion_Parse(t *testing.T) {
 		out     string
 		wantErr string
 	}{
-		{"meets minimum", "pgBackRest 2.57.0\n", ""},
-		{"newer patch", "pgBackRest 2.57.3\n", ""},
+		{"meets minimum", minPgbackrestOutput, ""},
+		{"newer patch", "pgBackRest 2.59.3\n", ""},
 		{"newer minor", "pgBackRest 2.60.1\n", ""},
-		{"too old", "pgBackRest 2.55.1\n", "too old"},
+		{"too old", "pgBackRest 2.58.1\n", "too old"},
 		{"way too old", "pgBackRest 1.99.99\n", "too old"},
 		{"unparsable", "garbage\n", "could not parse"},
 	}
@@ -133,6 +142,15 @@ func TestCheckPgBackrestVersion_Parse(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+func TestCheckPgBackrestVersion_Floor(t *testing.T) {
+	p := &localProvisioner{}
+	require.NoError(t, p.checkPgBackrestVersionFromOutput(minPgbackrestOutput))
+	err := p.checkPgBackrestVersionFromOutput("pgBackRest 2.58.0\n")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too old")
+	assert.Contains(t, err.Error(), "need >= "+strings.TrimPrefix(constants.MinPgBackrestVersion, "v"))
 }
 
 func TestCheckPostgresVersion_Parse(t *testing.T) {
@@ -185,7 +203,7 @@ func TestCheckPgBackrestVersion_ExecsBinary(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("good version", func(t *testing.T) {
-		path := writeFakeBinary(t, dir, "pgbackrest_good", "pgBackRest 2.57.0\n", false)
+		path := writeFakeBinary(t, dir, "pgbackrest_good", minPgbackrestOutput, false)
 		require.NoError(t, p.checkPgBackrestVersion(path))
 	})
 
@@ -244,7 +262,7 @@ func TestValidateSystemBinaries(t *testing.T) {
 		// The guidance text is derived from the version constants, so it must
 		// track them rather than hardcoded numbers.
 		assert.Contains(t, err.Error(), fmt.Sprintf("PostgreSQL %d.x", constants.RequiredPostgresMajor))
-		assert.Contains(t, err.Error(), "pgBackRest >= "+minPgBackrestVersionDisplay())
+		assert.Contains(t, err.Error(), "pgBackRest >= "+p.minPgBackrestVersionDisplay())
 	})
 
 	t.Run("all present succeeds", func(t *testing.T) {
@@ -259,11 +277,11 @@ func TestValidateSystemBinaries(t *testing.T) {
 }
 
 func TestCheckRequiredBinaryVersions(t *testing.T) {
+	goodPgbackrest := minPgbackrestOutput
 	const (
-		goodPgbackrest = "pgBackRest 2.57.0\n"
-		oldPgbackrest  = "pgBackRest 2.55.1\n"
-		goodPostgres   = "postgres (PostgreSQL) 17.2 (Homebrew)\n"
-		oldPostgres    = "postgres (PostgreSQL) 14.20\n"
+		oldPgbackrest = "pgBackRest 2.55.1\n"
+		goodPostgres  = "postgres (PostgreSQL) 17.2 (Homebrew)\n"
+		oldPostgres   = "postgres (PostgreSQL) 14.20\n"
 	)
 
 	tests := []struct {

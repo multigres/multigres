@@ -48,3 +48,16 @@ func TestProcessInstancePgInitdbArgs(t *testing.T) {
 		}
 	})
 }
+
+// TestBuildPgctldServerArgsExtraArgs pins that pgctld honours ExtraArgs like
+// the other services do, and that an instance without any renders no extra
+// flag.
+func TestBuildPgctldServerArgsExtraArgs(t *testing.T) {
+	base := &ProcessInstance{PoolerDir: "/p", GrpcPort: 1, HttpPort: 2, PgPort: 3, LogFile: "/l"}
+	without := BuildPgctldServerArgs(base)
+
+	with := *base
+	with.ExtraArgs = []string{"--extra"}
+	assert.Equal(t, append(append([]string{}, without...), "--extra"), BuildPgctldServerArgs(&with))
+	assert.NotContains(t, without, "--extra")
+}

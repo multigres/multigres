@@ -101,14 +101,16 @@ func TestJoin_FailsWithWrongCipherKey(t *testing.T) {
 	require.NoError(t, os.WriteFile(wrongKeyFile,
 		[]byte(`{"1": "this-is-not-the-real-passphrase"}`), 0o600))
 
-	// Provision a second pooler pointed at the wrong key. CreateMultipoolerInstance
-	// does not inherit the shared (real) key flag, so the wrong key is the only
-	// --pgbackrest-cipher-key-file it sees.
+	// Provision a second pooler whose sidecar holds the wrong key. The sidecar
+	// owns the keys, so the wrong one goes to its --cipher-key-file: the new
+	// instance's sidecar was started with the shared (real) key, so it is
+	// restarted with the wrong one before the pooler starts.
 	const joinerName = "pooler-2"
 	joiner := setup.CreateMultipoolerInstance(t, joinerName,
 		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t))
-	joiner.Multipooler.ExtraArgs = append(joiner.Multipooler.ExtraArgs,
-		"--pgbackrest-cipher-key-file", wrongKeyFile)
+	joiner.PgBackRestd.Terminate(t.Logf, 5*time.Second)
+	joiner.PgBackRestd.Config.CipherKeyFile = wrongKeyFile
+	require.NoError(t, joiner.PgBackRestd.Start(t.Context(), t))
 
 	require.NoError(t, joiner.Pgctld.Start(t.Context(), t))
 	require.NoError(t, joiner.Multipooler.Start(t.Context(), t))
