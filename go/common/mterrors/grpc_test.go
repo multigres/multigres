@@ -173,6 +173,9 @@ func TestPgErrorGRPCRoundTrip(t *testing.T) {
 		Column:           "id",
 		DataType:         "integer",
 		Constraint:       "users_pkey",
+		File:             "nbtinsert.c",
+		Line:             666,
+		Routine:          "_bt_check_unique",
 	}
 
 	// Convert to gRPC
@@ -186,7 +189,7 @@ func TestPgErrorGRPCRoundTrip(t *testing.T) {
 	var diag *PgDiagnostic
 	require.True(t, errors.As(recovered, &diag))
 
-	// Verify all 14 fields are preserved
+	// Verify all fields are preserved
 	assert.Equal(t, byte(protocol.MsgErrorResponse), diag.MessageType)
 	assert.Equal(t, "ERROR", diag.Severity)
 	assert.Equal(t, "23505", diag.Code)
@@ -202,6 +205,9 @@ func TestPgErrorGRPCRoundTrip(t *testing.T) {
 	assert.Equal(t, "id", diag.Column)
 	assert.Equal(t, "integer", diag.DataType)
 	assert.Equal(t, "users_pkey", diag.Constraint)
+	assert.Equal(t, "nbtinsert.c", diag.File)
+	assert.Equal(t, int32(666), diag.Line)
+	assert.Equal(t, "_bt_check_unique", diag.Routine)
 
 	// Verify Error() message is preserved
 	assert.Equal(t, "ERROR: duplicate key value violates unique constraint", diag.Error())
