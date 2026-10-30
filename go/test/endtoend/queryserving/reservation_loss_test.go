@@ -17,11 +17,13 @@ package queryserving
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -131,35 +133,37 @@ func TestReservationLoss_CopyFromStdin(t *testing.T) {
 	utils.RequirePgxExec(t, ctx, a, "CREATE TEMP TABLE rl_copy (id int, pad text)")
 	pid := pgxBackendPID(t, ctx, a)
 
-	// Terminate the backend once the COPY is under way, then keep sending
-	// enough rows that the data reaches the dead connection.
-	src := &terminatingCopySource{rows: 200000, terminate: func() { terminateBackend(t, ctx, setup, pid) }}
-	_, err := a.CopyFrom(ctx, pgx.Identifier{"rl_copy"}, []string{"id", "pad"}, src)
+	// Use protocol messages directly: pgx.CopyFrom writes concurrently with
+	// reading the response, so a write error can mask the server's FATAL.
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.NoError(t, a.PgConn().Conn().SetDeadline(deadline))
+	frontend := a.PgConn().Frontend()
+	frontend.SendQuery(&pgproto3.Query{String: "COPY rl_copy (id, pad) FROM STDIN"})
+	require.NoError(t, frontend.Flush())
+	msg, err := frontend.Receive()
+	require.NoError(t, err)
+	require.IsType(t, &pgproto3.CopyInResponse{}, msg)
 
-	requireSessionEnded(t, ctx, a, err, "temp_table")
-}
+	terminateBackend(t, ctx, setup, pid)
 
-// terminatingCopySource is a pgx.CopyFromSource that calls terminate before
-// producing its first row.
-type terminatingCopySource struct {
-	rows      int
-	n         int
-	terminate func()
-}
-
-func (s *terminatingCopySource) Next() bool {
-	if s.n == 0 {
-		s.terminate()
+	// Flush a small upload and its end marker together before reading. The
+	// dead backend must be detected by either the data send or finalization.
+	frontend.Send(&pgproto3.CopyData{Data: []byte("1\tpadding\n")})
+	frontend.Send(&pgproto3.CopyDone{})
+	require.NoError(t, frontend.Flush())
+	msg, err = frontend.Receive()
+	require.NoError(t, err)
+	require.IsType(t, &pgproto3.ErrorResponse{}, msg)
+	pgErr := utils.RequirePgError(t, pgconn.ErrorResponseToPgError(msg.(*pgproto3.ErrorResponse)), "57P01")
+	require.Equal(t, "FATAL", pgErr.Severity, "got %+v", pgErr)
+	if pgErr.Message != "terminating connection due to administrator command" {
+		require.Contains(t, pgErr.Detail, "temp_table")
 	}
-	s.n++
-	return s.n <= s.rows
+	_, err = frontend.Receive()
+	// Frontend.Receive translates a closed socket's EOF to ErrUnexpectedEOF.
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF, "the gateway must close the connection after the FATAL")
 }
-
-func (s *terminatingCopySource) Values() ([]any, error) {
-	return []any{s.n, "padding padding padding padding padding padding"}, nil
-}
-
-func (s *terminatingCopySource) Err() error { return nil }
 
 func openReservationLossConn(t *testing.T, ctx context.Context, setup shardsetup.Cluster, mode pgx.QueryExecMode) *pgx.Conn {
 	t.Helper()

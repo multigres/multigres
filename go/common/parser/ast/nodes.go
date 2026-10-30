@@ -357,6 +357,10 @@ const (
 	T_CreateMigrationStmt
 	T_AlterMigrationStmt
 	T_DropMigrationStmt
+
+	// Multigres tablegroup DDL (go/common/parser/ast/sharding.go)
+	T_CreateTableGroupStmt
+	T_AlterTableGroupStmt
 )
 
 // String returns the string representation of a NodeTag.
@@ -918,6 +922,10 @@ func (nt NodeTag) String() string {
 		return "T_TableFunc"
 	case T_IntoClause:
 		return "T_IntoClause"
+	case T_CreateTableGroupStmt:
+		return "T_CreateTableGroupStmt"
+	case T_AlterTableGroupStmt:
+		return "T_AlterTableGroupStmt"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

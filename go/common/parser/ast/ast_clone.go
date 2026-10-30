@@ -102,6 +102,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfAlterTSDictionaryStmt(in)
 	case *AlterTableCmd:
 		return CloneRefOfAlterTableCmd(in)
+	case *AlterTableGroupStmt:
+		return CloneRefOfAlterTableGroupStmt(in)
 	case *AlterTableMoveAllStmt:
 		return CloneRefOfAlterTableMoveAllStmt(in)
 	case *AlterTableSpaceStmt:
@@ -238,6 +240,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateSubscriptionStmt(in)
 	case *CreateTableAsStmt:
 		return CloneRefOfCreateTableAsStmt(in)
+	case *CreateTableGroupStmt:
+		return CloneRefOfCreateTableGroupStmt(in)
 	case *CreateTableSpaceStmt:
 		return CloneRefOfCreateTableSpaceStmt(in)
 	case *CreateTransformStmt:
@@ -1083,6 +1087,18 @@ func CloneRefOfAlterTableCmd(n *AlterTableCmd) *AlterTableCmd {
 	return &out
 }
 
+// CloneRefOfAlterTableGroupStmt creates a deep clone of the input.
+func CloneRefOfAlterTableGroupStmt(n *AlterTableGroupStmt) *AlterTableGroupStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Sources = CloneRefOfNodeList(n.Sources)
+	out.Targets = CloneRefOfNodeList(n.Targets)
+	return &out
+}
+
 // CloneRefOfAlterTableMoveAllStmt creates a deep clone of the input.
 func CloneRefOfAlterTableMoveAllStmt(n *AlterTableMoveAllStmt) *AlterTableMoveAllStmt {
 	if n == nil {
@@ -1899,6 +1915,17 @@ func CloneRefOfCreateTableAsStmt(n *CreateTableAsStmt) *CreateTableAsStmt {
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Query = CloneNode(n.Query)
 	out.Into = CloneRefOfIntoClause(n.Into)
+	return &out
+}
+
+// CloneRefOfCreateTableGroupStmt creates a deep clone of the input.
+func CloneRefOfCreateTableGroupStmt(n *CreateTableGroupStmt) *CreateTableGroupStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Shards = CloneRefOfNodeList(n.Shards)
 	return &out
 }
 
@@ -4129,6 +4156,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfAlterTSConfigurationStmt(in)
 	case *AlterTSDictionaryStmt:
 		return CloneRefOfAlterTSDictionaryStmt(in)
+	case *AlterTableGroupStmt:
+		return CloneRefOfAlterTableGroupStmt(in)
 	case *AlterTableMoveAllStmt:
 		return CloneRefOfAlterTableMoveAllStmt(in)
 	case *AlterTableSpaceStmt:
@@ -4215,6 +4244,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateSubscriptionStmt(in)
 	case *CreateTableAsStmt:
 		return CloneRefOfCreateTableAsStmt(in)
+	case *CreateTableGroupStmt:
+		return CloneRefOfCreateTableGroupStmt(in)
 	case *CreateTableSpaceStmt:
 		return CloneRefOfCreateTableSpaceStmt(in)
 	case *CreateTransformStmt:
