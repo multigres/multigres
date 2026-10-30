@@ -62,9 +62,9 @@ type MultiadminServer struct {
 	// can swap it for a fake.
 	gatewayDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
 
-	// migrationDialer opens a one-shot gRPC connection to a multipooler's
-	// Migrator service by host:port, for forwarding migration commands to the
-	// shard primary.
+	// migrationDialer opens a one-shot gRPC connection to a multipooler by
+	// host:port, for forwarding migration commands to its Migrator service and
+	// routing snapshot reads to its query service.
 	migrationDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
 }
 

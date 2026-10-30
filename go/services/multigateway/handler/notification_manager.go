@@ -24,9 +24,10 @@ import (
 // NotificationManager abstracts LISTEN/NOTIFY subscription management.
 type NotificationManager interface {
 	// Subscribe registers a notification channel to receive notifications
-	// for the given PG channel name. The same notifCh can be used for
-	// multiple PG channels (all notifications delivered to one place).
-	Subscribe(pgChannel string, notifCh chan *sqltypes.Notification)
+	// for the given PG channel name of database. The same notifCh can be used
+	// for multiple PG channels (all notifications delivered to one place); it
+	// always belongs to one database, the client session's.
+	Subscribe(database, pgChannel string, notifCh chan *sqltypes.Notification)
 
 	// Unsubscribe removes a subscription for a specific PG channel.
 	Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification)
@@ -38,7 +39,7 @@ type NotificationManager interface {
 // noopNotificationManager is used when no PubSubListener is configured.
 type noopNotificationManager struct{}
 
-func (n *noopNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
+func (n *noopNotificationManager) Subscribe(database, pgChannel string, notifCh chan *sqltypes.Notification) {
 }
 
 func (n *noopNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {

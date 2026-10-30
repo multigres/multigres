@@ -84,6 +84,15 @@ const (
 	// MultipoolerManagerReconcileFollowersProcedure is the fully-qualified name of the
 	// MultipoolerManager's ReconcileFollowers RPC.
 	MultipoolerManagerReconcileFollowersProcedure = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
+	// MultipoolerManagerSetRoutingRulesProcedure is the fully-qualified name of the
+	// MultipoolerManager's SetRoutingRules RPC.
+	MultipoolerManagerSetRoutingRulesProcedure = "/multipoolermanager.MultipoolerManager/SetRoutingRules"
+	// MultipoolerManagerDeleteRoutingRulesProcedure is the fully-qualified name of the
+	// MultipoolerManager's DeleteRoutingRules RPC.
+	MultipoolerManagerDeleteRoutingRulesProcedure = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
+	// MultipoolerManagerEnsureImportTargetProcedure is the fully-qualified name of the
+	// MultipoolerManager's EnsureImportTarget RPC.
+	MultipoolerManagerEnsureImportTargetProcedure = "/multipoolermanager.MultipoolerManager/EnsureImportTarget"
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -140,6 +149,28 @@ type MultipoolerManagerClient interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation and increments
+	// the database's routing version, in one catalog transaction. A change that
+	// is already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Until the pooler admission fence exists, rules must change only while the
+	// affected application traffic is quiesced.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -245,6 +276,24 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
 			connect.WithClientOptions(opts...),
 		),
+		setRoutingRules: connect.NewClient[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerSetRoutingRulesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("SetRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRoutingRules: connect.NewClient[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerDeleteRoutingRulesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
+		ensureImportTarget: connect.NewClient[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse](
+			httpClient,
+			baseURL+MultipoolerManagerEnsureImportTargetProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("EnsureImportTarget")),
+			connect.WithClientOptions(opts...),
+		),
 		reloadConfig: connect.NewClient[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse](
 			httpClient,
 			baseURL+MultipoolerManagerReloadConfigProcedure,
@@ -274,6 +323,9 @@ type multipoolerManagerClient struct {
 	resignLeadership           *connect.Client[multipoolermanagerdata.ResignLeadershipRequest, multipoolermanagerdata.ResignLeadershipResponse]
 	setPostgresRestartsEnabled *connect.Client[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse]
 	reconcileFollowers         *connect.Client[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse]
+	setRoutingRules            *connect.Client[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse]
+	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
+	ensureImportTarget         *connect.Client[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
@@ -339,6 +391,21 @@ func (c *multipoolerManagerClient) ReconcileFollowers(ctx context.Context, req *
 	return c.reconcileFollowers.CallUnary(ctx, req)
 }
 
+// SetRoutingRules calls multipoolermanager.MultipoolerManager.SetRoutingRules.
+func (c *multipoolerManagerClient) SetRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return c.setRoutingRules.CallUnary(ctx, req)
+}
+
+// DeleteRoutingRules calls multipoolermanager.MultipoolerManager.DeleteRoutingRules.
+func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return c.deleteRoutingRules.CallUnary(ctx, req)
+}
+
+// EnsureImportTarget calls multipoolermanager.MultipoolerManager.EnsureImportTarget.
+func (c *multipoolerManagerClient) EnsureImportTarget(ctx context.Context, req *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return c.ensureImportTarget.CallUnary(ctx, req)
+}
+
 // ReloadConfig calls multipoolermanager.MultipoolerManager.ReloadConfig.
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, req *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
 	return c.reloadConfig.CallUnary(ctx, req)
@@ -398,6 +465,28 @@ type MultipoolerManagerHandler interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation and increments
+	// the database's routing version, in one catalog transaction. A change that
+	// is already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Until the pooler admission fence exists, rules must change only while the
+	// affected application traffic is quiesced.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -499,6 +588,24 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerSetRoutingRulesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerSetRoutingRulesProcedure,
+		svc.SetRoutingRules,
+		connect.WithSchema(multipoolerManagerMethods.ByName("SetRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerDeleteRoutingRulesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerDeleteRoutingRulesProcedure,
+		svc.DeleteRoutingRules,
+		connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerEnsureImportTargetHandler := connect.NewUnaryHandler(
+		MultipoolerManagerEnsureImportTargetProcedure,
+		svc.EnsureImportTarget,
+		connect.WithSchema(multipoolerManagerMethods.ByName("EnsureImportTarget")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerReloadConfigHandler := connect.NewUnaryHandler(
 		MultipoolerManagerReloadConfigProcedure,
 		svc.ReloadConfig,
@@ -537,6 +644,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReconcileFollowersProcedure:
 			multipoolerManagerReconcileFollowersHandler.ServeHTTP(w, r)
+		case MultipoolerManagerSetRoutingRulesProcedure:
+			multipoolerManagerSetRoutingRulesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerDeleteRoutingRulesProcedure:
+			multipoolerManagerDeleteRoutingRulesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerEnsureImportTargetProcedure:
+			multipoolerManagerEnsureImportTargetHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
 		case MultipoolerManagerManagerHealthStreamProcedure:
@@ -596,6 +709,18 @@ func (UnimplementedMultipoolerManagerHandler) SetPostgresRestartsEnabled(context
 
 func (UnimplementedMultipoolerManagerHandler) ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ReconcileFollowers is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.SetRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.DeleteRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.EnsureImportTarget is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {

@@ -47,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/routing"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -96,6 +97,9 @@ type Multigateway struct {
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
+	// routing caches each database's routing rules and applies them to
+	// application targets.
+	routing *routing.Cache
 	// executor handles query execution and routing
 	executor *executor.Executor
 	// buffer holds requests during PRIMARY failovers
@@ -110,6 +114,9 @@ type Multigateway struct {
 	authenticationTimeout viperutil.Value[time.Duration]
 	// planCacheMemory is the maximum memory (bytes) for the plan cache (0 disables)
 	planCacheMemory viperutil.Value[int]
+	// routingPollInterval is how often the routing of each database in use is
+	// read again from its catalog primary.
+	routingPollInterval viperutil.Value[time.Duration]
 	// queryMetricsMemory is the maximum memory (bytes) for per-query-shape metrics
 	// tracking (0 disables fingerprint labeling and the registry RPCs).
 	queryMetricsMemory viperutil.Value[int]
@@ -240,6 +247,12 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PLAN_CACHE_MEMORY"},
 		}),
+		routingPollInterval: viperutil.Configure(reg, "routing-poll-interval", viperutil.Options[time.Duration]{
+			Default:  routing.DefaultConfig.PollInterval,
+			FlagName: "routing-poll-interval",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ROUTING_POLL_INTERVAL"},
+		}),
 		queryMetricsMemory: viperutil.Configure(reg, "query-metrics-memory", viperutil.Options[int]{
 			Default:  8 * 1024 * 1024, // 8 MB; 0 disables per-query tracking
 			FlagName: "query-metrics-memory",
@@ -357,6 +370,11 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
 	fs.Bool("enable-cluster-views", mg.clusterViewsEnabled.Default(), "serve the read-only cluster views multigres.multigateways and multigres.multipoolers from this gateway. Default off; a reference to either name is then an unknown relation to the backend.")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
+	// Every gateway reads the routing of every database it serves once per
+	// interval, each read a short transaction on the catalog primary. Once
+	// catalog primaries publish the routing version on their health stream,
+	// gateways can refresh on that signal and this interval can grow.
+	fs.Duration("routing-poll-interval", mg.routingPollInterval.Default(), "how often the gateway reads each database's routing rules again from its catalog primary")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
 	fs.Int("query-metrics-sql-max-bytes", mg.queryMetricsSQLMaxBytes.Default(), "maximum bytes of representative normalized SQL stored per tracked fingerprint")
 	fs.Uint64("query-log-sample-rate", mg.queryLogSampleRate.Default(), "1/N sampling rate for normal-path per-query logs. Normal queries log at DEBUG, so visibility also requires --log-level=debug. 0 disables sampling (level alone governs); 1 emits every query; N>1 emits every Nth.")
@@ -375,6 +393,7 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.keepTransactionOnGatewayRejection,
 		mg.clusterViewsEnabled,
 		mg.planCacheMemory,
+		mg.routingPollInterval,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
 		mg.queryLogSampleRate,
@@ -431,27 +450,36 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	}
 
 	// Wire LISTEN/NOTIFY notification manager.
-	// Uses a lazy client getter that resolves the primary pooler connection
-	// from the load balancer at subscribe time (after pooler discovery), and
-	// the gateway's leader-serving hook to reopen streams after a failover.
+	// Uses a lazy client getter that resolves, at subscribe time (after
+	// pooler discovery), where the session's database sends its application
+	// traffic, through its routing rules, and the gateway's leader-serving
+	// hook to reopen streams after a failover.
 	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
 	if notifMetricsErr != nil {
 		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
 	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
-			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+		func(database string) (multipoolerpb.MultipoolerServiceClient, string, error) {
+			target, err := mg.routing.Resolve(mg.shutdownCtx, &querypb.Target{
 				ShardRef: &clustermetadatapb.ShardRef{
-					Database:   constants.DefaultPostgresDatabase,
+					Database:   database,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,
 				},
 				Mode: querypb.Mode_MODE_WRITABLE,
 			})
-			if err != nil || conn == nil {
-				return nil
+			if err != nil {
+				return nil, "", err
 			}
-			return conn.ServiceClient()
+			conn, err := mg.poolerGateway.GetConnection(target)
+			if err != nil {
+				return nil, "", err
+			}
+			if conn == nil {
+				return nil, "", nil
+			}
+			ref := target.GetShardRef()
+			return conn.ServiceClient(), ref.GetTableGroup() + "/" + ref.GetShard(), nil
 		},
 		logger,
 		notifMetrics,
@@ -471,8 +499,17 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
+	// Each database's routing rules, read from its catalog primary and
+	// applied to its application traffic at execute time.
+	routingConfig := routing.DefaultConfig
+	routingConfig.PollInterval = mg.routingPollInterval.Get()
+	mg.routing = routing.NewCache(mg.shutdownCtx, mg.poolerGateway, routingConfig, logger)
+	mg.routing.OnChange(notifMgr.OnRoutingChanged)
+	mg.routing.Start()
+
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
+	mg.scatterConn.SetRouter(mg.routing)
 
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
@@ -814,6 +851,10 @@ func (mg *Multigateway) Shutdown() {
 	// Stop failover buffer
 	if mg.buffer != nil {
 		mg.buffer.Shutdown()
+	}
+
+	if mg.routing != nil {
+		mg.routing.Close()
 	}
 
 	// Close pooler gateway: shuts down the cache, which in turn closes

@@ -24,6 +24,7 @@ import (
 	errors "errors"
 	migrator "github.com/multigres/multigres/go/pb/migrator"
 	multiadmin "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	http "net/http"
 	strings "strings"
 )
@@ -132,6 +133,18 @@ const (
 	// MultiadminServiceDropConnectionProcedure is the fully-qualified name of the MultiadminService's
 	// DropConnection RPC.
 	MultiadminServiceDropConnectionProcedure = "/multiadmin.MultiadminService/DropConnection"
+	// MultiadminServiceGetRoutingSnapshotProcedure is the fully-qualified name of the
+	// MultiadminService's GetRoutingSnapshot RPC.
+	MultiadminServiceGetRoutingSnapshotProcedure = "/multiadmin.MultiadminService/GetRoutingSnapshot"
+	// MultiadminServiceSetRoutingRulesProcedure is the fully-qualified name of the MultiadminService's
+	// SetRoutingRules RPC.
+	MultiadminServiceSetRoutingRulesProcedure = "/multiadmin.MultiadminService/SetRoutingRules"
+	// MultiadminServiceDeleteRoutingRulesProcedure is the fully-qualified name of the
+	// MultiadminService's DeleteRoutingRules RPC.
+	MultiadminServiceDeleteRoutingRulesProcedure = "/multiadmin.MultiadminService/DeleteRoutingRules"
+	// MultiadminServiceEnsureImportTargetProcedure is the fully-qualified name of the
+	// MultiadminService's EnsureImportTarget RPC.
+	MultiadminServiceEnsureImportTargetProcedure = "/multiadmin.MultiadminService/EnsureImportTarget"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -325,6 +338,20 @@ type MultiadminServiceClient interface {
 	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
 	// DropConnection removes a connection.
 	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -506,6 +533,30 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
 			connect.WithClientOptions(opts...),
 		),
+		getRoutingSnapshot: connect.NewClient[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse](
+			httpClient,
+			baseURL+MultiadminServiceGetRoutingSnapshotProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetRoutingSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
+		setRoutingRules: connect.NewClient[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse](
+			httpClient,
+			baseURL+MultiadminServiceSetRoutingRulesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SetRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRoutingRules: connect.NewClient[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse](
+			httpClient,
+			baseURL+MultiadminServiceDeleteRoutingRulesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("DeleteRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
+		ensureImportTarget: connect.NewClient[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse](
+			httpClient,
+			baseURL+MultiadminServiceEnsureImportTargetProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("EnsureImportTarget")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -539,6 +590,10 @@ type multiadminServiceClient struct {
 	getConnection              *connect.Client[migrator.GetConnectionRequest, migrator.GetConnectionResponse]
 	listConnections            *connect.Client[migrator.ListConnectionsRequest, migrator.ListConnectionsResponse]
 	dropConnection             *connect.Client[migrator.DropConnectionRequest, migrator.DropConnectionResponse]
+	getRoutingSnapshot         *connect.Client[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse]
+	setRoutingRules            *connect.Client[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse]
+	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
+	ensureImportTarget         *connect.Client[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -679,6 +734,26 @@ func (c *multiadminServiceClient) ListConnections(ctx context.Context, req *conn
 // DropConnection calls multiadmin.MultiadminService.DropConnection.
 func (c *multiadminServiceClient) DropConnection(ctx context.Context, req *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
 	return c.dropConnection.CallUnary(ctx, req)
+}
+
+// GetRoutingSnapshot calls multiadmin.MultiadminService.GetRoutingSnapshot.
+func (c *multiadminServiceClient) GetRoutingSnapshot(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return c.getRoutingSnapshot.CallUnary(ctx, req)
+}
+
+// SetRoutingRules calls multiadmin.MultiadminService.SetRoutingRules.
+func (c *multiadminServiceClient) SetRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return c.setRoutingRules.CallUnary(ctx, req)
+}
+
+// DeleteRoutingRules calls multiadmin.MultiadminService.DeleteRoutingRules.
+func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return c.deleteRoutingRules.CallUnary(ctx, req)
+}
+
+// EnsureImportTarget calls multiadmin.MultiadminService.EnsureImportTarget.
+func (c *multiadminServiceClient) EnsureImportTarget(ctx context.Context, req *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return c.ensureImportTarget.CallUnary(ctx, req)
 }
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
@@ -872,6 +947,20 @@ type MultiadminServiceHandler interface {
 	ListConnections(context.Context, *connect.Request[migrator.ListConnectionsRequest]) (*connect.Response[migrator.ListConnectionsResponse], error)
 	// DropConnection removes a connection.
 	DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, an import operation and the
+	// tablegroup it imports into with its 0-inf shard. It changes no routing.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. Tablegroup creation (the equivalent of CREATE TABLEGROUP)
+	// plus the import's PREPARE step (registering its tables, the default rule
+	// and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -1049,6 +1138,30 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("DropConnection")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceGetRoutingSnapshotHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetRoutingSnapshotProcedure,
+		svc.GetRoutingSnapshot,
+		connect.WithSchema(multiadminServiceMethods.ByName("GetRoutingSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceSetRoutingRulesHandler := connect.NewUnaryHandler(
+		MultiadminServiceSetRoutingRulesProcedure,
+		svc.SetRoutingRules,
+		connect.WithSchema(multiadminServiceMethods.ByName("SetRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceDeleteRoutingRulesHandler := connect.NewUnaryHandler(
+		MultiadminServiceDeleteRoutingRulesProcedure,
+		svc.DeleteRoutingRules,
+		connect.WithSchema(multiadminServiceMethods.ByName("DeleteRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceEnsureImportTargetHandler := connect.NewUnaryHandler(
+		MultiadminServiceEnsureImportTargetProcedure,
+		svc.EnsureImportTarget,
+		connect.WithSchema(multiadminServiceMethods.ByName("EnsureImportTarget")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -1107,6 +1220,14 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceListConnectionsHandler.ServeHTTP(w, r)
 		case MultiadminServiceDropConnectionProcedure:
 			multiadminServiceDropConnectionHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetRoutingSnapshotProcedure:
+			multiadminServiceGetRoutingSnapshotHandler.ServeHTTP(w, r)
+		case MultiadminServiceSetRoutingRulesProcedure:
+			multiadminServiceSetRoutingRulesHandler.ServeHTTP(w, r)
+		case MultiadminServiceDeleteRoutingRulesProcedure:
+			multiadminServiceDeleteRoutingRulesHandler.ServeHTTP(w, r)
+		case MultiadminServiceEnsureImportTargetProcedure:
+			multiadminServiceEnsureImportTargetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1226,4 +1347,20 @@ func (UnimplementedMultiadminServiceHandler) ListConnections(context.Context, *c
 
 func (UnimplementedMultiadminServiceHandler) DropConnection(context.Context, *connect.Request[migrator.DropConnectionRequest]) (*connect.Response[migrator.DropConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DropConnection is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetRoutingSnapshot is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SetRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DeleteRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.EnsureImportTarget is not implemented"))
 }

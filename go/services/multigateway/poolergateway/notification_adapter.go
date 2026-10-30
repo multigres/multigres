@@ -29,12 +29,21 @@ import (
 
 const notificationAckTimeout = 10 * time.Second
 
+// NotificationClientFunc returns the pooler that serves the LISTEN stream of
+// database's application traffic, and a key naming where that is (its
+// tablegroup and shard after routing rules), or an error when there is none.
+type NotificationClientFunc func(database string) (client multipoolerpb.MultipoolerServiceClient, key string, err error)
+
 // GRPCNotificationManager implements handler.NotificationManager by keeping one
 // ordered gRPC notification stream per gateway client session (notifCh). A
 // single stream carries all channels for that session, so cross-channel
 // notifications are delivered in the same order PostgreSQL emitted them.
+//
+// A session's stream goes to its database's application traffic: the stream
+// follows the database's routing rules, and moves when they change (see
+// OnRoutingChanged).
 type GRPCNotificationManager struct {
-	getClient func() multipoolerpb.MultipoolerServiceClient
+	getClient NotificationClientFunc
 	logger    *slog.Logger
 	metrics   *NotificationMetrics
 
@@ -44,7 +53,7 @@ type GRPCNotificationManager struct {
 
 // NewGRPCNotificationManager creates a notification manager backed by gRPC.
 func NewGRPCNotificationManager(
-	getClient func() multipoolerpb.MultipoolerServiceClient,
+	getClient NotificationClientFunc,
 	logger *slog.Logger,
 	metrics *NotificationMetrics,
 ) *GRPCNotificationManager {
@@ -56,9 +65,10 @@ func NewGRPCNotificationManager(
 	}
 }
 
-// Subscribe registers notifCh to receive notifications for pgChannel.
-func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
-	s := m.sessionFor(notifCh)
+// Subscribe registers notifCh to receive notifications for pgChannel of
+// database. A session's notifCh always belongs to one database.
+func (m *GRPCNotificationManager) Subscribe(database, pgChannel string, notifCh chan *sqltypes.Notification) {
+	s := m.sessionFor(database, notifCh)
 	if err := s.update([]string{pgChannel}, nil, false); err != nil {
 		m.logger.Error("notification subscribe failed", "channel", pgChannel, "error", err)
 	}
@@ -109,7 +119,26 @@ func (m *GRPCNotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardRef)
 	}
 }
 
-func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification) *notificationSession {
+// OnRoutingChanged moves the streams of database's sessions whose
+// application traffic now goes elsewhere: each is closed and reopened where
+// the routing now sends it. Notifications sent on the old side in between are
+// not delivered; until fences exist, routing changes only while the
+// application is quiesced.
+func (m *GRPCNotificationManager) OnRoutingChanged(database string) {
+	m.mu.Lock()
+	var sessions []*notificationSession
+	for _, s := range m.sessions {
+		if s.database == database {
+			sessions = append(sessions, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range sessions {
+		s.rerouteIfMoved()
+	}
+}
+
+func (m *GRPCNotificationManager) sessionFor(database string, notifCh chan *sqltypes.Notification) *notificationSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.sessions[notifCh]; s != nil {
@@ -118,6 +147,7 @@ func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification
 	ctx, cancel := context.WithCancel(context.Background()) //nolint:gocritic // Session-owned lifetime; no request context available.
 	s := &notificationSession{
 		manager:       m,
+		database:      database,
 		notifCh:       notifCh,
 		ctx:           ctx,
 		cancelSession: cancel,
@@ -154,8 +184,9 @@ func (m *GRPCNotificationManager) removeSession(notifCh chan *sqltypes.Notificat
 // load balancer observing the leader serving (OnLeaderServing). The stream
 // metric counts streams that have completed their (re)subscribe handshake.
 type notificationSession struct {
-	manager *GRPCNotificationManager
-	notifCh chan *sqltypes.Notification
+	manager  *GRPCNotificationManager
+	database string
+	notifCh  chan *sqltypes.Notification
 
 	// ctx lives for the whole session. stop cancels it, which also cancels
 	// the current stream and ends reconnectLoop.
@@ -168,9 +199,11 @@ type notificationSession struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc // cancels the current stream only
 	stream multipoolerpb.MultipoolerService_NotificationStreamClient
-	ready  chan struct{}
-	errs   chan error
-	active map[string]bool
+	// streamKey is where the current stream goes (see NotificationClientFunc).
+	streamKey string
+	ready     chan struct{}
+	errs      chan error
+	active    map[string]bool
 }
 
 func (s *notificationSession) update(subscribe, unsubscribe []string, unsubscribeAll bool) error {
@@ -245,7 +278,10 @@ func (s *notificationSession) closeStreamLocked() {
 // startLocked opens a stream to the current leader and resubscribes the
 // session's active channels. On failure no stream is left behind.
 func (s *notificationSession) startLocked() error {
-	client := s.manager.getClient()
+	client, key, err := s.manager.getClient(s.database)
+	if err != nil {
+		return err
+	}
 	if client == nil {
 		return errNoClient
 	}
@@ -255,7 +291,7 @@ func (s *notificationSession) startLocked() error {
 		cancel()
 		return err
 	}
-	s.cancel, s.stream = cancel, stream
+	s.cancel, s.stream, s.streamKey = cancel, stream, key
 	s.ready = make(chan struct{}, 16)
 	s.errs = make(chan error, 1)
 	go s.recvLoop(ctx, stream, s.ready, s.errs)
@@ -273,6 +309,26 @@ func (s *notificationSession) startLocked() error {
 	}
 	s.manager.metrics.StreamAdd(context.Background()) //nolint:gocritic // Metric recording at stream open; no request context available.
 	return nil
+}
+
+// rerouteIfMoved closes the session's stream when the database's application
+// traffic no longer goes where the stream does, and has reconnectLoop open it
+// where it goes now.
+func (s *notificationSession) rerouteIfMoved() {
+	s.mu.Lock()
+	moved := false
+	if s.stream != nil {
+		_, key, err := s.manager.getClient(s.database)
+		moved = err != nil || key != s.streamKey
+		if moved {
+			s.closeStreamLocked()
+		}
+	}
+	s.mu.Unlock()
+	if moved {
+		s.manager.logger.Info("notification stream moved with the database's routing", "database", s.database)
+		s.wakeUp()
+	}
 }
 
 // wakeUp asks reconnectLoop to attempt a reconnect. Never blocks.

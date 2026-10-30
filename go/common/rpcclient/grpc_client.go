@@ -295,6 +295,49 @@ func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *cluster
 }
 
 //
+// Manager Service Methods - Routing Rules
+//
+
+// SetRoutingRules replaces every routing rule of an operation on the catalog primary pooler.
+func (c *Client) SetRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.SetRoutingRules(ctx, request)
+}
+
+// DeleteRoutingRules deletes every routing rule of an operation on the catalog primary pooler.
+func (c *Client) DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.DeleteRoutingRules(ctx, request)
+}
+
+// EnsureImportTarget creates an import's operation and target tablegroup on the catalog primary pooler, if absent.
+func (c *Client) EnsureImportTarget(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.EnsureImportTarget(ctx, request)
+}
+
+//
 // Manager Service Methods - PostgreSQL Configuration Reload
 //
 

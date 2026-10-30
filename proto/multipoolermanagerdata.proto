@@ -758,3 +758,137 @@ message SettingMismatch {
   // whose file value differs from the running value.
   bool requires_restart = 3;
 }
+
+// =============================================================================
+// Routing rules
+// =============================================================================
+
+// RoutingRuleScope is the kind of a routing rule.
+enum RoutingRuleScope {
+  ROUTING_RULE_SCOPE_UNSPECIFIED = 0;
+  // A shard rule: the routing identifiers of the source tablegroup that fall
+  // in the target shard's range are served by that shard. Applied when a query
+  // executes.
+  ROUTING_RULE_SCOPE_TABLEGROUP = 1;
+  // A table rule: the table is planned as a member of the target tablegroup.
+  // Applied when a query is planned.
+  ROUTING_RULE_SCOPE_TABLE = 2;
+}
+
+// RoutingTableName names a table by schema and name.
+message RoutingTableName {
+  string schema = 1;
+  string name = 2;
+}
+
+// RoutingRule is one rule of a database's routing: traffic the catalog would
+// send to the source is served by the target while the owning operation runs.
+// A gateway applies a rule as a single hop on top of the catalog; a rule's
+// target is never routed again.
+message RoutingRule {
+  // rule_id identifies the rule within its database's catalog.
+  int64 rule_id = 1;
+  // operation_id is the operation that owns the rule (a UUID).
+  string operation_id = 2;
+  RoutingRuleScope scope = 3;
+  // from_tablegroup is the tablegroup whose traffic the rule overrides.
+  string from_tablegroup = 4;
+  // from_table is the overridden table. Set only for table rules.
+  RoutingTableName from_table = 5;
+  // to_tablegroup is the tablegroup that serves the traffic.
+  string to_tablegroup = 6;
+  // to_shard is the shard that serves the traffic. Set only for shard rules;
+  // the rule covers exactly this shard's range.
+  string to_shard = 7;
+  // to_key_range is to_shard's key range. An unset start or end is unbounded.
+  clustermetadata.KeyRange to_key_range = 8;
+  // to_shard_key is the name of the table's shard key in the target
+  // tablegroup. Set only for table rules that change the key.
+  string to_shard_key = 9;
+  // created_version is the routing version that introduced the rule.
+  int64 created_version = 10;
+}
+
+// ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+// of from_tablegroup in to_shard's range are served by to_shard of
+// to_tablegroup.
+message ShardRoutingRuleSpec {
+  string from_tablegroup = 1;
+  string to_tablegroup = 2;
+  string to_shard = 3;
+}
+
+// GetRoutingSnapshotRequest asks the catalog primary for a database's routing.
+message GetRoutingSnapshotRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // since_version is the routing version the caller already holds, or 0.
+  // Reserved for incremental snapshots; the full snapshot is returned today.
+  int64 since_version = 2;
+}
+
+// GetRoutingSnapshotResponse is a database's routing, read in one consistent
+// snapshot of its catalog.
+message GetRoutingSnapshotResponse {
+  // routing_version increases with every change to effective routing.
+  int64 routing_version = 1;
+  // plan_epoch increases when the inputs of query plans change.
+  int64 plan_epoch = 2;
+  // full is set when rules holds every rule rather than changes since
+  // since_version. Always set today.
+  bool full = 3;
+  // rules are the routing rules, in rule_id order.
+  repeated RoutingRule rules = 4;
+}
+
+// SetRoutingRulesRequest replaces every routing rule of an operation.
+message SetRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID). It must exist
+  // and not have finished.
+  string operation_id = 2;
+  // rules are the operation's new rules. Shard rules only for now.
+  repeated ShardRoutingRuleSpec rules = 3;
+  // expected_routing_version is the routing version the change is based on.
+  // A change already in effect succeeds whatever its value.
+  int64 expected_routing_version = 4;
+}
+
+// SetRoutingRulesResponse returns the routing version after the change.
+message SetRoutingRulesResponse {
+  int64 routing_version = 1;
+}
+
+// DeleteRoutingRulesRequest deletes every routing rule of an operation.
+message DeleteRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID).
+  string operation_id = 2;
+  // expected_routing_version is the routing version the change is based on.
+  // Deleting the rules of an operation that has none succeeds whatever its
+  // value.
+  int64 expected_routing_version = 3;
+}
+
+// DeleteRoutingRulesResponse returns the routing version after the change.
+message DeleteRoutingRulesResponse {
+  int64 routing_version = 1;
+}
+
+// EnsureImportTargetRequest creates, if they do not exist, an import
+// operation and the tablegroup it imports into, with its single 0-inf shard.
+message EnsureImportTargetRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the import operation (a UUID).
+  string operation_id = 2;
+  // tablegroup is the tablegroup the import serves the source database from.
+  // It may not be the default tablegroup.
+  string tablegroup = 3;
+}
+
+// EnsureImportTargetResponse confirms the operation, the tablegroup and its
+// shard exist.
+message EnsureImportTargetResponse {}
