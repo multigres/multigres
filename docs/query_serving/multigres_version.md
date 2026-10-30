@@ -26,23 +26,56 @@ psql> SELECT multigres.version();
 
 Both work in the simple and extended (prepared-statement) query protocols.
 `SHOW multigres.server_version` is answered entirely by the gateway;
-`SELECT multigres.version()` is folded to a literal and then runs on PostgreSQL
+`SELECT multigres.version()` is folded to a constant and then runs on PostgreSQL
 (see below), so it composes into any query.
 
 ## How the function works: constant folding
 
-`multigres.version()` has no backend implementation (PostgreSQL has no
-`multigres` schema), so the gateway **folds it into a text literal of the version
-before the query reaches the backend** — `multigres.version()` becomes
-`'Multigres 0.1.0-SNAPSHOT (...)'`. The query then runs on PostgreSQL unchanged,
-which means the function works in **any expression position**, not just as a
-standalone target:
+`multigres.version()` has no backend implementation: the backend does have a
+`multigres` schema (the pooler creates it for its sidecar tables), but no
+`version()` function in it, so the gateway **folds it into a text constant of
+the version before the query reaches the backend** — `multigres.version()` becomes
+`CAST('Multigres 0.1.0-SNAPSHOT (...)' AS text)`. The query then runs on
+PostgreSQL unchanged, which means the function works in **any expression
+position** and **as a FROM item**, not just as a standalone target:
 
 ```sql
 SELECT multigres.version();
 SELECT id FROM t WHERE created_by = multigres.version();
 SELECT length(multigres.version());
+SELECT * FROM multigres.version();
+SELECT * FROM multigres.version() AS v(x) WITH ORDINALITY;
 ```
+
+The cast matters: a bare literal has type `unknown`, so `pg_typeof` and operator
+and overload resolution would see something other than the `text` that
+`version()` returns.
+
+A FROM item is not an expression position — the grammar only accepts a
+function-like expression there, so a literal would be a syntax error. There the
+call is folded to
+
+```sql
+CAST((SELECT CAST('<version>' AS text) AS version) AS text)
+```
+
+PostgreSQL names a scalar FROM item's column, and the item itself when it has no
+alias, after the expression; through a `CAST` into a scalar subquery that is the
+subquery's column name, `version`. So the fold behaves like `version()` in every
+FROM shape: no alias (column and table `version`), a table alias (which also
+names the column), a column alias list, `WITH ORDINALITY`, `LATERAL`, joins, and
+`ROWS FROM (...)` alongside other functions in any position. A column
+definition list (`AS v(x text)`) is rejected by PostgreSQL with the same error
+as for `version()`. Replacing the call with `pg_catalog.unnest(ARRAY[...])` plus
+an injected alias was rejected: inside a multi-function `ROWS FROM`, PostgreSQL
+names columns after the functions, so that column would be labelled `unnest`.
+
+Because the version is folded into the statement text, a view or table built
+from it (`CREATE VIEW ... AS SELECT * FROM multigres.version()`, `CREATE TABLE
+... AS`, `INSERT ... SELECT`) stores the version of the gateway that ran the
+statement, not the version of whichever gateway later reads it. `CALL
+multigres.version()` names a procedure rather than evaluating an expression, so
+it is not folded and PostgreSQL rejects it.
 
 The fold runs in the handler (`handler/gateway_functions.go`), applied once the
 query is parsed so that the planner, the plan cache, and the extended protocol's
@@ -53,15 +86,16 @@ it already parsed and refreshes the query text from the rewritten AST;
 substring check skips the work for queries that don't mention the `multigres`
 schema. When the sole target is a bare `multigres.version()` with no alias, the
 fold also sets the column label to `version`, matching what PostgreSQL would
-label a `version()` call (a bare literal is otherwise labelled `?column?`).
+label a `version()` call (a constant is otherwise labelled `?column?`, or `text`
+once cast).
 
 ## Why a namespaced function
 
 The function is `multigres.version()`, **not** `version()`. A bare `version()`
 already exists in PostgreSQL, and tools and ORMs call it expecting the
 _PostgreSQL_ version string — so the gateway leaves it alone and routes it to the
-backend. `multigres.version()` lives in its own `multigres` schema and does not
-shadow it. A `SELECT version()` still reports PostgreSQL; `SELECT
+backend. `multigres.version()` is qualified with the `multigres` schema, so it
+does not shadow it. A `SELECT version()` still reports PostgreSQL; `SELECT
 multigres.version()` reports multigres.
 
 The variable is namespaced for the same reason: `multigres.server_version` sits
@@ -113,7 +147,7 @@ checkouts stamp them natively.
 | `common/servenv/version.go`      | Committed release version constant                         |
 | `common/servenv/buildinfo.go`    | Short and full version strings                             |
 | `common/constants/gateway.go`    | Gateway-managed version variable and schema name constants |
-| `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                 |
+| `handler/gateway_functions.go`   | Folds `multigres.version()` into a text constant           |
 | `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                 |
 | `engine/gateway_show_version.go` | SHOW matcher and Describe helper                           |
 | `executor/executor.go` (gateway) | Serves the extended-protocol `Describe` for SHOW locally   |
@@ -131,5 +165,5 @@ over the extended protocol that a backend-routed query gets for free:
   a `Describe('P')` was folded into the `Execute` (`includeDescribe`). Attaching
   it otherwise would send an illegal second `RowDescription` mid-`Execute`.
 
-`SELECT multigres.version()` needs none of this: it is folded to a literal at
+`SELECT multigres.version()` needs none of this: it is folded to a constant at
 parse time, so the backend describes and executes an ordinary `SELECT`.
