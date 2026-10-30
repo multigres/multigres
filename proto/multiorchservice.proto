@@ -60,7 +60,7 @@ service MultiorchService {
 
 message ShardStatusRequest {
   // Shard to get status for
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 }
 
 message ShardStatusResponse {
@@ -75,7 +75,7 @@ message DetectedProblem {
   string code = 1; // e.g., "PrimaryIsDead"
   string check_name = 2; // Analyzer name
   clustermetadata.ID pooler_id = 3; // Affected pooler
-  clustermetadata.ShardKey shard_key = 4;
+  clustermetadata.ShardRef shard_ref = 4;
   string description = 5;
   int32 priority = 6;
   string scope = 7; // "Shard" or "Pooler"
@@ -151,7 +151,7 @@ message TriggerRecoveryNowResponse {
 // safety contract.
 message ApplyCertifiedRuleChangeRequest {
   // Shard to apply the rule change to.
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 
   // The transition to install. proposal's fields must all be populated,
   // including rule_number, coordinator_id, and creation_time.

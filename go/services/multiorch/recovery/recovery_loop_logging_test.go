@@ -118,7 +118,7 @@ func TestRecoveryLoop_StaysQuietWhileAProblemPersists(t *testing.T) {
 			engine := NewEngine(ts, slog.New(logs), cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
 
 			poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"}
-			shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+			shardKey := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 			var detected atomic.Bool
 			detected.Store(true)
@@ -135,7 +135,7 @@ func TestRecoveryLoop_StaysQuietWhileAProblemPersists(t *testing.T) {
 							Code:           spec.code,
 							CheckName:      types.CheckName("Persistent" + string(spec.code)),
 							PoolerID:       poolerID,
-							ShardKey:       shardKey,
+							ShardRef:       shardKey,
 							Priority:       types.PriorityNormal,
 							Scope:          spec.scope,
 							RecoveryAction: spec.action,
@@ -151,7 +151,7 @@ func TestRecoveryLoop_StaysQuietWhileAProblemPersists(t *testing.T) {
 			store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
 					Id:       poolerID,
-					ShardKey: shardKey,
+					ShardRef: shardKey,
 					Type:     clustermetadatapb.PoolerType_REPLICA,
 					Hostname: "replica-host",
 				},

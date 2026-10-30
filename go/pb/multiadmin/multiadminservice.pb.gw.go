@@ -16,6 +16,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/utilities"
+	"github.com/multigres/multigres/go/pb/migrator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/grpclog"
@@ -709,29 +710,29 @@ func request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Context, m
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := client.ApplyCertifiedRuleChange(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -746,29 +747,29 @@ func local_request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Cont
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := server.ApplyCertifiedRuleChange(ctx, &protoReq)
 	return msg, metadata, err
@@ -786,29 +787,29 @@ func request_MultiadminService_SwitchPrimary_0(ctx context.Context, marshaler ru
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := client.SwitchPrimary(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -823,31 +824,437 @@ func local_request_MultiadminService_SwitchPrimary_0(ctx context.Context, marsha
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	val, ok := pathParams["shard_key.database"]
+	val, ok := pathParams["shard_ref.database"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.database")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.database", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.database", err)
 	}
-	val, ok = pathParams["shard_key.table_group"]
+	val, ok = pathParams["shard_ref.table_group"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.table_group")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.table_group", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.table_group", err)
 	}
-	val, ok = pathParams["shard_key.shard"]
+	val, ok = pathParams["shard_ref.shard"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_ref.shard")
 	}
-	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_ref.shard", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_ref.shard", err)
 	}
 	msg, err := server.SwitchPrimary(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiadminService_CreateMigration_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.CreateMigrationRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.CreateMigration(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_CreateMigration_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.CreateMigrationRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.CreateMigration(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+var filter_MultiadminService_GetMigration_0 = &utilities.DoubleArray{Encoding: map[string]int{"ref": 0, "id": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
+
+func request_MultiadminService_GetMigration_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetMigrationRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetMigration_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.GetMigration(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_GetMigration_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetMigrationRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetMigration_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.GetMigration(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiadminService_ListMigrations_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.ListMigrationsRequest
+		metadata runtime.ServerMetadata
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.ListMigrations(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_ListMigrations_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.ListMigrationsRequest
+		metadata runtime.ServerMetadata
+	)
+	msg, err := server.ListMigrations(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+var filter_MultiadminService_GetMigrationJournal_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
+
+func request_MultiadminService_GetMigrationJournal_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetMigrationJournalRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id")
+	}
+	protoReq.Id, err = runtime.Int64(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetMigrationJournal_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.GetMigrationJournal(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_GetMigrationJournal_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetMigrationJournalRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id")
+	}
+	protoReq.Id, err = runtime.Int64(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetMigrationJournal_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.GetMigrationJournal(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiadminService_SetMigrationDirection_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.SetMigrationDirectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	msg, err := client.SetMigrationDirection(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_SetMigrationDirection_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.SetMigrationDirectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	msg, err := server.SetMigrationDirection(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+var filter_MultiadminService_DropMigration_0 = &utilities.DoubleArray{Encoding: map[string]int{"ref": 0, "id": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
+
+func request_MultiadminService_DropMigration_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.DropMigrationRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_DropMigration_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.DropMigration(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_DropMigration_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.DropMigrationRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_DropMigration_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.DropMigration(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiadminService_CreateConnection_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.CreateConnectionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.CreateConnection(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_CreateConnection_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.CreateConnectionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.CreateConnection(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+var filter_MultiadminService_GetConnection_0 = &utilities.DoubleArray{Encoding: map[string]int{"ref": 0, "id": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
+
+func request_MultiadminService_GetConnection_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetConnectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetConnection_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.GetConnection(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_GetConnection_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.GetConnectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetConnection_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.GetConnection(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiadminService_ListConnections_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.ListConnectionsRequest
+		metadata runtime.ServerMetadata
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.ListConnections(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_ListConnections_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.ListConnectionsRequest
+		metadata runtime.ServerMetadata
+	)
+	msg, err := server.ListConnections(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+var filter_MultiadminService_DropConnection_0 = &utilities.DoubleArray{Encoding: map[string]int{"ref": 0, "id": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
+
+func request_MultiadminService_DropConnection_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.DropConnectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_DropConnection_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.DropConnection(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiadminService_DropConnection_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq migrator.DropConnectionRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["ref.id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "ref.id")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "ref.id", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "ref.id", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_DropConnection_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.DropConnection(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -1183,7 +1590,7 @@ func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1203,7 +1610,7 @@ func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1216,6 +1623,206 @@ func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_MultiadminService_SwitchPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_CreateMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/CreateMigration", runtime.WithHTTPPathPattern("/api/v1/migrations"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_CreateMigration_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_CreateMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetMigration", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_GetMigration_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_ListMigrations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ListMigrations", runtime.WithHTTPPathPattern("/api/v1/migrations"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_ListMigrations_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_ListMigrations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetMigrationJournal_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetMigrationJournal", runtime.WithHTTPPathPattern("/api/v1/migrations/{id}/journal"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_GetMigrationJournal_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetMigrationJournal_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_SetMigrationDirection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SetMigrationDirection", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}/direction"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_SetMigrationDirection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_SetMigrationDirection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodDelete, pattern_MultiadminService_DropMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/DropMigration", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_DropMigration_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_DropMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_CreateConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/CreateConnection", runtime.WithHTTPPathPattern("/api/v1/connections"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_CreateConnection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_CreateConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetConnection", runtime.WithHTTPPathPattern("/api/v1/connections/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_GetConnection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_ListConnections_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ListConnections", runtime.WithHTTPPathPattern("/api/v1/connections"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_ListConnections_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_ListConnections_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodDelete, pattern_MultiadminService_DropConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/DropConnection", runtime.WithHTTPPathPattern("/api/v1/connections/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiadminService_DropConnection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_DropConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -1533,7 +2140,7 @@ func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1550,7 +2157,7 @@ func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SwitchPrimary", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1562,6 +2169,176 @@ func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_MultiadminService_SwitchPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_CreateMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/CreateMigration", runtime.WithHTTPPathPattern("/api/v1/migrations"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_CreateMigration_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_CreateMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetMigration", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_GetMigration_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_ListMigrations_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ListMigrations", runtime.WithHTTPPathPattern("/api/v1/migrations"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_ListMigrations_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_ListMigrations_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetMigrationJournal_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetMigrationJournal", runtime.WithHTTPPathPattern("/api/v1/migrations/{id}/journal"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_GetMigrationJournal_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetMigrationJournal_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_SetMigrationDirection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SetMigrationDirection", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}/direction"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_SetMigrationDirection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_SetMigrationDirection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodDelete, pattern_MultiadminService_DropMigration_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/DropMigration", runtime.WithHTTPPathPattern("/api/v1/migrations/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_DropMigration_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_DropMigration_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiadminService_CreateConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/CreateConnection", runtime.WithHTTPPathPattern("/api/v1/connections"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_CreateConnection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_CreateConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetConnection", runtime.WithHTTPPathPattern("/api/v1/connections/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_GetConnection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_GetConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodGet, pattern_MultiadminService_ListConnections_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ListConnections", runtime.WithHTTPPathPattern("/api/v1/connections"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_ListConnections_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_ListConnections_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodDelete, pattern_MultiadminService_DropConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/DropConnection", runtime.WithHTTPPathPattern("/api/v1/connections/{ref.id}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiadminService_DropConnection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiadminService_DropConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
@@ -1583,8 +2360,18 @@ var (
 	pattern_MultiadminService_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-restarts"}, ""))
 	pattern_MultiadminService_GetGatewayQueries_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "queries"}, ""))
 	pattern_MultiadminService_GetGatewayConsolidator_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "consolidator"}, ""))
-	pattern_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "rule-change"}, ""))
-	pattern_MultiadminService_SwitchPrimary_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "switch-primary"}, ""))
+	pattern_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_ref.database", "shard_ref.table_group", "shard_ref.shard", "rule-change"}, ""))
+	pattern_MultiadminService_SwitchPrimary_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_ref.database", "shard_ref.table_group", "shard_ref.shard", "switch-primary"}, ""))
+	pattern_MultiadminService_CreateMigration_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "migrations"}, ""))
+	pattern_MultiadminService_GetMigration_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "migrations", "ref.id"}, ""))
+	pattern_MultiadminService_ListMigrations_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "migrations"}, ""))
+	pattern_MultiadminService_GetMigrationJournal_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "v1", "migrations", "id", "journal"}, ""))
+	pattern_MultiadminService_SetMigrationDirection_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "v1", "migrations", "ref.id", "direction"}, ""))
+	pattern_MultiadminService_DropMigration_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "migrations", "ref.id"}, ""))
+	pattern_MultiadminService_CreateConnection_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "connections"}, ""))
+	pattern_MultiadminService_GetConnection_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "connections", "ref.id"}, ""))
+	pattern_MultiadminService_ListConnections_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "connections"}, ""))
+	pattern_MultiadminService_DropConnection_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "connections", "ref.id"}, ""))
 )
 
 var (
@@ -1606,4 +2393,14 @@ var (
 	forward_MultiadminService_GetGatewayConsolidator_0     = runtime.ForwardResponseMessage
 	forward_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.ForwardResponseMessage
 	forward_MultiadminService_SwitchPrimary_0              = runtime.ForwardResponseMessage
+	forward_MultiadminService_CreateMigration_0            = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetMigration_0               = runtime.ForwardResponseMessage
+	forward_MultiadminService_ListMigrations_0             = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetMigrationJournal_0        = runtime.ForwardResponseMessage
+	forward_MultiadminService_SetMigrationDirection_0      = runtime.ForwardResponseMessage
+	forward_MultiadminService_DropMigration_0              = runtime.ForwardResponseMessage
+	forward_MultiadminService_CreateConnection_0           = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetConnection_0              = runtime.ForwardResponseMessage
+	forward_MultiadminService_ListConnections_0            = runtime.ForwardResponseMessage
+	forward_MultiadminService_DropConnection_0             = runtime.ForwardResponseMessage
 )

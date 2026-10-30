@@ -128,6 +128,19 @@ type Handler interface {
 	// to resolve wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE AS
 	// EXECUTE) without type-asserting to a concrete handler implementation.
 	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
+
+	// SetResolvedParamTypes records the backend-resolved parameter types from
+	// the Describe done at SQL PREPARE time for the statement registered as
+	// (connID, name). Scoped per registration so connections that dedup onto one
+	// shared statement keep their frozen resolutions independent. A nil
+	// description is ignored.
+	SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription)
+
+	// ResolvedParamTypeOids returns the resolved parameter type OIDs recorded for
+	// (connID, name), or the statement's declared parameter types if no Describe
+	// populated them. Used by the SQL EXECUTE materializer to cast each argument
+	// to its parameter's resolved type.
+	ResolvedParamTypeOids(connID uint32, name string) []uint32
 }
 
 // ReplicationHandler is an optional capability: a Handler that can take over a

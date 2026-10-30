@@ -363,7 +363,7 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	sk := target.GetShardKey()
+	sk := target.GetShardRef()
 	// TODO: add s.database and validate sk.GetDatabase() once
 	// QueryPoolerServer is wired with the pooler's bound database.
 	if s.tableGroup != "" && sk.GetTableGroup() != "" && sk.GetTableGroup() != s.tableGroup {

@@ -32,8 +32,6 @@
 #   TEST_PRINT_LOGS         Set non-empty to print service logs on test failure.
 #   AWS_ACCESS_KEY_ID       Forwarded into container (default: test-access-key).
 #   AWS_SECRET_ACCESS_KEY   Forwarded into container (default: test-secret-key).
-#   RERUN_FAILS             gotestsum --rerun-fails count; empty = no reruns (default).
-#                           Set to 3 in CI for flake tolerance.
 
 set -euo pipefail
 
@@ -43,8 +41,6 @@ MULTIGRES_DIR="${MULTIGRES_DIR:-$(pwd)}"
 
 mkdir -p "${GO_CACHE_DIR}"
 
-RERUN_FAILS="${RERUN_FAILS:-}"
-
 docker run --rm \
   --name multigres-integration-test \
   -v "${MULTIGRES_DIR}:/multigres" \
@@ -53,5 +49,4 @@ docker run --rm \
   -e "TEST_PRINT_LOGS=${TEST_PRINT_LOGS:-}" \
   -e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test-access-key}" \
   -e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test-secret-key}" \
-  -e "RERUN_FAILS=${RERUN_FAILS}" \
   "${TEST_IMAGE}"

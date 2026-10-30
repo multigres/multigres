@@ -90,7 +90,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// topology once, and stanza-create below fixes the repo cipher forever —
 	// a requirement added to topology after startup must still block an
 	// unencrypted bootstrap.
-	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardRef().GetDatabase())
 	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load database record")
 	}
@@ -250,14 +250,14 @@ func (pm *MultipoolerManager) bootstrapSentinel() sentinel {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultipoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardRef().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardRef().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
+			"database %s has no durability_policy configured", pm.record.ShardRef().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

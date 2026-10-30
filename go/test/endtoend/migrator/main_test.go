@@ -131,7 +131,7 @@ func waitForPrimaryDB(t *testing.T, ctx context.Context, setup *shardsetup.Shard
 		}
 		for _, info := range infos {
 			if info.Multipooler.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-				db = info.Multipooler.GetShardKey().GetDatabase()
+				db = info.Multipooler.GetShardRef().GetDatabase()
 				return true
 			}
 		}

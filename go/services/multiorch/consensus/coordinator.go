@@ -62,15 +62,15 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardRef *clustermetadatapb.ShardRef, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
 	c.logger.InfoContext(ctx, "starting leader appointment",
-		"database", shardKey.GetDatabase(),
-		"tablegroup", shardKey.GetTableGroup(),
-		"shard", shardKey.GetShard(),
+		"database", shardRef.GetDatabase(),
+		"tablegroup", shardRef.GetTableGroup(),
+		"shard", shardRef.GetShard(),
 		"cohort_size", len(cohort))
 
 	if len(cohort) == 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardKey.GetShard())
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardRef.GetShard())
 	}
 
 	return c.runFailover(ctx, cohort, reason)
@@ -186,12 +186,12 @@ func cohortMemberStatuses(statuses []*clustermetadatapb.ConsensusStatus, cohort 
 // Uses GetBootstrapPolicy (not AppointLeader's LoadQuorumRule) because freshly
 // restored standbys report UNKNOWN pooler type, which causes LoadQuorumRule to
 // fall back to majority quorum instead of the configured durability policy.
-func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState) error {
+func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardRef *clustermetadatapb.ShardRef, cohort []*multiorchdatapb.PoolerHealthState) error {
 	if len(cohort) == 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardKey.GetShard())
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardRef.GetShard())
 	}
 
-	policy, err := c.GetBootstrapPolicy(ctx, shardKey.GetDatabase())
+	policy, err := c.GetBootstrapPolicy(ctx, shardRef.GetDatabase())
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
@@ -218,7 +218,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
 	if mostAdvanced == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardKey.GetShard())
+			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardRef.GetShard())
 	}
 
 	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())

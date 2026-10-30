@@ -95,12 +95,12 @@ message MigrationRecord {
   // effect on the migration's very next action, not just at create time.
   string connection_name = 3;
   // target identifies the destination shard (database, table_group, shard).
-  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
   // same across the topology and routing layers (see query.Target, which
   // reuses it for the same reason) — a database can have multiple
   // tablegroups, each with its own shard namespace, so database+shard alone
   // do not uniquely identify a shard.
-  clustermetadata.ShardKey target = 4;
+  clustermetadata.ShardRef target = 4;
   SelectionObject objects = 6;
   // sequence_margin is added past each sequence's max at a direction switch.
   // Set at create time; not currently changeable afterward.
@@ -328,10 +328,12 @@ message DropMigrationResponse {
   MigrationStatus status = 2;
 }
 
-// Connection is a stored, named source conninfo. It is scoped to the shard
-// whose Migrator created it — its row lives only in that shard's own
-// multigres.migration_connection, so which shard it belongs to is implied by
-// which Migrator you asked, not a field on the message. Every migration
+// Connection is a stored, named source conninfo: a row of
+// multigres.connections, the catalog table the Migrator shares with the other
+// users of named connections. The table exists on the catalog shard only, so
+// connections are created, read and dropped there; where the table is missing,
+// CreateConnection, GetConnection, ListConnections, DropConnection and
+// CreateMigration fail with FAILED_PRECONDITION. Every migration
 // references one by id via Migration.connection_name. Connections are
 // immutable once created: there is no in-place update, only create/drop —
 // so a migration's resolved source never changes underneath it except by

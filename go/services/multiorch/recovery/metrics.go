@@ -278,7 +278,7 @@ type StreamHealthData struct {
 }
 
 // DetectedProblemData represents a detected problem with its attributes for metric observation.
-// Each problem is tracked per affected entity (pooler ID or shard key).
+// Each problem is tracked per affected entity (pooler ID or shard ref).
 type DetectedProblemData struct {
 	AnalysisType string
 	ProblemCode  string

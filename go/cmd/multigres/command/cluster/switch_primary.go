@@ -141,7 +141,7 @@ func (pf *switchPrimaryCmd) run(cmd *cobra.Command, _ []string) error {
 
 func (pf *switchPrimaryCmd) buildRequest() (*multiadminpb.SwitchPrimaryRequest, error) {
 	req := &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   pf.database.Get(),
 			TableGroup: pf.tableGroup.Get(),
 			Shard:      pf.shard.Get(),
@@ -155,7 +155,7 @@ func (pf *switchPrimaryCmd) buildRequest() (*multiadminpb.SwitchPrimaryRequest, 
 // confirmSwitchPrimary prints a summary and prompts the operator to type the
 // shard name before proceeding.
 func confirmSwitchPrimary(cmd *cobra.Command, req *multiadminpb.SwitchPrimaryRequest) error {
-	sk := req.GetShardKey()
+	sk := req.GetShardRef()
 	cmd.Printf("\nShard:   %s/%s/%s\n", sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 	cmd.Printf("Reason:  %s\n", req.GetReason())
 

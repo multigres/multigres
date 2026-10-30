@@ -54,16 +54,14 @@ jobs:
         run: |
           gotestsum \
             --format=testname \
-            --rerun-fails=3 \
-            --rerun-fails-max-failures=10 \
             --packages="./..." \
             --jsonfile=short-test-results.jsonl \
             --junitfile=short-test-results.xml \
             -- \
             -short -timeout=20m
 
-      - name: Upload test results to Trunk
-        if: ${{ !cancelled() }}
+      - name: Upload results and apply Trunk quarantine
+        if: ${{ !cancelled() && steps.short-tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
           junit-paths: short-test-results.xml
@@ -87,6 +85,7 @@ jobs:
           name: Unit Tests
           path: short-test-results.jsonl
           reporter: golang-json
+          fail-on-error: "false" # Trunk owns the test failure decision.
 
       # Only upload test results from main-branch pushes. On PRs, Codecov's
       # test-results comment template replaces the coverage comment when any

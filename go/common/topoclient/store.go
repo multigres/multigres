@@ -246,33 +246,33 @@ type Store interface {
 
 	// LockShard acquires a lock on the specified shard.
 	// See shard_lock.go for full documentation.
-	LockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error)
+	LockShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string, opts ...LockOption) (context.Context, func(*error), error)
 
 	// TryLockShard attempts to acquire a lock on the specified shard without blocking.
 	// See shard_lock.go for full documentation.
-	TryLockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+	TryLockShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string) (context.Context, func(*error), error)
 
 	// TryLockBackup attempts to acquire a backup lock on the specified shard without blocking.
 	// See backup_lock.go for full documentation.
-	TryLockBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+	TryLockBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef, action string) (context.Context, func(*error), error)
 
 	// ClaimShardInitialization atomically claims the right to initialize a shard.
 	// Persists both the claimer ID and the proposed cohort. On crash-retry the
 	// committed cohort is returned so the caller reuses the same members.
 	// Returns won=false if a different coordinator already owns the claim.
-	ClaimShardInitialization(ctx context.Context, shardKey *clustermetadatapb.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
+	ClaimShardInitialization(ctx context.Context, shardRef *clustermetadatapb.ShardRef, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
 
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
-	RevokeBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey) error
+	RevokeBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
 
 	// WithBackupLease acquires a backup lease, runs fn, and releases the lease when fn returns.
 	// See backup_lock.go for full documentation.
-	WithBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+	WithBackupLease(ctx context.Context, shardRef *clustermetadatapb.ShardRef, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
 
 	// WithStolenBackupLease acquires a backup lease (stealing if necessary), runs fn, and releases.
 	// See backup_lock.go for full documentation.
-	WithStolenBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+	WithStolenBackupLease(ctx context.Context, shardRef *clustermetadatapb.ShardRef, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
 
 	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
 	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.

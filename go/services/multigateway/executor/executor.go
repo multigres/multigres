@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -66,6 +67,13 @@ type Executor struct {
 // driven by the same notification that makes the new value live.
 func (e *Executor) SetSlotBasedReplicationEnabled(enabled func() bool) {
 	e.planner.SetSlotBasedReplicationEnabled(enabled)
+}
+
+// SetClusterViewSource wires the source of the cluster views
+// (multigres.multigateways, multigres.multipoolers). See
+// planner.Planner.SetClusterViewSource.
+func (e *Executor) SetClusterViewSource(source engine.ClusterViewSource) {
+	e.planner.SetClusterViewSource(source)
 }
 
 // InvalidatePlanCache discards every cached plan, so the next request for
@@ -391,8 +399,37 @@ func (e *Executor) Describe(
 	// postgres GUC. Answer Describe locally rather than forwarding it, which the
 	// backend would reject as an unrecognized configuration parameter. Execute
 	// is already served locally via the planner (planVariableShowStmt).
-	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
+	stmt := describeAST(portalInfo, preparedStatementInfo)
+	if stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
 		return engine.MultigresServerVersionShowDescription(), nil
+	}
+
+	// A statement reading a cluster view (multigres.multipoolers, ...) names a
+	// relation the backend doesn't have. Describe the statement with each view
+	// folded to its empty, typed subquery instead: same columns, no data, and
+	// the backend can describe it. Execute folds the live rows separately.
+	psi := preparedStatementInfo
+	if portalInfo != nil {
+		psi = portalInfo.PreparedStatementInfo
+	}
+	if stmt != nil && e.planner.ClusterViewsEnabled() && engine.MayReferenceClusterView(psi.GetQuery()) && engine.ContainsClusterView(stmt) {
+		stubSQL, err := engine.ClusterViewDescribeSQL(stmt)
+		if err != nil {
+			return nil, err
+		}
+		stubPSI, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{
+			Name:       psi.GetName(),
+			Query:      stubSQL,
+			ParamTypes: psi.GetParamTypes(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if portalInfo != nil {
+			portalInfo = preparedstatement.NewPortalInfo(stubPSI, portalInfo.Portal)
+		} else {
+			preparedStatementInfo = stubPSI
+		}
 	}
 
 	// TODO: We will need to plan the query to find whether it can
@@ -401,6 +438,28 @@ func (e *Executor) Describe(
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
+}
+
+// clusterViewPrepareSQL returns sql with every cluster view folded over an
+// empty snapshot, or sql unchanged when it references none (or fails to
+// parse — the backend then reports the syntax error as before). A statement
+// the planner would reject (a write to a view, a definition over one) is
+// rejected with the same error.
+func clusterViewPrepareSQL(sql string) (string, error) {
+	if !engine.MayReferenceClusterView(sql) {
+		return sql, nil
+	}
+	stmts, _ := parser.ParseSQL(sql) // unparsable: let the backend report it
+	if len(stmts) != 1 {
+		return sql, nil
+	}
+	if err := planner.CheckClusterViewStatement(stmts[0]); err != nil {
+		return "", err
+	}
+	if !engine.ContainsClusterView(stmts[0]) {
+		return sql, nil
+	}
+	return engine.ClusterViewDescribeSQL(stmts[0])
 }
 
 // describeAST returns the parsed statement being described, from whichever of
@@ -419,8 +478,11 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 }
 
 // PrepareInTransaction materializes a fresh named backend statement at client
-// Parse time. The StreamExecute reservation path replays any deferred BEGIN
-// before preparing, so validation and locks belong to the client's transaction.
+// Parse time. The carrier is the StreamExecute reservation path with
+// eager_parse_prepared_statement set; the multipooler replays any deferred
+// BEGIN and then prepares the consolidated statement, so validation and locks
+// belong to the client's transaction. ForceReparse re-Parses a stale shared
+// backend statement so a fresh client Parse reflects the current catalog.
 func (e *Executor) PrepareInTransaction(
 	ctx context.Context,
 	conn *server.Conn,
@@ -428,13 +490,24 @@ func (e *Executor) PrepareInTransaction(
 	queryStr string,
 	paramTypes []uint32,
 ) error {
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{
-			Query:        queryStr,
-			ParamTypes:   paramTypes,
-			ForceReparse: true,
-		},
-		PrepareOnly: true,
+	// The backend can't prepare a statement naming a cluster view; prepare the
+	// Describe stub (views folded over an empty snapshot) instead. Execute
+	// forwards the portal with the folded statement text, which the pooler
+	// prepares separately, so the stub only has to parse and describe
+	// correctly. A statement the gateway would reject at planning time is
+	// rejected here too, so the client gets the gateway's error rather than a
+	// backend error that aborts the transaction. With the views off the text
+	// goes to the backend as written.
+	if e.planner.ClusterViewsEnabled() {
+		var err error
+		if queryStr, err = clusterViewPrepareSQL(queryStr); err != nil {
+			return err
+		}
+	}
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
+		Query:        queryStr,
+		ParamTypes:   paramTypes,
+		ForceReparse: true,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 

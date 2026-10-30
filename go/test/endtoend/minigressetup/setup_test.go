@@ -163,7 +163,7 @@ func TestMinigres_GatewayIgnoresOtherPoolers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	other := topoclient.NewMultipooler("other-instance-pooler", cellName, "unreachable.invalid")
-	other.ShardKey = own.ShardKey
+	other.ShardRef = own.ShardRef
 	other.PortMap["grpc"] = 1
 	require.NoError(t, setup.TopoServer.CreateMultipooler(ctx, other))
 	t.Cleanup(func() {

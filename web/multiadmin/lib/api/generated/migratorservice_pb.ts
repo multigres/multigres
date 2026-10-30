@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { ShardKey } from "./clustermetadata_pb";
+import { ShardRef } from "./clustermetadata_pb";
 
 /**
  * MigrationPhase is the lifecycle phase of a migration workflow.
@@ -383,15 +383,15 @@ export class MigrationRecord extends Message<MigrationRecord> {
 
   /**
    * target identifies the destination shard (database, table_group, shard).
-   * Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+   * Reuses clustermetadata.ShardRef so the shard-identity vocabulary is the
    * same across the topology and routing layers (see query.Target, which
    * reuses it for the same reason) — a database can have multiple
    * tablegroups, each with its own shard namespace, so database+shard alone
    * do not uniquely identify a shard.
    *
-   * @generated from field: clustermetadata.ShardKey target = 4;
+   * @generated from field: clustermetadata.ShardRef target = 4;
    */
-  target?: ShardKey;
+  target?: ShardRef;
 
   /**
    * @generated from field: migrator.SelectionObject objects = 6;
@@ -417,7 +417,7 @@ export class MigrationRecord extends Message<MigrationRecord> {
     { no: 1, name: "id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "connection_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "target", kind: "message", T: ShardKey },
+    { no: 4, name: "target", kind: "message", T: ShardRef },
     { no: 6, name: "objects", kind: "message", T: SelectionObject },
     { no: 7, name: "sequence_margin", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
@@ -1423,10 +1423,12 @@ export class DropMigrationResponse extends Message<DropMigrationResponse> {
 }
 
 /**
- * Connection is a stored, named source conninfo. It is scoped to the shard
- * whose Migrator created it — its row lives only in that shard's own
- * multigres.migration_connection, so which shard it belongs to is implied by
- * which Migrator you asked, not a field on the message. Every migration
+ * Connection is a stored, named source conninfo: a row of
+ * multigres.connections, the catalog table the Migrator shares with the other
+ * users of named connections. The table exists on the catalog shard only, so
+ * connections are created, read and dropped there; where the table is missing,
+ * CreateConnection, GetConnection, ListConnections, DropConnection and
+ * CreateMigration fail with FAILED_PRECONDITION. Every migration
  * references one by id via Migration.connection_name. Connections are
  * immutable once created: there is no in-place update, only create/drop —
  * so a migration's resolved source never changes underneath it except by

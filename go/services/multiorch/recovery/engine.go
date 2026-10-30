@@ -426,8 +426,8 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
 			ProblemCode:  string(p.Code),
-			DBNamespace:  p.ShardKey.Database,
-			Shard:        p.ShardKey.Shard,
+			DBNamespace:  p.ShardRef.Database,
+			Shard:        p.ShardRef.Shard,
 			EntityID:     p.EntityID(),
 		})
 	}
@@ -446,8 +446,8 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 		}
 		data = append(data, StreamHealthData{
 			PoolerID:          topoclient.ComponentIDString(state.Health().Multipooler.Id),
-			DBNamespace:       state.Health().Multipooler.GetShardKey().GetDatabase(),
-			Shard:             state.Health().Multipooler.GetShardKey().GetShard(),
+			DBNamespace:       state.Health().Multipooler.GetShardRef().GetDatabase(),
+			Shard:             state.Health().Multipooler.GetShardRef().GetShard(),
 			Connected:         state.Health().StreamConnected,
 			SnapshotsReceived: state.Health().StreamSnapshotsReceived,
 		})
@@ -470,14 +470,14 @@ func (re *Engine) logProblemTransitions(ctx context.Context, transitions problem
 		re.logger.InfoContext(ctx, "problem detected",
 			"problem_code", p.Code,
 			"entity_id", p.EntityID(),
-			"shard_key", commontypes.FormatShardKey(p.ShardKey),
+			"shard_key", commontypes.FormatShardRef(p.ShardRef),
 			"description", p.Description)
 	}
 	for _, c := range transitions.cleared {
 		re.logger.InfoContext(ctx, "problem cleared",
 			"problem_code", c.problem.Code,
 			"entity_id", c.problem.EntityID(),
-			"shard_key", commontypes.FormatShardKey(c.problem.ShardKey),
+			"shard_key", commontypes.FormatShardRef(c.problem.ShardRef),
 			"duration", c.duration)
 	}
 }
@@ -507,7 +507,7 @@ func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
 // GetPoolerHealthForShard returns health information for all poolers in a shard.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*store.Pooler {
-	return store.FindPoolersInShard(re.poolerCache, &clustermetadatapb.ShardKey{
+	return store.FindPoolersInShard(re.poolerCache, &clustermetadatapb.ShardRef{
 		Database:   database,
 		TableGroup: tableGroup,
 		Shard:      shard,

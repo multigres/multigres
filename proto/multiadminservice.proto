@@ -20,6 +20,7 @@ import "clustermetadata.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "migratorservice.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
 import "openapiv3/annotations.proto";
@@ -66,6 +67,8 @@ option (openapi.v3.document) = {
   tags: {name: "gateways" description: "Gateway discovery and query diagnostics."}
   tags: {name: "shards" description: "Shard rule changes and primary switchovers."}
   tags: {name: "jobs" description: "Asynchronous backup and restore jobs."}
+  tags: {name: "migrations" description: "Table migration into Multigres via logical replication."}
+  tags: {name: "connections" description: "Stored source connections for table migrations."}
   components: {
     security_schemes: {
       additional_properties: {
@@ -568,7 +571,7 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {
-      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"
+      post: "/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"
       body: "*"
     };
   }
@@ -600,9 +603,174 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {
-      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
+      post: "/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary"
       body: "*"
     };
+  }
+  //
+  // Table migration (Multigres Migrator). These forward to the owning Multigres Migrator.
+  //
+
+  // CreateMigration records a migration's configuration (no database changes).
+  rpc CreateMigration(migrator.CreateMigrationRequest) returns (migrator.CreateMigrationResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Create a migration"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/migrations"
+      body: "*"
+    };
+  }
+
+  // GetMigration returns status for one migration, addressed by ref (id or name).
+  rpc GetMigration(migrator.GetMigrationRequest) returns (migrator.GetMigrationResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a migration"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/migrations/{ref.id}"};
+  }
+
+  // ListMigrations returns the ids of every migration.
+  rpc ListMigrations(migrator.ListMigrationsRequest) returns (migrator.ListMigrationsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List migrations"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/migrations"};
+  }
+
+  // GetMigrationJournal returns a migration's append-only audit journal
+  // (oldest first).
+  rpc GetMigrationJournal(migrator.GetMigrationJournalRequest) returns (migrator.GetMigrationJournalResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a migration's journal"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/migrations/{id}/journal"};
+  }
+
+  // SetMigrationDirection sets the active direction: on a not-yet-started
+  // migration, direction=IMPORT runs the setup pipeline; otherwise it performs
+  // the symmetric cutover (IMPORT -> EXPORT) or rollback (EXPORT -> IMPORT).
+  rpc SetMigrationDirection(migrator.SetMigrationDirectionRequest) returns (migrator.SetMigrationDirectionResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Set a migration's direction"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/migrations/{ref.id}/direction"
+      body: "*"
+    };
+  }
+
+  // DropMigration tears down and removes a migration.
+  rpc DropMigration(migrator.DropMigrationRequest) returns (migrator.DropMigrationResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Drop a migration"
+      tags: "migrations"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {delete: "/api/v1/migrations/{ref.id}"};
+  }
+
+  // CreateConnection stores a named source conninfo, shard-scoped.
+  rpc CreateConnection(migrator.CreateConnectionRequest) returns (migrator.CreateConnectionResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Create a connection"
+      tags: "connections"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/connections"
+      body: "*"
+    };
+  }
+
+  // GetConnection returns one connection, addressed by ref (id or name).
+  rpc GetConnection(migrator.GetConnectionRequest) returns (migrator.GetConnectionResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a connection"
+      tags: "connections"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/connections/{ref.id}"};
+  }
+
+  // ListConnections returns every stored connection in full.
+  rpc ListConnections(migrator.ListConnectionsRequest) returns (migrator.ListConnectionsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List connections"
+      tags: "connections"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/connections"};
+  }
+
+  // DropConnection removes a connection.
+  rpc DropConnection(migrator.DropConnectionRequest) returns (migrator.DropConnectionResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Drop a connection"
+      tags: "connections"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {delete: "/api/v1/connections/{ref.id}"};
   }
 }
 
@@ -974,7 +1142,7 @@ message ApplyCertifiedRuleChangeRequest {
     }}
   };
   // Shard to apply the rule change to.
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 
   // The transition to install. The caller must populate proposal's leader_id,
   // cohort_members, and durability_policy. The caller may also populate
@@ -1045,7 +1213,7 @@ message ApplyCertifiedRuleChangeResponse {
 // SwitchPrimaryRequest identifies the shard and the audit reason for a graceful switchover.
 message SwitchPrimaryRequest {
   // Shard to perform the switchover on (required).
-  clustermetadata.ShardKey shard_key = 1;
+  clustermetadata.ShardRef shard_ref = 1;
 
   // Free-text reason recorded in rule_history for audit.
   string reason = 2;

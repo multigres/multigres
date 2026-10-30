@@ -169,6 +169,9 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 	if name == "stats" || name == "sysviews" {
 		input = normalizePreparedStatementCatalog(input)
 	}
+	if name == "stats" {
+		input = normalizeDatabaseSessionsCheck(input)
+	}
 	if name == "event_trigger_login" {
 		input = normalizeEventTriggerLoginCount(input)
 	}
@@ -186,20 +189,42 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 // WARNING/HINT at CREATE EVENT TRIGGER ... ON login and the absent per-\c
 // NOTICEs) are still handled by the patch.
 func normalizeEventTriggerLoginCount(input []byte) []byte {
+	return maskScalarResult(input, "SELECT COUNT(*) FROM user_logins;", isAllDigits, "<user_logins_count>")
+}
+
+// normalizeDatabaseSessionsCheck masks the `sessions > :db_stat_sessions`
+// boolean in the stats test. pg_stat_database.sessions counts backend starts,
+// which under pooling happen on multipooler's own schedule (session scrubber,
+// reserved-connection inactivity kill, rebalancer) rather than on the client's
+// \c reconnect, so whether the counter moved inside the test's window is
+// timing (observed as both t and f across CI runs) and is masked on both the
+// expected and actual output before comparison.
+func normalizeDatabaseSessionsCheck(input []byte) []byte {
+	return maskScalarResult(input,
+		"SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database());",
+		isPsqlBool, "<sessions_incremented>")
+}
+
+// maskScalarResult replaces the single-column, single-row result of every
+// occurrence of query with placeholder. psql prints that result three lines
+// below the echoed query (header, separator, value), so only that line is
+// touched, and only when isValue accepts it; an errored query leaves no
+// value there and nothing is masked.
+func maskScalarResult(input []byte, query string, isValue func(string) bool, placeholder string) []byte {
 	lines := strings.Split(string(input), "\n")
-	armed := false
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "SELECT COUNT(*) FROM user_logins;" {
-			armed = true
+		if strings.TrimSpace(line) != query || i+3 >= len(lines) {
 			continue
 		}
-		if armed && isAllDigits(trimmed) {
-			lines[i] = "<user_logins_count>"
-			armed = false
+		if isValue(strings.TrimSpace(lines[i+3])) {
+			lines[i+3] = placeholder
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
+}
+
+func isPsqlBool(s string) bool {
+	return s == "t" || s == "f"
 }
 
 func isAllDigits(s string) bool {

@@ -63,7 +63,7 @@ func registerPooler(t *testing.T, re *Engine, cell, name string) *clustermetadat
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER, Cell: cell, Name: name,
 		},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: name + ".local",
 	}
 	require.NoError(t, re.ts.CreateMultipooler(context.Background(), p))

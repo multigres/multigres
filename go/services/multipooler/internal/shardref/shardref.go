@@ -14,7 +14,7 @@
 
 // Package shardref defines multigres.shard_ref, the composite type that names
 // a shard: (database, table_group, shard), the SQL mirror of
-// clustermetadata.ShardKey with the same field order. Any shard-local record
+// clustermetadata.ShardRef with the same field order. Any shard-local record
 // that needs to name a shard without a foreign key into the sharding catalog
 // uses it (e.g. multigres.migration.migration_target). It is created on every
 // shard.

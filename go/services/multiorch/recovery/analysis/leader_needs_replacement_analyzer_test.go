@@ -60,7 +60,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	follower2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-2"}
 	observerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "observer-1"}
 	priorLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "prior-leader-1"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
 		return &clustermetadatapb.DurabilityPolicy{
@@ -77,7 +77,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// independently vouch for the leader either.
 	freshFollower := func(id *clustermetadatapb.ID, now time.Time) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shardRef},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -103,7 +103,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	deadLeaderShard := func(overrides ...func(*snapshot.Shard)) *snapshot.Shard {
 		now := time.Now()
 		sa := newTestShard(&snapshot.Shard{
-			ShardKey:           shardKey,
+			ShardRef:           shardRef,
 			Now:                now,
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 			Poolers: []*multiorchdatapb.PoolerHealthState{
@@ -119,7 +119,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		}}, &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       leaderID,
-				ShardKey: shardKey,
+				ShardRef: shardRef,
 				Hostname: "leader-host",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
@@ -252,7 +252,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 				continue
 			}
 			sa.Poolers[i] = &multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shardRef},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
@@ -344,7 +344,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// classifyFollowerToLeader guard. cutOffFollower is the fully-cut-off case.
 	cutOffCandidate := func(id, ruleLeader *clustermetadatapb.ID, ruleCreated time.Time, connHost string, connPort int32, now time.Time) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shardRef},
 			LastSeen:    timestamppb.New(now),
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -444,7 +444,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// durability-sufficient revocation → failover.
 		viaReplPrimary := func(id *clustermetadatapb.ID, now time.Time) *multiorchdatapb.PoolerHealthState {
 			return &multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shardRef},
 				LastSeen:    timestamppb.New(now),
 				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 					Id:              id,
@@ -957,7 +957,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// this would be LeaderUnreachableByCohort.
 		sa := deadLeaderShard(func(sa *snapshot.Shard) {
 			replacePooler(sa, follower1ID, &multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
+				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardRef: shardRef},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
@@ -989,7 +989,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// ShardStuck when the positive streaming signal is dropped.
 		sa := deadLeaderShard(func(sa *snapshot.Shard) {
 			replacePooler(sa, follower1ID, &multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
+				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardRef: shardRef},
 				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,

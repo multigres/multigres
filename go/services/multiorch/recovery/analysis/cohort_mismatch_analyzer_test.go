@@ -50,7 +50,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 	replicaA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-a"}
 	replicaB := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-b"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	// healthyReplicaPA returns a rider for a healthy, replicating REPLICA,
 	// optionally with a cohort eligibility signal.
@@ -62,7 +62,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 			}
 		}
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler:        &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			Multipooler:        &clustermetadatapb.Multipooler{Id: id, ShardRef: shardRef},
 			LastSeen:           timestamppb.Now(),
 			AvailabilityStatus: av,
 			Status: &multipoolermanagerdatapb.Status{
@@ -85,7 +85,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	// subtests that want an unusable leader mutate sa.IntendedLeaderHealth() (see below).
 	leaderRider := func() *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
+			Multipooler:     &clustermetadatapb.Multipooler{Id: primaryID, ShardRef: shardRef},
 			LastSeen:        timestamppb.Now(),
 			ConsensusStatus: primaryConsensusStatus(primaryID, 1),
 			Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
@@ -96,7 +96,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		leader := leaderRider()
 		analyses := append([]*multiorchdatapb.PoolerHealthState{leader}, replicas...)
 		return newTestShard(&snapshot.Shard{
-			ShardKey:           shardKey,
+			ShardRef:           shardRef,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 			Poolers:            analyses,
@@ -128,7 +128,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
 		}
 		return newTestShard(&snapshot.Shard{
-			ShardKey:           shardKey,
+			ShardRef:           shardRef,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 			Poolers:            full,
@@ -169,7 +169,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// already considered a member and must NOT be flagged as missing.
 		leader := leaderRider()
 		sa := newTestShard(&snapshot.Shard{
-			ShardKey:           shardKey,
+			ShardRef:           shardRef,
 			Now:                time.Now(),
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),
 			Poolers: []*multiorchdatapb.PoolerHealthState{

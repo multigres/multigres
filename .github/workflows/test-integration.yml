@@ -115,24 +115,26 @@ jobs:
           TEST_PACKAGES: ${{ matrix.packages }}
           SKIP_PACKAGES: ${{ matrix.skip_packages }}
           SHARD: ${{ matrix.shard }}
-        run: .github/scripts/run-integration-slice.sh
+        run: |
+          rm -f integration-test-results.{jsonl,xml}
+          .github/scripts/run-integration-slice.sh
 
-      - name: Stop port pool server
-        run: kill "$PORT_POOL_PID" || true
-
-      - name: Write timing summary
-        if: ${{ !cancelled() }}
-        run: go run ./go/tools/testtiming/summary
-
-      - name: Upload test results to Trunk
-        if: ${{ !cancelled() }}
+      - name: Upload results and apply Trunk quarantine
+        if: ${{ !cancelled() && steps.integration-tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
           junit-paths: integration-test-results.xml
           previous-step-outcome: ${{ steps.integration-tests.outcome }}
           allow-quarantine: "true"
 
-      # The "-test-logs" suffix is what the flaky-test aggregator matches on.
+      - name: Stop port pool server
+        if: always()
+        run: kill "$PORT_POOL_PID" || true
+
+      - name: Write timing summary
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/testtiming/summary
+
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -150,6 +152,7 @@ jobs:
           name: Integration Tests (${{ matrix.name }})
           path: integration-test-results.jsonl
           reporter: golang-json
+          fail-on-error: "false" # Trunk owns the test failure decision.
 
       # Only upload test results from main-branch pushes. On PRs, Codecov's
       # test-results comment template replaces the coverage comment when any

@@ -32,7 +32,7 @@ import (
 // are shared with the cache, which only replaces them and never edits one in
 // place, so consumers must treat everything here as read-only.
 type Shard struct {
-	ShardKey *clustermetadatapb.ShardKey
+	ShardRef *clustermetadatapb.ShardRef
 	// Poolers holds the health snapshot of every pooler in the shard, captured
 	// once, so all reads agree.
 	Poolers []*multiorchdatapb.PoolerHealthState

@@ -90,7 +90,7 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 // isCatalogShard reports whether this pooler serves the shard that hosts the
 // sharding catalog.
 func (pm *MultipoolerManager) isCatalogShard() bool {
-	return constants.IsCatalogShard(pm.record.ShardKey().GetTableGroup(), pm.record.ShardKey().GetShard())
+	return constants.IsCatalogShard(pm.record.ShardRef().GetTableGroup(), pm.record.ShardRef().GetShard())
 }
 
 // ensureSidecarSchemas idempotently (re-)creates the sidecar tables that a
@@ -206,9 +206,13 @@ GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 }
 
 // createMigrationTable creates the Multigres Migrator coordinator's state
-// tables: migration_connection, migration, and migration_tables. Idempotent.
-// No PUBLIC grant since migration_connection rows hold the source DSN, so
-// they stay readable only through the admin pool.
+// tables: migration, migration_tables, and migration_journal. Idempotent.
+// No PUBLIC grant, so they stay readable only through the admin pool.
+//
+// The migrator's connections are not here: they live in multigres.connections,
+// a catalog table on the catalog shard (see ensureCatalogSchema). The migrator's
+// own schema ensure adds the foreign key from multigres.migration into it where it
+// exists (see migration.AddConnectionForeignKeySQL); this definition has none.
 func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -226,8 +230,6 @@ func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 		label string
 		sql   string
 	}{
-		{"migration_connection table", migration.CreateMigrationConnectionSQL},
-		{"migration_connection name index", migration.MigrationConnectionNameUniqueIndexSQL},
 		{"migration table", migration.CreateMigrationSQL},
 		{"migration_tables table", migration.CreateMigrationTablesSQL},
 		{"migration_journal table", migration.CreateMigrationJournalSQL},

@@ -20,14 +20,14 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// ShardKeyString is the stable string representation of a shard key.
+// ShardRefString is the stable string representation of a shard identity (ShardRef).
 // Use as map keys, log fields, and error context.
-type ShardKeyString string
+type ShardRefString string
 
-// FormatShardKey returns the ShardKeyString for a proto ShardKey.
-func FormatShardKey(k *clustermetadatapb.ShardKey) ShardKeyString {
+// FormatShardRef returns the ShardRefString for a proto ShardRef.
+func FormatShardRef(k *clustermetadatapb.ShardRef) ShardRefString {
 	if k == nil {
 		return ""
 	}
-	return ShardKeyString(fmt.Sprintf("%s/%s/%s", k.Database, k.TableGroup, k.Shard))
+	return ShardRefString(fmt.Sprintf("%s/%s/%s", k.Database, k.TableGroup, k.Shard))
 }

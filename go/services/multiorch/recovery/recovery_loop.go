@@ -55,7 +55,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
 					"analyzer", analyzer.Name(),
-					"shard", snap.ShardKey,
+					"shard", snap.ShardRef,
 					"error", err,
 				)
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
@@ -88,7 +88,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		wg.Add(1)
 		go func(problems []types.Problem) {
 			defer wg.Done()
-			re.processShardProblems(ctx, problems[0].ShardKey, problems)
+			re.processShardProblems(ctx, problems[0].ShardRef, problems)
 		}(shardProblems)
 	}
 	wg.Wait()
@@ -103,7 +103,7 @@ func (re *Engine) groupProblemsByShard(problems []types.Problem) map[string][]ty
 	grouped := make(map[string][]types.Problem)
 
 	for _, problem := range problems {
-		key := string(commontypes.FormatShardKey(problem.ShardKey))
+		key := string(commontypes.FormatShardRef(problem.ShardRef))
 		grouped[key] = append(grouped[key], problem)
 	}
 
@@ -111,11 +111,11 @@ func (re *Engine) groupProblemsByShard(problems []types.Problem) map[string][]ty
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermetadatapb.ShardKey, problems []types.Problem) {
+func (re *Engine) processShardProblems(ctx context.Context, shardRef *clustermetadatapb.ShardRef, problems []types.Problem) {
 	re.logger.DebugContext(ctx, "processing shard problems",
-		"database", shardKey.Database,
-		"tablegroup", shardKey.TableGroup,
-		"shard", shardKey.Shard,
+		"database", shardRef.Database,
+		"tablegroup", shardRef.TableGroup,
+		"shard", shardRef.Shard,
 		"problem_count", len(problems),
 	)
 
@@ -264,9 +264,9 @@ func (re *Engine) filterAndPrioritize(ctx context.Context, problems []types.Prob
 // path or filterAndPrioritize already found it gated.
 func recoveryAttemptAttributes(problem types.Problem) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String("shard.database", problem.ShardKey.GetDatabase()),
-		attribute.String("shard.tablegroup", problem.ShardKey.GetTableGroup()),
-		attribute.String("shard.id", problem.ShardKey.GetShard()),
+		attribute.String("shard.database", problem.ShardRef.GetDatabase()),
+		attribute.String("shard.tablegroup", problem.ShardRef.GetTableGroup()),
+		attribute.String("shard.id", problem.ShardRef.GetShard()),
 		attribute.String("problem.code", string(problem.Code)),
 		attribute.String("entity.id", problem.EntityID()),
 		attribute.String("action.name", problem.RecoveryAction.Metadata().Name),
@@ -343,7 +343,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// orchestrator acting: a recruit based on an out-of-date term is rejected by the
 	// pooler's term check.
 	if timeout := problem.RecoveryAction.Metadata().RefreshBeforeRecheckTimeout; timeout > 0 && !problem.SkipPreRecheckRefresh {
-		poolers := store.FindPoolersInShard(re.poolerCache, problem.ShardKey)
+		poolers := store.FindPoolersInShard(re.poolerCache, problem.ShardRef)
 		refreshCtx, refreshSpan := telemetry.Tracer().Start(ctx, "recovery/pre_recheck_refresh")
 		refresh := store.RefreshRecentInParallel(refreshCtx, re.rpcClient, poolers, timeout, re.logger)
 		refreshSpan.SetAttributes(
@@ -408,7 +408,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"entity_id", entityID,
 			"error", err,
 		)
-		re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure, problem.ShardKey.Database, problem.ShardKey.Shard)
+		re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure, problem.ShardRef.Database, problem.ShardRef.Shard)
 		return
 	}
 
@@ -417,7 +417,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"problem_code", problem.Code,
 		"entity_id", entityID,
 	)
-	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess, problem.ShardKey.Database, problem.ShardKey.Shard)
+	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess, problem.ShardRef.Database, problem.ShardRef.Shard)
 }
 
 // recheckProblem re-runs analysis on the current store state to confirm the
@@ -446,7 +446,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 	// Freeze the shard again from current store data.
 	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
 	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
-	snap, err := store.SnapshotShard(re.poolerCache, problem.ShardKey, re.snapshotOptions(ctx))
+	snap, err := store.SnapshotShard(re.poolerCache, problem.ShardRef, re.snapshotOptions(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to snapshot shard after re-poll: %w", err)
 	}
@@ -545,7 +545,7 @@ func (re *Engine) bootstrapPolicyLookup(ctx context.Context) func(string) *clust
 // Revisit if this causes false-positive failovers.
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
 	if problem.Code.IsFailoverProblem() {
-		return re.nextFailoverAttempt(problem.ShardKey)
+		return re.nextFailoverAttempt(problem.ShardRef)
 	}
 	return time.Time{}, true
 }
@@ -560,8 +560,8 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 // streams back, so it may briefly re-enter the failover gate right after
 // recruiting. Bounded by recheckProblem, the term CAS (a stale re-attempt
 // loses), and the next cycle observing the new revocation.
-func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
-	poolers := store.FindPoolersInShard(re.poolerCache, shardKey)
+func (re *Engine) nextFailoverAttempt(shardRef *clustermetadatapb.ShardRef) (readyAt time.Time, ready bool) {
+	poolers := store.FindPoolersInShard(re.poolerCache, shardRef)
 	healthStates := make([]*multiorchdatapb.PoolerHealthState, len(poolers))
 	for i, p := range poolers {
 		healthStates[i] = p.Health()

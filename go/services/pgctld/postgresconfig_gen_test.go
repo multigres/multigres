@@ -188,6 +188,14 @@ func TestPostgresTemplateUsesWalSettings(t *testing.T) {
 	assert.Contains(t, result, "max_slot_wal_keep_size = 243MB")
 }
 
+// pg_cron must not connect through libpq: pg_hba.conf requires scram-sha-256
+// and jobs owned by roles other than the pgctld superuser have no password.
+func TestPostgresTemplateRunsPgCronInBackgroundWorkers(t *testing.T) {
+	result, err := (&PostgresServerConfig{}).MakePostgresConf(config.PostgresConfigDefaultTmpl)
+	require.NoError(t, err)
+	assert.Contains(t, result, "\ncron.use_background_workers = on\n")
+}
+
 func TestGeneratePostgresServerConfigExtraConfFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")

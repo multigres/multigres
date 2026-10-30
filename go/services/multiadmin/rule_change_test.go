@@ -64,7 +64,7 @@ func orchID(cell, name string) *clustermetadatapb.ID {
 func makePooler(cell, name string) *clustermetadatapb.Multipooler {
 	return &clustermetadatapb.Multipooler{
 		Id: poolerID(cell, name),
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "db1",
 			TableGroup: "default",
 			Shard:      "0-inf",
@@ -389,19 +389,19 @@ func TestFindRuleByNumber_NotFound(t *testing.T) {
 
 // ---- ApplyCertifiedRuleChange validation ----
 
-func TestApplyCertifiedRuleChange_RejectsMissingShardKey(t *testing.T) {
+func TestApplyCertifiedRuleChange_RejectsMissingShardRef(t *testing.T) {
 	s := newTestServer(t)
 	_, err := s.ApplyCertifiedRuleChange(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "shard_key")
+	assert.Contains(t, st.Message(), "shard_ref")
 }
 
 func TestApplyCertifiedRuleChange_RejectsMissingProposedRule(t *testing.T) {
 	s := newTestServer(t)
 	_, err := s.ApplyCertifiedRuleChange(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 	})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
@@ -412,7 +412,7 @@ func TestApplyCertifiedRuleChange_RejectsMissingProposedRule(t *testing.T) {
 func TestApplyCertifiedRuleChange_RejectsMissingCertSource(t *testing.T) {
 	s := newTestServer(t)
 	_, err := s.ApplyCertifiedRuleChange(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:           &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef:           &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{}},
 	})
 	require.Error(t, err)
@@ -665,7 +665,7 @@ func startFakeOrch(t *testing.T, fake *fakeMultiorchServer) func(context.Context
 // validation and reach the orch.
 func validApplyRequest(leader *clustermetadatapb.ID, cohort []*clustermetadatapb.ID) *multiadminpb.ApplyCertifiedRuleChangeRequest {
 	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 		ProposedTransition: &clustermetadatapb.RulePosition{
 			Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:         leader,

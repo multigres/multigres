@@ -51,6 +51,10 @@ inputs:
       quarantine decision itself is Trunk's; this only permits it.
     required: false
     default: "false"
+  variant:
+    description: Optional test environment to track independently in Trunk.
+    required: false
+    default: ""
   org-slug:
     description: Trunk organization slug. Non-secret; safe to commit.
     required: false
@@ -82,4 +86,5 @@ runs:
         test-collection-id: ${{ inputs.test-collection-id }}
         allow-forked-pr-uploads: "true"
         quarantine: ${{ inputs.allow-quarantine }}
+        variant: ${{ inputs.variant }}
         previous-step-outcome: ${{ steps.prepare.outputs.previous-step-outcome }}

@@ -276,6 +276,13 @@ func (m *mockHandler) GetPreparedStatementInfo(connID uint32, name string) *prep
 	return nil
 }
 
+func (m *mockHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+}
+
+func (m *mockHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return nil
+}
+
 // mockCredentialProvider implements server.CredentialProvider for testing.
 // It returns a fixed SCRAM hash for any user/database combination and a
 // configurable rolreplication flag / lookup error so tests can exercise
