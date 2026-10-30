@@ -411,7 +411,7 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		case HarnessPgTAP:
 			res, err = pb.runExternalPgTAP(t, ctx, ext, testDir, pgBinDir, multigatewayPort, directPgPort, password)
 		case HarnessSmoke:
-			res, err = pb.runExternalSmoke(t, ext, multigatewayPort, password)
+			res, err = pb.runExternalSmoke(t, ctx, ext, multigatewayPort, password)
 		case HarnessPgRegress:
 			res, err = pb.runExternalRegress(t, ctx, ext, cloneDir, testDir, pgBinDir, multigatewayPort, password)
 		default:
@@ -462,7 +462,7 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 
 // runExternalSmoke verifies a build-only extension can be loaded through
 // multigateway. It intentionally does not run upstream regression fixtures.
-func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension, multigatewayPort int, password string) (*TestResults, error) {
+func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ctx context.Context, ext ExternalExtension, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
 	start := time.Now()
@@ -499,8 +499,8 @@ func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension,
 	if len(ext.SmokeSQL) > 0 {
 		// One gateway connection for the whole list, so statements that build
 		// on session state would see it (database/sql would otherwise hand
-		// each Exec whichever pooled connection is free).
-		ctx := context.Background()
+		// each Exec whichever pooled connection is free). The suite context
+		// bounds every statement, so a stalled wrapper cannot outlive the run.
 		db, err := openPostgres(multigatewayPort, password)
 		if err != nil {
 			return res, err
