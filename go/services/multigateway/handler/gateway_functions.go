@@ -25,10 +25,10 @@ import (
 
 // Gateway-provided SQL functions have no backend implementation, so the gateway
 // folds them into constants before the query reaches PostgreSQL. Currently only
-// `multigres.version()`, folded to a text literal of the version — which means it
+// `multigres.version()`, folded to a text constant of the version — which means it
 // works in ANY expression position (target list, WHERE, function argument, ...)
-// in both the simple and extended protocols, unlike a standalone-only
-// interception.
+// and as a FROM item, in both the simple and extended protocols, unlike a
+// standalone-only interception.
 //
 // Folding happens once the query is parsed, so every downstream consumer — the
 // planner, the plan cache, and the extended protocol's Describe/Execute, which
@@ -90,33 +90,79 @@ func renderStatements(stmts []ast.Stmt) string {
 }
 
 // foldMultigresVersion replaces every `multigres.version()` call in stmt with a
-// text literal of version, returning whether it changed anything. When the call
+// text constant of version, returning whether it changed anything. When the call
 // is a bare top-level target with no alias it also sets the column label to
 // `version`, so the result matches what a real `version()` would be labelled
 // (a bare literal would otherwise be labelled `?column?`).
+//
+// A FROM item is not an expression position: the grammar only accepts a
+// function-like expression there, so a literal would be a syntax error. There
+// the call becomes versionFromItem instead. `CALL multigres.version()` names a
+// procedure rather than evaluating an expression, so it is left for the backend
+// to reject.
 func foldMultigresVersion(stmt ast.Stmt, version string) bool {
 	changed := false
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		switch n := cursor.Node().(type) {
 		case *ast.ResTarget:
-			if fc, ok := n.Val.(*ast.FuncCall); ok && isMultigresVersionFunc(fc) {
-				if n.Name == "" {
-					n.Name = constants.MultigresVersionFunction
+			// Label a bare call `version`, as PostgreSQL labels version(). The
+			// FuncCall case below replaces it.
+			if fc, ok := n.Val.(*ast.FuncCall); ok && n.Name == "" && isMultigresVersionFunc(fc) {
+				n.Name = constants.MultigresVersionFunction
+			}
+		case *ast.RangeFunction:
+			// A FROM item must stay function-like. Each item is a (function,
+			// column definitions) pair; the other functions' arguments are
+			// expressions, folded as the walk continues.
+			for _, item := range n.Functions.Items {
+				pair := item.(*ast.NodeList)
+				if fc, _ := pair.Items[0].(*ast.FuncCall); isMultigresVersionFunc(fc) {
+					pair.Items[0] = versionFromItem(version)
+					changed = true
 				}
-				n.Val = ast.NewA_Const(ast.NewString(version), 0)
-				changed = true
-				return false
 			}
 		case *ast.FuncCall:
-			if isMultigresVersionFunc(n) {
-				cursor.Replace(ast.NewA_Const(ast.NewString(version), 0))
+			// Anywhere else it is an expression, except the procedure name of CALL.
+			if _, isCall := cursor.Parent().(*ast.CallStmt); !isCall && isMultigresVersionFunc(n) {
+				cursor.Replace(versionText(version))
 				changed = true
-				return false
 			}
 		}
 		return true
 	}, nil)
 	return changed
+}
+
+// versionText is the expression-position fold: `CAST('<version>' AS text)`.
+// The cast types the constant as text, as version() is; a bare literal would be
+// of type unknown (visible through pg_typeof, and resolved differently in
+// operator and function overload resolution). The type name is unqualified
+// because the deparser drops `pg_catalog.` from built-in types anyway; it
+// resolves through the session's search_path like any cast the user writes,
+// and like version() itself.
+func versionText(version string) ast.Node {
+	return ast.NewTypeCast(ast.NewA_Const(ast.NewString(version), 0), ast.NewTypeName([]string{"text"}), 0)
+}
+
+// versionFromItem is the FROM-item fold:
+//
+//	CAST((SELECT CAST('<version>' AS text) AS version) AS text)
+//
+// CAST is one of the function-like expressions the grammar accepts as a FROM
+// item. PostgreSQL names a scalar FROM item's column (and, when unaliased, the
+// item itself) after FigureColname of the expression, which looks through a
+// CAST into a scalar subquery and takes the subquery's column name: `version`,
+// as for version(). An alias renames them as it would for version(), and WITH
+// ORDINALITY, LATERAL, ROWS FROM (with other functions, in any position) and a
+// rejected column definition list behave the same, with no alias rewriting.
+//
+// The alternative, `pg_catalog.unnest(ARRAY[...])` with an injected `version`
+// alias, labels the column `unnest` inside a multi-function ROWS FROM, where
+// PostgreSQL takes column names from the functions, not the alias.
+func versionFromItem(version string) ast.Node {
+	sel := ast.NewSelectStmt()
+	sel.TargetList.Append(ast.NewResTarget(constants.MultigresVersionFunction, versionText(version)))
+	return ast.NewTypeCast(ast.NewSubLink(ast.EXPR_SUBLINK, sel), ast.NewTypeName([]string{"text"}), 0)
 }
 
 // isMultigresVersionFunc reports whether fc is a zero-argument, schema-qualified
