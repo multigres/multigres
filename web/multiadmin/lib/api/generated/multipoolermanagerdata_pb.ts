@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, KeyRange, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -328,6 +328,41 @@ proto3.util.setEnumType(SynchronousCommitLevel, "multipoolermanagerdata.Synchron
   { no: 2, name: "SYNCHRONOUS_COMMIT_REMOTE_WRITE" },
   { no: 3, name: "SYNCHRONOUS_COMMIT_ON" },
   { no: 4, name: "SYNCHRONOUS_COMMIT_REMOTE_APPLY" },
+]);
+
+/**
+ * RoutingRuleScope is the kind of a routing rule.
+ *
+ * @generated from enum multipoolermanagerdata.RoutingRuleScope
+ */
+export enum RoutingRuleScope {
+  /**
+   * @generated from enum value: ROUTING_RULE_SCOPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A shard rule: the routing identifiers of the source tablegroup that fall
+   * in the target shard's range are served by that shard. Applied when a query
+   * executes.
+   *
+   * @generated from enum value: ROUTING_RULE_SCOPE_TABLEGROUP = 1;
+   */
+  TABLEGROUP = 1,
+
+  /**
+   * A table rule: the table is planned as a member of the target tablegroup.
+   * Applied when a query is planned.
+   *
+   * @generated from enum value: ROUTING_RULE_SCOPE_TABLE = 2;
+   */
+  TABLE = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(RoutingRuleScope)
+proto3.util.setEnumType(RoutingRuleScope, "multipoolermanagerdata.RoutingRuleScope", [
+  { no: 0, name: "ROUTING_RULE_SCOPE_UNSPECIFIED" },
+  { no: 1, name: "ROUTING_RULE_SCOPE_TABLEGROUP" },
+  { no: 2, name: "ROUTING_RULE_SCOPE_TABLE" },
 ]);
 
 /**
@@ -2734,6 +2769,541 @@ export class SettingMismatch extends Message<SettingMismatch> {
 
   static equals(a: SettingMismatch | PlainMessage<SettingMismatch> | undefined, b: SettingMismatch | PlainMessage<SettingMismatch> | undefined): boolean {
     return proto3.util.equals(SettingMismatch, a, b);
+  }
+}
+
+/**
+ * RoutingTableName names a table by schema and name.
+ *
+ * @generated from message multipoolermanagerdata.RoutingTableName
+ */
+export class RoutingTableName extends Message<RoutingTableName> {
+  /**
+   * @generated from field: string schema = 1;
+   */
+  schema = "";
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name = "";
+
+  constructor(data?: PartialMessage<RoutingTableName>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.RoutingTableName";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "schema", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RoutingTableName | PlainMessage<RoutingTableName> | undefined, b: RoutingTableName | PlainMessage<RoutingTableName> | undefined): boolean {
+    return proto3.util.equals(RoutingTableName, a, b);
+  }
+}
+
+/**
+ * RoutingRule is one rule of a database's routing: traffic the catalog would
+ * send to the source is served by the target while the owning operation runs.
+ * A gateway applies a rule as a single hop on top of the catalog; a rule's
+ * target is never routed again.
+ *
+ * @generated from message multipoolermanagerdata.RoutingRule
+ */
+export class RoutingRule extends Message<RoutingRule> {
+  /**
+   * rule_id identifies the rule within its database's catalog.
+   *
+   * @generated from field: int64 rule_id = 1;
+   */
+  ruleId = protoInt64.zero;
+
+  /**
+   * operation_id is the operation that owns the rule (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * @generated from field: multipoolermanagerdata.RoutingRuleScope scope = 3;
+   */
+  scope = RoutingRuleScope.UNSPECIFIED;
+
+  /**
+   * from_tablegroup is the tablegroup whose traffic the rule overrides.
+   *
+   * @generated from field: string from_tablegroup = 4;
+   */
+  fromTablegroup = "";
+
+  /**
+   * from_table is the overridden table. Set only for table rules.
+   *
+   * @generated from field: multipoolermanagerdata.RoutingTableName from_table = 5;
+   */
+  fromTable?: RoutingTableName;
+
+  /**
+   * to_tablegroup is the tablegroup that serves the traffic.
+   *
+   * @generated from field: string to_tablegroup = 6;
+   */
+  toTablegroup = "";
+
+  /**
+   * to_shard is the shard that serves the traffic. Set only for shard rules;
+   * the rule covers exactly this shard's range.
+   *
+   * @generated from field: string to_shard = 7;
+   */
+  toShard = "";
+
+  /**
+   * to_key_range is to_shard's key range. An unset start or end is unbounded.
+   *
+   * @generated from field: clustermetadata.KeyRange to_key_range = 8;
+   */
+  toKeyRange?: KeyRange;
+
+  /**
+   * to_shard_key is the name of the table's shard key in the target
+   * tablegroup. Set only for table rules that change the key.
+   *
+   * @generated from field: string to_shard_key = 9;
+   */
+  toShardKey = "";
+
+  /**
+   * created_version is the routing version that introduced the rule.
+   *
+   * @generated from field: int64 created_version = 10;
+   */
+  createdVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<RoutingRule>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.RoutingRule";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "rule_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "scope", kind: "enum", T: proto3.getEnumType(RoutingRuleScope) },
+    { no: 4, name: "from_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "from_table", kind: "message", T: RoutingTableName },
+    { no: 6, name: "to_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "to_shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "to_key_range", kind: "message", T: KeyRange },
+    { no: 9, name: "to_shard_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "created_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingRule {
+    return new RoutingRule().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RoutingRule | PlainMessage<RoutingRule> | undefined, b: RoutingRule | PlainMessage<RoutingRule> | undefined): boolean {
+    return proto3.util.equals(RoutingRule, a, b);
+  }
+}
+
+/**
+ * ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+ * of from_tablegroup in to_shard's range are served by to_shard of
+ * to_tablegroup.
+ *
+ * @generated from message multipoolermanagerdata.ShardRoutingRuleSpec
+ */
+export class ShardRoutingRuleSpec extends Message<ShardRoutingRuleSpec> {
+  /**
+   * @generated from field: string from_tablegroup = 1;
+   */
+  fromTablegroup = "";
+
+  /**
+   * @generated from field: string to_tablegroup = 2;
+   */
+  toTablegroup = "";
+
+  /**
+   * @generated from field: string to_shard = 3;
+   */
+  toShard = "";
+
+  constructor(data?: PartialMessage<ShardRoutingRuleSpec>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ShardRoutingRuleSpec";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "from_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "to_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "to_shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ShardRoutingRuleSpec | PlainMessage<ShardRoutingRuleSpec> | undefined, b: ShardRoutingRuleSpec | PlainMessage<ShardRoutingRuleSpec> | undefined): boolean {
+    return proto3.util.equals(ShardRoutingRuleSpec, a, b);
+  }
+}
+
+/**
+ * GetRoutingSnapshotRequest asks the catalog primary for a database's routing.
+ *
+ * @generated from message multipoolermanagerdata.GetRoutingSnapshotRequest
+ */
+export class GetRoutingSnapshotRequest extends Message<GetRoutingSnapshotRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * since_version is the routing version the caller already holds, or 0.
+   * Reserved for incremental snapshots; the full snapshot is returned today.
+   *
+   * @generated from field: int64 since_version = 2;
+   */
+  sinceVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<GetRoutingSnapshotRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetRoutingSnapshotRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "since_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingSnapshotRequest | PlainMessage<GetRoutingSnapshotRequest> | undefined, b: GetRoutingSnapshotRequest | PlainMessage<GetRoutingSnapshotRequest> | undefined): boolean {
+    return proto3.util.equals(GetRoutingSnapshotRequest, a, b);
+  }
+}
+
+/**
+ * GetRoutingSnapshotResponse is a database's routing, read in one consistent
+ * snapshot of its catalog.
+ *
+ * @generated from message multipoolermanagerdata.GetRoutingSnapshotResponse
+ */
+export class GetRoutingSnapshotResponse extends Message<GetRoutingSnapshotResponse> {
+  /**
+   * routing_version increases with every change to effective routing.
+   *
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  /**
+   * plan_epoch increases when the inputs of query plans change.
+   *
+   * @generated from field: int64 plan_epoch = 2;
+   */
+  planEpoch = protoInt64.zero;
+
+  /**
+   * full is set when rules holds every rule rather than changes since
+   * since_version. Always set today.
+   *
+   * @generated from field: bool full = 3;
+   */
+  full = false;
+
+  /**
+   * rules are the routing rules, in rule_id order.
+   *
+   * @generated from field: repeated multipoolermanagerdata.RoutingRule rules = 4;
+   */
+  rules: RoutingRule[] = [];
+
+  constructor(data?: PartialMessage<GetRoutingSnapshotResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetRoutingSnapshotResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "plan_epoch", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "full", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "rules", kind: "message", T: RoutingRule, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingSnapshotResponse | PlainMessage<GetRoutingSnapshotResponse> | undefined, b: GetRoutingSnapshotResponse | PlainMessage<GetRoutingSnapshotResponse> | undefined): boolean {
+    return proto3.util.equals(GetRoutingSnapshotResponse, a, b);
+  }
+}
+
+/**
+ * SetRoutingRulesRequest replaces every routing rule of an operation.
+ *
+ * @generated from message multipoolermanagerdata.SetRoutingRulesRequest
+ */
+export class SetRoutingRulesRequest extends Message<SetRoutingRulesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the rules (a UUID). It must exist
+   * and not have finished.
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * rules are the operation's new rules. Shard rules only for now.
+   *
+   * @generated from field: repeated multipoolermanagerdata.ShardRoutingRuleSpec rules = 3;
+   */
+  rules: ShardRoutingRuleSpec[] = [];
+
+  /**
+   * expected_routing_version is the routing version the change is based on.
+   * A change already in effect succeeds whatever its value.
+   *
+   * @generated from field: int64 expected_routing_version = 4;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<SetRoutingRulesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SetRoutingRulesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "rules", kind: "message", T: ShardRoutingRuleSpec, repeated: true },
+    { no: 4, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetRoutingRulesRequest | PlainMessage<SetRoutingRulesRequest> | undefined, b: SetRoutingRulesRequest | PlainMessage<SetRoutingRulesRequest> | undefined): boolean {
+    return proto3.util.equals(SetRoutingRulesRequest, a, b);
+  }
+}
+
+/**
+ * SetRoutingRulesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.SetRoutingRulesResponse
+ */
+export class SetRoutingRulesResponse extends Message<SetRoutingRulesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<SetRoutingRulesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SetRoutingRulesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetRoutingRulesResponse | PlainMessage<SetRoutingRulesResponse> | undefined, b: SetRoutingRulesResponse | PlainMessage<SetRoutingRulesResponse> | undefined): boolean {
+    return proto3.util.equals(SetRoutingRulesResponse, a, b);
+  }
+}
+
+/**
+ * DeleteRoutingRulesRequest deletes every routing rule of an operation.
+ *
+ * @generated from message multipoolermanagerdata.DeleteRoutingRulesRequest
+ */
+export class DeleteRoutingRulesRequest extends Message<DeleteRoutingRulesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the rules (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * expected_routing_version is the routing version the change is based on.
+   * Deleting the rules of an operation that has none succeeds whatever its
+   * value.
+   *
+   * @generated from field: int64 expected_routing_version = 3;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<DeleteRoutingRulesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DeleteRoutingRulesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteRoutingRulesRequest | PlainMessage<DeleteRoutingRulesRequest> | undefined, b: DeleteRoutingRulesRequest | PlainMessage<DeleteRoutingRulesRequest> | undefined): boolean {
+    return proto3.util.equals(DeleteRoutingRulesRequest, a, b);
+  }
+}
+
+/**
+ * DeleteRoutingRulesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.DeleteRoutingRulesResponse
+ */
+export class DeleteRoutingRulesResponse extends Message<DeleteRoutingRulesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<DeleteRoutingRulesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DeleteRoutingRulesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteRoutingRulesResponse | PlainMessage<DeleteRoutingRulesResponse> | undefined, b: DeleteRoutingRulesResponse | PlainMessage<DeleteRoutingRulesResponse> | undefined): boolean {
+    return proto3.util.equals(DeleteRoutingRulesResponse, a, b);
   }
 }
 

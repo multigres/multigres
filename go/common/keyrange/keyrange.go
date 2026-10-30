@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -77,6 +78,49 @@ func ShardName(kr *clustermetadatapb.KeyRange) string {
 		end = hex.EncodeToString(kr.GetEnd())
 	}
 	return start + "-" + end
+}
+
+// Equal reports whether two key ranges cover the same keys. A nil key range
+// is the full keyspace.
+func Equal(a, b *clustermetadatapb.KeyRange) bool {
+	return bytes.Equal(a.GetStart(), b.GetStart()) && bytes.Equal(a.GetEnd(), b.GetEnd())
+}
+
+// Overlaps reports whether two key ranges share at least one key. Adjacent
+// ranges, where one ends where the other starts, do not overlap. A nil key
+// range is the full keyspace.
+func Overlaps(a, b *clustermetadatapb.KeyRange) bool {
+	return startsBeforeEnd(a.GetStart(), b.GetEnd()) && startsBeforeEnd(b.GetStart(), a.GetEnd())
+}
+
+// Contiguous reports whether ranges are contiguous: ordered by start, each
+// range ends exactly where the next one starts, with no gap and no overlap.
+// If they are, it returns the single key range they cover together. It
+// reports false if ranges is empty. A nil key range is the full keyspace.
+func Contiguous(ranges []*clustermetadatapb.KeyRange) (*clustermetadatapb.KeyRange, bool) {
+	if len(ranges) == 0 {
+		return nil, false
+	}
+	sorted := slices.Clone(ranges)
+	slices.SortFunc(sorted, func(a, b *clustermetadatapb.KeyRange) int {
+		return bytes.Compare(a.GetStart(), b.GetStart())
+	})
+	for i := 0; i+1 < len(sorted); i++ {
+		end := sorted[i].GetEnd()
+		if len(end) == 0 || !bytes.Equal(end, sorted[i+1].GetStart()) {
+			return nil, false
+		}
+	}
+	return &clustermetadatapb.KeyRange{
+		Start: sorted[0].GetStart(),
+		End:   sorted[len(sorted)-1].GetEnd(),
+	}, true
+}
+
+// startsBeforeEnd reports whether start is before end, where an empty start
+// is the start of the keyspace and an empty end its end.
+func startsBeforeEnd(start, end []byte) bool {
+	return len(end) == 0 || bytes.Compare(start, end) < 0
 }
 
 // ValidateTableGroupAndShard validates a multipooler's tablegroup and shard.
