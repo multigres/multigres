@@ -133,8 +133,9 @@ message Row {
 
 // PgDiagnostic represents a PostgreSQL diagnostic message (error or notice).
 // PostgreSQL uses the same wire format for both ErrorResponse ('E') and NoticeResponse ('N'),
-// differentiated by the message_type field. This unified structure captures all 14 fields
-// defined in the PostgreSQL protocol for diagnostic messages.
+// differentiated by the message_type field. This unified structure captures the
+// PostgreSQL protocol diagnostic fields, including source location (file, line,
+// routine) used by psql \errverbose and by libpq / pgx / pgJDBC.
 //
 // Error severities: ERROR, FATAL, PANIC
 // Notice severities: WARNING, NOTICE, DEBUG, INFO, LOG
@@ -187,6 +188,18 @@ message PgDiagnostic {
 
   // constraint_name is the name of the constraint associated with the diagnostic (optional)
   string constraint_name = 14;
+
+  // file is the PostgreSQL source file that raised the diagnostic (optional).
+  // Wire field 'F'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_FILE.
+  string file = 16;
+
+  // line is the source line number in file (1-indexed, 0 if not available).
+  // Wire field 'L'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_LINE.
+  int32 line = 17;
+
+  // routine is the PostgreSQL source routine that raised the diagnostic (optional).
+  // Wire field 'R'. Used by psql LOCATION and libpq PG_DIAG_SOURCE_FUNCTION.
+  string routine = 18;
 }
 
 // PgNotification represents a PostgreSQL asynchronous notification.

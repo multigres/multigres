@@ -402,6 +402,9 @@ func TestWriteError(t *testing.T) {
 		message  string
 		detail   string
 		hint     string
+		file     string
+		line     string
+		routine  string
 	}{
 		{
 			name:     "PgDiagnostic error",
@@ -425,6 +428,24 @@ func TestWriteError(t *testing.T) {
 			message:  "duplicate key value violates unique constraint",
 			detail:   "Key (id)=(1) already exists.",
 			hint:     "Use a different value for the id column.",
+		},
+		{
+			name: "PgDiagnostic with source location",
+			err: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "22012",
+				Message:     "division by zero",
+				File:        "int.c",
+				Line:        870,
+				Routine:     "int4div",
+			},
+			severity: "ERROR",
+			sqlState: "22012",
+			message:  "division by zero",
+			file:     "int.c",
+			line:     "870",
+			routine:  "int4div",
 		},
 		{
 			name:     "MT error",
@@ -499,6 +520,15 @@ func TestWriteError(t *testing.T) {
 			}
 			if tt.hint != "" {
 				assert.Equal(t, tt.hint, fields[protocol.FieldHint])
+			}
+			if tt.file != "" {
+				assert.Equal(t, tt.file, fields[protocol.FieldFile])
+			}
+			if tt.line != "" {
+				assert.Equal(t, tt.line, fields[protocol.FieldLine])
+			}
+			if tt.routine != "" {
+				assert.Equal(t, tt.routine, fields[protocol.FieldRoutine])
 			}
 		})
 	}
