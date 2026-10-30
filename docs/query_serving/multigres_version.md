@@ -31,9 +31,10 @@ Both work in the simple and extended (prepared-statement) query protocols.
 
 ## How the function works: constant folding
 
-`multigres.version()` has no backend implementation (PostgreSQL has no
-`multigres` schema), so the gateway **folds it into a text constant of the
-version before the query reaches the backend** — `multigres.version()` becomes
+`multigres.version()` has no backend implementation: the backend does have a
+`multigres` schema (the pooler creates it for its sidecar tables), but no
+`version()` function in it, so the gateway **folds it into a text constant of
+the version before the query reaches the backend** — `multigres.version()` becomes
 `CAST('Multigres 0.1.0-SNAPSHOT (...)' AS text)`. The query then runs on
 PostgreSQL unchanged, which means the function works in **any expression
 position** and **as a FROM item**, not just as a standalone target:
@@ -93,8 +94,8 @@ once cast).
 The function is `multigres.version()`, **not** `version()`. A bare `version()`
 already exists in PostgreSQL, and tools and ORMs call it expecting the
 _PostgreSQL_ version string — so the gateway leaves it alone and routes it to the
-backend. `multigres.version()` lives in its own `multigres` schema and does not
-shadow it. A `SELECT version()` still reports PostgreSQL; `SELECT
+backend. `multigres.version()` is qualified with the `multigres` schema, so it
+does not shadow it. A `SELECT version()` still reports PostgreSQL; `SELECT
 multigres.version()` reports multigres.
 
 The variable is namespaced for the same reason: `multigres.server_version` sits
