@@ -434,6 +434,41 @@ paths:
       summary: List database names
       tags:
         - databases
+  /api/v1/databases/{database}/tablegroups:
+    get:
+      description: |-
+        Errors and recovery:
+         InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+         primary pooler for the database's catalog shard yet. Every downstream failure becomes
+         Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+         adds nothing and removes nothing until a read succeeds.
+      operationId: multiadmin.MultiadminService.ListDesiredTableGroups
+      parameters:
+        - description: database is the database name (required).
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multiadmin.ListDesiredTableGroupsResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: List desired tablegroups
+      tags:
+        - databases
   /api/v1/databases/{name}:
     get:
       description: |-
@@ -1849,6 +1884,18 @@ components:
              the pooler, but it is not immutable either — if the pooler moves to a
              different shard, this field should be updated to reflect the new shard.
           title: shard_ref
+        tablegroupId:
+          description: |-
+            tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+             of the tablegroup this pooler serves, when the provisioner knows it. Zero
+             when unknown, which is always the case for the default tablegroup and for
+             tablegroups configured outside the catalog. The tablegroup creation loop
+             only counts a pooler toward a tablegroup's readiness when this matches, so
+             poolers left over from a dropped tablegroup of the same name never count
+             toward a new one.
+          pattern: ^-?[0-9]+$
+          title: tablegroup_id
+          type: string
         type:
           $ref: '#/components/schemas/clustermetadata.PoolerType'
           deprecated: true
@@ -3443,6 +3490,17 @@ components:
         - JOB_TYPE_RESTORE
       title: JobType
       type: string
+    multiadmin.ListDesiredTableGroupsResponse:
+      additionalProperties: false
+      description: ListDesiredTableGroupsResponse lists the catalog's tablegroups for the database.
+      properties:
+        tableGroups:
+          items:
+            $ref: '#/components/schemas/multipoolermanagerdata.TableGroup'
+          title: table_groups
+          type: array
+      title: ListDesiredTableGroupsResponse
+      type: object
     multiadmin.SetPostgresRestartsEnabledResponse:
       additionalProperties: false
       description: |-
@@ -4036,6 +4094,32 @@ components:
           description: Synchronous method (FIRST or ANY)
           title: synchronous_method
       title: SynchronousReplicationConfiguration
+      type: object
+    multipoolermanagerdata.TableGroup:
+      additionalProperties: false
+      description: TableGroup is a tablegroup as recorded in the catalog.
+      properties:
+        name:
+          title: name
+          type: string
+        shards:
+          description: shards is the shard layout in canonical order.
+          items:
+            type: string
+          title: shards
+          type: array
+        state:
+          description: state is creating or active. Dropping tablegroups are not listed.
+          title: state
+          type: string
+        tablegroupId:
+          description: |-
+            tablegroup_id is the catalog identity. Provisioners pass it to the
+             tablegroup's poolers (see Multipooler.tablegroup_id).
+          pattern: ^-?[0-9]+$
+          title: tablegroup_id
+          type: string
+      title: TableGroup
       type: object
   securitySchemes:
     BearerAuth:

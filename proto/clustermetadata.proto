@@ -237,6 +237,14 @@ message Multipooler {
   // its shard: callers such as multiadmin use it for work they would
   // otherwise send to a replica, such as backups.
   LeadershipMode leadership_mode = 14;
+  // tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+  // of the tablegroup this pooler serves, when the provisioner knows it. Zero
+  // when unknown, which is always the case for the default tablegroup and for
+  // tablegroups configured outside the catalog. The tablegroup creation loop
+  // only counts a pooler toward a tablegroup's readiness when this matches, so
+  // poolers left over from a dropped tablegroup of the same name never count
+  // toward a new one.
+  int64 tablegroup_id = 15;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.

@@ -758,3 +758,91 @@ message SettingMismatch {
   // whose file value differs from the running value.
   bool requires_restart = 3;
 }
+
+//
+// Tablegroup operations (see multipoolermanagerservice.proto)
+//
+
+// CreateTableGroupRequest records the intent to create a tablegroup.
+message CreateTableGroupRequest {
+  // name is the tablegroup name as written in SQL.
+  string name = 1;
+  // shards is the shard layout as shard names ("0-80", "80-inf"). It must
+  // cover the whole keyspace with no gaps or overlaps, in any order. Empty
+  // means a single 0-inf shard.
+  repeated string shards = 2;
+  // if_not_exists makes an already-active tablegroup of this name a no-op
+  // (already_exists is set on the response) instead of an error.
+  bool if_not_exists = 3;
+}
+
+// CreateTableGroupResponse identifies the operation that creates the tablegroup.
+message CreateTableGroupResponse {
+  // operation_id is the operation to poll with GetOperation. Empty when
+  // already_exists is set.
+  string operation_id = 1;
+  // tablegroup_id is the catalog identity of the tablegroup.
+  int64 tablegroup_id = 2;
+  // already_exists is set when the tablegroup was already active and
+  // if_not_exists was requested; nothing was changed.
+  bool already_exists = 3;
+}
+
+// GetOperationRequest looks up one catalog operation.
+message GetOperationRequest {
+  string operation_id = 1;
+}
+
+// GetOperationResponse carries the operation's current state.
+message GetOperationResponse {
+  Operation operation = 1;
+}
+
+// Operation is a durable catalog operation. Today the only kind is
+// create_tablegroup.
+message Operation {
+  string operation_id = 1;
+  // kind is the operation kind, e.g. "create_tablegroup".
+  string kind = 2;
+  // state is one of creating, done, failed.
+  string state = 3;
+  // tablegroup_id and tablegroup_name identify the tablegroup the operation
+  // acts on.
+  int64 tablegroup_id = 4;
+  string tablegroup_name = 5;
+  // shards_desired is the number of shards in the requested layout.
+  int32 shards_desired = 6;
+  // shards_serving is how many of those shards currently have a serving
+  // primary registered in topology, read at call time. For a done operation
+  // it equals shards_desired.
+  int32 shards_serving = 7;
+  // last_error is the reason a failed operation failed, or the most recent
+  // transient error observed while creating. Empty otherwise.
+  string last_error = 8;
+  // cancel_requested is set once a cancel has been requested; the completion
+  // loop then fails the operation on its next pass.
+  bool cancel_requested = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// ListTableGroupsRequest lists the tablegroups the provisioner should have.
+message ListTableGroupsRequest {
+}
+
+// ListTableGroupsResponse lists tablegroups with their shard layouts.
+message ListTableGroupsResponse {
+  repeated TableGroup table_groups = 1;
+}
+
+// TableGroup is a tablegroup as recorded in the catalog.
+message TableGroup {
+  // tablegroup_id is the catalog identity. Provisioners pass it to the
+  // tablegroup's poolers (see Multipooler.tablegroup_id).
+  int64 tablegroup_id = 1;
+  string name = 2;
+  // state is creating or active. Dropping tablegroups are not listed.
+  string state = 3;
+  // shards is the shard layout in canonical order.
+  repeated string shards = 4;
+}
