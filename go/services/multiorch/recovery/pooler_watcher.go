@@ -49,6 +49,15 @@ func newPoolerCache(
 	logger *slog.Logger,
 ) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.Multipooler) bool {
+		// Unmanaged poolers front an external postgres we neither repair nor
+		// elect, so they never enter the orchestrator's cache. Unknown future
+		// modes are not authority to manage a database either.
+		switch p.GetManagementMode() {
+		case clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNSPECIFIED,
+			clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_MANAGED:
+		default:
+			return false
+		}
 		for _, t := range targets() {
 			if t.MatchesShard(p.GetShardRef().GetDatabase(), p.GetShardRef().GetTableGroup(), p.GetShardRef().GetShard()) {
 				return true

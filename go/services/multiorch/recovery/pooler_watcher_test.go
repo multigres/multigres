@@ -529,3 +529,39 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 	_, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	assert.False(t, ok, "cold-discovered SHUTDOWN must not have a rider in the store")
 }
+
+// TestPoolerWatcherExcludesUnmanaged verifies that poolers fronting an external
+// postgres, and poolers in an unknown future mode, never enter the cache.
+func TestPoolerWatcherExcludesUnmanaged(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+	for _, tc := range []struct {
+		name string
+		mode clustermetadata.PoolerManagementMode
+	}{
+		{"legacy", clustermetadata.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNSPECIFIED},
+		{"managed", clustermetadata.PoolerManagementMode_POOLER_MANAGEMENT_MODE_MANAGED},
+		{"external", clustermetadata.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNMANAGED},
+		{"future", 99},
+	} {
+		require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
+			Id:             &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: tc.name},
+			ShardRef:       &clustermetadata.ShardRef{Database: "mydb", TableGroup: "default", Shard: "0"},
+			ManagementMode: tc.mode,
+		}))
+	}
+
+	cache := newTestPoolerCache(ctx, ts, []config.WatchTarget{{Database: "mydb"}}, slog.Default())
+	defer cache.Shutdown()
+
+	require.Eventually(t, func() bool { return cache.Len() == 2 }, 5*time.Second, 10*time.Millisecond)
+	for _, name := range []string{"legacy", "managed"} {
+		_, ok := cache.GetRider(poolerKey("zone1", name))
+		require.True(t, ok, name)
+	}
+	for _, name := range []string{"external", "future"} {
+		_, ok := cache.GetRider(poolerKey("zone1", name))
+		require.False(t, ok, name)
+	}
+}
