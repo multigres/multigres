@@ -16,11 +16,14 @@ package migration
 
 import "time"
 
-// Connection is a stored, named source conninfo, scoped to the shard whose
-// Migrator created it (implied by which Migrator you ask, not a field here).
-// A migration references one live by id, not a one-time copy, so altering a
-// Connection's DSN takes effect on every migration that references it on its
-// very next action.
+// Connection is a stored, named source conninfo: a row of
+// multigres.connections, the table the migrator shares with the other users of
+// named connections. The table lives on the catalog shard only (see
+// constants.IsCatalogShard), so migrations, which resolve their source from
+// it, run on the catalog shard; elsewhere a connection query reports
+// ErrNoConnectionsTable. A migration references one live by id, not a
+// one-time copy, so altering a Connection's DSN takes effect on every migration
+// that references it on its very next action.
 type Connection struct {
 	ID   int64
 	Name string
@@ -43,22 +46,3 @@ type Connection struct {
 
 	CreatedAt time.Time
 }
-
-// CreateMigrationConnectionSQL is the DDL for the sidecar connection table. It
-// is idempotent (IF NOT EXISTS) and must run before CreateMigrationSQL: the
-// migration table's connection_id column carries a foreign key into this one.
-// The table is created through the admin pool and gets no PUBLIC grant, same
-// protection class as multigres.migration (connection rows carry a DSN).
-const CreateMigrationConnectionSQL = `CREATE TABLE IF NOT EXISTS multigres.migration_connection (
-	connection_id BIGINT PRIMARY KEY,
-	name TEXT NOT NULL,
-	dsn TEXT NOT NULL,
-	owner_role TEXT NOT NULL DEFAULT '',
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)`
-
-// MigrationConnectionNameUniqueIndexSQL enforces uniqueness of the connection
-// name. Unlike MigrationNameUniqueIndexSQL, this is a plain (non-partial) unique
-// index: a connection's name is always required, never NULL.
-const MigrationConnectionNameUniqueIndexSQL = `CREATE UNIQUE INDEX IF NOT EXISTS migration_connection_name_key
-	ON multigres.migration_connection (name)`

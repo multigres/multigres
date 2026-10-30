@@ -60,6 +60,48 @@ func TestCreateMigration_ValidateError(t *testing.T) {
 	require.ErrorContains(t, err, "wal_level is replica")
 }
 
+// TestCreateMigration_ConnectionDroppedDuringValidation: the connection is resolved
+// before the slow source validation, which runs outside the coordinator's lock, so a
+// DropConnection can land in between. The migration must not be recorded against a
+// connection that is gone.
+func TestCreateMigration_ConnectionDroppedDuringValidation(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.src.onValidate = func() {
+		require.NoError(t, tc.c.DropConnection(context.Background(), defaultConnID))
+	}
+	_, err := tc.c.CreateMigration(context.Background(), CreateParams{
+		ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"},
+	})
+	require.ErrorContains(t, err, `connection "src" does not exist`)
+	left, err := tc.store.List(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, left, "no migration is recorded against the dropped connection")
+}
+
+// TestCreateMigration_NoConnectionsTable: with no multigres.connections the connection
+// lookup is the first thing CreateMigration does, so it fails before the slow source
+// connection and validation, and again if the table vanishes while it validates.
+func TestCreateMigration_NoConnectionsTable(t *testing.T) {
+	params := CreateParams{ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"}}
+
+	t.Run("fails before the source is opened", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.connErr = ErrNoConnectionsTable
+		tc.srcErr = errors.New("the source was opened")
+		_, err := tc.c.CreateMigration(context.Background(), params)
+		require.ErrorIs(t, err, ErrNoConnectionsTable)
+		require.Equal(t, 0, tc.src.closed)
+	})
+
+	t.Run("fails when re-resolving under the lock", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.src.onValidate = func() { tc.store.connErr = ErrNoConnectionsTable }
+		_, err := tc.c.CreateMigration(context.Background(), params)
+		require.ErrorIs(t, err, ErrNoConnectionsTable)
+		require.Empty(t, tc.store.migs)
+	})
+}
+
 func TestCreateMigration_DuplicateName(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{ID: 99, Name: "nightly", Phase: PhaseImporting})
